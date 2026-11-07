@@ -15,18 +15,30 @@ import kotlin.js.Date
 
 private val scope = MainScope()
 
-enum class Tab(val title: String) { OVERVIEW("Overview"), NODES("Nodes"), SERVICES("Services"), DNS("DNS"), TUNNELS("Tunnels"), SPEEDTEST("Speed test"), LOG("Reconcile log"), CONFIG("Config & diff") }
+enum class Tab(val title: String, val subtitle: String) {
+    OVERVIEW("Overview", "Health of nodes, tunnels, services and DNS at a glance"),
+    NODES("Nodes", "Regional edge nodes provisioned over SSH"),
+    SERVICES("Services", "Containers published through homegap.* labels"),
+    DNS("DNS", "Bunny DNS records managed by HomeGAP"),
+    TUNNELS("Tunnels", "Newt connectors from the homelab to each node"),
+    SPEEDTEST("Speed test", "Latency and throughput through the real traffic path"),
+    LOG("Activity", "Reconcile log, newest first"),
+    CONFIG("Config", "Desired vs. actual state, secrets and the config file"),
+}
 
 class AppState {
     var status by mutableStateOf<StatusSnapshot?>(null)
     var error by mutableStateOf<String?>(null)
-    var toast by mutableStateOf<String?>(null)
+    var toast by mutableStateOf<Toast?>(null)
     var tab by mutableStateOf(tabFromHash())
     var busy by mutableStateOf(false)
 
-    fun notify(msg: String) {
-        toast = msg
-        scope.launch { delay(4500); if (toast == msg) toast = null }
+    data class Toast(val text: String, val error: Boolean)
+
+    fun notify(msg: String, error: Boolean = false) {
+        val t = Toast(msg, error)
+        toast = t
+        scope.launch { delay(5000); if (toast == t) toast = null }
     }
 
     fun run(label: String, block: suspend () -> ActionResponse) {
@@ -36,7 +48,7 @@ class AppState {
                 notify(block().message)
                 refresh()
             } catch (e: Throwable) {
-                notify("$label failed: ${e.message}")
+                notify("$label failed: ${e.message}", error = true)
             } finally {
                 busy = false
             }
@@ -48,7 +60,7 @@ class AppState {
             status = Api.status()
             error = null
         } catch (e: Api.ApiError) {
-            error = if (e.status == 401) "Unauthorized: set the dashboard token below." else e.message
+            error = if (e.status == 401) "Enter the dashboard token to continue." else e.message
         } catch (e: Throwable) {
             error = "Controller unreachable: ${e.message}"
         }
@@ -59,7 +71,7 @@ private fun tabFromHash(): Tab = Tab.entries.firstOrNull { "#" + it.name.lowerca
 
 fun main() {
     val app = AppState()
-    window.onhashchange = { app.tab = tabFromHash(); null }
+    window.onhashchange = { app.tab = tabFromHash(); window.scrollTo(0.0, 0.0); null }
     scope.launch {
         while (true) {
             app.refresh()
@@ -69,106 +81,263 @@ fun main() {
     renderComposable(rootElementId = "root") { App(app) }
 }
 
+// ------------------------------------------------------------------------------------- shell
+
+/** Tabs that currently need attention (shown as a dot in the navigation). */
+private fun attention(s: StatusSnapshot?): Set<Tab> {
+    if (s == null) return emptySet()
+    return buildSet {
+        if (s.nodes.any { it.health == Health.DOWN || it.lastProvisionOk == false }) add(Tab.NODES)
+        if (s.services.any { svc -> svc.perNode.any { it.health == Health.DOWN } } || s.labelErrors.isNotEmpty()) add(Tab.SERVICES)
+        if (s.dns.any { !it.inSync || it.monitorStatus == "offline" }) add(Tab.DNS)
+        if (s.tunnels.any { !it.up }) add(Tab.TUNNELS)
+    }
+}
+
+@Composable
+fun NavLinks(app: AppState, cls: String) {
+    val warn = attention(app.status)
+    Nav({ classes(cls) }) {
+        Tab.entries.forEach { t ->
+            A(href = "#${t.name.lowercase()}", { if (t == app.tab) classes("active") }) {
+                Span { Text(t.title) }
+                if (t in warn) Span({ classes("dot"); title("Needs attention") })
+            }
+        }
+    }
+}
+
+@Composable
+fun Brand() {
+    Div({ classes("brand") }) {
+        Div({ classes("brand-mark") }) { Text("G") }
+        Div {
+            Div({ classes("brand-name") }) { Text("HomeGAP") }
+            Div({ classes("brand-sub") }) { Text("Global Access Platform") }
+        }
+    }
+}
+
 @Composable
 fun App(app: AppState) {
     val s = app.status
-    Header({}) {
-        H1 { Text("HomeGAP") }
-        if (s != null) Span({ classes("meta") }) { Text("${s.project} · ${s.domain} · v${s.version}") }
-        Nav {
-            Tab.entries.forEach { t ->
-                A(href = "#${t.name.lowercase()}", { if (t == app.tab) classes("active") }) { Text(t.title) }
-            }
-        }
-        Div({ classes("spacer") })
-        if (s != null) {
-            s.lastReconcile?.let { r ->
-                Span({ classes("meta") }) {
-                    Text(if (s.reconciling) "reconciling… " else "last pass ${ago(r.finishedAt)} (${r.trigger}) · ${r.changes} changes · ${r.errors} errors")
+    // Keep the active tab visible in the horizontally scrolling mobile tab strip.
+    LaunchedEffect(app.tab) {
+        delay(30)
+        kotlinx.browser.document.querySelector(".tabs a.active")
+            ?.asDynamic()?.scrollIntoView(js("({ inline: 'center', block: 'nearest' })"))
+    }
+    Div({ classes("shell") }) {
+        Aside({ classes("sidebar") }) {
+            Brand()
+            NavLinks(app, "side-nav")
+            Div({ classes("sidebar-foot") }) {
+                if (s != null) {
+                    Div({ classes("mono") }) { Text(s.domain) }
+                    Div { Text("${s.project} · v${s.version}") }
                 }
             }
-            Button({
-                classes("primary")
-                if (app.busy) disabled()
-                onClick { app.run("Resync") { Api.resync() } }
-            }) { Text("Resync now") }
-            Button({ onClick { app.run("Pause") { Api.pause("global", null, !s.paused) } } }) {
-                Text(if (s.paused) "Resume all" else "Pause all")
+        }
+        Div({ classes("main-col") }) {
+            Header({ classes("topbar") }) {
+                Div({ classes("topbar-brand") }) { Brand() }
+                Div({ classes("page-head") }) {
+                    H1 { Text(app.tab.title) }
+                    P({ classes("page-sub") }) { Text(app.tab.subtitle) }
+                }
+                if (s != null) {
+                    Div({ classes("topbar-actions") }) {
+                        PassStatus(s)
+                        Button({
+                            classes("btn", "primary")
+                            if (app.busy) disabled()
+                            onClick { app.run("Resync") { Api.resync() } }
+                        }) { Text("Resync") }
+                        Button({
+                            classes("btn")
+                            title(if (s.paused) "Resume reconciliation everywhere" else "Stop all changes; observe only")
+                            onClick { app.run("Pause") { Api.pause("global", null, !s.paused) } }
+                        }) { Text(if (s.paused) "Resume" else "Pause") }
+                    }
+                }
+            }
+            NavLinks(app, "tabs")
+            Main({ classes("content") }) {
+                app.error?.let {
+                    Banner("error", it)
+                    TokenBox(app)
+                }
+                if (s == null) {
+                    if (app.error == null) Div({ classes("loading") }) { Text("Loading…") }
+                    return@Main
+                }
+                if (s.dryRun) Banner("warn", "Dry-run mode: discovery and planning only. Nothing is written to nodes, Pangolin or DNS.")
+                if (s.paused) Banner("warn", "Reconciliation is paused globally. Manual changes on nodes, Pangolin and Bunny are left alone.")
+                when (app.tab) {
+                    Tab.OVERVIEW -> Overview(app, s)
+                    Tab.NODES -> NodesView(app, s)
+                    Tab.SERVICES -> ServicesView(app, s)
+                    Tab.DNS -> DnsView(s)
+                    Tab.TUNNELS -> TunnelsView(s)
+                    Tab.SPEEDTEST -> SpeedTestView(app)
+                    Tab.LOG -> LogView()
+                    Tab.CONFIG -> ConfigView()
+                }
             }
         }
     }
-    Main {
-        app.error?.let { Div({ classes("banner", "error") }) { Text(it) }; TokenBox(app) }
-        if (s == null) {
-            if (app.error == null) P { Text("Loading…") }
-            return@Main
-        }
-        if (s.dryRun) Div({ classes("banner", "warn") }) { Text("Dry-run mode: discovery and planning only, nothing is written.") }
-        if (s.paused) Div({ classes("banner", "warn") }) { Text("Reconciliation is paused globally. Manual changes on nodes, Pangolin and Bunny are left alone.") }
-        when (app.tab) {
-            Tab.OVERVIEW -> Overview(app, s)
-            Tab.NODES -> NodesView(app, s)
-            Tab.SERVICES -> ServicesView(app, s)
-            Tab.DNS -> DnsView(s)
-            Tab.TUNNELS -> TunnelsView(s)
-            Tab.SPEEDTEST -> SpeedTestView(app)
-            Tab.LOG -> LogView()
-            Tab.CONFIG -> ConfigView(app)
-        }
+    app.toast?.let { t -> Div({ classes("toast"); if (t.error) classes("toast-error") }) { Text(t.text) } }
+}
+
+@Composable
+fun PassStatus(s: StatusSnapshot) {
+    val r = s.lastReconcile
+    val health = when {
+        s.reconciling -> Health.UNKNOWN
+        r == null -> Health.UNKNOWN
+        r.errors > 0 -> Health.DEGRADED
+        else -> Health.OK
     }
-    app.toast?.let { Div({ classes("toast") }) { Text(it) } }
+    Span({
+        classes("pass-status")
+        r?.let { title("Last pass ${ago(it.finishedAt)} · trigger ${it.trigger} · ${it.changes} changes · ${it.errors} errors") }
+    }) {
+        Span({ classes("status-dot", health.name) })
+        Text(
+            when {
+                s.reconciling -> "Reconciling…"
+                r == null -> "Waiting for first pass"
+                else -> "Synced ${ago(r.finishedAt)}" + if (r.errors > 0) " · ${r.errors} error${if (r.errors == 1) "" else "s"}" else ""
+            }
+        )
+    }
+}
+
+@Composable
+fun Banner(kind: String, text: String) {
+    Div({ classes("banner", kind) }) { Text(text) }
 }
 
 @Composable
 fun TokenBox(app: AppState) {
     var v by remember { mutableStateOf(Api.token ?: "") }
-    Div({ classes("filters") }) {
-        Input(InputType.Password) { value(v); placeholder("dashboard token"); onInput { v = it.value } }
-        Button({ onClick { Api.token = v; scope.launch { app.refresh() } } }) { Text("Save token") }
+    Section({ classes("panel") }) {
+        Div({ classes("panel-body", "token-box") }) {
+            Label {
+                Text("Dashboard token")
+                Input(InputType.Password) { value(v); placeholder("Paste HOMEGAP_DASHBOARD_TOKEN"); onInput { v = it.value } }
+            }
+            Button({ classes("btn", "primary"); onClick { Api.token = v; scope.launch { app.refresh() } } }) { Text("Save") }
+        }
     }
 }
 
+// ----------------------------------------------------------------------------- building blocks
+
 @Composable
-fun Pill(health: Health, text: String = health.name.lowercase()) {
+fun Pill(health: Health, text: String = health.label()) {
     Span({ classes("pill", health.name) }) { Text(text) }
 }
 
+private fun Health.label() = when (this) {
+    Health.OK -> "healthy"; Health.DEGRADED -> "degraded"; Health.DOWN -> "down"; Health.UNKNOWN -> "unknown"
+}
+
 @Composable
-fun Panel(title: String, extra: @Composable () -> Unit = {}, content: @Composable () -> Unit) {
-    Section {
-        H2 { Text(title); extra() }
-        content()
+fun Panel(
+    title: String,
+    subtitle: String? = null,
+    flush: Boolean = true,
+    actions: @Composable () -> Unit = {},
+    content: @Composable () -> Unit,
+) {
+    Section({ classes("panel") }) {
+        Div({ classes("panel-head") }) {
+            Div({ classes("panel-titles") }) {
+                H2 { Text(title) }
+                subtitle?.let { P({ classes("panel-sub") }) { Text(it) } }
+            }
+            Div({ classes("panel-actions") }) { actions() }
+        }
+        Div({ classes(if (flush) "panel-flush" else "panel-body") }) { content() }
     }
 }
+
+/** A table cell that turns into a labelled row on narrow screens. */
+@Composable
+fun Cell(label: String, vararg cls: String, content: @Composable () -> Unit) {
+    Td({
+        attr("data-label", label)
+        if (cls.isNotEmpty()) classes(*cls)
+    }) { Div({ classes("cell") }) { content() } }
+}
+
+@Composable
+fun DataTable(headers: List<String>, extraClass: String? = null, rows: @Composable () -> Unit) {
+    Table({ classes("data"); extraClass?.let { classes(it) } }) {
+        Thead { Tr { headers.forEach { Th { Text(it) } } } }
+        Tbody { rows() }
+    }
+}
+
+@Composable
+fun EmptyRow(cols: Int, text: String) {
+    Tr({ classes("empty") }) { Td({ attr("colspan", cols.toString()) }) { Text(text) } }
+}
+
+@Composable
+fun Muted(text: String, mono: Boolean = false) {
+    Div({ classes("muted"); if (mono) classes("mono") }) { Text(text) }
+}
+
+@Composable
+fun Tag(text: String) {
+    Span({ classes("tag") }) { Text(text) }
+}
+
+@Composable
+fun Stat(label: String, value: String, health: Health, hint: String? = null) {
+    Div({ classes("stat", health.name) }) {
+        Div({ classes("stat-label") }) { Text(label) }
+        Div({ classes("stat-value") }) { Text(value) }
+        hint?.let { Div({ classes("stat-hint") }) { Text(it) } }
+    }
+}
+
+private fun ratioHealth(ok: Int, total: Int) = when {
+    total == 0 -> Health.UNKNOWN
+    ok == total -> Health.OK
+    ok == 0 -> Health.DOWN
+    else -> Health.DEGRADED
+}
+
+// ---------------------------------------------------------------------------------- overview
 
 @Composable
 fun Overview(app: AppState, s: StatusSnapshot) {
-    Div({ classes("cards") }) {
-        Card("Nodes healthy", "${s.nodes.count { it.health == Health.OK }}/${s.nodes.size}")
-        Card("Tunnels up", "${s.tunnels.count { it.up }}/${s.tunnels.size}")
-        Card("Services", s.services.size.toString())
-        Card("DNS records in sync", "${s.dns.count { it.inSync }}/${s.dns.size}")
-        Card("Label errors", s.labelErrors.size.toString())
+    val nodesOk = s.nodes.count { it.health == Health.OK }
+    val tunnelsUp = s.tunnels.count { it.up }
+    val dnsOk = s.dns.count { it.inSync }
+    val svcOk = s.services.count { svc -> svc.perNode.isNotEmpty() && svc.perNode.all { it.health == Health.OK } }
+    Div({ classes("stats") }) {
+        Stat("Nodes healthy", "$nodesOk / ${s.nodes.size}", ratioHealth(nodesOk, s.nodes.size))
+        Stat("Tunnels up", "$tunnelsUp / ${s.tunnels.size}", ratioHealth(tunnelsUp, s.tunnels.size))
+        Stat("Services", "$svcOk / ${s.services.size}", ratioHealth(svcOk, s.services.size), "healthy on every node")
+        Stat("DNS in sync", "$dnsOk / ${s.dns.size}", ratioHealth(dnsOk, s.dns.size))
+        Stat("Label errors", s.labelErrors.size.toString(), if (s.labelErrors.isEmpty()) Health.OK else Health.DOWN)
     }
-    Br()
     if (s.labelErrors.isNotEmpty()) {
-        Panel("Label errors") {
-            Table {
-                Tbody { s.labelErrors.forEach { e -> Tr { Td({ classes("mono") }) { Text(e.container) }; Td { Text(e.message) } } } }
+        Panel("Label errors", "Fix these labels; the affected containers are ignored until then") {
+            DataTable(listOf("Container", "Problem")) {
+                s.labelErrors.forEach { e -> Tr { Cell("Container", "mono") { Text(e.container) }; Cell("Problem") { Text(e.message) } } }
             }
         }
     }
-    Panel("Nodes") { NodesTable(app, s, compact = true) }
-    Panel("Services") { ServicesTable(app, s, compact = true) }
+    Panel("Nodes", actions = { A(href = "#nodes", { classes("link") }) { Text("Manage →") } }) { NodesTable(app, s, compact = true) }
+    Panel("Services", actions = { A(href = "#services", { classes("link") }) { Text("All services →") } }) { ServicesTable(app, s, compact = true) }
 }
 
-@Composable
-fun Card(label: String, value: String) {
-    Div({ classes("card") }) {
-        Div({ classes("n") }) { Text(value) }
-        Div({ classes("l") }) { Text(label) }
-    }
-}
+// ------------------------------------------------------------------------------------- nodes
 
 @Composable
 fun NodesView(app: AppState, s: StatusSnapshot) {
@@ -178,64 +347,81 @@ fun NodesView(app: AppState, s: StatusSnapshot) {
 
 @Composable
 fun NodesTable(app: AppState, s: StatusSnapshot, compact: Boolean) {
-    Table {
-        Thead {
+    val headers = listOf("Node", "Health", "Checks", "Certificate", "Tunnel", "Last provision") + if (compact) emptyList() else listOf("Drift", "")
+    DataTable(headers) {
+        if (s.nodes.isEmpty()) EmptyRow(headers.size, "No nodes configured yet. Add one below or in the config file.")
+        s.nodes.forEach { n ->
             Tr {
-                Th { Text("Node") }; Th { Text("Health") }; Th { Text("Checks") }; Th { Text("Certificate") }
-                Th { Text("Tunnel") }; Th { Text("Last provision") }
-                if (!compact) { Th { Text("Drift") }; Th { Text("Actions") } }
-            }
-        }
-        Tbody {
-            s.nodes.forEach { n ->
-                Tr {
-                    Td {
+                Cell("Node", "primary-cell") {
+                    Div({ classes("cell-title") }) {
                         B { Text(n.id) }
-                        Div({ classes("muted", "mono") }) { Text(n.host) }
-                        Div({ classes("muted") }) { Text(listOf(n.region, n.provider, n.facts["os"]).filter { !it.isNullOrBlank() }.joinToString(" · ")) }
-                        if (n.paused) Span({ classes("tag") }) { Text("paused") }
-                        if (n.pendingDecommission) Span({ classes("tag") }) { Text("pending decommission") }
+                        if (n.paused) Tag("paused")
+                        if (n.pendingDecommission) Tag("pending decommission")
                     }
-                    Td { Pill(n.health) }
-                    Td { Div({ classes("checks") }) { n.checks.forEach { c -> Span({ classes("pill", c.health.name); title(c.detail) }) { Text(c.name) } } } }
-                    Td {
-                        n.certificate?.let { c ->
-                            Pill(c.health, c.daysRemaining?.let { "$it days" } ?: "unknown")
-                            Div({ classes("muted", "mono") }) { Text(c.subject) }
-                        } ?: Span({ classes("muted") }) { Text("—") }
+                    Muted(n.host, mono = true)
+                    val meta = listOf(n.region, n.provider, n.facts["os"]).filter { !it.isNullOrBlank() }.joinToString(" · ")
+                    if (meta.isNotEmpty()) Muted(meta)
+                    if (!compact) n.facts["tcp_cc"]?.let { Muted("tcp: $it${n.facts["qdisc"]?.let { q -> " / $q" } ?: ""}") }
+                }
+                Cell("Health") { Pill(n.health) }
+                Cell("Checks") { ChecksSummary(n.checks) }
+                Cell("Certificate") {
+                    n.certificate?.let { c ->
+                        Pill(c.health, c.daysRemaining?.let { "$it days left" } ?: "unknown")
+                        Muted(c.subject, mono = true)
+                    } ?: Span({ classes("muted") }) { Text("—") }
+                }
+                Cell("Tunnel") { Pill(if (n.tunnelUp) Health.OK else Health.DOWN, if (n.tunnelUp) "up" else "down") }
+                Cell("Last provision") {
+                    Div({ classes("inline-row") }) {
+                        Span { Text(n.lastProvisionAt?.let { ago(it) } ?: "never") }
+                        n.lastProvisionOk?.let { ok -> Pill(if (ok) Health.OK else Health.DOWN, if (ok) "ok" else "failed") }
                     }
-                    Td { Pill(if (n.tunnelUp) Health.OK else Health.DOWN, if (n.tunnelUp) "up" else "down") }
-                    Td {
-                        Text(n.lastProvisionAt?.let { ago(it) } ?: "never")
-                        n.lastProvisionOk?.let { ok -> Text(" "); Pill(if (ok) Health.OK else Health.DOWN, if (ok) "ok" else "failed") }
-                        n.lastProvisionError?.let { Div({ classes("muted", "mono") }) { Text(it.take(300)) } }
+                    n.lastProvisionError?.let { Div({ classes("error-text", "mono") }) { Text(it.take(300)) } }
+                }
+                if (!compact) {
+                    Cell("Drift") {
+                        if (n.drift.isEmpty()) Span({ classes("muted") }) { Text("none") } else n.drift.forEach { Div({ classes("mono") }) { Text(it) } }
                     }
-                    if (!compact) {
-                        Td { if (n.drift.isEmpty()) Span({ classes("muted") }) { Text("none") } else n.drift.forEach { Div({ classes("mono") }) { Text(it) } } }
-                        Td {
-                            Div({ classes("row-actions") }) {
-                                if (!n.pendingDecommission) {
-                                    Button({ onClick { app.run("Re-provision") { Api.provision(n.id) } } }) { Text("Re-provision") }
-                                    Button({ onClick { app.run("Pause") { Api.pause("node", n.id, !n.paused) } } }) { Text(if (n.paused) "Resume" else "Pause") }
-                                    Button({
-                                        classes("danger")
-                                        onClick { if (window.confirm("Remove node ${n.id} from the config? DNS drains first; the stack stays up until you confirm decommission.")) app.run("Remove") { Api.removeNode(n.id) } }
-                                    }) { Text("Remove") }
-                                } else {
-                                    Button({
-                                        classes("danger")
-                                        onClick {
-                                            val typed = window.prompt("Type the node id to stop its stack and forget it:")
-                                            if (typed != null) app.run("Decommission") { Api.decommission(n.id, typed) }
-                                        }
-                                    }) { Text("Confirm decommission") }
-                                }
+                    Cell("Actions", "actions-cell") {
+                        Div({ classes("row-actions") }) {
+                            if (!n.pendingDecommission) {
+                                Button({ classes("btn", "sm"); onClick { app.run("Re-provision") { Api.provision(n.id) } } }) { Text("Re-provision") }
+                                Button({ classes("btn", "sm"); onClick { app.run("Pause") { Api.pause("node", n.id, !n.paused) } } }) { Text(if (n.paused) "Resume" else "Pause") }
+                                Button({
+                                    classes("btn", "sm", "danger")
+                                    onClick { if (window.confirm("Remove node ${n.id} from the config? DNS drains first; the stack stays up until you confirm decommission.")) app.run("Remove") { Api.removeNode(n.id) } }
+                                }) { Text("Remove") }
+                            } else {
+                                Button({
+                                    classes("btn", "sm", "danger")
+                                    onClick {
+                                        val typed = window.prompt("Type the node id to stop its stack and forget it:")
+                                        if (typed != null) app.run("Decommission") { Api.decommission(n.id, typed) }
+                                    }
+                                }) { Text("Confirm decommission") }
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+/** Problems first, healthy checks folded into one counter (names in its tooltip). */
+@Composable
+fun ChecksSummary(checks: List<CheckDto>) {
+    val bad = checks.filter { it.health != Health.OK }
+    val good = checks.filter { it.health == Health.OK }
+    Div({ classes("checks") }) {
+        bad.forEach { c -> Span({ classes("pill", "sm", c.health.name); title(c.detail.ifEmpty { c.name }) }) { Text(c.name) } }
+        if (good.isNotEmpty()) {
+            Span({ classes("pill", "sm", "OK"); title(good.joinToString("\n") { it.name + if (it.detail.isNotEmpty()) " — " + it.detail else "" }) }) {
+                Text(if (bad.isEmpty()) "all ${good.size} passing" else "${good.size} passing")
+            }
+        }
+        if (checks.isEmpty()) Span({ classes("muted") }) { Text("—") }
     }
 }
 
@@ -250,23 +436,22 @@ fun AddNodeForm(app: AppState) {
     var key by remember { mutableStateOf("") }
     var lat by remember { mutableStateOf("") }
     var lon by remember { mutableStateOf("") }
-    Panel("Add node") {
-        Div({ classes("body") }) {
-            P({ classes("muted") }) { Text("Adds an entry to the controller config file; the next pass provisions it over SSH and extends DNS.") }
-            Div({ classes("inline") }) {
-                Field("Node id", id, "na2") { id = it }
-                Field("SSH host / IP", host, "203.0.113.30") { host = it }
-                Field("Region code", region, "EU") { region = it }
-                Field("Provider", provider, "any") { provider = it }
-                Field("OS", os, "ubuntu-24.04") { os = it }
-                Field("SSH user", user, "deploy") { user = it }
-                Field("SSH key file", key, "/secrets/ssh/na2") { key = it }
-                Field("Latitude", lat, "50.1") { lat = it }
-                Field("Longitude", lon, "8.7") { lon = it }
-            }
-            Br()
+    Panel("Add node", "Adds an entry to the config file; the next pass provisions it over SSH and extends DNS.", flush = false) {
+        Div({ classes("form-grid") }) {
+            Field("Node id", id, "eu1") { id = it }
+            Field("SSH host / IP", host, "203.0.113.30") { host = it }
+            Field("Region code", region, "EU") { region = it }
+            Field("Provider", provider, "optional") { provider = it }
+            Field("OS", os, "ubuntu-24.04") { os = it }
+            Field("SSH user", user, "deploy") { user = it }
+            Field("SSH key file", key, "/secrets/ssh/eu1") { key = it }
+            Field("Latitude", lat, "50.1") { lat = it }
+            Field("Longitude", lon, "8.7") { lon = it }
+        }
+        Div({ classes("form-actions") }) {
             Button({
-                classes("primary")
+                classes("btn", "primary")
+                if (app.busy || id.isBlank() || host.isBlank() || key.isBlank()) disabled()
                 onClick {
                     app.run("Add node") {
                         Api.addNode(NodeConfigDto(
@@ -275,7 +460,7 @@ fun AddNodeForm(app: AppState) {
                         ))
                     }
                 }
-            }) { Text("Add and apply") }
+            }) { Text("Add and provision") }
         }
     }
 }
@@ -288,6 +473,8 @@ fun Field(label: String, value: String, ph: String, onChange: (String) -> Unit) 
     }
 }
 
+// ---------------------------------------------------------------------------------- services
+
 @Composable
 fun ServicesView(app: AppState, s: StatusSnapshot) {
     Panel("Services") { ServicesTable(app, s, compact = false) }
@@ -295,83 +482,92 @@ fun ServicesView(app: AppState, s: StatusSnapshot) {
 
 @Composable
 fun ServicesTable(app: AppState, s: StatusSnapshot, compact: Boolean) {
-    Table {
-        Thead {
+    val headers = listOf("Hostname", "Kind", "Protocol / TLS", "Access", "Regions", "Health per node") + if (compact) emptyList() else listOf("")
+    DataTable(headers) {
+        if (s.services.isEmpty()) EmptyRow(headers.size, "No containers carry homegap.expose labels yet.")
+        s.services.forEach { svc ->
             Tr {
-                Th { Text("Hostname") }; Th { Text("Kind") }; Th { Text("Protocol / TLS") }; Th { Text("Access") }
-                Th { Text("Regions") }; Th { Text("Per-node health") }
-                if (!compact) Th { Text("Actions") }
-            }
-        }
-        Tbody {
-            if (s.services.isEmpty()) Tr { Td({ attr("colspan", "7") }) { Span({ classes("muted") }) { Text("No containers carry homegap.expose labels.") } } }
-            s.services.forEach { svc ->
-                Tr {
-                    Td {
-                        B({ classes("mono") }) { Text(svc.hostname + if (svc.wildcard) "  (+ *.${svc.hostname})" else "") }
-                        Div({ classes("muted") }) { Text(svc.container) }
-                        if (svc.paused) Span({ classes("tag") }) { Text("paused") }
+                Cell("Hostname", "primary-cell") {
+                    Div({ classes("cell-title") }) {
+                        B({ classes("mono") }) { Text(svc.hostname) }
+                        if (svc.paused) Tag("paused")
                     }
-                    Td { Span({ classes("tag") }) { Text(svc.kind) } }
-                    Td { Text("${svc.protocol} / ${svc.tls}") }
-                    Td { Text(svc.access + if (svc.auth != "none") " · ${svc.auth}" else "") }
-                    Td { svc.regions.forEach { Span({ classes("tag") }) { Text(it) } } }
-                    Td { Div({ classes("checks") }) { svc.perNode.forEach { h -> Span({ classes("pill", h.health.name); title(h.detail) }) { Text(h.nodeId) } } } }
-                    if (!compact) Td {
-                        Button({ onClick { app.run("Pause") { Api.pause("service", svc.key, !svc.paused) } } }) { Text(if (svc.paused) "Resume" else "Pause") }
+                    if (svc.wildcard) Muted("+ *.${svc.hostname}", mono = true)
+                    Muted(svc.container)
+                }
+                Cell("Kind") { Tag(svc.kind) }
+                Cell("Protocol / TLS") { Text("${svc.protocol} / ${svc.tls}") }
+                Cell("Access") { Text(svc.access + if (svc.auth != "none") " · ${svc.auth}" else "") }
+                Cell("Regions") { Div({ classes("checks") }) { svc.regions.forEach { Tag(it) } } }
+                Cell("Health per node") {
+                    Div({ classes("checks") }) {
+                        svc.perNode.forEach { h -> Span({ classes("pill", "sm", h.health.name); title(h.detail) }) { Text(h.nodeId) } }
+                    }
+                }
+                if (!compact) Cell("Actions", "actions-cell") {
+                    Button({ classes("btn", "sm"); onClick { app.run("Pause") { Api.pause("service", svc.key, !svc.paused) } } }) {
+                        Text(if (svc.paused) "Resume" else "Pause")
                     }
                 }
             }
         }
     }
 }
+
+// --------------------------------------------------------------------------------------- dns
 
 @Composable
 fun DnsView(s: StatusSnapshot) {
-    Panel("Bunny DNS records") {
-        Table {
-            Thead { Tr { Th { Text("Name") }; Th { Text("Type") }; Th { Text("Value") }; Th { Text("Node") }; Th { Text("Routing") }; Th { Text("Monitor") }; Th { Text("Desired") } } }
-            Tbody {
-                if (s.dns.isEmpty()) Tr { Td({ attr("colspan", "7") }) { Span({ classes("muted") }) { Text("No DNS observations yet.") } } }
-                s.dns.forEach { r ->
-                    Tr {
-                        Td({ classes("mono") }) { Text(r.name) }
-                        Td { Text(r.type) }
-                        Td({ classes("mono") }) { Text(r.value) }
-                        Td { Text(r.nodeId ?: "—") }
-                        Td({ classes("muted") }) { Text(r.geo ?: "plain") }
-                        Td {
-                            val h = when (r.monitorStatus) { "online" -> Health.OK; "offline" -> Health.DOWN; else -> Health.UNKNOWN }
-                            Pill(h, "${r.monitor}: ${r.monitorStatus}")
-                        }
-                        Td { if (r.inSync) Pill(Health.OK, "in sync") else Pill(Health.DEGRADED, r.diff ?: "differs") }
+    Panel("Records", "Geo records drop offline members automatically; plain records always answer") {
+        val headers = listOf("Name", "Type", "Value", "Node", "Routing", "Monitor", "State")
+        DataTable(headers) {
+            if (s.dns.isEmpty()) EmptyRow(headers.size, "No DNS observations yet.")
+            s.dns.forEach { r ->
+                Tr {
+                    Cell("Name", "mono", "primary-cell") { Text(r.name) }
+                    Cell("Type") { Tag(r.type) }
+                    Cell("Value", "mono") { Text(r.value) }
+                    Cell("Node") { Text(r.nodeId ?: "—") }
+                    Cell("Routing", "muted") { Text(r.geo ?: "plain") }
+                    Cell("Monitor") {
+                        val h = when (r.monitorStatus) { "online" -> Health.OK; "offline" -> Health.DOWN; else -> Health.UNKNOWN }
+                        if (r.monitor == "none") Span({ classes("muted") }) { Text("none") } else Pill(h, "${r.monitor} ${r.monitorStatus}")
                     }
+                    Cell("State") { if (r.inSync) Pill(Health.OK, "in sync") else Pill(Health.DEGRADED, r.diff ?: "differs") }
                 }
             }
         }
     }
 }
 
+// ----------------------------------------------------------------------------------- tunnels
+
 @Composable
 fun TunnelsView(s: StatusSnapshot) {
-    Panel("Newt connectors") {
-        Table {
-            Thead { Tr { Th { Text("Node") }; Th { Text("Endpoint") }; Th { Text("Site") }; Th { Text("Process") }; Th { Text("Restarts") }; Th { Text("Throughput (in / out)") } } }
-            Tbody {
-                s.tunnels.forEach { t ->
-                    Tr {
-                        Td { B { Text(t.nodeId) } }
-                        Td({ classes("mono") }) { Text(t.endpoint) }
-                        Td { Pill(when (t.siteOnline) { true -> Health.OK; false -> Health.DOWN; null -> Health.UNKNOWN }, t.siteOnline?.let { if (it) "online" else "offline" } ?: "unknown") }
-                        Td { Pill(if (t.processRunning) Health.OK else Health.DOWN, if (t.processRunning) "running" else "stopped") ; t.lastExit?.let { Div({ classes("muted") }) { Text("last exit: $it") } } }
-                        Td { Text(t.restarts.toString()) }
-                        Td({ classes("mono") }) { Text(if (t.bytesIn == null) "—" else "${bytes(t.bytesIn!!)} / ${bytes(t.bytesOut ?: 0)}") }
+    Panel("Newt connectors", "Run by the tunnels container; independent of the orchestrator") {
+        val headers = listOf("Node", "Endpoint", "Site", "Process", "Restarts", "Traffic in / out")
+        DataTable(headers) {
+            if (s.tunnels.isEmpty()) EmptyRow(headers.size, "No tunnels yet.")
+            s.tunnels.forEach { t ->
+                Tr {
+                    Cell("Node", "primary-cell") { B { Text(t.nodeId) } }
+                    Cell("Endpoint", "mono") { Text(t.endpoint) }
+                    Cell("Site") {
+                        Pill(when (t.siteOnline) { true -> Health.OK; false -> Health.DOWN; null -> Health.UNKNOWN }, t.siteOnline?.let { if (it) "online" else "offline" } ?: "unknown")
                     }
+                    Cell("Process") {
+                        Pill(if (t.processRunning) Health.OK else Health.DOWN, if (t.processRunning) "running" else "stopped")
+                        t.lastExit?.let { Muted("last exit: $it") }
+                    }
+                    Cell("Restarts") { Text(t.restarts.toString()) }
+                    Cell("Traffic in / out", "mono") { Text(if (t.bytesIn == null) "—" else "${bytes(t.bytesIn!!)} / ${bytes(t.bytesOut ?: 0)}") }
                 }
             }
         }
     }
 }
+
+// -------------------------------------------------------------------------------- speed test
 
 @Composable
 fun SpeedTestView(app: AppState) {
@@ -385,76 +581,86 @@ fun SpeedTestView(app: AppState) {
             delay(10000)
         }
     }
-    val o = ov ?: run { P { Text("Loading…") }; return }
+    val o = ov ?: run { Div({ classes("loading") }) { Text("Loading…") }; return }
     if (!o.enabled) {
-        Div({ classes("banner", "warn") }) {
-            Text("Speed tests are disabled. Set speedtest.enabled: true in the config, route the speedtest hostnames to the orchestrator's speed test port in your homelab proxy, and restart the orchestrator.")
-        }
+        Banner(
+            "info",
+            "Speed tests are disabled. Set speedtest.enabled: true in the config, route the speedtest hostnames to the orchestrator's " +
+                "speed test port in your homelab proxy, and restart the orchestrator.",
+        )
         return
     }
-    Panel("Homelab ↔ node (through the tunnel)") {
-        P({ classes("muted") }) {
-            Text("Runs on the node over SSH: curl → node's own :443 → WireGuard tunnel → homelab proxy → speed test origin. Measures the tunnel leg every request pays.")
-        }
-        Div({ classes("filters") }) {
-            o.nodes.forEach { id ->
-                Button({
-                    if (running != null) disabled()
-                    onClick {
-                        running = id
-                        scope.launch {
-                            try {
-                                val r = Api.runTunnelTest(id)
-                                app.notify(r.error?.let { "$id: $it" } ?: "$id: ${mbps(r.downMbps)} down / ${mbps(r.upMbps)} up, ${ms(r.pingMs)} ping")
-                            } catch (e: Throwable) {
-                                app.notify("Speed test on $id failed: ${e.message}")
-                            } finally {
-                                running = null
-                                reload++
-                            }
+    val latest = o.nodes.associateWith { id -> o.results.firstOrNull { it.kind == "tunnel" && it.nodeId == id } }
+    Div({ classes("two-col") }) {
+        Panel("Homelab ↔ node", "curl on the node → its own :443 → WireGuard tunnel → homelab proxy", flush = false) {
+            Div({ classes("node-tests") }) {
+                o.nodes.forEach { id ->
+                    val r = latest[id]
+                    Div({ classes("node-test") }) {
+                        Div({ classes("node-test-head") }) {
+                            B { Text(id) }
+                            Button({
+                                classes("btn", "sm")
+                                if (running != null) disabled()
+                                onClick {
+                                    running = id
+                                    scope.launch {
+                                        try {
+                                            val res = Api.runTunnelTest(id)
+                                            if (res.error != null) app.notify("$id: ${res.error}", error = true)
+                                            else app.notify("$id: ${mbps(res.downMbps)} down, ${mbps(res.upMbps)} up, ${ms(res.pingMs)} ping")
+                                        } catch (e: Throwable) {
+                                            app.notify("Speed test on $id failed: ${e.message}", error = true)
+                                        } finally {
+                                            running = null
+                                            reload++
+                                        }
+                                    }
+                                }
+                            }) { Text(if (running == id) "Testing…" else "Run test") }
                         }
+                        if (r == null) Muted("No result yet")
+                        else Div({ classes("metrics") }) {
+                            Metric("Ping", ms(r.pingMs)); Metric("Jitter", ms(r.jitterMs)); Metric("Down", mbps(r.downMbps)); Metric("Up", mbps(r.upMbps))
+                        }
+                        r?.let { Muted("${ago(it.at)}${it.error?.let { e -> " · $e" } ?: ""}") }
                     }
-                }) { Text(if (running == id) "Testing $id…" else "Test $id") }
+                }
             }
         }
-    }
-    Panel("Your device → node → homelab") {
-        P({ classes("muted") }) {
-            Text("Create a link and open it on the device to test. The plain-HTTP link lets DNS pick the node for your location; the node then redirects to its own hostname so the result is attributed to it. Links expire; anyone holding one can run tests until then.")
-        }
-        Button({ classes("primary"); onClick { scope.launch { link = runCatching { Api.speedLink() }.onFailure { app.notify("Link failed: ${it.message}") }.getOrNull() } } }) {
-            Text("Create device test link")
-        }
-        link?.let { l ->
-            Table {
-                Tbody {
-                    Tr { Td { B { Text("Auto (DNS)") } }; Td({ classes("mono") }) { A(href = l.autoUrl, { attr("target", "_blank") }) { Text(l.autoUrl) } } }
-                    l.nodeUrls.forEach { (id, url) ->
-                        Tr { Td { B { Text(id) } }; Td({ classes("mono") }) { A(href = url, { attr("target", "_blank") }) { Text(url) } } }
-                    }
-                    Tr { Td { Text("Expires") }; Td { Text(Date(l.expiresAt.toDouble()).toLocaleString()) } }
+        Panel("Your device → node → homelab", "Open a link on the device you want to test", flush = false) {
+            P({ classes("muted") }) {
+                Text("The auto link lets DNS pick the node for the device's location; that node redirects to its own hostname so the result is attributed to it. Anyone holding a link can run tests until it expires.")
+            }
+            Button({
+                classes("btn", "primary")
+                onClick { scope.launch { link = runCatching { Api.speedLink() }.onFailure { app.notify("Link failed: ${it.message}", error = true) }.getOrNull() } }
+            }) { Text(if (link == null) "Create test link" else "Create new link") }
+            link?.let { l ->
+                Div({ classes("links") }) {
+                    LinkRow("Auto (DNS)", l.autoUrl)
+                    l.nodeUrls.forEach { (id, url) -> LinkRow(id, url) }
+                    Muted("Expires ${Date(l.expiresAt.toDouble()).toLocaleString()}")
                 }
             }
         }
     }
-    Panel("Results") {
-        Table {
-            Thead { Tr { Th { Text("When") }; Th { Text("Kind") }; Th { Text("Node") }; Th { Text("Ping") }; Th { Text("Jitter") }; Th { Text("Down") }; Th { Text("Up") }; Th { Text("Notes") } } }
-            Tbody {
-                if (o.results.isEmpty()) Tr { Td({ attr("colspan", "8") }) { Span({ classes("muted") }) { Text("No results yet.") } } }
-                o.results.forEach { r ->
-                    Tr {
-                        Td({ style { property("white-space", "nowrap") } }) { Text(ago(r.at)) }
-                        Td { Span({ classes("tag") }) { Text(r.kind) } }
-                        Td { Text((r.nodeId ?: "unknown") + if (r.auto) " (auto)" else "") }
-                        Td({ classes("mono") }) { Text(ms(r.pingMs)) }
-                        Td({ classes("mono") }) { Text(ms(r.jitterMs)) }
-                        Td({ classes("mono") }) { Text(mbps(r.downMbps)) }
-                        Td({ classes("mono") }) { Text(mbps(r.upMbps)) }
-                        Td {
-                            r.error?.let { Span({ classes("pill", "DOWN") }) { Text(it) } }
-                            r.client?.let { Div({ classes("muted") }) { Text(it) } }
-                        }
+    Panel("History") {
+        val headers = listOf("When", "Path", "Node", "Ping", "Jitter", "Down", "Up", "Notes")
+        DataTable(headers) {
+            if (o.results.isEmpty()) EmptyRow(headers.size, "No results yet.")
+            o.results.forEach { r ->
+                Tr {
+                    Cell("When", "nowrap") { Text(ago(r.at)) }
+                    Cell("Path") { Tag(if (r.kind == "tunnel") "homelab ↔ node" else "device") }
+                    Cell("Node") { Text((r.nodeId ?: "unknown") + if (r.auto) " (auto)" else "") }
+                    Cell("Ping", "mono") { Text(ms(r.pingMs)) }
+                    Cell("Jitter", "mono") { Text(ms(r.jitterMs)) }
+                    Cell("Down", "mono") { Text(mbps(r.downMbps)) }
+                    Cell("Up", "mono") { Text(mbps(r.upMbps)) }
+                    Cell("Notes") {
+                        r.error?.let { Div({ classes("error-text") }) { Text(it) } }
+                        r.client?.let { Muted(shortClient(it)) }
                     }
                 }
             }
@@ -462,8 +668,38 @@ fun SpeedTestView(app: AppState) {
     }
 }
 
+@Composable
+fun Metric(label: String, value: String) {
+    Div({ classes("metric") }) {
+        Div({ classes("metric-label") }) { Text(label) }
+        Div({ classes("metric-value") }) { Text(value) }
+    }
+}
+
+@Composable
+fun LinkRow(label: String, url: String) {
+    Div({ classes("link-row") }) {
+        Span({ classes("link-label") }) { Text(label) }
+        A(href = url, { classes("mono"); attr("target", "_blank"); attr("rel", "noopener") }) { Text(url.substringBefore("#")) }
+        Button({
+            classes("btn", "sm")
+            onClick { window.navigator.clipboard.writeText(url) }
+        }) { Text("Copy") }
+    }
+}
+
+/** Condenses a browser user agent to something readable. */
+private fun shortClient(ua: String): String {
+    if (ua.startsWith("node ")) return ua
+    val os = listOf("iPhone", "iPad", "Android", "Mac OS X", "Windows", "Linux").firstOrNull { it in ua }?.let { if (it == "Mac OS X") "macOS" else it }
+    val browser = listOf("Firefox", "Edg", "Chrome", "Safari").firstOrNull { it in ua }?.let { if (it == "Edg") "Edge" else it }
+    return listOfNotNull(browser, os).joinToString(" on ").ifEmpty { ua.take(60) }
+}
+
 private fun ms(v: Double?): String = v?.let { "${it.fmt()} ms" } ?: "—"
-private fun mbps(v: Double?): String = v?.let { "${it.fmt()} Mbps" } ?: "—"
+private fun mbps(v: Double?): String = v?.let { if (it >= 100) "${it.toInt()} Mbps" else "${it.fmt()} Mbps" } ?: "—"
+
+// ---------------------------------------------------------------------------------- activity
 
 @Composable
 fun LogView() {
@@ -475,30 +711,31 @@ fun LogView() {
             delay(4000)
         }
     }
-    Panel("Reconcile log", extra = {
-        Div({ classes("filters"); style { property("margin-left", "auto") } }) {
-            listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "private", "observe", "speedtest", "controller").forEach { d ->
-                Button({ if (d == domain) classes("primary"); onClick { domain = d } }) { Text(d ?: "all") }
-            }
+    Div({ classes("segmented") }) {
+        listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "private", "observe", "speedtest", "controller").forEach { d ->
+            Button({ if (d == domain) classes("active"); onClick { domain = d } }) { Text(d ?: "all") }
         }
-    }) {
-        Table({ classes("log") }) {
-            Tbody {
-                entries.forEach { e ->
-                    Tr({ classes(e.level.name) }) {
-                        Td({ classes("mono"); style { property("white-space", "nowrap") } }) { Text(Date(e.time.toDouble()).toLocaleTimeString()) }
-                        Td { Span({ classes("tag") }) { Text(e.domain) } }
-                        Td { Text(e.target ?: "") }
-                        Td { Text(e.message) }
-                    }
+    }
+    Section({ classes("panel") }) {
+        Div({ classes("log") }) {
+            if (entries.isEmpty()) Div({ classes("empty-state") }) { Text("Nothing logged yet.") }
+            entries.forEach { e ->
+                Div({ classes("log-row", e.level.name) }) {
+                    Span({ classes("log-time", "mono") }) { Text(Date(e.time.toDouble()).toLocaleTimeString()) }
+                    Span({ classes("log-level") }) { Text(e.level.name.lowercase()) }
+                    Span({ classes("tag") }) { Text(e.domain) }
+                    e.target?.let { Span({ classes("log-target") }) { Text(it) } }
+                    Span({ classes("log-msg") }) { Text(e.message) }
                 }
             }
         }
     }
 }
 
+// ------------------------------------------------------------------------------------ config
+
 @Composable
-fun ConfigView(app: AppState) {
+fun ConfigView() {
     var diff by remember { mutableStateOf<DiffResponse?>(null) }
     var secrets by remember { mutableStateOf<SecretsResponse?>(null) }
     var cfg by remember { mutableStateOf<ConfigResponse?>(null) }
@@ -508,48 +745,46 @@ fun ConfigView(app: AppState) {
         secrets = runCatching { Api.secrets() }.getOrNull()
         cfg = runCatching { Api.config() }.getOrNull()
     }
-    Panel("Desired vs actual (last pass)", extra = {
-        Label(attrs = { style { property("margin-left", "auto"); property("flex-direction", "row") } }) {
+    Panel("Desired vs. actual", "From the last reconcile pass", actions = {
+        Label(attrs = { classes("check") }) {
             CheckboxInput(onlyChanges) { onChange { onlyChanges = it.value } }
-            Text(" only differences")
+            Text("Only differences")
         }
     }) {
         val items = diff?.items?.filter { !onlyChanges || it.action != "none" } ?: emptyList()
-        Table {
-            Thead { Tr { Th { Text("Domain") }; Th { Text("Target") }; Th { Text("Key") }; Th { Text("Action") }; Th { Text("Desired") }; Th { Text("Actual") } } }
-            Tbody {
-                if (items.isEmpty()) Tr { Td({ attr("colspan", "6") }) { Span({ classes("muted") }) { Text("Everything matches the desired state.") } } }
-                items.forEach { d ->
-                    Tr {
-                        Td { Span({ classes("tag") }) { Text(d.domain) } }
-                        Td { Text(d.target) }
-                        Td({ classes("mono") }) { Text(d.key) }
-                        Td { Pill(if (d.action == "none") Health.OK else Health.DEGRADED, d.action) }
-                        Td({ classes("mono") }) { Text(d.desired ?: "") }
-                        Td({ classes("mono") }) { Text(d.actual ?: "") }
-                    }
+        val headers = listOf("Domain", "Target", "Key", "Action", "Desired", "Actual")
+        DataTable(headers) {
+            if (items.isEmpty()) EmptyRow(headers.size, "Everything matches the desired state.")
+            items.forEach { d ->
+                Tr {
+                    Cell("Domain") { Tag(d.domain) }
+                    Cell("Target") { Text(d.target) }
+                    Cell("Key", "mono", "primary-cell") { Text(d.key) }
+                    Cell("Action") { Pill(if (d.action == "none") Health.OK else Health.DEGRADED, d.action) }
+                    Cell("Desired", "mono") { Text(d.desired ?: "") }
+                    Cell("Actual", "mono") { Text(d.actual ?: "") }
                 }
             }
         }
     }
-    Panel("Referenced secrets (values never shown)") {
-        Table {
-            Thead { Tr { Th { Text("Secret") }; Th { Text("Used by") }; Th { Text("Source") }; Th { Text("Present") } } }
-            Tbody {
-                secrets?.secrets?.forEach { r ->
-                    Tr {
-                        Td({ classes("mono") }) { Text(r.name) }
-                        Td { Text(r.usedBy) }
-                        Td({ classes("mono") }) { Text(r.source) }
-                        Td { Pill(if (r.present) Health.OK else Health.DOWN, if (r.present) "present" else "missing") }
-                    }
+    Panel("Referenced secrets", "Names and sources only; values are never shown") {
+        val headers = listOf("Secret", "Used by", "Source", "Present")
+        DataTable(headers) {
+            secrets?.secrets?.forEach { r ->
+                Tr {
+                    Cell("Secret", "mono", "primary-cell") { Text(r.name) }
+                    Cell("Used by") { Text(r.usedBy) }
+                    Cell("Source", "mono") { Text(r.source) }
+                    Cell("Present") { Pill(if (r.present) Health.OK else Health.DOWN, if (r.present) "present" else "missing") }
                 }
             }
         }
     }
     Panel("Effective desired state") { Pre { Text(diff?.desiredState ?: "") } }
-    Panel("Config file" + (cfg?.path?.let { " ($it)" } ?: "")) { Pre { Text(cfg?.yaml ?: "") } }
+    Panel("Config file", cfg?.path) { Pre { Text(cfg?.yaml ?: "") } }
 }
+
+// ----------------------------------------------------------------------------------- helpers
 
 private fun ago(ms: Long): String {
     val s = ((Date.now() - ms) / 1000).toLong()
