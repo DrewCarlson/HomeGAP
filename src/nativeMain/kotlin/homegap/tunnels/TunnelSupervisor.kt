@@ -20,6 +20,10 @@ data class TunnelSpec(
     val newtSecret: String,
     val adminPort: Int,
     val logLevel: String = "INFO",
+    /** WireGuard MTU (null = Newt default). */
+    val mtu: Int? = null,
+    /** Kernel WireGuard interface name for the main tunnel; null = Newt's userspace stack. */
+    val nativeInterface: String? = null,
 )
 
 /** Written by the supervisor next to each spec, read by the orchestrator for observability. */
@@ -125,8 +129,13 @@ class TunnelSupervisor(
                 "NEWT_NAME" to "homegap-${spec.nodeId}",
                 "DOCKER_SOCKET" to "",
             )
-            val pid = Processes.spawnDetached(listOf(newtBinary), env, "$dir/logs/$id.log", inherit = true)
-            logger.info { "started newt for $id -> ${spec.endpoint} (pid $pid)" }
+            val argv = buildList {
+                add(newtBinary)
+                spec.mtu?.let { add("--mtu"); add(it.toString()) }
+                spec.nativeInterface?.let { add("--native-main"); add("--interface-main"); add(it) }
+            }
+            val pid = Processes.spawnDetached(argv, env, "$dir/logs/$id.log", inherit = true)
+            logger.info { "started newt for $id -> ${spec.endpoint} (pid $pid${spec.mtu?.let { ", mtu $it" } ?: ""}${spec.nativeInterface?.let { ", kernel wireguard $it" } ?: ""})" }
             procs[id] = Proc(spec, pid, nowMillis(), restartCounts[id] ?: 0)
         }
 

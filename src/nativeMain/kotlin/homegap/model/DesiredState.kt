@@ -31,6 +31,8 @@ data class NodeDesired(
     val rawPorts: List<RawPort>,
     val healthResourceNiceId: String?,
     val healthPath: String,
+    /** Speed test entry redirect on :80 (auto hostname -> this node's hostname), when enabled. */
+    val speedtestRedirect: Pair<String, String>? = null,
 ) {
     val id: String get() = node.id
 }
@@ -115,6 +117,8 @@ object Planner {
     const val NICE_PREFIX = "hg-"
     const val FRONTDOOR_TCP = "hg-frontdoor"
     const val HEALTH = "hg-health"
+    const val SPEEDTEST = "hg-speedtest"
+    const val SPEEDTEST_AUTO = "hg-speedtest-auto"
 
     fun plan(
         config: AppConfig,
@@ -171,6 +175,9 @@ object Planner {
         val dedicated = mine.filter { it.access == Access.PUBLIC && it != frontDoor }
         val terminateDedicated = dedicated.filter { it.isHttpLike() && it.tls == TlsMode.TERMINATE }.map { it.hostname }
 
+        val st = config.speedtest.takeIf { it.enabled && fd != null }
+        val stHosts = st?.let { listOf(it.autoHost(config.domain), it.nodeHost(config.domain, node.id)) }.orEmpty()
+
         if (fd != null) {
             val method = if (fd.protocol == Protocol.HTTPS) "https" else "http"
             if (fd.tls == TlsMode.PASSTHROUGH && fd.protocol == Protocol.HTTPS) {
@@ -183,7 +190,8 @@ object Planner {
                 sni += SniRoute(
                     name = "homegap-frontdoor",
                     resourceNiceId = FRONTDOOR_TCP,
-                    exactHosts = listOf(fd.hostname),
+                    // The speed test hostnames ride the front door to the homelab proxy.
+                    exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts,
                     wildcardOf = if (fd.wildcard) fd.hostname else null,
                     excludeHosts = (listOf(mgmt) + terminateDedicated).distinct().sorted(),
                     priority = 100,
@@ -193,6 +201,10 @@ object Planner {
             } else {
                 publicRes += httpResource(NICE_PREFIX + fd.key, fd, fd.hostname, method)
                 if (fd.wildcard) publicRes += httpResource(NICE_PREFIX + "wildcard-" + fd.key, fd, "*." + fd.hostname, method)
+                if (st != null) {
+                    publicRes += httpResource(SPEEDTEST_AUTO, fd, stHosts[0], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
+                    publicRes += httpResource(SPEEDTEST, fd, stHosts[1], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
+                }
             }
         }
 
@@ -259,6 +271,7 @@ object Planner {
             rawPorts = raw.sorted(),
             healthResourceNiceId = healthNice,
             healthPath = healthPath,
+            speedtestRedirect = st?.let { stHosts[0] to stHosts[1] },
         )
     }
 
@@ -305,6 +318,17 @@ object Planner {
         for (s in services) {
             if (s == frontDoor || s.access != Access.PUBLIC) continue
             geoSet(s.hostname, "service:${s.key}", nodes.filter { s.servesNode(it.id) })
+        }
+        if (frontDoor != null && config.speedtest.enabled) {
+            val eligible = nodes.filter { frontDoor.servesNode(it.id) }
+            val st = config.speedtest
+            // The auto name is covered by the wildcard set when there is one.
+            if (!frontDoor.wildcard) geoSet(st.autoHost(config.domain), "speedtest", eligible)
+            for (n in eligible) {
+                val h = st.nodeHost(config.domain, n.id)
+                n.ipv4()?.let { out += DesiredDnsRecord(rel(h), h, "A", it, n.id, false, null, null, null, "none", config.bunny.ttl, "speedtest") }
+                n.publicIpv6?.let { out += DesiredDnsRecord(rel(h), h, "AAAA", it, n.id, false, null, null, null, "none", config.bunny.ttl, "speedtest") }
+            }
         }
         for (n in nodes) {
             val mgmt = n.managementHost(config.domain)

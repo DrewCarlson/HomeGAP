@@ -59,6 +59,13 @@ object ConfigLoader {
             if (c.bunny.routing == "latency" && n.latencyZone == null) errors += "node ${n.id}: latency routing needs latency_zone"
         }
         try { c.reconcile.resync; c.reconcile.debounceDuration; c.reconcile.nodeCheck } catch (e: Exception) { errors += e.message ?: "bad duration" }
+        c.tunnels.mtu?.let { if (it !in 1280..1500) errors += "tunnels.mtu must be between 1280 and 1500" }
+        if (c.speedtest.enabled) {
+            if (!Regex("^[a-z][a-z0-9]{0,20}$").matches(c.speedtest.hostname)) errors += "speedtest.hostname must be a single lowercase label"
+            if (c.speedtest.phaseSeconds !in 2..30) errors += "speedtest.phase_seconds must be 2..30"
+            try { parseDuration(c.speedtest.linkTtl); c.speedtest.port } catch (e: Exception) { errors += "speedtest: bad link_ttl or bind" }
+            if (c.speedtest.bind == c.dashboard.bind) errors += "speedtest.bind must differ from dashboard.bind"
+        }
         try { c.dashboard.port } catch (e: Exception) { errors += "dashboard.bind must be host:port" }
         if (errors.isNotEmpty()) throw IllegalArgumentException("Invalid configuration:\n  - " + errors.joinToString("\n  - "))
     }

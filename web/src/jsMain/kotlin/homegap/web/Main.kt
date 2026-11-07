@@ -15,7 +15,7 @@ import kotlin.js.Date
 
 private val scope = MainScope()
 
-enum class Tab(val title: String) { OVERVIEW("Overview"), NODES("Nodes"), SERVICES("Services"), DNS("DNS"), TUNNELS("Tunnels"), LOG("Reconcile log"), CONFIG("Config & diff") }
+enum class Tab(val title: String) { OVERVIEW("Overview"), NODES("Nodes"), SERVICES("Services"), DNS("DNS"), TUNNELS("Tunnels"), SPEEDTEST("Speed test"), LOG("Reconcile log"), CONFIG("Config & diff") }
 
 class AppState {
     var status by mutableStateOf<StatusSnapshot?>(null)
@@ -111,6 +111,7 @@ fun App(app: AppState) {
             Tab.SERVICES -> ServicesView(app, s)
             Tab.DNS -> DnsView(s)
             Tab.TUNNELS -> TunnelsView(s)
+            Tab.SPEEDTEST -> SpeedTestView(app)
             Tab.LOG -> LogView()
             Tab.CONFIG -> ConfigView(app)
         }
@@ -373,6 +374,98 @@ fun TunnelsView(s: StatusSnapshot) {
 }
 
 @Composable
+fun SpeedTestView(app: AppState) {
+    var ov by remember { mutableStateOf<SpeedTestOverview?>(null) }
+    var link by remember { mutableStateOf<SpeedTestLinkDto?>(null) }
+    var running by remember { mutableStateOf<String?>(null) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(reload) {
+        while (true) {
+            ov = runCatching { Api.speedtest() }.getOrDefault(ov)
+            delay(10000)
+        }
+    }
+    val o = ov ?: run { P { Text("Loading…") }; return }
+    if (!o.enabled) {
+        Div({ classes("banner", "warn") }) {
+            Text("Speed tests are disabled. Set speedtest.enabled: true in the config, route the speedtest hostnames to the orchestrator's speed test port in your homelab proxy, and restart the orchestrator.")
+        }
+        return
+    }
+    Panel("Homelab ↔ node (through the tunnel)") {
+        P({ classes("muted") }) {
+            Text("Runs on the node over SSH: curl → node's own :443 → WireGuard tunnel → homelab proxy → speed test origin. Measures the tunnel leg every request pays.")
+        }
+        Div({ classes("filters") }) {
+            o.nodes.forEach { id ->
+                Button({
+                    if (running != null) disabled()
+                    onClick {
+                        running = id
+                        scope.launch {
+                            try {
+                                val r = Api.runTunnelTest(id)
+                                app.notify(r.error?.let { "$id: $it" } ?: "$id: ${mbps(r.downMbps)} down / ${mbps(r.upMbps)} up, ${ms(r.pingMs)} ping")
+                            } catch (e: Throwable) {
+                                app.notify("Speed test on $id failed: ${e.message}")
+                            } finally {
+                                running = null
+                                reload++
+                            }
+                        }
+                    }
+                }) { Text(if (running == id) "Testing $id…" else "Test $id") }
+            }
+        }
+    }
+    Panel("Your device → node → homelab") {
+        P({ classes("muted") }) {
+            Text("Create a link and open it on the device to test. The plain-HTTP link lets DNS pick the node for your location; the node then redirects to its own hostname so the result is attributed to it. Links expire; anyone holding one can run tests until then.")
+        }
+        Button({ classes("primary"); onClick { scope.launch { link = runCatching { Api.speedLink() }.onFailure { app.notify("Link failed: ${it.message}") }.getOrNull() } } }) {
+            Text("Create device test link")
+        }
+        link?.let { l ->
+            Table {
+                Tbody {
+                    Tr { Td { B { Text("Auto (DNS)") } }; Td({ classes("mono") }) { A(href = l.autoUrl, { attr("target", "_blank") }) { Text(l.autoUrl) } } }
+                    l.nodeUrls.forEach { (id, url) ->
+                        Tr { Td { B { Text(id) } }; Td({ classes("mono") }) { A(href = url, { attr("target", "_blank") }) { Text(url) } } }
+                    }
+                    Tr { Td { Text("Expires") }; Td { Text(Date(l.expiresAt.toDouble()).toLocaleString()) } }
+                }
+            }
+        }
+    }
+    Panel("Results") {
+        Table {
+            Thead { Tr { Th { Text("When") }; Th { Text("Kind") }; Th { Text("Node") }; Th { Text("Ping") }; Th { Text("Jitter") }; Th { Text("Down") }; Th { Text("Up") }; Th { Text("Notes") } } }
+            Tbody {
+                if (o.results.isEmpty()) Tr { Td({ attr("colspan", "8") }) { Span({ classes("muted") }) { Text("No results yet.") } } }
+                o.results.forEach { r ->
+                    Tr {
+                        Td({ style { property("white-space", "nowrap") } }) { Text(ago(r.at)) }
+                        Td { Span({ classes("tag") }) { Text(r.kind) } }
+                        Td { Text((r.nodeId ?: "unknown") + if (r.auto) " (auto)" else "") }
+                        Td({ classes("mono") }) { Text(ms(r.pingMs)) }
+                        Td({ classes("mono") }) { Text(ms(r.jitterMs)) }
+                        Td({ classes("mono") }) { Text(mbps(r.downMbps)) }
+                        Td({ classes("mono") }) { Text(mbps(r.upMbps)) }
+                        Td {
+                            r.error?.let { Span({ classes("pill", "DOWN") }) { Text(it) } }
+                            r.client?.let { Div({ classes("muted") }) { Text(it) } }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun ms(v: Double?): String = v?.let { "${it.fmt()} ms" } ?: "—"
+private fun mbps(v: Double?): String = v?.let { "${it.fmt()} Mbps" } ?: "—"
+
+@Composable
 fun LogView() {
     var domain by remember { mutableStateOf<String?>(null) }
     var entries by remember { mutableStateOf<List<LogEntryDto>>(emptyList()) }
@@ -384,7 +477,7 @@ fun LogView() {
     }
     Panel("Reconcile log", extra = {
         Div({ classes("filters"); style { property("margin-left", "auto") } }) {
-            listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "private", "observe", "controller").forEach { d ->
+            listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "private", "observe", "speedtest", "controller").forEach { d ->
                 Button({ if (d == domain) classes("primary"); onClick { domain = d } }) { Text(d ?: "all") }
             }
         }

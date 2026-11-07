@@ -50,6 +50,9 @@ class Controller(
     private val passMutex = Mutex()
     private val triggers = Channel<String>(Channel.UNLIMITED)
     private val forceProvision = mutableSetOf<String>()
+    val speedTokens = homegap.speedtest.SpeedTestTokens()
+    val speedStore = homegap.speedtest.SpeedTestStore("${initialConfig.dataDir}/speedtests.json")
+    private val speedRunning = mutableSetOf<String>()
 
     val dryRun: Boolean get() = dryRunOverride || config.reconcile.dryRun
 
@@ -443,7 +446,7 @@ class Controller(
                 drift = ns?.drift ?: emptyList(),
                 paused = st.pauses.global || id in st.pauses.nodes,
                 pendingDecommission = ns?.pendingDecommission == true || n == null,
-                facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb") } +
+                facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "tcp_cc", "qdisc") } +
                     (tunnel?.let { mapOf("newt_restarts" to it.restarts.toString()) } ?: emptyMap()),
             )
         }
@@ -553,6 +556,61 @@ class Controller(
         }
         return Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), obj)
     }
+
+    // ------------------------------------------------------------------ speed tests
+
+    fun speedOverview(): SpeedTestOverview {
+        val cfg = config
+        val st = cfg.speedtest
+        return SpeedTestOverview(
+            enabled = st.enabled,
+            autoUrl = if (st.enabled) "http://${st.autoHost(cfg.domain)}/" else null,
+            nodes = cfg.nodes.map { it.id },
+            results = speedStore.recent(),
+        )
+    }
+
+    /** A device test link valid for `speedtest.link_ttl`; the token travels in the URL fragment. */
+    fun createSpeedLink(): SpeedTestLinkDto {
+        val cfg = config
+        require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
+        val (token, exp) = speedTokens.issue(homegap.config.parseDuration(cfg.speedtest.linkTtl).inWholeMilliseconds)
+        return SpeedTestLinkDto(
+            autoUrl = "http://${cfg.speedtest.autoHost(cfg.domain)}/#t=$token",
+            nodeUrls = cfg.nodes.associate { it.id to "https://${cfg.speedtest.nodeHost(cfg.domain, it.id)}/#t=$token" },
+            expiresAt = exp,
+        )
+    }
+
+    /** Measures homelab <-> node through the tunnel, driven from the node over SSH. */
+    suspend fun runTunnelSpeedTest(nodeId: String): SpeedTestResultDto {
+        val cfg = config
+        require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
+        val node = cfg.node(nodeId) ?: throw IllegalArgumentException("unknown node $nodeId")
+        check(!dryRun) { "speed tests need remote access (dry-run is on)" }
+        check(speedRunning.add(nodeId)) { "a speed test for $nodeId is already running" }
+        val (token, _) = speedTokens.issue(5 * 60_000L)
+        try {
+            val host = cfg.speedtest.nodeHost(cfg.domain, nodeId)
+            val secs = cfg.speedtest.phaseSeconds
+            val r = ssh.session(node).runScript(homegap.speedtest.TunnelSpeedTest.script(host, token, secs), secs * 2 + 120)
+            val p = homegap.speedtest.TunnelSpeedTest.parse(r.stdout, host)
+            val err = p.error ?: if (!r.ok) r.stderr.trim().take(300).ifEmpty { "exit ${r.exitCode}" } else null
+            val result = SpeedTestResultDto(
+                id = homegap.speedtest.newResultId(), at = nowMillis(), kind = "tunnel", nodeId = nodeId,
+                pingMs = p.pingMs, jitterMs = p.jitterMs, downMbps = p.downMbps, upMbps = p.upMbps, pingSamples = p.samples, error = err,
+                client = "node ${nodeId} (newt mtu ${cfg.tunnels.mtu ?: "default"}${if (cfg.tunnels.native) ", kernel wireguard" else ""})",
+            )
+            speedStore.add(result)
+            log.info("speedtest", "tunnel: ping ${p.pingMs?.let { fmt1(it) } ?: "-"} ms, jitter ${p.jitterMs?.let { fmt1(it) } ?: "-"} ms, down ${p.downMbps?.let { fmt1(it) } ?: "-"} Mbps, up ${p.upMbps?.let { fmt1(it) } ?: "-"} Mbps${err?.let { " ($it)" } ?: ""}", nodeId)
+            return result
+        } finally {
+            speedTokens.revoke(token)
+            speedRunning.remove(nodeId)
+        }
+    }
+
+    private fun fmt1(d: Double): String = ((d * 10).toLong() / 10.0).toString()
 
     // ------------------------------------------------------------------ dashboard actions
 

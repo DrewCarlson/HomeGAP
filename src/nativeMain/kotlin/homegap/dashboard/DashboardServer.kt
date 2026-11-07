@@ -89,6 +89,9 @@ class DashboardServer(private val controller: Controller, private val configPath
                     val confirm = call.request.queryParameters["confirm"] ?: ""
                     call.respond(ActionResponse(true, controller.confirmDecommission(call.parameters["id"]!!, confirm)))
                 }
+                get("/speedtest") { call.respond(controller.speedOverview()) }
+                post("/speedtest/link") { call.respond(controller.createSpeedLink()) }
+                post("/speedtest/nodes/{id}") { call.respond(controller.runTunnelSpeedTest(call.parameters["id"]!!)) }
                 post("/pause") {
                     val req = call.receive<PauseRequest>()
                     call.respond(ActionResponse(true, controller.setPause(req.scope, req.id, req.paused)))

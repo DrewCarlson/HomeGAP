@@ -125,7 +125,7 @@ services:
       - ./work/keys:/keys:ro
       - ./work/certs:/certs:ro
       - ./work/data:/data
-    ports: [ "127.0.0.1:18088:8088" ]
+    ports: [ "127.0.0.1:18088:8088", "127.0.0.1:18089:8089" ]
     networks: [e2e]
 
   tunnels:
@@ -134,6 +134,9 @@ services:
     environment:
       # Newt (Go) trusts the e2e CA that signed the node's wildcard certificate.
       SSL_CERT_FILE: /certs/ca.pem
+    # Kernel WireGuard for the main tunnel (tunnels.native: true).
+    cap_add: [NET_ADMIN]
+    devices: [ "/dev/net/tun:/dev/net/tun" ]
     volumes:
       - ./work/data:/data
       - ./work/certs:/certs:ro

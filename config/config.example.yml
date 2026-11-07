@@ -68,6 +68,19 @@ nodes:
     license_key_env: PANGOLIN_LICENSE_KEY_AS1
     location: { latitude: 19.1, longitude: 72.9 }
 
+# Tunnel tuning (see README "Performance").
+tunnels:
+  mtu: 1420
+  # Kernel WireGuard for Newt; the tunnels container needs NET_ADMIN and /dev/net/tun.
+  native: false
+
+# Speed tests (dashboard "Speed test" tab). Route speedtest*.<domain> to port 8089 in the homelab proxy.
+speedtest:
+  enabled: false
+  hostname: speedtest
+  bind: 0.0.0.0:8089
+  link_ttl: 2h
+
 dashboard:
   bind: 0.0.0.0:8088
   # auth_token_env: HOMEGAP_DASHBOARD_TOKEN

@@ -33,6 +33,8 @@ object NodeTemplates {
     const val CERT = "config/traefik/certs/homegap.crt"
     const val KEY = "config/traefik/certs/homegap.key"
     const val SECRETS = "secrets/node.json"
+    /** Rendered into the install dir (so it is hashed and drift-checked), installed into /etc/sysctl.d. */
+    const val SYSCTL = "config/homegap-sysctl.conf"
 
     private val HEADER = "Managed by HomeGAP. Manual edits are reverted on the next reconcile\nunless this node is paused from the dashboard."
 
@@ -46,6 +48,7 @@ object NodeTemplates {
             RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts)).apply { restarts = "traefik" },
             RenderedFile(SECRETS, Json { prettyPrint = true }.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
         )
+        if (config.pangolin.tcpTuning) files += RenderedFile(SYSCTL, sysctlConf())
         if (config.pangolin.crowdsec) {
             files += RenderedFile("config/crowdsec/acquis.d/traefik.yaml", YamlEmitter.emit(buildJsonObject {
                 put("poll_without_inotify", false)
@@ -86,6 +89,7 @@ object NodeTemplates {
                         add("--reachableAt=http://gerbil:3004")
                         add("--generateAndSaveKeyTo=/var/config/key")
                         add("--remoteConfig=http://pangolin:3001/api/v1/")
+                        config.tunnels.mtu?.let { add("--mtu=$it") }
                     }
                     putJsonArray("volumes") { add("./config/:/var/config") }
                     putJsonArray("cap_add") { add("NET_ADMIN"); add("SYS_MODULE") }
@@ -135,9 +139,33 @@ object NodeTemplates {
         return YamlEmitter.emit(root, HEADER)
     }
 
+    /**
+     * TCP tuning for long fat paths (viewer <-> node <-> homelab): BBR keeps throughput up under
+     * loss and high RTT, larger buffers let windows grow to the bandwidth-delay product, MTU
+     * probing recovers from black-holed PMTU discovery across the tunnel.
+     */
+    fun sysctlConf(): String = """
+        |# Managed by HomeGAP (pangolin.tcp_tuning). Removed when tuning is disabled.
+        |net.core.default_qdisc = fq
+        |net.ipv4.tcp_congestion_control = bbr
+        |net.core.rmem_max = 67108864
+        |net.core.wmem_max = 67108864
+        |net.ipv4.tcp_rmem = 4096 131072 67108864
+        |net.ipv4.tcp_wmem = 4096 65536 67108864
+        |net.ipv4.tcp_mtu_probing = 1
+        |net.ipv4.tcp_slow_start_after_idle = 0
+        |
+    """.trimMargin()
+
     fun envFile(secrets: NodeSecrets, crowdsec: Boolean): String = buildString {
         appendLine("PANGOLIN_SETUP_TOKEN=${secrets.setupToken}")
         if (crowdsec) appendLine("CROWDSEC_BOUNCER_KEY=${secrets.crowdsecBouncerKey}")
+    }
+
+    fun tunnelSubnet(config: AppConfig, node: NodeConfig): String? {
+        val i = config.nodes.indexOfFirst { it.id == node.id }
+        if (i < 0 || i > 31) return null
+        return "100.89.${128 + i * 4}.0/22"
     }
 
     fun pangolinConfig(config: AppConfig, node: NodeConfig, secrets: NodeSecrets): String {
@@ -147,6 +175,10 @@ object NodeTemplates {
                 put("start_port", 51820)
                 put("base_endpoint", mgmt)
                 put("exit_node_name", "homegap-${node.id}")
+                // Distinct tunnel subnet per node, so the homelab can hold every node's tunnel
+                // in one network namespace (kernel WireGuard routes would collide otherwise).
+                // Index 0 keeps Pangolin's default first block (100.89.128.0/24).
+                tunnelSubnet(config, node)?.let { put("subnet_group", it) }
             }
             putJsonObject("app") {
                 put("dashboard_url", "https://$mgmt")
@@ -292,6 +324,15 @@ object NodeTemplates {
                 putJsonObject("middlewares") {
                     putJsonObject("homegap-redirect-https") { putJsonObject("redirectScheme") { put("scheme", "https"); put("permanent", true) } }
                     putJsonObject("homegap-health-path") { putJsonObject("replacePath") { put("path", desired.healthPath) } }
+                    desired.speedtestRedirect?.let { (_, to) ->
+                        putJsonObject("homegap-speedtest-which") {
+                            putJsonObject("redirectRegex") {
+                                put("regex", "^.*$")
+                                put("replacement", "https://$to/?via=auto")
+                                put("permanent", false)
+                            }
+                        }
+                    }
                 }
                 putJsonObject("routers") {
                     putJsonObject("homegap-mgmt-api") {
@@ -328,6 +369,17 @@ object NodeTemplates {
                             putJsonArray("middlewares") { add("homegap-redirect-https") }
                             put("service", "noop@internal")
                             put("priority", 10)
+                        }
+                    }
+                    desired.speedtestRedirect?.let { (from, _) ->
+                        // Plain-HTTP entry link: whichever node DNS picked answers with its own
+                        // per-node hostname, so the test page knows which node it runs through.
+                        putJsonObject("homegap-speedtest-which") {
+                            put("rule", "Host(`$from`)")
+                            putJsonArray("entryPoints") { add("web") }
+                            putJsonArray("middlewares") { add("homegap-speedtest-which") }
+                            put("service", "noop@internal")
+                            put("priority", 20)
                         }
                     }
                     val ipHosts = listOfNotNull(node.ipv4(), node.publicIpv6?.let { "[$it]" })

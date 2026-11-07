@@ -119,6 +119,11 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
     if (!once) {
         DashboardServer(controller, configPath).start(config.dashboard.host, config.dashboard.port)
         logger.info { "dashboard listening on ${config.dashboard.bind}" }
+        if (config.speedtest.enabled) {
+            homegap.speedtest.SpeedTestServer({ controller.config }, controller.speedTokens, controller.speedStore)
+                .start(config.speedtest.host, config.speedtest.port)
+            logger.info { "speed test origin listening on ${config.speedtest.bind}" }
+        }
     }
     controller.run(this, once)
 }

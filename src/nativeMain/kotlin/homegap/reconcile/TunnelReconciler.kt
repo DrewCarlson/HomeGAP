@@ -59,6 +59,9 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
             newtId = st.newtId!!,
             newtSecret = st.newtSecret!!,
             adminPort = ADMIN_PORT_BASE + index,
+            mtu = ctx.config.tunnels.mtu,
+            // Interface names are limited to 15 characters; the index keeps them unique.
+            nativeInterface = if (ctx.config.tunnels.native) "hgnewt$index" else null,
         )
         writeSpec(spec)
         return site

@@ -18,6 +18,10 @@ certificates:
   key_file: /certs/wild.key
 tunnels:
   state_dir: /data/tunnels
+  mtu: 1420
+  native: true
+speedtest:
+  enabled: true
 nodes:
   - id: na1
     region: NA

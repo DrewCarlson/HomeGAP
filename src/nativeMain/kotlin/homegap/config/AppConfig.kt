@@ -28,6 +28,7 @@ data class AppConfig(
     val tunnels: TunnelsConfig = TunnelsConfig(),
     val nodes: List<NodeConfig> = emptyList(),
     val dashboard: DashboardConfig = DashboardConfig(),
+    val speedtest: SpeedtestConfig = SpeedtestConfig(),
 ) {
     val wildcardDomain: String get() = "*.$domain"
     fun node(id: String): NodeConfig? = nodes.firstOrNull { it.id == id }
@@ -86,6 +87,11 @@ data class PangolinNodeDefaults(
     @SerialName("base_blueprint") val baseBlueprint: String? = null,
     /** Internal (unpublished) proxy-port range used for SNI passthrough resources. */
     @SerialName("passthrough_port_base") val passthroughPortBase: Int = 40000,
+    /**
+     * Apply TCP tuning for long, high-bandwidth paths on every node (BBR congestion control,
+     * fq qdisc, larger socket buffers, MTU probing) via `/etc/sysctl.d/99-homegap.conf`.
+     */
+    @SerialName("tcp_tuning") val tcpTuning: Boolean = true,
 ) {
     fun licenseKey(): SecretRef? =
         if (licenseKeyEnv == null && licenseKeyFile == null) null
@@ -121,7 +127,38 @@ data class TunnelsConfig(
     /** Shared directory between the orchestrator and the `homegap tunnels` supervisor. */
     @SerialName("state_dir") val stateDir: String? = null,
     @SerialName("newt_binary") val newtBinary: String = "/usr/local/bin/newt",
+    /**
+     * WireGuard MTU used by every Newt connector and every node's Gerbil (both ends of a tunnel
+     * must agree). Null keeps the upstream default (1280); 1420 suits most paths without
+     * fragmentation, lower it for PPPoE or nested tunnels.
+     */
+    val mtu: Int? = null,
+    /**
+     * Run each Newt main tunnel on a kernel WireGuard interface instead of Newt's userspace
+     * network stack. Usually much faster; the `tunnels` container then needs `cap_add: [NET_ADMIN]`,
+     * `/dev/net/tun` and a host kernel with WireGuard.
+     */
+    val native: Boolean = false,
 )
+
+@Serializable
+data class SpeedtestConfig(
+    /** Serve the speed test endpoints (homelab <-> node and device -> node -> homelab). */
+    val enabled: Boolean = false,
+    /** Host label: `<hostname>.<domain>` (auto) and `<hostname>-<node>.<domain>` (per node). */
+    val hostname: String = "speedtest",
+    /** Listener reached by the homelab reverse proxy; never publish it directly. */
+    val bind: String = "0.0.0.0:8089",
+    /** Lifetime of device test links created from the dashboard. */
+    @SerialName("link_ttl") val linkTtl: String = "2h",
+    /** Duration of each download/upload phase. */
+    @SerialName("phase_seconds") val phaseSeconds: Int = 8,
+) {
+    val host: String get() = bind.substringBeforeLast(":")
+    val port: Int get() = bind.substringAfterLast(":").toInt()
+    fun autoHost(domain: String) = "$hostname.$domain"
+    fun nodeHost(domain: String, nodeId: String) = "$hostname-$nodeId.$domain"
+}
 
 @Serializable
 data class GeoLocation(val latitude: Double, val longitude: Double)

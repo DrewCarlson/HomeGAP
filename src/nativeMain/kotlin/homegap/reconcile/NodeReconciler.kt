@@ -171,6 +171,33 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         // 4 + 5. Stack files and secrets (restrictive modes), then 6. bring up and wait for health.
         val out = ssh.runScriptOrThrow("stack", stackScript(files), 1200)
         out.lines().filter { it.startsWith("CHANGED ") }.forEach { log.change(domain, "updated ${it.removePrefix("CHANGED ")}", node.id) }
+
+        // 7. Kernel network tuning (best effort: some virtualization types lock these knobs).
+        val t = ssh.runScriptOrThrow("tuning", tuningScript(), 120)
+        t.lines().forEach { l ->
+            when {
+                l.startsWith("CHANGED ") -> log.change(domain, l.removePrefix("CHANGED "), node.id)
+                l.startsWith("WARN ") -> log.warn(domain, l.removePrefix("WARN "), node.id)
+            }
+        }
+        val tf = t.lines().filter { it.startsWith("FACT ") }.associate { it.removePrefix("FACT ").substringBefore('=') to it.substringAfter('=') }
+        if (tf.isNotEmpty()) ctx.state.updateNode(node.id) { it.copy(facts = it.facts + tf) }
+    }
+
+    private fun tuningScript(): String {
+        val src = shQuote("$dir/${NodeTemplates.SYSCTL}")
+        val dst = "/etc/sysctl.d/99-homegap.conf"
+        return if (ctx.config.pangolin.tcpTuning) """
+            |modprobe tcp_bbr 2>/dev/null || true
+            |if ! cmp -s $src $dst 2>/dev/null; then install -m 0644 $src $dst; echo "CHANGED installed TCP tuning ($dst)"; fi
+            |sysctl -p $dst >/dev/null 2>&1 || echo "WARN some TCP tuning sysctls could not be applied (container/VPS kernel restrictions?)"
+            |echo "FACT tcp_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo unknown)"
+            |echo "FACT qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo unknown)"
+        """.trimMargin() else """
+            |if [ -f $dst ]; then rm -f $dst; echo "CHANGED removed TCP tuning (live values stay until reboot)"; fi
+            |echo "FACT tcp_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo unknown)"
+            |echo "FACT qdisc=$(sysctl -n net.core.default_qdisc 2>/dev/null || echo unknown)"
+        """.trimMargin()
     }
 
     private suspend fun preflight(node: NodeConfig, ssh: SshSession): Map<String, String> {

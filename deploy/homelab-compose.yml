@@ -36,6 +36,13 @@ services:
       # Optional: the homelab Traefik ACME store, so nodes get the same wildcard certificate.
       # - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
     networks: [traefik]
+    # Speed tests (speedtest.enabled: true): route speedtest*.<domain> here on port 8089.
+    # labels:
+    #   traefik.enable: "true"
+    #   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"
+    #   traefik.http.routers.homegap-speedtest.entrypoints: websecure
+    #   traefik.http.routers.homegap-speedtest.tls: "true"
+    #   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
     # The dashboard must only be reachable privately: expose it as a *private* Pangolin
     # resource on the primary (alias e.g. homegap.<domain> -> orchestrator:8088), not publicly.
 
@@ -45,6 +52,9 @@ services:
     image: ghcr.io/drewcarlson/homegap:latest
     command: ["tunnels", "--dir", "/data/tunnels"]
     restart: unless-stopped
+    # Kernel WireGuard (tunnels.native: true) needs these:
+    # cap_add: [NET_ADMIN]
+    # devices: ["/dev/net/tun:/dev/net/tun"]
     volumes:
       - homegap-data:/data
     networks: [traefik]

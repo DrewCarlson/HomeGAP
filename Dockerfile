@@ -14,7 +14,7 @@ FROM docker.io/library/ubuntu:24.04
 ARG TARGETARCH
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates openssh-client tini \
+    && apt-get install -y --no-install-recommends ca-certificates openssh-client tini iputils-ping \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin homegap \
     && install -d -o homegap -g homegap -m 0700 /data

@@ -199,3 +199,50 @@ data class ConfigResponse(
     val yaml: String,
     val nodes: List<NodeConfigDto>,
 )
+
+/** One speed test measurement. Rates in megabits per second, times in milliseconds. */
+@Serializable
+data class SpeedTestResultDto(
+    val id: String,
+    val at: Long,
+    /** `tunnel` (node -> homelab through the Newt tunnel) or `device` (browser -> node -> homelab). */
+    val kind: String,
+    val nodeId: String? = null,
+    /** Device test entered through the auto (geo DNS) hostname. */
+    val auto: Boolean = false,
+    val pingMs: Double? = null,
+    val jitterMs: Double? = null,
+    val downMbps: Double? = null,
+    val upMbps: Double? = null,
+    val pingSamples: Int = 0,
+    val error: String? = null,
+    val client: String? = null,
+)
+
+@Serializable
+data class SpeedTestOverview(
+    val enabled: Boolean,
+    val autoUrl: String? = null,
+    val nodes: List<String> = emptyList(),
+    val results: List<SpeedTestResultDto> = emptyList(),
+)
+
+@Serializable
+data class SpeedTestLinkDto(
+    /** Plain-HTTP entry link: the node DNS picks redirects to its own hostname. */
+    val autoUrl: String,
+    val nodeUrls: Map<String, String>,
+    val expiresAt: Long,
+)
+
+/** Posted by the device test page. */
+@Serializable
+data class DeviceResultRequest(
+    val pingMs: Double? = null,
+    val jitterMs: Double? = null,
+    val downMbps: Double? = null,
+    val upMbps: Double? = null,
+    val pingSamples: Int = 0,
+    val auto: Boolean = false,
+    val error: String? = null,
+)
