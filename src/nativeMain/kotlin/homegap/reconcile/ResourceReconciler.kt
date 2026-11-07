@@ -1,0 +1,271 @@
+package homegap.reconcile
+
+import com.charleskorn.kaml.*
+import homegap.clients.PangolinClient
+import homegap.clients.PangolinResource
+import homegap.clients.SshSession.Companion.shQuote
+import homegap.config.SecretRef
+import homegap.discovery.AuthMode
+import homegap.discovery.HealthCheck
+import homegap.model.*
+import homegap.platform.Crypto
+import homegap.platform.Files
+import homegap.provision.NodeTemplates
+import kotlinx.serialization.json.*
+import kotlin.io.encoding.Base64
+
+/**
+ * Resource domain: Pangolin public/private resources on each node via declarative blueprints
+ * (keyed by deterministic niceIds), deletion of managed resources no longer desired, and the
+ * node's hot-reloaded Traefik routing file (SNI passthrough, health, management API).
+ */
+class ResourceReconciler(private val ctx: ReconcileContext) {
+    private val domain = "resources"
+
+    suspend fun reconcile(ready: ReadyNode, desired: NodeDesired, pausedServiceKeys: Set<String>): List<PangolinResource> {
+        val node = ready.node
+        val org = ctx.config.pangolin.orgId
+        val api = ready.api
+        val paused = ctx.nodePaused(node.id)
+
+        applyBaseBlueprint(api, node.id, org, paused)
+
+        val active = desired.publicResources.filter { !it.paused }
+        val activePrivate = desired.privateResources.filter { !it.paused }
+
+        var actual = api.listResources(org)
+        val byNice = actual.associateBy { it.niceId }
+        val st = ctx.state.node(node.id)
+        var applied = 0
+
+        // One blueprint per resource: a resource Pangolin rejects (e.g. a wildcard without an EE
+        // license) must not block the others. Each is re-applied when missing, drifted, or changed.
+        for (d in active) {
+            val a = byNice[d.niceId]
+            val bp = buildBlueprint(listOf(d), emptyList())
+            val h = Crypto.fnv64(bp.toString())
+            val drifted = !matches(d, a)
+            val changed = st.facts["bp:${d.niceId}"] != h
+            val action = when { a == null -> "create"; drifted || changed -> "update"; else -> "none" }
+            ctx.diff.add(domain, node.id, d.niceId, action, describe(d), a?.let { describe(it) })
+            if (action == "none") continue
+            if (paused) {
+                ctx.log.info(domain, "paused: ${d.niceId} differs from desired, not applying", node.id)
+                continue
+            }
+            try {
+                api.applyBlueprint(org, bp)
+                applied++
+                ctx.state.updateNode(node.id) { it.copy(facts = it.facts + ("bp:${d.niceId}" to h)) }
+                ctx.log.change(domain, "${if (a == null) "created" else if (drifted) "repaired" else "updated"} ${d.niceId} (${describe(d)})", node.id)
+            } catch (e: Exception) {
+                ctx.state.updateNode(node.id) { it.copy(facts = it.facts - "bp:${d.niceId}") }
+                ctx.log.error(domain, "${d.niceId}: ${e.message}", node.id)
+            }
+        }
+        val privateActual = if (activePrivate.isEmpty()) emptySet() else
+            runCatching { api.listSiteResources(org).map { it.niceId }.toSet() }.getOrNull()
+        for (p in activePrivate) {
+            val bp = buildBlueprint(emptyList(), listOf(p))
+            val h = Crypto.fnv64(bp.toString())
+            if (st.facts["bp:private:${p.niceId}"] == h && (privateActual == null || p.niceId in privateActual)) {
+                ctx.diff.add(domain, node.id, "private:${p.niceId}", "none")
+                continue
+            }
+            ctx.diff.add(domain, node.id, "private:${p.niceId}", "ensure", "${p.alias} -> ${p.destination}")
+            if (paused) continue
+            try {
+                api.applyBlueprint(org, bp)
+                ctx.state.updateNode(node.id) { it.copy(facts = it.facts + ("bp:private:${p.niceId}" to h)) }
+                ctx.log.change(domain, "ensured private resource ${p.niceId} (${p.alias})", node.id)
+            } catch (e: Exception) {
+                ctx.log.error(domain, "private ${p.niceId}: ${e.message}", node.id)
+            }
+        }
+        if (applied > 0) actual = api.listResources(org)
+
+        // Delete managed resources that are no longer desired (never touch unmanaged ones).
+        val keep = desired.publicResources.map { it.niceId }.toSet()
+        for (a in actual) {
+            if (!a.niceId.startsWith(Planner.NICE_PREFIX) || a.niceId in keep) continue
+            if (pausedServiceKeys.any { a.niceId.startsWith(Planner.NICE_PREFIX + it) }) continue
+            ctx.diff.add(domain, node.id, a.niceId, "delete", null, describe(a))
+            if (paused) continue
+            api.deleteResource(a.resourceId)
+            ctx.state.updateNode(node.id) { it.copy(facts = it.facts - "bp:${a.niceId}") }
+            ctx.log.change(domain, "deleted resource ${a.niceId}", node.id)
+        }
+        if (!paused) actual = actual.filter { it.niceId in keep || !it.niceId.startsWith(Planner.NICE_PREFIX) || pausedServiceKeys.any { k -> it.niceId.startsWith(Planner.NICE_PREFIX + k) } }
+
+        reconcilePrivate(api, node.id, org, desired, pausedServiceKeys, paused)
+
+        if (!paused) writeRoutes(ready, desired, actual)
+        return actual
+    }
+
+    private suspend fun reconcilePrivate(api: PangolinClient, nodeId: String, org: String, desired: NodeDesired, pausedKeys: Set<String>, paused: Boolean) {
+        val keep = desired.privateResources.map { it.niceId }.toSet()
+        val actual = runCatching { api.listSiteResources(org) }.getOrElse {
+            ctx.log.warn(domain, "could not list private resources: ${it.message}", nodeId)
+            return
+        }
+        for (a in actual) {
+            if (!a.niceId.startsWith(Planner.NICE_PREFIX) || a.niceId in keep) continue
+            if (pausedKeys.any { a.niceId.startsWith(Planner.NICE_PREFIX + it) }) continue
+            ctx.diff.add(domain, nodeId, "private:${a.niceId}", "delete")
+            if (paused) continue
+            api.deleteSiteResource(a.siteResourceId)
+            ctx.state.updateNode(nodeId) { it.copy(facts = it.facts - "bp:private:${a.niceId}") }
+            ctx.log.change(domain, "deleted private resource ${a.niceId}", nodeId)
+        }
+    }
+
+    private suspend fun applyBaseBlueprint(api: PangolinClient, nodeId: String, org: String, paused: Boolean) {
+        val path = ctx.config.pangolin.baseBlueprint ?: return
+        val text = Files.readTextOrNull(path) ?: run {
+            ctx.log.warn(domain, "base blueprint $path not found", nodeId)
+            return
+        }
+        val hash = Crypto.fnv64(text)
+        if (ctx.state.node(nodeId).facts["baseBlueprintHash"] == hash || paused) return
+        val json = if (text.trimStart().startsWith("{")) Json.parseToJsonElement(text).jsonObject else yamlToJson(text).jsonObject
+        api.applyBlueprint(org, json)
+        ctx.state.updateNode(nodeId) { it.copy(facts = it.facts + ("baseBlueprintHash" to hash)) }
+        ctx.log.change(domain, "applied base blueprint $path", nodeId)
+    }
+
+    private suspend fun writeRoutes(ready: ReadyNode, desired: NodeDesired, actual: List<PangolinResource>) {
+        val ids = actual.associate { it.niceId to it.resourceId }
+        val content = NodeTemplates.dynamicRoutes(ctx.config, desired, ids)
+        val hash = Crypto.fnv64(content)
+        val st = ctx.state.node(ready.node.id)
+        val dueCheck = st.facts["routesHash"] != hash || st.drift.isNotEmpty() || (st.lastCheckAt ?: 0) > (st.facts["routesCheckedAt"]?.toLongOrNull() ?: 0)
+        if (!dueCheck) return
+        val ssh = ctx.ssh.session(ready.node)
+        val path = "${ctx.config.pangolin.installDir}/${NodeTemplates.DYNAMIC_ROUTES}"
+        val q = shQuote(path)
+        val b64 = Base64.encode(content.encodeToByteArray())
+        val out = ssh.runScriptOrThrow("routes", """
+            |install -d -m 0755 "$(dirname $q)"
+            |printf '%s' '$b64' | base64 -d > $q.homegap-new
+            |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod 0644 $q.homegap-new; mv -f $q.homegap-new $q; echo CHANGED; else rm -f $q.homegap-new; fi
+        """.trimMargin(), 60)
+        if (out.contains("CHANGED")) {
+            ctx.log.change(domain, "updated Traefik routes (${desired.sniRoutes.size} SNI passthrough, health=${desired.healthResourceNiceId != null})", ready.node.id)
+        }
+        ctx.state.updateNode(ready.node.id) { it.copy(facts = it.facts + ("routesHash" to hash) + ("routesCheckedAt" to (st.lastCheckAt ?: 0).toString())) }
+    }
+
+    private fun matches(d: PublicResource, a: PangolinResource?): Boolean {
+        if (a == null) return false
+        if (a.mode != d.mode.wire) return false
+        if (d.mode == ResourceMode.HTTP && a.fullDomain != d.fullDomain) return false
+        if (d.mode != ResourceMode.HTTP && a.proxyPort != d.proxyPort) return false
+        if (a.enabled == false) return false
+        val t = a.targets
+        if (t.size != 1 || t[0].ip != d.target.host || t[0].port != d.target.port || t[0].enabled == false) return false
+        return true
+    }
+
+    private fun describe(d: PublicResource) = "${d.mode.wire} ${d.fullDomain ?: ":${d.proxyPort}"} -> ${d.target.host}:${d.target.port}"
+    private fun describe(a: PangolinResource) = "${a.mode} ${a.fullDomain ?: ":${a.proxyPort}"} -> ${a.targets.joinToString { "${it.ip}:${it.port}" }}"
+
+    fun buildBlueprint(publicRes: List<PublicResource>, privateRes: List<PrivateResource>): JsonObject {
+        val site = ctx.config.pangolin.siteName
+        return buildJsonObject {
+            putJsonObject("public-resources") {
+                for (r in publicRes) putJsonObject(r.niceId) { publicResource(r, site) }
+            }
+            if (privateRes.isNotEmpty()) {
+                putJsonObject("private-resources") {
+                    for (r in privateRes) putJsonObject(r.niceId) {
+                        put("name", r.name)
+                        put("mode", "host")
+                        putJsonArray("sites") { add(r.siteNiceId) }
+                        put("destination", r.destination)
+                        put("alias", r.alias)
+                        if (r.tcpPorts.isNotEmpty()) put("tcp-ports", r.tcpPorts)
+                        if (r.udpPorts.isNotEmpty()) put("udp-ports", r.udpPorts)
+                        putJsonArray("roles") { r.roles.forEach { add(it) } }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun JsonObjectBuilder.publicResource(r: PublicResource, site: String) {
+        put("name", r.niceId)
+        put("mode", r.mode.wire)
+        put("enabled", true)
+        if (r.mode == ResourceMode.HTTP) {
+            put("full-domain", r.fullDomain!!)
+            put("ssl", r.ssl)
+            r.hostHeader?.let { put("host-header", it) }
+            r.tlsServerName?.let { put("tls-server-name", it) }
+            putJsonObject("auth") {
+                when (r.auth) {
+                    AuthMode.NONE -> put("sso-enabled", false)
+                    AuthMode.SSO -> {
+                        put("sso-enabled", true)
+                        putJsonArray("sso-roles") { r.roles.filter { it != "Admin" }.forEach { add(it) } }
+                    }
+                    AuthMode.PIN -> {
+                        put("sso-enabled", false)
+                        val pin = r.pinEnv?.let { SecretRef("pin:${r.serviceKey}", it, null).resolve() }?.toIntOrNull()
+                        if (pin != null && pin in 100000..999999) put("pincode", pin)
+                        else ctx.log.error(domain, "PIN for ${r.serviceKey} missing or not 6 digits (env ${r.pinEnv})")
+                    }
+                }
+            }
+        } else {
+            put("proxy-port", r.proxyPort!!)
+        }
+        putJsonArray("targets") {
+            addJsonObject {
+                put("site", site)
+                put("hostname", r.target.host)
+                put("port", r.target.port)
+                r.target.method?.let { put("method", it) }
+                r.healthcheck?.let { hc ->
+                    putJsonObject("healthcheck") {
+                        put("hostname", r.target.host)
+                        put("port", r.target.port)
+                        put("enabled", true)
+                        when {
+                            hc is HealthCheck.Http && r.mode == ResourceMode.HTTP -> {
+                                put("mode", "http"); put("path", hc.path); put("scheme", r.target.method ?: "http")
+                            }
+                            else -> put("mode", "tcp")
+                        }
+                        put("interval", 30)
+                        put("timeout", 5)
+                    }
+                }
+            }
+        }
+    }
+
+    companion object {
+        private val INT = Regex("^-?(0|[1-9]\\d*)$")
+        private val FLOAT = Regex("^-?\\d+\\.\\d+$")
+
+        fun yamlToJson(text: String): JsonElement = toJson(Yaml.default.parseToYamlNode(text))
+
+        private fun toJson(n: YamlNode): JsonElement = when (n) {
+            is YamlMap -> JsonObject(n.entries.entries.associate { (k, v) -> k.content to toJson(v) })
+            is YamlList -> JsonArray(n.items.map { toJson(it) })
+            is YamlNull -> JsonNull
+            is YamlTaggedNode -> toJson(n.innerNode)
+            is YamlScalar -> {
+                val c = n.content
+                when {
+                    INT.matches(c) -> JsonPrimitive(c.toLong())
+                    FLOAT.matches(c) -> JsonPrimitive(c.toDouble())
+                    c == "true" -> JsonPrimitive(true)
+                    c == "false" -> JsonPrimitive(false)
+                    else -> JsonPrimitive(c)
+                }
+            }
+        }
+    }
+}

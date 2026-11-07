@@ -1,0 +1,146 @@
+# End-to-end harness: one fake regional node (DinD VPS), a simulated homelab, the
+# orchestrator, the tunnel supervisor and a Bunny API stand-in, on one private network.
+# Run ./run.sh rather than using this file directly.
+name: homegap-e2e
+
+networks:
+  e2e:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  node-docker:
+  node-opt:
+  node-as1-docker:
+  node-as1-opt:
+
+services:
+  node-na1:
+    build: { context: ., dockerfile: node.Dockerfile }
+    privileged: true
+    hostname: node-na1
+    volumes:
+      - ./work/keys:/keys:ro
+      - node-docker:/var/lib/docker
+      # Persist the node stack so its Pangolin host identity (and any EE license activation)
+      # survives harness restarts instead of consuming a new activation each run.
+      - node-opt:/opt/homegap
+    networks:
+      e2e:
+        ipv4_address: 172.30.0.10
+        aliases: [pangolin-na1.test.example.net]
+
+  node-as1:
+    build: { context: ., dockerfile: node.Dockerfile }
+    privileged: true
+    hostname: node-as1
+    volumes:
+      - ./work/keys:/keys:ro
+      - node-as1-docker:/var/lib/docker
+      - node-as1-opt:/opt/homegap
+    networks:
+      e2e:
+        ipv4_address: 172.30.0.11
+        aliases: [pangolin-as1.test.example.net]
+
+  whoami:
+    image: docker.io/traefik/whoami:v1.10
+    networks: [e2e]
+
+  homelab-traefik:
+    image: docker.io/traefik:v3.7.16
+    container_name: homelab-traefik
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    volumes:
+      - ./homelab-traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./homelab-dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./work/homelab-certs:/certs:ro
+    labels:
+      homegap.expose: "test.example.net"
+      homegap.wildcard: "true"
+      homegap.protocol: "https"
+      homegap.tls: "passthrough"
+    networks: [e2e]
+
+  # Dedicated subdomain, end-to-end TLS (SNI passthrough to the service itself).
+  git:
+    image: docker.io/traefik/whoami:v1.10
+    command: ["--port", "8443", "--cert", "/certs/origin.pem", "--key", "/certs/origin.key", "--name", "git"]
+    volumes: [ "./work/homelab-certs:/certs:ro" ]
+    labels:
+      homegap.expose: "git.test.example.net"
+      homegap.protocol: "https"
+      homegap.port: "8443"
+    networks: [e2e]
+
+  # Dedicated subdomain terminated on the node (plain http origin).
+  wiki:
+    image: docker.io/traefik/whoami:v1.10
+    command: ["--name", "wiki"]
+    labels:
+      homegap.expose: "wiki.test.example.net"
+      homegap.port: "80"
+      homegap.healthcheck: "/health"
+    networks: [e2e]
+
+  # Raw TCP on its own public port.
+  echo:
+    image: docker.io/alpine/socat:1.8.0.1
+    command: ["TCP-LISTEN:9000,fork,reuseaddr", "EXEC:cat"]
+    labels:
+      homegap.expose: "echo.test.example.net"
+      homegap.protocol: "tcp"
+      homegap.port: "9000"
+      homegap.public_port: "19000"
+    networks: [e2e]
+
+  # Private (Pangolin client only): no public DNS or node port.
+  ssh-jump:
+    image: docker.io/alpine/socat:1.8.0.1
+    command: ["TCP-LISTEN:22,fork,reuseaddr", "EXEC:echo SSH-2.0-fake"]
+    labels:
+      homegap.expose: "ssh.test.example.net"
+      homegap.protocol: "tcp"
+      homegap.port: "22"
+      homegap.access: "private"
+    networks: [e2e]
+
+  bunny-mock:
+    image: docker.io/library/python:3.12-alpine
+    command: ["python", "-u", "/mock.py"]
+    volumes: [ "./bunny-mock.py:/mock.py:ro" ]
+    networks: [e2e]
+
+  orchestrator:
+    image: homegap:e2e
+    command: ["run"]
+    environment:
+      BUNNY_API_KEY: e2e-bunny-key
+      # Optional EE license, exported by run.sh from the repository's untracked .env.
+      PANGOLIN_LICENSE_KEY: ${PANGOLIN_LICENSE_KEY:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config.e2e.yml:/config/config.yml
+      - ./work/keys:/keys:ro
+      - ./work/certs:/certs:ro
+      - ./work/data:/data
+    ports: [ "127.0.0.1:18088:8088" ]
+    networks: [e2e]
+
+  tunnels:
+    image: homegap:e2e
+    command: ["tunnels", "--dir", "/data/tunnels"]
+    environment:
+      # Newt (Go) trusts the e2e CA that signed the node's wildcard certificate.
+      SSL_CERT_FILE: /certs/ca.pem
+    volumes:
+      - ./work/data:/data
+      - ./work/certs:/certs:ro
+    networks: [e2e]
+
+  viewer:
+    image: docker.io/curlimages/curl:8.11.1
+    entrypoint: ["sleep", "infinity"]
+    volumes: [ "./work/certs:/certs:ro" ]
+    networks: [e2e]

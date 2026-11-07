@@ -1,0 +1,74 @@
+# HomeGAP controller configuration.
+#
+# Secrets are never written here: `*_env` fields name environment variables and `*_file`
+# fields name mounted files. `/run/secrets/<ENV_NAME>` is also checked for `*_env` references.
+
+project: home-gap
+# Start on a test domain hosted at Bunny that nothing depends on yet (a spare domain or a
+# delegated subdomain); switch to your production domain once everything is verified.
+domain: test.example.net
+data_dir: /data
+
+reconcile:
+  resync_interval: 60s        # periodic full resync (drift repair)
+  debounce: 2s                # Docker event debounce
+  node_check_interval: 5m     # SSH drift check per node
+  dry_run: false              # discovery + logged desired state, no writes
+
+bunny:
+  zone: test.example.net      # equal to, or a parent of, `domain`
+  api_key_env: BUNNY_API_KEY
+  ttl: 60
+  routing: geolocation        # geolocation | latency | none
+  monitor: http               # http (port 80, through the tunnel) | ping | none
+
+pangolin:
+  acme_email: ops@test.example.net
+  org_id: homegap
+  # Pangolin EE license (free below the commercial threshold). Required for wildcard
+  # resources in `terminate` mode; passthrough works without it.
+  # Keys are bound to ONE Pangolin instance on first activation: every node (and the primary)
+  # needs its own key. Set one per node with nodes[].license_key_env; this default only suits
+  # a single-node setup.
+  # license_key_env: PANGOLIN_LICENSE_KEY
+  crowdsec: false
+  # base_blueprint: /config/blueprints/base.yml
+
+# Wildcard + root certificate pushed to every node so `terminate` mode is instant.
+# none | files | acme_json (read the homelab Traefik's ACME store, mounted read-only).
+certificates:
+  source: acme_json
+  acme_json: /homelab/traefik/acme.json
+  resolver: bunny
+
+# The hand-curated homelab Pangolin: read-only anchor; only private resources are written.
+primary_pangolin:
+  url: http://pangolin:3003/v1
+  api_key_env: PRIMARY_PANGOLIN_KEY
+  org: homegap
+  site: homelab
+
+nodes:
+  - id: na1
+    region: NA
+    provider: vps-provider-a
+    host: 203.0.113.10
+    os: ubuntu-24.04
+    ssh_user: deploy
+    ssh_key_file: /secrets/ssh/na1
+    license_key_env: PANGOLIN_LICENSE_KEY_NA1
+    location: { latitude: 45.5, longitude: -73.6 }
+  - id: as1
+    region: AS
+    provider: vps-provider-b
+    host: 198.51.100.20
+    os: ubuntu-22.04
+    ssh_user: deploy
+    ssh_key_file: /secrets/ssh/as1
+    license_key_env: PANGOLIN_LICENSE_KEY_AS1
+    location: { latitude: 19.1, longitude: 72.9 }
+
+dashboard:
+  bind: 0.0.0.0:8088
+  # auth_token_env: HOMEGAP_DASHBOARD_TOKEN
+  allow_config_edits: true

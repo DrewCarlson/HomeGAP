@@ -1,0 +1,18 @@
+# Example Pangolin base blueprint, applied to every regional node before HomeGAP's managed
+# resources (set `pangolin.base_blueprint: /config/blueprints/base.yml`).
+#
+# Use it for static, node-wide configuration that is not derived from Docker labels, for
+# example shared resource policies. Keys here must not start with `hg-` (reserved for
+# resources HomeGAP manages and may delete).
+#
+# Reference: https://docs.pangolin.net/manage/blueprints
+
+# Shared policies are a licensed Pangolin EE feature.
+# public-policies:
+#   allow-everyone:
+#     name: allow-everyone
+#     rules:
+#       - action: allow
+#         match: cidr
+#         value: 0.0.0.0/0
+#         priority: 1000

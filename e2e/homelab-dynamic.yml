@@ -1,0 +1,18 @@
+tls:
+  stores:
+    default:
+      defaultCertificate:
+        certFile: /certs/origin.pem
+        keyFile: /certs/origin.key
+http:
+  routers:
+    everything:
+      rule: "HostRegexp(`.+`)"
+      entryPoints: [websecure]
+      service: whoami
+      tls: {}
+  services:
+    whoami:
+      loadBalancer:
+        servers:
+          - url: "http://whoami:80"

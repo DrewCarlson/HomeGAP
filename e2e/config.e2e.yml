@@ -1,0 +1,39 @@
+project: home-gap-e2e
+domain: test.example.net
+data_dir: /data
+reconcile:
+  resync_interval: 30s
+  debounce: 2s
+  node_check_interval: 2m
+bunny:
+  zone: example.net
+  api_key_env: BUNNY_API_KEY
+  api_url: http://bunny-mock:8080
+pangolin:
+  acme_email: ops@test.example.net
+  license_key_env: PANGOLIN_LICENSE_KEY
+certificates:
+  source: files
+  cert_file: /certs/wild.pem
+  key_file: /certs/wild.key
+tunnels:
+  state_dir: /data/tunnels
+nodes:
+  - id: na1
+    region: NA
+    provider: e2e
+    host: 172.30.0.10
+    os: ubuntu-24.04
+    ssh_user: deploy
+    ssh_key_file: /keys/id_ed25519
+    location: { latitude: 45.5, longitude: -73.6 }
+  - id: as1
+    region: AS
+    provider: e2e
+    host: 172.30.0.11
+    os: ubuntu-24.04
+    ssh_user: deploy
+    ssh_key_file: /keys/id_ed25519
+    location: { latitude: 19.1, longitude: 72.9 }
+dashboard:
+  bind: 0.0.0.0:8088
