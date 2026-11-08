@@ -39,8 +39,24 @@ jobs:
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/yarn
+            ~/Library/Caches/Yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', '**/build.gradle.kts') }}
+          restore-keys: yarn-${{ runner.os }}-
+      # The npm registry occasionally times out (504) on runners; retry before failing the job.
+      - name: Install npm packages
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew kotlinNpmInstall && exit 0
+            echo "::warning::kotlinNpmInstall failed (attempt $attempt of 3)"
+            sleep 20
+          done
+          exit 1
       - name: Test
-        run: ./gradlew macosArm64Test -Phomegap.skipWeb=true
+        run: ./gradlew macosArm64Test :presentation:jsNodeTest -Phomegap.skipWeb=true
 
   image:
     name: Build image
@@ -62,6 +78,22 @@ jobs:
         with:
           path: ~/.konan
           key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/yarn
+            ~/Library/Caches/Yarn
+          key: yarn-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', '**/build.gradle.kts') }}
+          restore-keys: yarn-${{ runner.os }}-
+      # The npm registry occasionally times out (504) on runners; retry before failing the job.
+      - name: Install npm packages
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew kotlinNpmInstall && exit 0
+            echo "::warning::kotlinNpmInstall failed (attempt $attempt of 3)"
+            sleep 20
+          done
+          exit 1
 
       # Both architectures are cross-compiled here with the dashboard bundle embedded;
       # the Dockerfile only copies the binaries in, so nothing compiles under emulation.
