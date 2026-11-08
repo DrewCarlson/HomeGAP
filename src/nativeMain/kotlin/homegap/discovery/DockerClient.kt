@@ -6,7 +6,10 @@ import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withTimeout
@@ -47,6 +50,9 @@ class DockerClient(
                 try {
                     send(json.decodeFromString<DockerEvent>(line))
                 } catch (e: Exception) {
+                    if (e is CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                    }
                     logger.warn(e) { "Failed to parse Docker event: $line" }
                 }
             }

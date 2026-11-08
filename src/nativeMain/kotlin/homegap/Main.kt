@@ -76,7 +76,7 @@ fun main(args: Array<String>) {
                     println(f.content)
                 }
                 println("=== ${NodeTemplates.DYNAMIC_ROUTES}")
-                println(NodeTemplates.dynamicRoutes(c, plan.nodes.getValue(id), emptyMap()))
+                println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
             }
             "tunnels" -> runTunnels(opt("--dir") ?: env("HOMEGAP_TUNNELS_DIR") ?: "/data/tunnels", opt("--newt") ?: env("HOMEGAP_NEWT") ?: "/usr/local/bin/newt")
             "run" -> runController(configPath, flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in setOf("1", "true", "yes"), flag("--once"))

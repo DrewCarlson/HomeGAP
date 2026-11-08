@@ -16,6 +16,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /** Written by the orchestrator: one per regional node. */
 @Serializable
@@ -102,9 +104,9 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         logger.info { "Tunnel supervisor watching $dir (newt: $newtBinary)" }
         // Only spec files: the status files this loop writes live in the same directory.
         launch { watchDirectory(dir) { it.endsWith(".tunnel.json") }.collect { events.send(Event.Rescan) } }
-        launch { while (true) { delay(TICK_MS); events.send(Event.Tick) } }
+        launch { while (true) { delay(TICK); events.send(Event.Tick) } }
         // Safety net for filesystems that do not deliver inotify events (some network mounts).
-        launch { while (true) { delay(RESCAN_MS); events.send(Event.Rescan) } }
+        launch { while (true) { delay(RESCAN); events.send(Event.Rescan) } }
         events.send(Event.Rescan)
         for (e in events) {
             try {
@@ -113,9 +115,10 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
                     Event.Tick -> { checkNativeFailures(); scrapeAll(); publish(force = false) }
                     is Event.Exited -> onExit(this, e)
                 }
-            } catch (ex: CancellationException) {
-                throw ex
             } catch (ex: Exception) {
+                if (ex is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
                 logger.error(ex) { "supervisor event $e failed" }
             }
         }
@@ -204,8 +207,8 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
     private fun scheduleRetry(scope: CoroutineScope, id: String) {
         val n = (restartCounts[id] ?: 0) + 1
         restartCounts[id] = n
-        val wait = minOf(60_000L, 2_000L * n)
-        backoffUntil[id] = nowMillis() + wait
+        val wait = backoff(n)
+        backoffUntil[id] = nowMillis() + wait.inWholeMilliseconds
         scope.launch { delay(wait); events.send(Event.Rescan) }
         publish(force = true)
     }
@@ -213,7 +216,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
     private suspend fun stop(id: String, p: Proc) {
         procs.remove(id)
         p.child.terminate()
-        if (withTimeoutOrNull(5_000) { p.exited.await() } == null) {
+        if (withTimeoutOrNull(STOP_GRACE) { p.exited.await() } == null) {
             p.child.kill()
             p.exited.await()
         }
@@ -235,7 +238,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
                 lastExit[id] = "kernel interface ${p.spec.nativeInterface} could not be created"
                 val n = (restartCounts[id] ?: 0) + 1
                 restartCounts[id] = n
-                backoffUntil[id] = nowMillis() + minOf(60_000L, 2_000L * n)
+                backoffUntil[id] = nowMillis() + backoff(n).inWholeMilliseconds
                 events.send(Event.Rescan)
             }
         }
@@ -265,7 +268,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
                 updatedAt = 0,
             )
             val prev = published[id]
-            if (!force && prev != null && prev.first == status && now - prev.second < HEARTBEAT_MS) continue
+            if (!force && prev != null && prev.first == status && now - prev.second < HEARTBEAT.inWholeMilliseconds) continue
             published[id] = status to now
             Files.writeAtomic(TunnelFiles.statusPath(dir, id), TunnelFiles.json.encodeToString(TunnelStatus.serializer(), status.copy(updatedAt = now)), "644".toInt(8))
         }
@@ -275,13 +278,24 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
 
     private suspend fun scrape(port: Int): Metrics? = runCatching {
         parseMetrics(http.get("http://127.0.0.1:$port/metrics").bodyAsText())
+    }.onFailure {
+        if (it is CancellationException) {
+            currentCoroutineContext().ensureActive()
+        }
     }.getOrNull()
 
     companion object {
-        const val TICK_MS = 10_000L
-        const val RESCAN_MS = 60_000L
+        val TICK = 10.seconds
+        val RESCAN = 60.seconds
+
         /** Status files are rewritten at least this often even when unchanged (staleness check). */
-        const val HEARTBEAT_MS = 20_000L
+        val HEARTBEAT = 20.seconds
+
+        /** How long a stopping Newt gets to exit on SIGTERM before SIGKILL. */
+        val STOP_GRACE = 5.seconds
+
+        /** Restart delay after the [restarts]th failure: 2 s, 4 s, … up to a minute. */
+        fun backoff(restarts: Int): Duration = minOf(2.seconds * restarts, 60.seconds)
 
         /** Newt log lines meaning the kernel WireGuard tunnel was not set up. */
         val NATIVE_FAILURES = listOf("Failed to create native main TUN device")

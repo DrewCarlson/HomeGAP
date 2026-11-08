@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.compose)
     alias(libs.plugins.kotlin.vite)
+    alias(libs.plugins.metro)
 }
 
 kotlin {
@@ -17,6 +18,7 @@ kotlin {
     sourceSets {
         jsMain.dependencies {
             implementation(project(":api"))
+            implementation(project(":presentation"))
             implementation(compose.runtime)
             implementation(compose.html.core)
             implementation(libs.kotlinx.serialization.json)

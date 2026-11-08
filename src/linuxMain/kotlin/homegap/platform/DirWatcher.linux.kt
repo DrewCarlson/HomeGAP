@@ -1,6 +1,8 @@
 package homegap.platform
 
-import kotlinx.cinterop.*
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.convert
+import kotlinx.cinterop.usePinned
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.delay
@@ -10,13 +12,14 @@ import kotlinx.coroutines.flow.flowOn
 import platform.linux.*
 import platform.posix.close
 import platform.posix.read
+import kotlin.time.Duration.Companion.seconds
 
 actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): Flow<Unit> = flow {
     Files.mkdirs(dir)
     val fd = inotify_init1(IN_CLOEXEC)
     if (fd < 0) {
         // No inotify (unusual container restrictions): fall back to scanning.
-        while (true) { delay(3000); emit(Unit) }
+        while (true) { delay(3.seconds); emit(Unit) }
     }
     try {
         val mask = (IN_CLOSE_WRITE or IN_MOVED_TO or IN_MOVED_FROM or IN_DELETE or IN_CREATE).toUInt()
@@ -25,7 +28,7 @@ actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): F
         while (true) {
             // Blocks this IO thread until something changes; no wakeups while idle.
             val n = buf.usePinned { read(fd, it.addressOf(0), buf.size.convert()) }
-            if (n < 0) { delay(1000); continue }
+            if (n < 0) { delay(1.seconds); continue }
             if (eventNames(buf, n.toInt()).any(accept)) emit(Unit)
         }
     } finally {
@@ -33,7 +36,7 @@ actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): F
     }
 }.flowOn(Dispatchers.IO)
 
-/** File names in a buffer of `struct inotify_event` records (wd, mask, cookie, len, name[len]). */
+/** File names in a buffer of `struct inotify_event` records `(wd, mask, cookie, len, name[len])`. */
 internal fun eventNames(buf: ByteArray, n: Int): List<String> {
     val names = mutableListOf<String>()
     var off = 0

@@ -4,6 +4,9 @@ import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import kotlin.io.encoding.Base64
@@ -116,7 +119,13 @@ open class PangolinClient(
             }
         }.pangolinData()
 
-    open suspend fun ping(): Boolean = runCatching { http.get("$baseUrl/") { auth() }.status.isSuccess() }.getOrDefault(false)
+    open suspend fun ping(): Boolean = runCatching {
+        http.get("$baseUrl/") { auth() }.status.isSuccess()
+    }.onFailure {
+        if (it is CancellationException) {
+            currentCoroutineContext().ensureActive()
+        }
+    }.getOrDefault(false)
 
     open suspend fun getOrg(orgId: String): JsonElement = get("/org/$orgId")
 
@@ -206,7 +215,14 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
             ?: throw PangolinApiException(resp.status.value, "login did not return a session cookie")
     }
 
-    suspend fun orgExists(orgId: String): Boolean = runCatching { call(HttpMethod.Get, "/org/$orgId").pangolinData(); true }.getOrDefault(false)
+    suspend fun orgExists(orgId: String): Boolean = runCatching {
+        call(HttpMethod.Get, "/org/$orgId").pangolinData()
+        true
+    }.onFailure {
+        if (it is CancellationException) {
+            currentCoroutineContext().ensureActive()
+        }
+    }.getOrDefault(false)
 
     suspend fun createOrg(orgId: String, name: String) {
         val defaults = call(HttpMethod.Get, "/pick-org-defaults").pangolinData().jsonObject

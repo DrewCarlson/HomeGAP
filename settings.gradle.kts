@@ -19,4 +19,5 @@ dependencyResolutionManagement {
 rootProject.name = "homegap"
 
 include(":api")
+include(":presentation")
 include(":web")

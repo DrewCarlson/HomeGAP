@@ -33,6 +33,7 @@ object NodeTemplates {
     const val CERT = "config/traefik/certs/homegap.crt"
     const val KEY = "config/traefik/certs/homegap.key"
     const val SECRETS = "secrets/node.json"
+    private val PRETTY_JSON = Json { prettyPrint = true }
     /** Rendered into the install dir (so it is hashed and drift-checked), installed into /etc/sysctl.d. */
     const val SYSCTL = "config/homegap-sysctl.conf"
 
@@ -46,7 +47,7 @@ object NodeTemplates {
             RenderedFile(".env", envFile(secrets, config.pangolin.crowdsec), "0600"),
             RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot), "0600").apply { restarts = "pangolin" },
             RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts)).apply { restarts = "traefik" },
-            RenderedFile(SECRETS, Json { prettyPrint = true }.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
+            RenderedFile(SECRETS, PRETTY_JSON.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
         )
         if (config.pangolin.crowdsec) {
             files += RenderedFile("config/crowdsec/acquis.d/traefik.yaml", YamlEmitter.emit(buildJsonObject {
@@ -125,7 +126,7 @@ object NodeTemplates {
                             put("GID", "1000")
                             put("COLLECTIONS", "crowdsecurity/traefik crowdsecurity/appsec-virtual-patching crowdsecurity/appsec-generic-rules")
                             put("PARSERS", "crowdsecurity/whitelists")
-                            put("BOUNCER_KEY_traefik", "\${CROWDSEC_BOUNCER_KEY}")
+                            put("BOUNCER_KEY_traefik", $$"${CROWDSEC_BOUNCER_KEY}")
                         }
                         putJsonArray("env_file") { add(".env") }
                         putJsonArray("volumes") {
@@ -328,7 +329,7 @@ object NodeTemplates {
      * [resourceIds] maps Pangolin resource niceIds to numeric ids (Pangolin's generated Traefik
      * service names embed them); routes whose resource does not exist yet are omitted.
      */
-    fun dynamicRoutes(config: AppConfig, desired: NodeDesired, resourceIds: Map<String, Int>): String {
+    fun dynamicRoutes(desired: NodeDesired, resourceIds: Map<String, Int>): String {
         val node = desired.node
         val mgmt = desired.managementHost
         val root = buildJsonObject {

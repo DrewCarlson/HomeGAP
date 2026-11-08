@@ -513,6 +513,7 @@ automatically.
 
 ```bash
 ./gradlew macosArm64Test                       # unit tests (host target)
+./gradlew :presentation:jsNodeTest            # dashboard presenter tests (Node)
 ./gradlew linkReleaseExecutableLinuxX64 linkReleaseExecutableLinuxArm64
 docker buildx build --platform linux/amd64,linux/arm64 -t homegap .
 ./gradlew -Phomegap.skipWeb=true …             # skip bundling the dashboard for fast iteration

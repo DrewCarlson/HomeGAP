@@ -9,6 +9,7 @@ import homegap.platform.nowMillis
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
+import io.ktor.server.auth.*
 import io.ktor.server.cio.*
 import io.ktor.server.engine.*
 import io.ktor.server.plugins.contentnegotiation.*
@@ -84,53 +85,76 @@ class SpeedTestServer(
 
     fun Application.module() {
         install(ContentNegotiation) { json(Json { explicitNulls = false; ignoreUnknownKeys = true }) }
+        install(Authentication) {
+            // Short-lived link tokens, sent as a header by the test page.
+            provider(LINK_AUTH) {
+                authenticate { context ->
+                    if (tokens.valid(context.call.request.header(TOKEN_HEADER))) {
+                        context.principal(UserIdPrincipal("speedtest-link"))
+                    } else {
+                        context.challenge(LINK_AUTH, AuthenticationFailedCause.InvalidCredentials) { challenge, call ->
+                            call.respond(HttpStatusCode.Unauthorized, "speed test link expired or invalid")
+                            challenge.complete()
+                        }
+                    }
+                }
+            }
+        }
         routing {
             get("/") { page() }
             get("/index.html") { page() }
             route("/speedtest") {
-                intercept(ApplicationCallPipeline.Plugins) {
-                    call.response.header(HttpHeaders.CacheControl, "no-store")
-                    if (!tokens.valid(call.request.header(TOKEN_HEADER))) {
-                        call.respond(HttpStatusCode.Unauthorized, "speed test link expired or invalid")
-                        finish()
-                    }
-                }
-                get("/ping") { call.respond(HttpStatusCode.NoContent) }
-                get("/info") {
-                    val cfg = config()
-                    call.respond(buildJsonObject {
-                        put("node", nodeFor(call.request.host()))
-                        put("phaseSeconds", cfg.speedtest.phaseSeconds)
-                        putJsonObject("nodes") {
-                            cfg.nodes.forEach { put(it.id, "https://" + cfg.speedtest.nodeHost(cfg.domain, it.id) + "/") }
-                        }
-                    })
-                }
-                get("/down") {
-                    val seconds = (call.request.queryParameters["seconds"]?.toIntOrNull() ?: config().speedtest.phaseSeconds).coerceIn(1, 30)
-                    val end = nowMillis() + seconds * 1000L
-                    call.respondBytesWriter(ContentType.Application.OctetStream) {
-                        while (nowMillis() < end) {
-                            writeFully(payload, 0, payload.size)
-                            flush()
-                        }
-                    }
-                }
-                post("/up") { receiveUpload() }
-                put("/up") { receiveUpload() }
-                post("/result") {
-                    val req = call.receive<DeviceResultRequest>()
-                    val r = SpeedTestResultDto(
-                        id = newResultId(), at = nowMillis(), kind = "device", nodeId = nodeFor(call.request.host()),
-                        auto = req.auto, pingMs = req.pingMs, jitterMs = req.jitterMs, downMbps = req.downMbps, upMbps = req.upMbps,
-                        pingSamples = req.pingSamples, error = req.error?.take(300),
-                        client = call.request.header(HttpHeaders.UserAgent)?.take(160),
-                    )
-                    store.add(r)
-                    call.respond(HttpStatusCode.NoContent)
-                }
+                install(NoStore)
+                authenticate(LINK_AUTH) { measurementRoutes() }
             }
         }
+    }
+
+    private fun Route.measurementRoutes() {
+        get("/ping") { call.respond(HttpStatusCode.NoContent) }
+        get("/info") { info() }
+        get("/down") { download() }
+        post("/up") { receiveUpload() }
+        put("/up") { receiveUpload() }
+        post("/result") { saveResult() }
+    }
+
+    /** Which node served this page, the phase length and every node's own test URL. */
+    private suspend fun RoutingContext.info() {
+        val cfg = config()
+        call.respond(buildJsonObject {
+            put("node", nodeFor(call.request.host()))
+            put("phaseSeconds", cfg.speedtest.phaseSeconds)
+            putJsonObject("nodes") {
+                cfg.nodes.forEach { put(it.id, "https://" + cfg.speedtest.nodeHost(cfg.domain, it.id) + "/") }
+            }
+        })
+    }
+
+    /** Streams random bytes for `?seconds=` (default `speedtest.phase_seconds`, at most 30). */
+    private suspend fun RoutingContext.download() {
+        val seconds = (call.request.queryParameters["seconds"]?.toIntOrNull() ?: config().speedtest.phaseSeconds).coerceIn(1, 30)
+        val end = nowMillis() + seconds * 1000L
+        call.respondBytesWriter(ContentType.Application.OctetStream) {
+            while (nowMillis() < end) {
+                writeFully(payload, 0, payload.size)
+                flush()
+            }
+        }
+    }
+
+    /** A device test result, attributed to the node whose hostname served it. */
+    private suspend fun RoutingContext.saveResult() {
+        val request = call.receive<DeviceResultRequest>()
+        store.add(
+            SpeedTestResultDto(
+                id = newResultId(), at = nowMillis(), kind = "device", nodeId = nodeFor(call.request.host()),
+                auto = request.auto, pingMs = request.pingMs, jitterMs = request.jitterMs,
+                downMbps = request.downMbps, upMbps = request.upMbps, pingSamples = request.pingSamples,
+                error = request.error?.take(300), client = call.request.header(HttpHeaders.UserAgent)?.take(160),
+            )
+        )
+        call.respond(HttpStatusCode.NoContent)
     }
 
     private suspend fun RoutingContext.page() {
@@ -156,6 +180,12 @@ class SpeedTestServer(
 
     companion object {
         const val TOKEN_HEADER = "X-HomeGAP-Token"
+        private const val LINK_AUTH = "speedtest-link"
+
+        /** Measurements must never be served from a cache. */
+        private val NoStore = createRouteScopedPlugin("NoStore") {
+            onCall { call -> call.response.header(HttpHeaders.CacheControl, "no-store") }
+        }
     }
 }
 
@@ -173,21 +203,21 @@ object TunnelSpeedTest {
      * its own TCP connection (and so its own congestion window) sharing the one tunnel, like
      * real traffic from several viewers or browser connections. Rates are summed.
      */
-    fun script(host: String, token: String, seconds: Int, streams: Int = 1): String = """
-        |H=${sh(host)}
-        |C=(curl -sk --resolve "${'$'}H:443:127.0.0.1" -H ${sh("${SpeedTestServer.TOKEN_HEADER}: $token")} -H 'Expect:' --max-time 90)
-        |T=${'$'}(mktemp -d); trap 'rm -rf "${'$'}T"' EXIT
+    fun script(host: String, token: String, seconds: Int, streams: Int = 1): String = $$"""
+        |H=$${sh(host)}
+        |C=(curl -sk --resolve "$H:443:127.0.0.1" -H $${sh("${SpeedTestServer.TOKEN_HEADER}: $token")} -H 'Expect:' --max-time 90)
+        |T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
         |URLS=()
-        |for i in $(seq 0 $PINGS); do URLS+=("https://${'$'}H/speedtest/ping?i=${'$'}i"); done
-        |"${'$'}{C[@]}" -w 'P %{time_pretransfer} %{time_starttransfer} %{http_code}\n' "${'$'}{URLS[@]}" || true
-        |for s in $(seq 1 $streams); do
-        |  "${'$'}{C[@]}" -o /dev/null -w 'D %{size_download} %{time_starttransfer} %{time_total} %{http_code}\n' "https://${'$'}H/speedtest/down?seconds=$seconds" > "${'$'}T/d${'$'}s" 2>/dev/null &
+        |for i in $(seq 0 $$PINGS); do URLS+=("https://$H/speedtest/ping?i=$i"); done
+        |"${C[@]}" -w 'P %{time_pretransfer} %{time_starttransfer} %{http_code}\n' "${URLS[@]}" || true
+        |for s in $(seq 1 $$streams); do
+        |  "${C[@]}" -o /dev/null -w 'D %{size_download} %{time_starttransfer} %{time_total} %{http_code}\n' "https://$H/speedtest/down?seconds=$$seconds" > "$T/d$s" 2>/dev/null &
         |done
-        |wait; for s in $(seq 1 $streams); do cat "${'$'}T/d${'$'}s" 2>/dev/null || echo 'D 0 0 0 000'; done
-        |for s in $(seq 1 $streams); do
-        |  { { timeout $seconds cat /dev/zero || true; } | "${'$'}{C[@]}" -T - -w '\nU %{http_code}\n' "https://${'$'}H/speedtest/up" > "${'$'}T/u${'$'}s" 2>/dev/null; } &
+        |wait; for s in $(seq 1 $$streams); do cat "$T/d$s" 2>/dev/null || echo 'D 0 0 0 000'; done
+        |for s in $(seq 1 $$streams); do
+        |  { { timeout $$seconds cat /dev/zero || true; } | "${C[@]}" -T - -w '\nU %{http_code}\n' "https://$H/speedtest/up" > "$T/u$s" 2>/dev/null; } &
         |done
-        |wait; for s in $(seq 1 $streams); do cat "${'$'}T/u${'$'}s" 2>/dev/null; echo; done
+        |wait; for s in $(seq 1 $$streams); do cat "$T/u$s" 2>/dev/null; echo; done
     """.trimMargin()
 
     private fun sh(s: String) = "'" + s.replace("'", "'\"'\"'") + "'"

@@ -11,6 +11,9 @@ import homegap.model.*
 import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.provision.NodeTemplates
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.*
 import kotlin.io.encoding.Base64
 
@@ -59,12 +62,21 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
                 ctx.state.updateNode(node.id) { it.copy(facts = it.facts + ("bp:${d.niceId}" to h)) }
                 ctx.log.change(domain, "${if (a == null) "created" else if (drifted) "repaired" else "updated"} ${d.niceId} (${describe(d)})", node.id)
             } catch (e: Exception) {
+                if (e is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
                 ctx.state.updateNode(node.id) { it.copy(facts = it.facts - "bp:${d.niceId}") }
                 ctx.log.error(domain, "${d.niceId}: ${e.message}", node.id)
             }
         }
         // Listed once per pass and shared with reconcilePrivate.
-        val siteResources = runCatching { api.listSiteResources(org) }
+        val siteResources = runCatching {
+            api.listSiteResources(org)
+        }.onFailure {
+            if (it is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+        }
         val privateActual = siteResources.getOrNull()?.map { it.niceId }?.toSet()
         for (p in activePrivate) {
             val bp = buildBlueprint(emptyList(), listOf(p))
@@ -80,6 +92,9 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
                 ctx.state.updateNode(node.id) { it.copy(facts = it.facts + ("bp:private:${p.niceId}" to h)) }
                 ctx.log.change(domain, "ensured private resource ${p.niceId} (${p.alias})", node.id)
             } catch (e: Exception) {
+                if (e is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
                 ctx.log.error(domain, "private ${p.niceId}: ${e.message}", node.id)
             }
         }
@@ -98,14 +113,14 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         }
         if (!paused) actual = actual.filter { it.niceId in keep || !it.niceId.startsWith(Planner.NICE_PREFIX) || pausedServiceKeys.any { k -> it.niceId.startsWith(Planner.NICE_PREFIX + k) } }
 
-        reconcilePrivate(api, node.id, org, desired, pausedServiceKeys, paused, siteResources)
+        reconcilePrivate(api, node.id, desired, pausedServiceKeys, paused, siteResources)
 
         if (!paused) writeRoutes(ready, desired, actual)
         return actual
     }
 
     private suspend fun reconcilePrivate(
-        api: PangolinClient, nodeId: String, org: String, desired: NodeDesired, pausedKeys: Set<String>, paused: Boolean,
+        api: PangolinClient, nodeId: String, desired: NodeDesired, pausedKeys: Set<String>, paused: Boolean,
         listed: Result<List<homegap.clients.PangolinSiteResource>>,
     ) {
         val keep = desired.privateResources.map { it.niceId }.toSet()
@@ -141,7 +156,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
 
     private suspend fun writeRoutes(ready: ReadyNode, desired: NodeDesired, actual: List<PangolinResource>) {
         val ids = actual.associate { it.niceId to it.resourceId }
-        val content = NodeTemplates.dynamicRoutes(ctx.config, desired, ids)
+        val content = NodeTemplates.dynamicRoutes(desired, ids)
         val hash = Crypto.fnv64(content)
         val st = ctx.state.node(ready.node.id)
         val dueCheck = st.facts["routesHash"] != hash || st.drift.isNotEmpty() || (st.lastCheckAt ?: 0) > (st.facts["routesCheckedAt"]?.toLongOrNull() ?: 0)

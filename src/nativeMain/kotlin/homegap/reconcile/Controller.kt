@@ -144,15 +144,16 @@ class Controller(
             while (true) reasons += triggers.tryReceive().getOrNull() ?: break
             try {
                 reconcileOnce(reasons.joinToString(","))
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                if (e is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
                 log.error("controller", "reconcile pass crashed: ${e.message}")
             }
         }
     }
 
-    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    @OptIn(FlowPreview::class)
     private suspend fun watchDocker() {
         val filters = mapOf("type" to listOf("container"), "event" to listOf("start", "stop", "die", "destroy", "update", "rename"))
         while (true) {
@@ -161,9 +162,10 @@ class Controller(
                     .filter { e -> e.actor.attributes.keys.any { it.startsWith(Labels.PREFIX) } || e.action in setOf("die", "destroy", "stop") }
                     .debounce(config.reconcile.debounceDuration)
                     .collect { e -> trigger("docker:${e.action}") }
-            } catch (e: CancellationException) {
-                throw e
             } catch (e: Exception) {
+                if (e is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
                 log.warn("discovery", "Docker event stream disconnected (${e.message}); reconnecting in 5s")
             }
             delay(5.seconds)
@@ -208,6 +210,9 @@ class Controller(
             val containers: List<DockerContainerSummary>? = try {
                 docker.listContainers(mapOf("status" to listOf("running"), "label" to listOf(Labels.EXPOSE)))
             } catch (e: Exception) {
+                if (e is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
                 log.error("discovery", "cannot list containers: ${e.message}")
                 null
             }
@@ -321,7 +326,7 @@ class Controller(
                             log.info("resources", "[dry-run] blueprint: $bp", node.id)
                             nd.publicResources.forEach { diff.add("resources", node.id, it.niceId, "unknown", "${it.mode.wire} ${it.fullDomain ?: ":${it.proxyPort}"} -> ${it.target.host}:${it.target.port}") }
                         }
-                        val o = runDomain("observe", node.id) { observeNode(ctx, node, ready, resources, site) }
+                        val o = runDomain("observe", node.id) { observeNode(ctx, node, ready, site) }
                         synchronizedPut(obs, node.id, o ?: NodeObservation(false, emptyList(), null, false))
                         synchronizedPut(online, node.id, site?.online)
                         synchronizedPut(health, node.id, serviceHealthFor(effective, node.id, resources, site))
@@ -374,11 +379,13 @@ class Controller(
         plan.dns.filter { d ->
             val have = present[d.nodeId] ?: return@filter true
             val nd = plan.nodes[d.nodeId] ?: return@filter true
-            val fdKey = plan.frontDoor?.key
+            val frontDoor = plan.frontDoor
+            val fdKey = frontDoor?.key
+            val fdWildcard = frontDoor?.let { "*.${it.hostname}" }
             val needed = when {
                 d.purpose == "management" -> emptyList()
-                d.purpose == "root" -> nd.publicResources.filter { it.serviceKey == fdKey && it.fullDomain != "*.${plan.frontDoor?.hostname}" && it.niceId != Planner.HEALTH }
-                d.purpose == "wildcard" -> nd.publicResources.filter { it.serviceKey == fdKey && (it.mode.wire == "tcp" || it.fullDomain == "*.${plan.frontDoor?.hostname}") }
+                d.purpose == "root" -> nd.publicResources.filter { it.serviceKey == fdKey && it.fullDomain != fdWildcard && it.niceId != Planner.HEALTH }
+                d.purpose == "wildcard" -> nd.publicResources.filter { it.serviceKey == fdKey && (it.mode.wire == "tcp" || it.fullDomain == fdWildcard) }
                 d.purpose.startsWith("service:") -> nd.publicResources.filter { it.serviceKey == d.purpose.removePrefix("service:") && it.niceId != Planner.HEALTH }
                 else -> emptyList()
             }.filter { !it.paused }.map { it.niceId }
@@ -394,9 +401,10 @@ class Controller(
 
     private suspend fun <T> runDomain(domain: String, target: String?, block: suspend () -> T): T? = try {
         block()
-    } catch (e: CancellationException) {
-        throw e
     } catch (e: Exception) {
+        if (e is CancellationException) {
+            currentCoroutineContext().ensureActive()
+        }
         log.error(domain, e.message ?: e.toString(), target)
         null
     }
@@ -439,27 +447,32 @@ class Controller(
         ctx: ReconcileContext,
         node: NodeConfig,
         ready: ReadyNode?,
-        resources: List<PangolinResource>,
         site: PangolinSite?,
     ): NodeObservation {
         if (ctx.dryRun) return NodeObservation(false, listOf(CheckDto("mode", Health.UNKNOWN, "dry-run: no remote access")), null, false)
         val checks = mutableListOf<CheckDto>()
         val mgmt = node.managementHost(ctx.config.domain)
         val root = ctx.config.domain
-        val script = """
-            |for s in pangolin gerbil traefik; do echo "C ${'$'}s $(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' ${'$'}s 2>/dev/null || echo 'missing none')"; done
+        val script = $$"""
+            |for s in pangolin gerbil traefik; do echo "C $s $(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $s 2>/dev/null || echo 'missing none')"; done
             |echo "D $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo none)"
-            |probe() { c=$(echo | timeout 6 openssl s_client -connect 127.0.0.1:443 -servername "${'$'}1" 2>/dev/null | openssl x509 -noout -enddate -subject 2>/dev/null) || { echo "none"; return; }; end=$(echo "${'$'}c" | sed -n 's/^notAfter=//p'); sub=$(echo "${'$'}c" | sed -n 's/^subject=//p'); echo "$(date -d "${'$'}end" +%s 2>/dev/null || echo 0)|${'$'}sub"; }
-            |echo "T mgmt $(probe ${shQuote(mgmt)})"
-            |echo "T root $(probe ${shQuote(root)})"
+            |probe() { c=$(echo | timeout 6 openssl s_client -connect 127.0.0.1:443 -servername "$1" 2>/dev/null | openssl x509 -noout -enddate -subject 2>/dev/null) || { echo "none"; return; }; end=$(echo "$c" | sed -n 's/^notAfter=//p'); sub=$(echo "$c" | sed -n 's/^subject=//p'); echo "$(date -d "$end" +%s 2>/dev/null || echo 0)|$sub"; }
+            |echo "T mgmt $(probe $${shQuote(mgmt)})"
+            |echo "T root $(probe $${shQuote(root)})"
             |(ss -lun 2>/dev/null | grep -q ':51820 ') && echo "U ok" || echo "U missing"
         """.trimMargin()
-        val r = runCatching { ctx.ssh.session(node).runScript(script, 60) }.getOrNull()
+        val r = runCatching {
+            ctx.ssh.session(node).runScript(script, 60)
+        }.onFailure {
+            if (it is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+        }.getOrNull()
         val reachable = r != null && r.ok
         checks += CheckDto("ssh", if (reachable) Health.OK else Health.DOWN, if (reachable) "" else (r?.stderr?.trim()?.take(200) ?: "unreachable"))
         var cert: CertificateDto? = null
         if (reachable) {
-            for (line in r!!.stdout.lines()) {
+            for (line in r.stdout.lines()) {
                 val parts = line.split(' ', limit = 3)
                 when (parts.firstOrNull()) {
                     "C" -> if (parts.size == 3) {
@@ -497,7 +510,13 @@ class Controller(
                 }
             }
         }
-        val apiOk = ready != null && runCatching { ready.api.getOrg(ctx.config.pangolin.orgId) }.isSuccess
+        val apiOk = ready != null && runCatching {
+            ready.api.getOrg(ctx.config.pangolin.orgId)
+        }.onFailure {
+            if (it is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+        }.isSuccess
         checks += CheckDto("pangolin-api", if (apiOk) Health.OK else Health.DOWN, if (apiOk) "integration API" else "not reachable")
         if (node.licenseKey(ctx.config.pangolin) != null) {
             val ns = state.node(node.id)
@@ -542,7 +561,7 @@ class Controller(
             val n = cfg.node(id)
             val ns = st.nodes[id]
             val o = nodeObs[id]
-            val tunnel = TunnelFiles.readStatus("${cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"}", id)
+            val tunnel = TunnelFiles.readStatus(cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels", id)
             val worst = o?.checks?.map { it.health }?.let { hs ->
                 when {
                     hs.contains(Health.DOWN) -> Health.DOWN
@@ -624,7 +643,7 @@ class Controller(
                 siteNiceId = cfg.pangolin.siteName,
                 endpoint = "https://${n.managementHost(cfg.domain)}",
                 up = siteOnline[n.id] == true,
-                processRunning = fresh && t!!.running,
+                processRunning = fresh && t.running,
                 siteOnline = siteOnline[n.id],
                 restarts = t?.restarts ?: 0,
                 lastExit = t?.lastExit,
@@ -679,7 +698,7 @@ class Controller(
                 plan.dns.forEach { d -> add("${d.type} ${d.fqdn} -> ${d.value} [${d.nodeId}] ${d.purpose}${if (d.geo) " geo" else ""} monitor=${d.monitor}") }
             }
         }
-        return Json { prettyPrint = true }.encodeToString(JsonObject.serializer(), obj)
+        return PRETTY_JSON.encodeToString(JsonObject.serializer(), obj)
     }
 
     // ------------------------------------------------------------------ speed tests
@@ -727,7 +746,7 @@ class Controller(
                 id = homegap.speedtest.newResultId(), at = nowMillis(), kind = "tunnel", nodeId = nodeId,
                 pingMs = p.pingMs, jitterMs = p.jitterMs, downMbps = p.downMbps, upMbps = p.upMbps, pingSamples = p.samples, error = err,
                 streams = n, downStreamsMbps = p.downStreams, upStreamsMbps = p.upStreams,
-                client = "node ${nodeId} (newt mtu ${cfg.tunnels.mtu ?: "default"}${if (cfg.tunnels.native) ", kernel wireguard" else ""})",
+                client = "node $nodeId (newt mtu ${cfg.tunnels.mtu ?: "default"}${if (cfg.tunnels.native) ", kernel wireguard" else ""})",
             )
             speedStore.add(result)
             log.info("speedtest", "tunnel: ping ${p.pingMs?.let { fmt1(it) } ?: "-"} ms, jitter ${p.jitterMs?.let { fmt1(it) } ?: "-"} ms, down ${p.downMbps?.let { fmt1(it) } ?: "-"} Mbps, up ${p.upMbps?.let { fmt1(it) } ?: "-"} Mbps ($n streams)${err?.let { " ($it)" } ?: ""}", nodeId)
@@ -797,7 +816,14 @@ class Controller(
         if (host != null && !dryRun) {
             val n = NodeConfig(id = id, host = host, sshUser = ns.facts["cfg.user"] ?: "root", sshPort = ns.facts["cfg.port"]?.toIntOrNull() ?: 22, sshKeyFile = ns.facts["cfg.key"] ?: "", publicIpv4 = "0.0.0.0")
             val ctx = ReconcileContext(config, state, log, ssh, localHttp, externalHttp, dryRun, DiffCollector())
-            runCatching { NodeReconciler(ctx).decommission(n) }.onFailure { log.warn("nodes", "stack teardown failed (${it.message}); removing from state anyway", id) }
+            runCatching {
+                NodeReconciler(ctx).decommission(n)
+            }.onFailure {
+                if (it is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
+                log.warn("nodes", "stack teardown failed (${it.message}); removing from state anyway", id)
+            }
         }
         state.removeNode(id)
         TunnelReconciler(ReconcileContext(config, state, log, ssh, localHttp, externalHttp, dryRun, DiffCollector())).prune(config.nodes.map { it.id }.toSet())
@@ -809,3 +835,5 @@ class Controller(
 
 private fun epochToIso(epochSeconds: Long): String =
     kotlin.time.Instant.fromEpochSeconds(epochSeconds).toString()
+
+private val PRETTY_JSON = Json { prettyPrint = true }

@@ -14,9 +14,12 @@ import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.provision.RenderedFile
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Node lifecycle domain: turns a bare SSH-reachable Ubuntu VPS into a Pangolin EE node and
@@ -80,6 +83,9 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         try {
             ssh.ensureMaster()
         } catch (e: Exception) {
+            if (e is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
             log.error(domain, "unreachable over SSH: ${e.message}", node.id)
             ctx.state.updateNode(node.id) { it.copy(facts = it.facts + ("reachable" to "false")) }
             return null
@@ -113,7 +119,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         val reason = if (!needsProvision) null else when {
             force -> "requested"
             st.lastProvisionOk == null -> "new node"
-            st.lastProvisionOk == false -> "previous attempt failed"
+            !st.lastProvisionOk -> "previous attempt failed"
             st.stackHash != stackHash -> "stack changed"
             else -> "drift"
         }
@@ -126,6 +132,9 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         return try {
             bootstrap(a.node, a.ssh, slot, a.secrets)
         } catch (e: Exception) {
+            if (e is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
             log.error(domain, "bootstrap failed: ${e.message}", a.node.id)
             ctx.state.updateNode(a.node.id) { it.copy(lastProvisionOk = false, lastProvisionError = "bootstrap: ${e.message}") }
             null
@@ -162,9 +171,10 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             }
             if (update) log.change(domain, "update complete", node.id)
             return true
-        } catch (e: CancellationException) {
-            throw e
         } catch (e: Exception) {
+            if (e is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
             val msg = e.message?.take(2000) ?: e.toString()
             if (!update) {
                 log.error(domain, "provisioning failed: $msg", node.id)
@@ -174,17 +184,20 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             log.error(domain, "update failed: $msg", node.id)
             val restored = if (!changed) true else try {
                 log.change(domain, "rolling back to the previous stack", node.id)
-                rollback(node, ssh, a.files)
+                rollback(ssh, a.files)
                 log.change(domain, "rollback complete; previous stack is running", node.id)
                 true
             } catch (r: Exception) {
+                if (r is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
                 log.error(domain, "rollback failed: ${r.message}", node.id)
                 false
             }
             ctx.state.updateNode(node.id) {
                 it.copy(
                     lastProvisionAt = nowMillis(),
-                    lastProvisionOk = if (restored) true else false,
+                    lastProvisionOk = restored,
                     lastProvisionError = if (restored) null else "update failed and rollback failed: $msg",
                     update = homegap.state.UpdateState(a.hash, "failed", msg, nowMillis(), restored),
                 )
@@ -198,7 +211,14 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         val siteId = ctx.state.node(node.id).siteId ?: return
         val org = ctx.config.pangolin.orgId
         waitFor("tunnel to reconnect (site $siteId)", attempts = 60) {
-            runCatching { ready.api.listSites(org).firstOrNull { it.siteId == siteId }?.online == true }.getOrDefault(false)
+            runCatching {
+                ready.api.listSites(org)
+                    .firstOrNull { it.siteId == siteId }?.online == true
+            }.onFailure {
+                if (it is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
+            }.getOrDefault(false)
         }
     }
 
@@ -212,41 +232,43 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         val image = shQuote(ctx.config.pangolin.pangolinImage)
         val out = ssh.runScriptOrThrow(
             "backup",
-            """
-            |cd $d
-            |B=$d/$ROLLBACK_DIR
-            |rm -rf "${'$'}B" && mkdir -p "${'$'}B" && chmod 0700 "${'$'}B"
+            $$"""
+            |cd $$d
+            |B=$$d/$$ROLLBACK_DIR
+            |rm -rf "$B" && mkdir -p "$B" && chmod 0700 "$B"
             |set --
-            |for p in compose.yml .env secrets config; do [ -e "${'$'}p" ] && set -- "${'$'}@" "${'$'}p"; done
-            |tar -czf "${'$'}B/files.tgz" --exclude=config/db --exclude=config/letsencrypt --exclude=config/traefik/logs --exclude=config/crowdsec/db "${'$'}@"
-            |CUR=${'$'}(docker inspect -f '{{.Config.Image}}' pangolin 2>/dev/null || true)
-            |if [ -n "${'$'}CUR" ] && [ "${'$'}CUR" != $image ] && [ -d config/db ]; then
+            |for p in compose.yml .env secrets config; do [ -e "$p" ] && set -- "$@" "$p"; done
+            |tar -czf "$B/files.tgz" --exclude=config/db --exclude=config/letsencrypt --exclude=config/traefik/logs --exclude=config/crowdsec/db "$@"
+            |CUR=$(docker inspect -f '{{.Config.Image}}' pangolin 2>/dev/null || true)
+            |if [ -n "$CUR" ] && [ "$CUR" != $$image ] && [ -d config/db ]; then
             |  docker compose stop pangolin >/dev/null 2>&1
-            |  cp -a config/db "${'$'}B/db"
-            |  echo "DBSNAP ${'$'}CUR"
+            |  cp -a config/db "$B/db"
+            |  echo "DBSNAP $CUR"
             |fi
             """.trimMargin(), 300,
         )
-        out.lines().firstOrNull { it.startsWith("DBSNAP ") }?.let {
-            log.info(domain, "saved Pangolin database before upgrading from ${it.removePrefix("DBSNAP ")}", node.id)
-        }
+        out.lines()
+            .firstOrNull { it.startsWith("DBSNAP ") }
+            ?.let {
+                log.info(domain, "saved Pangolin database before upgrading from ${it.removePrefix("DBSNAP ")}", node.id)
+            }
     }
 
     /** Restores [backup]: removes files only the new stack had, puts back the old ones, restarts. */
-    private suspend fun rollback(node: NodeConfig, ssh: SshSession, newFiles: List<RenderedFile>) {
+    private suspend fun rollback(ssh: SshSession, newFiles: List<RenderedFile>) {
         val d = shQuote(dir)
         ssh.runScriptOrThrow(
             "rollback",
-            """
-            |cd $d
-            |B=$d/$ROLLBACK_DIR
-            |[ -f "${'$'}B/files.tgz" ] || { echo "no backup to restore" >&2; exit 1; }
-            |tar -tzf "${'$'}B/files.tgz" > "${'$'}B/list"
-            |for p in ${newFiles.joinToString(" ") { shQuote(it.path) }}; do grep -qxF "${'$'}p" "${'$'}B/list" || rm -f "${'$'}p"; done
-            |tar -xzf "${'$'}B/files.tgz"
-            |if [ -d "${'$'}B/db" ]; then
+            $$"""
+            |cd $$d
+            |B=$$d/$$ROLLBACK_DIR
+            |[ -f "$B/files.tgz" ] || { echo "no backup to restore" >&2; exit 1; }
+            |tar -tzf "$B/files.tgz" > "$B/list"
+            |for p in $${newFiles.joinToString(" ") { shQuote(it.path) }}; do grep -qxF "$p" "$B/list" || rm -f "$p"; done
+            |tar -xzf "$B/files.tgz"
+            |if [ -d "$B/db" ]; then
             |  docker compose stop pangolin >/dev/null 2>&1 || true
-            |  rm -rf config/db && cp -a "${'$'}B/db" config/db
+            |  rm -rf config/db && cp -a "$B/db" config/db
             |fi
             |docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20
             |ok=0
@@ -254,7 +276,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             |  if curl -fsS -o /dev/null http://127.0.0.1:3000/api/v1/ 2>/dev/null; then ok=1; break; fi
             |  sleep 2
             |done
-            |[ "${'$'}ok" = 1 ] || { echo "Pangolin did not become healthy after rollback" >&2; docker compose ps >&2; exit 1; }
+            |[ "$ok" = 1 ] || { echo "Pangolin did not become healthy after rollback" >&2; docker compose ps >&2; exit 1; }
             """.trimMargin(), 900,
         )
     }
@@ -272,7 +294,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         val remote = ssh.runScript("cat ${shQuote("$dir/${NodeTemplates.SECRETS}")} 2>/dev/null || true", 60).stdout.trim()
         val secrets = if (remote.startsWith("{")) {
             log.info(domain, "recovered node secrets from the node", node.id)
-            Json { ignoreUnknownKeys = true }.decodeFromString(NodeSecrets.serializer(), remote).let {
+            LENIENT_JSON.decodeFromString(NodeSecrets.serializer(), remote).let {
                 if (it.crowdsecBouncerKey.isEmpty()) it.copy(crowdsecBouncerKey = Crypto.token(40)) else it
             }
         } else {
@@ -390,16 +412,16 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             add("${node.sshPort}/tcp"); add("80/tcp"); add("443/tcp"); add("443/udp"); add("51820/udp"); add("21820/udp")
             desired.rawPorts.forEach { add("${it.port}/${it.protocol}") }
         }.distinct()
-        return """
+        return $$"""
             |export DEBIAN_FRONTEND=noninteractive
             |command -v ufw >/dev/null || { apt-get update -q >/dev/null && apt-get install -yq ufw >/dev/null; }
             |ufw default deny incoming >/dev/null
             |ufw default allow outgoing >/dev/null
-            |WANTED="${wanted.joinToString(" ")}"
-            |for r in ${'$'}WANTED; do ufw allow "${'$'}r" comment homegap >/dev/null; done
+            |WANTED="$${wanted.joinToString(" ")}"
+            |for r in $WANTED; do ufw allow "$r" comment homegap >/dev/null; done
             |# drop homegap rules that are no longer wanted (raw ports removed from labels)
             |ufw show added 2>/dev/null | sed -n 's/^ufw allow \([0-9]*\/[a-z]*\) comment .homegap.$/\1/p' | sort -u | while read -r r; do
-            |  case " ${'$'}WANTED " in *" ${'$'}r "*) ;; *) ufw delete allow "${'$'}r" >/dev/null && echo "CHANGED ufw removed ${'$'}r";; esac
+            |  case " $WANTED " in *" $r "*) ;; *) ufw delete allow "$r" >/dev/null && echo "CHANGED ufw removed $r";; esac
             |done
             |ufw status | grep -q '^Status: active' || { ufw --force enable >/dev/null && echo "CHANGED ufw enabled"; }
         """.trimMargin()
@@ -414,20 +436,20 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             val path = "$dir/${f.path}"
             appendLine(writeFile(path, f.content, f.mode, onChange = buildString {
                 append("echo \"CHANGED ${f.path}\"")
-                f.restarts?.let { append("; RESTART=\"\$RESTART $it\"") }
+                f.restarts?.let { append($$"; RESTART=\"$RESTART $$it\"") }
             }))
         }
         appendLine("cd $d")
         appendLine("docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20")
-        appendLine("for s in \$(echo \$RESTART | tr ' ' '\\n' | sort -u); do docker compose restart \"\$s\" >/dev/null 2>&1 || true; done")
+        appendLine($$"for s in $(echo $RESTART | tr ' ' '\\n' | sort -u); do docker compose restart \"$s\" >/dev/null 2>&1 || true; done")
         appendLine(
-            """
+            $$"""
             |ok=0
             |for i in $(seq 1 120); do
             |  if curl -fsS -o /dev/null http://127.0.0.1:3000/api/v1/ 2>/dev/null; then ok=1; break; fi
             |  sleep 2
             |done
-            |if [ "${'$'}ok" != 1 ]; then echo "Pangolin did not become healthy" >&2; docker compose ps >&2; docker compose logs --tail 40 pangolin >&2; exit 1; fi
+            |if [ "$ok" != 1 ]; then echo "Pangolin did not become healthy" >&2; docker compose ps >&2; docker compose logs --tail 40 pangolin >&2; exit 1; fi
             """.trimMargin()
         )
     }
@@ -449,7 +471,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
                 appendLine("printf '%s' '$b64' | base64 -d | cmp -s - $q 2>/dev/null || echo \"DRIFT file ${f.path}\"")
             }
             appendLine("cd ${shQuote(dir)} 2>/dev/null || { echo 'DRIFT install dir missing'; exit 0; }")
-            appendLine("for s in pangolin gerbil traefik; do st=\$(docker inspect -f '{{.State.Status}}' \$s 2>/dev/null || echo missing); [ \"\$st\" = running ] || echo \"DRIFT container \$s \$st\"; done")
+            appendLine($$"for s in pangolin gerbil traefik; do st=$(docker inspect -f '{{.State.Status}}' $s 2>/dev/null || echo missing); [ \"$st\" = running ] || echo \"DRIFT container $s $st\"; done")
         }
         val r = ssh.runScript(script, 120)
         if (!r.ok) return listOf("check failed: ${r.stderr.trim().take(200)}")
@@ -463,6 +485,10 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         return runCatching {
             val port = ssh.forward(3003, LOCAL_PORT_BASE + slot * 10)
             ReadyNode(node, PangolinClient(ctx.localHttp, "http://127.0.0.1:$port/v1", "$keyId.$key"))
+        }.onFailure {
+            if (it is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
         }.getOrNull()
     }
 
@@ -475,7 +501,13 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         // Fast path: the cached key still works.
         if (st.apiKeyId != null && st.apiKey != null) {
             val api = PangolinClient(ctx.localHttp, integrationUrl, "${st.apiKeyId}.${st.apiKey}")
-            val ok = runCatching { api.getOrg(org) }.isSuccess
+            val ok = runCatching {
+                api.getOrg(org)
+            }.onFailure {
+                if (it is CancellationException) {
+                    currentCoroutineContext().ensureActive()
+                }
+            }.isSuccess
             if (ok) {
                 maybeActivateLicense(node, ssh, slot, secrets)
                 return ReadyNode(node, api)
@@ -485,7 +517,15 @@ class NodeReconciler(private val ctx: ReconcileContext) {
 
         val dashPort = ssh.forward(3000, LOCAL_PORT_BASE + slot * 10 + 5)
         val boot = PangolinBootstrapClient(ctx.localHttp, "http://127.0.0.1:$dashPort/api/v1")
-        waitFor("Pangolin API") { runCatching { boot.initialSetupComplete(); true }.getOrDefault(false) }
+        waitFor("Pangolin API") {
+            runCatching { boot.initialSetupComplete(); true }
+                .onFailure {
+                    if (it is CancellationException) {
+                        currentCoroutineContext().ensureActive()
+                    }
+                }
+                .getOrDefault(false)
+        }
 
         if (!boot.initialSetupComplete()) {
             boot.setServerAdmin(secrets.adminEmail, secrets.adminPassword, secrets.setupToken)
@@ -507,7 +547,13 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         boot.setApiKeyActions(keyId, PangolinBootstrapClient.ORCHESTRATOR_ACTIONS)
         // Retire keys minted by earlier controller instances.
         runCatching {
-            boot.listRootApiKeys().filter { (id, name) -> name == "homegap-orchestrator" && id != keyId }.forEach { (id, _) -> boot.deleteRootApiKey(id) }
+            boot.listRootApiKeys()
+                .filter { (id, name) -> name == "homegap-orchestrator" && id != keyId }
+                .forEach { (id, _) -> boot.deleteRootApiKey(id) }
+        }.onFailure {
+            if (it is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
         }
         log.change(domain, "minted orchestrator API key", node.id)
         ctx.state.updateNode(node.id) { it.copy(apiKeyId = keyId, apiKey = key) }
@@ -537,6 +583,9 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             ctx.state.updateNode(node.id) { it.copy(licenseActivated = true) }
             log.change(domain, "activated Pangolin EE license", node.id)
         } catch (e: Exception) {
+            if (e is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
             val msg = e.message.orEmpty()
             when {
                 // Only the local "this instance already stores the key" case means success.
@@ -574,7 +623,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     private suspend fun waitFor(what: String, attempts: Int = 60, check: suspend () -> Boolean) {
         repeat(attempts) {
             if (check()) return
-            delay(2000)
+            delay(2.seconds)
         }
         throw IllegalStateException("$what not reachable")
     }
@@ -587,37 +636,38 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     }
 
     companion object {
+        private val LENIENT_JSON = Json { ignoreUnknownKeys = true }
         const val LOCAL_PORT_BASE = 47100
         /** Previous stack kept on the node during an update, relative to install_dir. */
         const val ROLLBACK_DIR = ".homegap-rollback"
         val SUPPORTED_UBUNTU = setOf("22.04", "24.04", "26.04", "26.10")
 
         /** Congestion control and max send buffer inside Gerbil's namespace (Traefik shares it). */
-        val EDGE_TCP_SCRIPT = """
-            |PID=${'$'}(docker inspect -f '{{.State.Pid}}' gerbil 2>/dev/null || echo 0)
-            |if [ "${'$'}PID" -gt 0 ] 2>/dev/null; then
-            |  CC=${'$'}(nsenter -t "${'$'}PID" -n cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || echo unknown)
-            |  WMEM=${'$'}(nsenter -t "${'$'}PID" -n cat /proc/sys/net/ipv4/tcp_wmem 2>/dev/null | awk '{print int(${'$'}3/1048576)"MiB"}')
-            |  echo "FACT edge_tcp=${'$'}CC ${'$'}{WMEM:-unknown}"
+        val EDGE_TCP_SCRIPT = $$"""
+            |PID=$(docker inspect -f '{{.State.Pid}}' gerbil 2>/dev/null || echo 0)
+            |if [ "$PID" -gt 0 ] 2>/dev/null; then
+            |  CC=$(nsenter -t "$PID" -n cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || echo unknown)
+            |  WMEM=$(nsenter -t "$PID" -n cat /proc/sys/net/ipv4/tcp_wmem 2>/dev/null | awk '{print int($3/1048576)"MiB"}')
+            |  echo "FACT edge_tcp=$CC ${WMEM:-unknown}"
             |else
             |  echo "FACT edge_tcp=unknown"
             |fi
         """.trimMargin()
 
-        val PREFLIGHT_SCRIPT = """
+        val PREFLIGHT_SCRIPT = $$"""
             |. /etc/os-release
-            |echo "ID=${'$'}ID"
-            |echo "VERSION_ID=${'$'}VERSION_ID"
-            |echo "CODENAME=${'$'}{VERSION_CODENAME:-}"
+            |echo "ID=$ID"
+            |echo "VERSION_ID=$VERSION_ID"
+            |echo "CODENAME=${VERSION_CODENAME:-}"
             |echo "ARCH=$(uname -m)"
             |echo "KERNEL=$(uname -r)"
-            |echo "MEM_KB=$(awk '/MemTotal/{print ${'$'}2}' /proc/meminfo)"
+            |echo "MEM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)"
             |echo "DOCKER=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo none)"
             |echo "SUDO=yes"
             |command -v curl >/dev/null || { export DEBIAN_FRONTEND=noninteractive; apt-get update -q >/dev/null && apt-get install -yq curl ca-certificates >/dev/null; }
         """.trimMargin()
 
-        val DOCKER_SCRIPT = """
+        val DOCKER_SCRIPT = $$"""
             |if ! command -v docker >/dev/null 2>&1; then
             |  export DEBIAN_FRONTEND=noninteractive
             |  apt-get update -q
@@ -626,14 +676,14 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             |  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
             |  chmod a+r /etc/apt/keyrings/docker.asc
             |  # Docker publishes new Ubuntu releases with some delay: fall back to the latest LTS.
-            |  CODENAME=$(. /etc/os-release && echo ${'$'}VERSION_CODENAME)
+            |  CODENAME=$(. /etc/os-release && echo $VERSION_CODENAME)
             |  REPO=
-            |  for c in "${'$'}CODENAME" resolute noble; do
-            |    if curl -fsSL -o /dev/null "https://download.docker.com/linux/ubuntu/dists/${'$'}c/Release"; then REPO=${'$'}c; break; fi
+            |  for c in "$CODENAME" resolute noble; do
+            |    if curl -fsSL -o /dev/null "https://download.docker.com/linux/ubuntu/dists/$c/Release"; then REPO=$c; break; fi
             |  done
-            |  [ -n "${'$'}REPO" ] || { echo "no Docker repository for ${'$'}CODENAME" >&2; exit 1; }
-            |  [ "${'$'}REPO" = "${'$'}CODENAME" ] || echo "Docker has no packages for ${'$'}CODENAME yet; using ${'$'}REPO"
-            |  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${'$'}REPO stable" > /etc/apt/sources.list.d/docker.list
+            |  [ -n "$REPO" ] || { echo "no Docker repository for $CODENAME" >&2; exit 1; }
+            |  [ "$REPO" = "$CODENAME" ] || echo "Docker has no packages for $CODENAME yet; using $REPO"
+            |  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $REPO stable" > /etc/apt/sources.list.d/docker.list
             |  apt-get update -q
             |  apt-get install -yq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
             |  systemctl enable --now docker

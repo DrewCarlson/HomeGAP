@@ -56,7 +56,7 @@ class TemplatesTest {
         val plan = Planner.plan(cfg, listOf(TRAEFIK))
         val nd = plan.nodes.getValue("na1")
         val ids = mapOf(Planner.FRONTDOOR_TCP to 7, Planner.HEALTH to 9)
-        val yaml = NodeTemplates.dynamicRoutes(cfg, nd, ids)
+        val yaml = NodeTemplates.dynamicRoutes(nd, ids)
         val tree = ResourceReconciler.yamlToJson(yaml).jsonObject
         val tcp = tree["tcp"]!!.jsonObject["routers"]!!.jsonObject["homegap-frontdoor"]!!.jsonObject
         assertEquals("7-hg-frontdoor-service@http", tcp["service"]!!.jsonPrimitive.content)
@@ -67,7 +67,7 @@ class TemplatesTest {
         assertTrue("homegap-mgmt-api" in http)
         assertFalse("homegap-mgmt-ui" in http, "node dashboards stay private by default")
         // Without resource ids yet, passthrough routers are omitted rather than pointing nowhere.
-        val empty = ResourceReconciler.yamlToJson(NodeTemplates.dynamicRoutes(cfg, nd, emptyMap())).jsonObject
+        val empty = ResourceReconciler.yamlToJson(NodeTemplates.dynamicRoutes(nd, emptyMap())).jsonObject
         assertNull(empty["tcp"])
     }
 

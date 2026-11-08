@@ -39,7 +39,7 @@ class SpeedTestTest {
     @Test
     fun autoEntryRedirectsToTheNodesOwnHostname() {
         val n = Planner.plan(cfg, listOf(TRAEFIK)).nodes.getValue("as1")
-        val routes = NodeTemplates.dynamicRoutes(cfg, n, emptyMap())
+        val routes = NodeTemplates.dynamicRoutes(n, emptyMap())
         assertTrue("Host(`speedtest.test.example.net`)" in routes)
         assertTrue("https://speedtest-as1.test.example.net/?via=auto" in routes)
     }

@@ -60,7 +60,7 @@ object Files {
         chmod(tmp, mode.convert())
         try {
             SystemFileSystem.atomicMove(Path(tmp), Path(path))
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // A single file bind-mounted into a container cannot be replaced by rename (EBUSY);
             // fall back to rewriting it in place.
             SystemFileSystem.delete(Path(tmp), mustExist = false)

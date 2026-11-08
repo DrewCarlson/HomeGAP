@@ -3,41 +3,37 @@ package homegap.dashboard
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-import homegap.api.*
-import homegap.di.RunOptions
-import homegap.config.ConfigLoader
-import homegap.config.GeoLocation
-import homegap.config.NodeConfig
-import homegap.config.referencedSecrets
-import homegap.platform.Files
-import homegap.platform.nowMillis
-import homegap.reconcile.Controller
-import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
-import io.ktor.server.application.*
-import io.ktor.server.cio.*
-import io.ktor.server.engine.*
-import io.ktor.server.plugins.contentnegotiation.*
-import io.ktor.server.plugins.statuspages.*
-import io.ktor.server.request.*
-import io.ktor.server.response.*
-import io.ktor.server.routing.*
-import io.ktor.utils.io.*
-import kotlinx.coroutines.flow.produceIn
-import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withTimeoutOrNull
+import homegap.api.ActionResponse
+import homegap.routes.RoutingControllers
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.cio.CIO
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.header
+import io.ktor.server.request.path
+import io.ktor.server.response.header
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.RoutingContext
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
 import kotlinx.serialization.json.Json
 
 /**
- * REST API + embedded SPA. Meant to be exposed only as a private Pangolin resource; an optional
+ * The dashboard: the REST API (route groups in `homegap.routes`, mounted by [RoutingControllers])
+ * and the embedded SPA. Meant to be exposed only as a private Pangolin resource; an optional
  * bearer token adds defense in depth. Never returns secret values.
  */
-@Inject
 @SingleIn(AppScope::class)
-class DashboardServer(private val controller: Controller, options: RunOptions) {
-    private val configPath = options.configPath
-
+@Inject
+class DashboardServer(private val routingControllers: RoutingControllers) {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     fun start(host: String, port: Int) {
@@ -51,150 +47,34 @@ class DashboardServer(private val controller: Controller, options: RunOptions) {
             exception<IllegalStateException> { call, e -> call.respond(HttpStatusCode.Conflict, ActionResponse(false, e.message ?: "conflict")) }
             exception<Throwable> { call, e -> call.respond(HttpStatusCode.InternalServerError, ActionResponse(false, e.message ?: "error")) }
         }
-        val token = controller.config.dashboard.authToken()?.resolve()
-
+        routingControllers.init(this)
         routing {
-            route("/api") {
-                intercept(ApplicationCallPipeline.Plugins) {
-                    if (token != null && call.request.header(HttpHeaders.Authorization) != "Bearer $token") {
-                        call.respond(HttpStatusCode.Unauthorized, ActionResponse(false, "unauthorized"))
-                        finish()
-                    }
-                }
-                get("/status") { call.respond(controller.snapshot()) }
-                // Server push for the dashboard: the status snapshot whenever it changes and new
-                // log entries, instead of the browser polling both. Tunnel status comes from files
-                // the supervisor writes, so the snapshot is also re-checked every few seconds.
-                get("/events") {
-                    call.response.header(HttpHeaders.CacheControl, "no-cache")
-                    call.response.header("X-Accel-Buffering", "no")
-                    call.respondBytesWriter(ContentType.Text.EventStream) { coroutineScope {
-                        var lastStatus: StatusSnapshot? = null
-                        var lastSeq = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
-                        var lastWrite = 0L
-                        val changes = controller.changes.conflate().produceIn(this@coroutineScope)
-                        try {
-                            while (true) {
-                                val snap = controller.snapshot()
-                                val comparable = snap.copy(generatedAt = 0)
-                                if (comparable != lastStatus) {
-                                    writeStringUtf8("event: status\ndata: ${json.encodeToString(StatusSnapshot.serializer(), snap)}\n\n")
-                                    lastStatus = comparable
-                                    lastWrite = nowMillis()
-                                }
-                                val entries = controller.log.since(lastSeq)
-                                if (entries.isNotEmpty()) {
-                                    writeStringUtf8("event: log\ndata: ${json.encodeToString(LogResponse.serializer(), LogResponse(entries))}\n\n")
-                                    lastSeq = entries.last().seq
-                                    lastWrite = nowMillis()
-                                }
-                                if (nowMillis() - lastWrite > 25_000) {
-                                    writeStringUtf8(": keepalive\n\n")
-                                    lastWrite = nowMillis()
-                                }
-                                flush()
-                                withTimeoutOrNull<Long>(5_000) { changes.receive() }
-                            }
-                        } finally {
-                            changes.cancel()
-                        }
-                    } }
-                }
-                get("/log") {
-                    val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 300
-                    call.respond(LogResponse(controller.log.recent(limit, call.request.queryParameters["domain"])))
-                }
-                get("/diff") { call.respond(DiffResponse(nowMillis(), controller.lastDiff, controller.desiredStateJson())) }
-                get("/secrets") {
-                    call.respond(SecretsResponse(controller.config.referencedSecrets().map { (ref, use) ->
-                        SecretRefDto(ref.name, use, ref.describe(), ref.resolve() != null)
-                    }))
-                }
-                get("/config") {
-                    val cfg = controller.config
-                    call.respond(ConfigResponse(
-                        path = configPath,
-                        writable = cfg.dashboard.allowConfigEdits,
-                        yaml = Files.readTextOrNull(configPath) ?: ConfigLoader.encode(cfg),
-                        nodes = cfg.nodes.map { it.toDto() },
-                    ))
-                }
-                post("/resync") {
-                    controller.trigger("dashboard")
-                    call.respond(ActionResponse(true, "Resync queued"))
-                }
-                post("/nodes/{id}/provision") {
-                    val id = call.parameters["id"]!!
-                    require(controller.config.node(id) != null) { "unknown node $id" }
-                    controller.requestProvision(id)
-                    call.respond(ActionResponse(true, "Re-provision of $id queued"))
-                }
-                post("/nodes/{id}/update/retry") {
-                    call.respond(ActionResponse(true, controller.retryUpdate(call.parameters["id"]!!)))
-                }
-                post("/nodes/{id}/update/skip") {
-                    call.respond(ActionResponse(true, controller.skipUpdate(call.parameters["id"]!!)))
-                }
-                post("/nodes") {
-                    val dto = call.receive<NodeConfigDto>()
-                    call.respond(ActionResponse(true, controller.addNode(dto.toConfig())))
-                }
-                delete("/nodes/{id}") {
-                    call.respond(ActionResponse(true, controller.removeNode(call.parameters["id"]!!)))
-                }
-                post("/nodes/{id}/decommission") {
-                    val confirm = call.request.queryParameters["confirm"] ?: ""
-                    call.respond(ActionResponse(true, controller.confirmDecommission(call.parameters["id"]!!, confirm)))
-                }
-                get("/speedtest") { call.respond(controller.speedOverview()) }
-                post("/speedtest/link") { call.respond(controller.createSpeedLink()) }
-                post("/speedtest/nodes/{id}") {
-                    val streams = call.request.queryParameters["streams"]?.toIntOrNull()
-                    call.respond(controller.runTunnelSpeedTest(call.parameters["id"]!!, streams))
-                }
-                post("/pause") {
-                    val req = call.receive<PauseRequest>()
-                    call.respond(ActionResponse(true, controller.setPause(req.scope, req.id, req.paused)))
-                }
-            }
             get("/healthz") { call.respondText("ok") }
-            get("/{path...}") {
-                val path = call.request.path().let { if (it == "/" || it.isEmpty()) "/index.html" else it }
-                val asset = WebAssets.files[path] ?: WebAssets.files["/index.html"]
-                if (asset == null) {
-                    call.respondText(
-                        "<!doctype html><title>HomeGAP</title><p>Dashboard bundle not embedded (built with -Phomegap.skipWeb). API: <a href=\"/api/status\">/api/status</a></p>",
-                        ContentType.Text.Html,
-                    )
-                    return@get
-                }
-                if (asset.path != "/index.html") call.response.header(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
-                call.response.header(HttpHeaders.Vary, HttpHeaders.AcceptEncoding)
-                val gz = asset.gzip
-                if (gz != null && call.request.header(HttpHeaders.AcceptEncoding)?.contains("gzip") == true) {
-                    call.response.header(HttpHeaders.ContentEncoding, "gzip")
-                    call.respondBytes(gz, ContentType.parse(asset.contentType))
-                } else {
-                    call.respondBytes(asset.bytes, ContentType.parse(asset.contentType))
-                }
-            }
+            get("/{path...}") { serveAsset() }
         }
     }
-}
 
-private fun NodeConfig.toDto() = NodeConfigDto(
-    id = id, region = region, provider = provider, host = host, os = os, sshUser = sshUser, sshPort = sshPort,
-    sshKeyFile = sshKeyFile, latitude = location?.latitude, longitude = location?.longitude, managementHost = managementHost,
-)
+    /** The SPA: known asset paths, everything else falls back to index.html (client-side routes). */
+    private suspend fun RoutingContext.serveAsset() {
+        val path = call.request.path().let { if (it == "/" || it.isEmpty()) "/index.html" else it }
+        val asset = WebAssets.files[path] ?: WebAssets.files["/index.html"]
+        if (asset == null) {
+            call.respondText(NO_BUNDLE, ContentType.Text.Html)
+            return
+        }
+        if (asset.path != "/index.html") call.response.header(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
+        call.response.header(HttpHeaders.Vary, HttpHeaders.AcceptEncoding)
+        val gzip = asset.gzip
+        if (gzip != null && call.request.header(HttpHeaders.AcceptEncoding)?.contains("gzip") == true) {
+            call.response.header(HttpHeaders.ContentEncoding, "gzip")
+            call.respondBytes(gzip, ContentType.parse(asset.contentType))
+        } else {
+            call.respondBytes(asset.bytes, ContentType.parse(asset.contentType))
+        }
+    }
 
-private fun NodeConfigDto.toConfig(): NodeConfig {
-    require(ConfigLoader.NODE_ID.matches(id)) { "node id must match ${ConfigLoader.NODE_ID.pattern}" }
-    require(host.isNotBlank()) { "host is required" }
-    require(sshKeyFile.isNotBlank()) { "ssh key file is required" }
-    return NodeConfig(
-        id = id, region = region, provider = provider, host = host, os = os, sshUser = sshUser, sshPort = sshPort,
-        sshKeyFile = sshKeyFile,
-        location = latitude?.let { lat -> longitude?.let { lon -> GeoLocation(lat, lon) } },
-        managementHost = managementHost?.takeIf { it.isNotBlank() },
-    )
+    private companion object {
+        const val NO_BUNDLE = "<!doctype html><title>HomeGAP</title><p>Dashboard bundle not embedded " +
+            "(built with -Phomegap.skipWeb). API: <a href=\"/api/status\">/api/status</a></p>"
+    }
 }

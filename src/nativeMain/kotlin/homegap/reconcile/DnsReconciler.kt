@@ -3,6 +3,9 @@ package homegap.reconcile
 import homegap.clients.BunnyClient
 import homegap.clients.BunnyRecord
 import homegap.model.DesiredDnsRecord
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /**
  * DNS domain: Bunny geo-steered record sets (one record per node, each with its own monitor)
@@ -31,6 +34,10 @@ class DnsReconciler(private val ctx: ReconcileContext, private val bunny: BunnyC
             ctx.state.update { it.copy(bunnyZoneId = id) }
         } ?: error("Bunny zone ${cfg.zone} not found (create it in Bunny DNS first)")
         val zone = runCatching { bunny.getZone(zoneId) }.getOrElse {
+            if (it is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+            // The cached zone id may be stale (zone recreated): look it up again next pass.
             ctx.state.update { s -> s.copy(bunnyZoneId = null) }
             throw it
         }
@@ -85,7 +92,7 @@ class DnsReconciler(private val ctx: ReconcileContext, private val bunny: BunnyC
                 (a.type == BunnyRecord.typeCode("CNAME") && desiredNames.any { it.first == a.name.lowercase() })
             if (!managed && !collides) continue
             val node = a.comment?.substringAfter("node=", "")?.takeIf { managed }
-            if ((node != null && node in pausedNodes) || (managed && pausedServiceKeys.any { a.comment!!.contains("service:$it ") })) {
+            if ((node != null && node in pausedNodes) || (managed && pausedServiceKeys.any { a.comment.contains("service:$it ") })) {
                 observed += Observed(a, null, false, "kept: paused")
                 continue
             }
