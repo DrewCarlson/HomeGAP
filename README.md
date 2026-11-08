@@ -479,6 +479,25 @@ database. There is one org, one set of users and one license.
   Pangolin version (the one that migrates the database) saves a dump of it first. If that update
   fails, rolling it back also restores the dump.
 
+#### Users and devices
+
+With the cluster on, the dashboard's **Access** page manages who can sign in to the Pangolin
+apps, without logging in to Pangolin as the admin:
+
+- **The address for the apps**, `https://<client_hostname>.<domain>`, to copy into the
+  Pangolin app (self-hosted server).
+- **Add a user** by email, with one or more roles (new users default to the least-privileged
+  one). Either set a password there (the user can sign in at once; share it with them
+  privately) or create an invite link (valid 7 days) for the person to pick their own.
+- **Users:** change roles or remove a user. The server admin HomeGAP created is listed but
+  can't be removed here. Open invitations can be withdrawn.
+- **Devices:** each person's apps and every machine client, whether it's online, and the node
+  it relays through. Block, archive or delete a device.
+
+Changes go through whichever node's Pangolin is reachable (they all share one database) and are
+written to the reconcile log. HomeGAP grants its API key the permissions this needs the first
+time it runs (one admin login).
+
 ### Node management host
 
 Newt and the Pangolin client must reach each node's Pangolin API. HomeGAP routes
@@ -592,6 +611,8 @@ It shows:
 - **DNS:** records, monitor state and whether they match the desired state.
 - **Tunnels:** process state, restarts and throughput.
 - **Speed test:** homelab ↔ node and device → node → homelab measurements, with history.
+- **Access** (cluster only): the cluster's users, invitations and devices; see
+  [Users and devices](#users-and-devices).
 - **Reconcile log:** grouped by domain.
 - **Desired vs. actual:** the diff, plus every referenced secret with whether it is present.
   Secret values are never shown.
@@ -608,6 +629,11 @@ It shows:
 | `POST /api/nodes/{id}/provision` | Force a full re-provision |
 | `POST /api/nodes` / `DELETE /api/nodes/{id}` | Add / remove a node (rewrites the config file, with a backup) |
 | `POST /api/nodes/{id}/decommission?confirm={id}` | Stop the stack on a removed node and forget it |
+| `GET /api/access` | The cluster's users, roles, open invitations and devices (cluster only) |
+| `POST /api/access/users` | Add a user: `{email, roleIds, password?}`; without a password, the response has the invite link |
+| `DELETE /api/access/users/{id}` / `PUT /api/access/users/{id}/roles` | Remove a user / set their roles (`{roleIds}`) |
+| `DELETE /api/access/invitations/{id}` | Withdraw an open invitation |
+| `POST /api/access/devices/{id}/{action}` | `block`, `unblock`, `archive`, `unarchive` or `delete` a device |
 | `GET /api/speedtest` | Speed test settings and recent results |
 | `POST /api/speedtest/nodes/{id}` | Run a homelab ↔ node speed test (blocks until done) |
 | `POST /api/speedtest/link` | Create a device test link |
@@ -689,7 +715,17 @@ docker buildx build --platform linux/amd64,linux/arm64 -t homegap .
 ./gradlew linkReleaseExecutableLinuxArm64   # or LinuxX64 on an amd64 Docker host
 e2e/run.sh        # provisions two fake nodes from scratch over SSH
                   # (exports an untracked ./.env, e.g. PANGOLIN_LICENSE_KEY, to test EE features)
-e2e/verify.sh     # checks passthrough, wildcard, terminate, raw TCP, health and redirects
+e2e/verify.sh     # checks passthrough, wildcard, terminate, raw TCP, health and redirects on every
+                  # node, and the cluster's client address
+```
+
+With the cluster on, `e2e/compose.yml` also has a Pangolin client (`client`, profile `client`) for
+private access. Create a machine client (a role with access to `ssh.test.example.net`), then start
+it with that client's credentials; `CLIENT_NODE_IP` plays the part of DNS picking the nearest node:
+
+```bash
+OLM_ID=… OLM_SECRET=… CLIENT_NODE_IP=172.30.0.10 docker compose -f e2e/compose.yml --profile client up -d client
+docker compose -f e2e/compose.yml exec client sh -c '(sleep 2) | nc -w 5 ssh.test.example.net 22'
 ```
 
 ### Repository layout

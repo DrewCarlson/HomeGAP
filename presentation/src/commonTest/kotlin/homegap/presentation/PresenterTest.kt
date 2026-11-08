@@ -1,11 +1,18 @@
 package homegap.presentation
 
+import homegap.api.AccessDeviceDto
+import homegap.api.AccessOverviewDto
+import homegap.api.AccessRoleDto
+import homegap.api.AccessUserDto
 import homegap.api.Health
 import homegap.api.LogEntryDto
 import homegap.api.LogLevel
 import homegap.api.LogResponse
 import homegap.api.NodeUpdateDto
 import homegap.api.SpeedTestOverview
+import homegap.presentation.access.AccessScreenModel
+import homegap.presentation.access.AccessScreenPresenter
+import homegap.presentation.access.AccessScreenProps
 import homegap.presentation.activity.ActivityScreenModel
 import homegap.presentation.activity.ActivityScreenPresenter
 import homegap.presentation.activity.ActivityScreenProps
@@ -47,10 +54,11 @@ class PresenterTest {
         val speedTest = SpeedTestScreenPresenter(api, actions, FakeTimeFormatter, scope)
         val activity = ActivityScreenPresenter(session, FakeTimeFormatter)
         val addNode = AddNodeScreenPresenter(api, AddNodeWizardStore(), actions, scope)
+        val access = AccessScreenPresenter(api, actions, FakeTimeFormatter, scope)
         val app = AppPresenter(
             session, actions, api, tokens, FixedClock, scope,
             OverviewScreenPresenter(), nodes, ServicesScreenPresenter(api, actions), DnsScreenPresenter(),
-            TunnelsScreenPresenter(), speedTest, activity, ConfigScreenPresenter(api), addNode,
+            TunnelsScreenPresenter(), speedTest, access, activity, ConfigScreenPresenter(api), addNode,
         )
     }
 
@@ -223,6 +231,52 @@ class PresenterTest {
         enabled.actions.toast.first { it != null }
         assertEquals(listOf("test a1 8"), enabled.api.calls)
         assertEquals("a1: 250 Mbps down, 40.0 Mbps up, 170.0 ms ping", enabled.actions.toast.value?.text)
+    }
+
+    @Test
+    fun accessCreatesUsersWithAPasswordOrAnInviteLink() = runTest {
+        val unavailable = present(graph.access, AccessScreenProps).first { it != AccessScreenModel.Loading }
+        assertEquals(AccessScreenModel.Unavailable("no cluster", null), unavailable)
+
+        val g = graph
+        g.api.accessValue = AccessOverviewDto(
+            available = true, clientAddress = "https://pangolin.x", via = "na1",
+            roles = listOf(AccessRoleDto(1, "Admin", admin = true), AccessRoleDto(2, "Member")),
+            users = listOf(AccessUserDto("u1", "admin@x", "admin@x", roleIds = listOf(1), roles = listOf("Admin"), owner = true)),
+            devices = listOf(AccessDeviceDto(7, "phone", "user", user = "p@x", online = true, viaNode = "as1")),
+        )
+        val models = present(g.access, AccessScreenProps)
+        val ready = models.first { it is AccessScreenModel.Ready } as AccessScreenModel.Ready
+        assertEquals("https://pangolin.x", ready.clientAddress)
+        assertFalse(ready.users.single().editable, "the server admin stays")
+        assertEquals("via as1", ready.devices.single().via)
+        // New users default to the least-privileged role, and need a valid email and password.
+        assertEquals(listOf("Member"), ready.newUser.roles.filter { it.selected }.map { it.name })
+        assertFalse(ready.newUser.canSubmit)
+
+        ready.newUser.onEmail("p@x.org")
+        ready.newUser.onPassword("short")
+        val short = models.first { (it as? AccessScreenModel.Ready)?.newUser?.password == "short" } as AccessScreenModel.Ready
+        assertEquals("The password needs at least 8 characters", short.newUser.error)
+        short.newUser.onPassword("long enough")
+        val valid = models.first { (it as? AccessScreenModel.Ready)?.newUser?.canSubmit == true } as AccessScreenModel.Ready
+        valid.newUser.onSubmit()
+        models.first { (it as? AccessScreenModel.Ready)?.newUser?.email == "" }
+        assertEquals("create p@x.org [2] password", g.api.calls.last())
+
+        // Without a password, the invite link is shown to hand over.
+        val cleared = models.first { (it as? AccessScreenModel.Ready)?.newUser?.email == "" } as AccessScreenModel.Ready
+        cleared.newUser.onSetPassword(false)
+        cleared.newUser.onEmail("q@x.org")
+        val invite = models.first { (it as? AccessScreenModel.Ready)?.newUser?.let { f -> !f.setPassword && f.canSubmit } == true } as AccessScreenModel.Ready
+        assertEquals("Create invite link", invite.newUser.submitText)
+        invite.newUser.onSubmit()
+        val linked = models.first { (it as? AccessScreenModel.Ready)?.inviteLink != null } as AccessScreenModel.Ready
+        assertEquals("https://pangolin.x/invite?token=a-b", linked.inviteLink)
+        assertEquals("create q@x.org [2] invite", g.api.calls.last())
+
+        linked.onDeviceAction(7, "block")
+        g.actions.toast.first { it?.text == "ok: device 7 block" }
     }
 
     @Test

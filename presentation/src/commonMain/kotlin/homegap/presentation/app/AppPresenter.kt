@@ -29,6 +29,8 @@ import homegap.presentation.routing.Route
 import homegap.presentation.routing.Router
 import homegap.presentation.services.ServicesScreenPresenter
 import homegap.presentation.services.ServicesScreenProps
+import homegap.presentation.access.AccessScreenPresenter
+import homegap.presentation.access.AccessScreenProps
 import homegap.presentation.speedtest.SpeedTestScreenPresenter
 import homegap.presentation.speedtest.SpeedTestScreenProps
 import homegap.presentation.tunnels.TunnelsScreenPresenter
@@ -58,6 +60,7 @@ class AppPresenter(
     private val dns: DnsScreenPresenter,
     private val tunnels: TunnelsScreenPresenter,
     private val speedTest: SpeedTestScreenPresenter,
+    private val access: AccessScreenPresenter,
     private val activity: ActivityScreenPresenter,
     private val config: ConfigScreenPresenter,
     private val addNode: AddNodeScreenPresenter,
@@ -97,6 +100,7 @@ class AppPresenter(
         Route.Dns -> dns.model(DnsScreenProps(status))
         Route.Tunnels -> tunnels.model(TunnelsScreenProps(status))
         Route.SpeedTest -> speedTest.model(SpeedTestScreenProps(now))
+        Route.Access -> access.model(AccessScreenProps)
         Route.Activity -> activity.model(ActivityScreenProps)
         Route.Config -> config.model(ConfigScreenProps)
         Route.AddNode -> {

@@ -7,6 +7,7 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     Services("services", "Services", "Containers published through homegap.* labels"),
     Dns("dns", "DNS", "Bunny DNS records managed by HomeGAP"),
     Tunnels("tunnels", "Tunnels", "Newt connectors from the homelab to each node"),
+    Access("access", "Access", "Who can sign in to the Pangolin apps, and their devices"),
     SpeedTest("speedtest", "Speed test", "Latency and throughput through the real traffic path"),
     Activity("log", "Activity", "Reconcile log, newest first"),
     Config("config", "Config", "Desired vs. actual state, secrets and the config file"),

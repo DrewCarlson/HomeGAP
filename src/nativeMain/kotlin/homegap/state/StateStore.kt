@@ -86,6 +86,8 @@ data class ClusterPangolinState(
     val licenseRecheck: Set<String> = emptySet(),
     /** Hash of each shared resource's last applied blueprint (`private:<id>` for private ones, `base`). */
     val blueprints: Map<String, String> = emptyMap(),
+    /** Hash of the action set last granted to the API key. */
+    val keyActions: String? = null,
 )
 
 @Serializable

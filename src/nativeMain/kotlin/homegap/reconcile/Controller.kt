@@ -88,6 +88,20 @@ class Controller(
     private val meshRec by lazy { MeshReconciler(HomelabMesh("${config.dataDir}/mesh")) }
     @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
     private val clusterRec by lazy { ClusterReconciler(config.dataDir, localHttp) }
+    /** The cluster's reachable Pangolins as of the last pass, and which node each exit node is. */
+    @kotlin.concurrent.Volatile private var clusterReady: Map<String, ReadyNode> = emptyMap()
+    @kotlin.concurrent.Volatile private var exitNodes: Map<Int, String> = emptyMap()
+
+    /**
+     * A reachable Pangolin of the cluster (the first ready node in config order) and the exit node
+     * map, for dashboard actions on its users and devices; null without a cluster or a ready node.
+     */
+    fun clusterPangolin(): Pair<ReadyNode, Map<Int, String>>? {
+        if (config.cluster == null) return null
+        val ready = clusterReady
+        val first = config.nodes.firstOrNull { it.id in ready } ?: return null
+        return ready.getValue(first.id) to exitNodes
+    }
     @Volatile private var clusterStatus: homegap.api.ClusterStatusDto? = null
     /** Desired-records hash and time of the last successful DNS sync (see the DNS step). */
     private var dnsKey: String? = null
@@ -342,6 +356,10 @@ class Controller(
                     }
                 }.awaitAll()
             }
+            if (clustered) {
+                clusterReady = readyNodes.mapValues { it.value.first }
+                exitNodes = readyNodes.mapNotNull { (id, v) -> v.second.exitNodeId?.let { it to id } }.toMap()
+            }
             if (clustered && discoveryOk && readyNodes.isNotEmpty()) {
                 // Through the first ready node in config order; each node then writes its own routes.
                 val sites = readyNodes.mapValues { (_, v) -> v.second.niceId }
@@ -550,7 +568,16 @@ class Controller(
             }
         }.isSuccess
         checks += CheckDto("pangolin-api", if (apiOk) Health.OK else Health.DOWN, if (apiOk) "integration API" else "not reachable")
-        if (node.licenseKey(ctx.config.pangolin) != null) {
+        val shared = state.snapshot().clusterPangolin
+        if (ctx.config.cluster != null) {
+            // One license for the whole cluster (stored in the shared database).
+            if (ctx.config.pangolin.licenseKey() != null) checks += when {
+                shared?.licenseActivated == true && node.id in shared.licenseRecheck -> CheckDto("ee-license", Health.UNKNOWN, "activated; this node has not re-read it yet")
+                shared?.licenseActivated == true -> CheckDto("ee-license", Health.OK, "the cluster's license is activated")
+                shared?.licenseRejected != null -> CheckDto("ee-license", Health.DEGRADED, "rejected: key bound to another instance")
+                else -> CheckDto("ee-license", Health.UNKNOWN, "not activated")
+            }
+        } else if (node.licenseKey(ctx.config.pangolin) != null) {
             val ns = state.node(node.id)
             checks += when {
                 ns.licenseActivated -> CheckDto("ee-license", Health.OK, "activated")

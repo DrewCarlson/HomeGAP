@@ -28,6 +28,14 @@ interface ControllerApi {
     suspend fun createKey(request: SshKeyRequestDto): SshKeyDto
     suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto
     suspend fun setupJob(id: String): SetupJobDto
+
+    suspend fun access(): AccessOverviewDto
+    suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse
+    suspend fun removeUser(id: String): ActionResponse
+    suspend fun setUserRoles(id: String, roleIds: List<Int>): ActionResponse
+    suspend fun removeInvitation(id: String): ActionResponse
+    /** `archive`, `unarchive`, `block`, `unblock` or `delete`. */
+    suspend fun deviceAction(id: Int, action: String): ActionResponse
 }
 
 /** What a pause request applies to (`PauseRequest.scope` on the wire). */

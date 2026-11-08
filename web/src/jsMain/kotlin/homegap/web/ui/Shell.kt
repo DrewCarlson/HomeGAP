@@ -15,6 +15,7 @@ import homegap.presentation.nodes.NodesScreenModel
 import homegap.presentation.overview.OverviewScreenModel
 import homegap.presentation.routing.Route
 import homegap.presentation.services.ServicesScreenModel
+import homegap.presentation.access.AccessScreenModel
 import homegap.presentation.speedtest.SpeedTestScreenModel
 import homegap.presentation.tunnels.TunnelsScreenModel
 import homegap.web.routing.HashRouter
@@ -77,6 +78,7 @@ private fun Screen(screen: ScreenModel, onNavigate: (Route) -> Unit) {
         is DnsScreenModel -> DnsScreen(screen)
         is TunnelsScreenModel -> TunnelsScreen(screen)
         is SpeedTestScreenModel -> SpeedTestScreen(screen)
+        is AccessScreenModel -> AccessScreen(screen)
         is ActivityScreenModel -> ActivityScreen(screen)
         is ConfigScreenModel -> ConfigScreen(screen)
         is AddNodeScreenModel -> AddNodeScreen(screen)

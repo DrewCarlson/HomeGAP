@@ -67,6 +67,19 @@ class FakeControllerApi(
         return SpeedTestResultDto("r", NOW, "tunnel", node, downMbps = 250.0, upMbps = 40.0, pingMs = 170.0, streams = streams)
     }
 
+    var accessValue = AccessOverviewDto(available = false, note = "no cluster")
+    var lastCreate: CreateAccessUserRequest? = null
+    override suspend fun access() = accessValue
+    override suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse {
+        lastCreate = request
+        calls += "create ${request.email} ${request.roleIds} ${if (request.password != null) "password" else "invite"}"
+        return CreateAccessUserResponse(true, "created", if (request.password == null) "https://pangolin.x/invite?token=a-b" else null)
+    }
+    override suspend fun removeUser(id: String) = ok("remove-user $id")
+    override suspend fun setUserRoles(id: String, roleIds: List<Int>) = ok("roles $id $roleIds")
+    override suspend fun removeInvitation(id: String) = ok("remove-invite $id")
+    override suspend fun deviceAction(id: Int, action: String) = ok("device $id $action")
+
     var connection = ConnectionTestDto(
         ok = true, hostKeyFingerprint = "SHA256:abc", os = "ubuntu", osVersion = "24.04", arch = "x86_64",
         supported = true, privilege = "root", clientIp = "198.51.100.7",

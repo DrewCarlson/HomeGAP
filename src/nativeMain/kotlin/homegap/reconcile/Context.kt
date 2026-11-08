@@ -43,4 +43,6 @@ class DiffCollector {
 class ReadyNode(
     val node: NodeConfig,
     val api: PangolinClient,
+    /** The node's dashboard API (`/api/v1`), for the few calls the Integration API lacks (signup). */
+    val dashboardUrl: String? = null,
 )

@@ -334,3 +334,72 @@ data class ClusterMemberDto(
     val lagBytes: Long? = null,
     val timeline: Int? = null,
 )
+
+/**
+ * The cluster's users and devices (one Pangolin across every node). [available] is false without
+ * a cluster or while no node's Pangolin can be reached; [note] says why.
+ */
+@Serializable
+data class AccessOverviewDto(
+    val available: Boolean,
+    val note: String? = null,
+    /** What to put into the Pangolin apps: `https://<client_hostname>.<domain>`. */
+    val clientAddress: String? = null,
+    /** The node whose Pangolin answered. */
+    val via: String? = null,
+    val roles: List<AccessRoleDto> = emptyList(),
+    val users: List<AccessUserDto> = emptyList(),
+    val invitations: List<AccessInvitationDto> = emptyList(),
+    val devices: List<AccessDeviceDto> = emptyList(),
+)
+
+@Serializable
+data class AccessRoleDto(val id: Int, val name: String, val admin: Boolean = false)
+
+@Serializable
+data class AccessUserDto(
+    val id: String,
+    val email: String? = null,
+    val username: String,
+    val name: String? = null,
+    val roleIds: List<Int> = emptyList(),
+    val roles: List<String> = emptyList(),
+    /** The server admin HomeGAP created: never removed from the dashboard. */
+    val owner: Boolean = false,
+    val twoFactor: Boolean = false,
+    /** `internal` (password) or an identity provider. */
+    val type: String? = null,
+)
+
+@Serializable
+data class AccessInvitationDto(val id: String, val email: String, val roles: List<String> = emptyList(), val expiresAt: Long? = null)
+
+@Serializable
+data class AccessDeviceDto(
+    val id: Int,
+    val name: String,
+    /** `user` (a person's app) or `machine` (a client with its own credentials). */
+    val kind: String,
+    /** The owning user's email (user devices). */
+    val user: String? = null,
+    /** App and version, e.g. `Olm CLI 1.10.1`. */
+    val agent: String? = null,
+    val online: Boolean = false,
+    val archived: Boolean = false,
+    val blocked: Boolean = false,
+    /** The node the device relays through (online devices). */
+    val viaNode: String? = null,
+)
+
+/**
+ * A new user. With [password] HomeGAP completes the invite and the user can sign in at once;
+ * without it, the response's invite link is handed to the person, who picks their own.
+ */
+@Serializable
+data class CreateAccessUserRequest(val email: String, val roleIds: List<Int>, val password: String? = null)
+
+@Serializable
+data class CreateAccessUserResponse(val ok: Boolean, val message: String, val inviteLink: String? = null)
+
+@Serializable
+data class SetAccessRolesRequest(val roleIds: List<Int>)

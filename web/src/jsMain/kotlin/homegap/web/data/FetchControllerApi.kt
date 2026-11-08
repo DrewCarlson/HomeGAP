@@ -67,6 +67,14 @@ class FetchControllerApi(private val tokens: TokenStore) : ControllerApi {
     override suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto = post("/setup/jobs", request)
     override suspend fun setupJob(id: String): SetupJobDto = get("/setup/jobs/$id")
 
+    override suspend fun access(): AccessOverviewDto = get("/access")
+    override suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse = post("/access/users", request)
+    override suspend fun removeUser(id: String): ActionResponse = send("DELETE", "/access/users/$id")
+    override suspend fun setUserRoles(id: String, roleIds: List<Int>): ActionResponse =
+        json.decodeFromString(ActionResponse.serializer(), request("PUT", "/access/users/$id/roles", json.encodeToString(SetAccessRolesRequest.serializer(), SetAccessRolesRequest(roleIds))))
+    override suspend fun removeInvitation(id: String): ActionResponse = send("DELETE", "/access/invitations/$id")
+    override suspend fun deviceAction(id: Int, action: String): ActionResponse = post("/access/devices/$id/$action")
+
     private suspend inline fun <reified T> get(path: String): T = send("GET", path)
 
     private suspend inline fun <reified T> post(path: String): T = send("POST", path)

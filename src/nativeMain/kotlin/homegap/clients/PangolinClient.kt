@@ -91,6 +91,54 @@ data class SiteDefaults(
 )
 
 @Serializable
+data class PangolinRole(val roleId: Int, val name: String, val isAdmin: Boolean? = null)
+
+@Serializable
+data class PangolinUserRole(val roleId: Int, val roleName: String? = null)
+
+@Serializable
+data class PangolinUser(
+    val id: String,
+    val email: String? = null,
+    val username: String,
+    val name: String? = null,
+    val type: String? = null,
+    val isOwner: Boolean? = null,
+    val twoFactorEnabled: Boolean? = null,
+    val roles: List<PangolinUserRole> = emptyList(),
+)
+
+@Serializable
+data class PangolinInvitation(
+    val inviteId: String,
+    val email: String,
+    val expiresAt: Long? = null,
+    val roles: List<PangolinUserRole> = emptyList(),
+)
+
+/** A machine client or a user's device, as Pangolin lists them. */
+@Serializable
+data class PangolinClientEntry(
+    val clientId: Int,
+    val name: String? = null,
+    val niceId: String? = null,
+    val type: String? = null,
+    val online: Boolean? = null,
+    val archived: Boolean? = null,
+    val blocked: Boolean? = null,
+    val userId: String? = null,
+    val userEmail: String? = null,
+    val username: String? = null,
+    val agent: String? = null,
+    val olmVersion: String? = null,
+    val deviceModel: String? = null,
+    val platform: String? = null,
+    /** Only on a single client's record: the exit node (node) it relays through. */
+    val exitNodeId: Int? = null,
+    val lastPing: Long? = null,
+)
+
+@Serializable
 data class PangolinDomain(val domainId: String, val baseDomain: String, val verified: Boolean? = null, val type: String? = null)
 
 /**
@@ -176,6 +224,69 @@ open class PangolinClient(
     open suspend fun deleteSiteResource(siteResourceId: Int) {
         send(HttpMethod.Delete, "/site-resource/$siteResourceId", null)
     }
+
+    // ------------------------------------------------------------------ users and devices
+
+    open suspend fun listRoles(orgId: String): List<PangolinRole> =
+        lenient.decodeFromJsonElement(get("/org/$orgId/roles?pageSize=1000").jsonObject["roles"] ?: JsonArray(emptyList()))
+
+    open suspend fun listUsers(orgId: String): List<PangolinUser> =
+        lenient.decodeFromJsonElement(get("/org/$orgId/users?pageSize=1000").jsonObject["users"] ?: JsonArray(emptyList()))
+
+    open suspend fun listInvitations(orgId: String): List<PangolinInvitation> =
+        lenient.decodeFromJsonElement(get("/org/$orgId/invitations?limit=1000").jsonObject["invitations"] ?: JsonArray(emptyList()))
+
+    /** Invites [email] (no email is sent) and returns the invite link; [regenerate] replaces an open invite. */
+    open suspend fun createInvite(orgId: String, email: String, roleIds: List<Int>, validHours: Int, regenerate: Boolean): String {
+        val data = send(HttpMethod.Post, "/org/$orgId/create-invite", buildJsonObject {
+            put("email", email)
+            putJsonArray("roleIds") { roleIds.forEach { add(it) } }
+            put("validHours", validHours)
+            put("sendEmail", false)
+            put("regenerate", regenerate)
+        })
+        return data.jsonObject["inviteLink"]?.jsonPrimitive?.contentOrNull ?: throw PangolinApiException(500, "the invite has no link")
+    }
+
+    open suspend fun removeInvitation(orgId: String, inviteId: String) {
+        send(HttpMethod.Delete, "/org/$orgId/invitations/$inviteId", null)
+    }
+
+    open suspend fun removeUser(orgId: String, userId: String) {
+        send(HttpMethod.Delete, "/org/$orgId/user/$userId", null)
+    }
+
+    open suspend fun addUserRole(userId: String, roleId: Int) {
+        send(HttpMethod.Post, "/user/$userId/add-role/$roleId", null)
+    }
+
+    open suspend fun removeUserRole(userId: String, roleId: Int) {
+        send(HttpMethod.Delete, "/user/$userId/remove-role/$roleId", null)
+    }
+
+    open suspend fun listClients(orgId: String): List<PangolinClientEntry> =
+        lenient.decodeFromJsonElement(get("/org/$orgId/clients?pageSize=1000").jsonObject["clients"] ?: JsonArray(emptyList()))
+
+    open suspend fun listUserDevices(orgId: String): List<PangolinClientEntry> {
+        val data = get("/org/$orgId/user-devices?pageSize=1000").jsonObject
+        return lenient.decodeFromJsonElement(data["devices"] ?: data["clients"] ?: JsonArray(emptyList()))
+    }
+
+    open suspend fun getClient(clientId: Int): PangolinClientEntry = lenient.decodeFromJsonElement(get("/client/$clientId"))
+
+    /** `archive`, `unarchive`, `block` or `unblock`. */
+    open suspend fun clientAction(clientId: Int, action: String) {
+        require(action in CLIENT_ACTIONS) { "unknown device action $action" }
+        send(HttpMethod.Post, "/client/$clientId/$action", null)
+    }
+
+    open suspend fun deleteClient(clientId: Int) {
+        send(HttpMethod.Delete, "/client/$clientId", null)
+    }
+
+    companion object {
+        val CLIENT_ACTIONS = setOf("archive", "unarchive", "block", "unblock")
+    }
 }
 
 /**
@@ -260,6 +371,31 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
         call(HttpMethod.Post, "/license/activate", buildJsonObject { put("licenseKey", key) }).pangolinData()
     }
 
+    /**
+     * Completes an invite with a password: creates the user (and a session for it), then accepts
+     * the invite so the user joins the org with the invite's roles. [inviteToken] is the invite
+     * link's `token` parameter (`<inviteId>-<token>`).
+     */
+    suspend fun signUpWithInvite(email: String, password: String, inviteToken: String) {
+        val inviteId = inviteToken.substringBefore('-')
+        val token = inviteToken.substringAfter('-')
+        val resp = call(HttpMethod.Put, "/auth/signup", buildJsonObject {
+            put("email", email); put("password", password)
+            put("inviteId", inviteId); put("inviteToken", token)
+            put("skipVerificationEmail", true)
+        })
+        resp.pangolinData()
+        val userSession = resp.setCookie().firstOrNull { it.name == "p_session_token" }?.value
+            ?: throw PangolinApiException(resp.status.value, "signup did not return a session")
+        val previous = session
+        session = userSession
+        try {
+            call(HttpMethod.Post, "/invite/accept", buildJsonObject { put("inviteId", inviteId); put("token", token) }).pangolinData()
+        } finally {
+            session = previous
+        }
+    }
+
     suspend fun licenseKeys(): JsonElement = call(HttpMethod.Get, "/license/keys").pangolinData()
 
     /** Makes a running instance re-read the license (activated through another cluster node). */
@@ -278,6 +414,10 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
             "listRoles", "getRole", "setResourceRoles", "listResourceRoles", "setResourceUsers", "listResourceUsers",
             "setResourcePincode", "applyBlueprint", "listBlueprints", "getBlueprint",
             "listHealthChecks", "getCertificate", "restartCertificate",
+            // Users and devices, managed from the dashboard.
+            "listUsers", "getOrgUser", "inviteUser", "listInvitations", "removeInvitation", "removeUser",
+            "addUserRole", "removeUserRole",
+            "listClients", "getClient", "archiveClient", "unarchiveClient", "blockClient", "unblockClient", "deleteClient",
         )
     }
 }

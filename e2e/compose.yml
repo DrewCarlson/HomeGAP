@@ -222,3 +222,21 @@ services:
     entrypoint: ["sleep", "infinity"]
     volumes: [ "./work/certs:/certs:ro" ]
     networks: [e2e]
+
+  # A Pangolin client (cluster only): connects to pangolin.<domain>, which CLIENT_NODE_IP stands in
+  # for DNS steering to the nearest node, and reaches private services through the cluster.
+  # Start it with a machine client's credentials:
+  #   OLM_ID=… OLM_SECRET=… CLIENT_NODE_IP=172.30.0.10 docker compose --profile client up -d client
+  client:
+    image: docker.io/fosrl/olm:1.10.1
+    profiles: [client]
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    environment:
+      PANGOLIN_ENDPOINT: https://pangolin.test.example.net
+      OLM_ID: ${OLM_ID:-}
+      OLM_SECRET: ${OLM_SECRET:-}
+      SSL_CERT_FILE: /certs/ca.pem
+    volumes: [ "./work/certs:/certs:ro" ]
+    extra_hosts: ["pangolin.test.example.net:${CLIENT_NODE_IP:-172.30.0.11}"]
+    networks: [e2e]

@@ -583,8 +583,48 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
             if (warn) log.warn(domain, "cached API key rejected; minting a new one", node.id)
             return null
         }
+        ensureKeyActions(node, ssh, slot, secrets, keyId)
         maybeActivateLicense(node, ssh, slot, secrets)
-        return ReadyNode(node, api)
+        return ReadyNode(node, api, dashboardUrl(ssh, slot))
+    }
+
+    private suspend fun dashboardUrl(ssh: SshSession, slot: Int) = "http://127.0.0.1:${ssh.forward(3000, LOCAL_PORT_BASE + slot * 10 + 5)}/api/v1"
+
+    /**
+     * Grants the key any actions added since it was minted (one login per change). [justMinted]:
+     * the key was created with the current actions, so they are only recorded.
+     */
+    private suspend fun ensureKeyActions(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, keyId: String, justMinted: Boolean = false) {
+        // The cluster's one key is updated by one node at a time. The lock is not reentrant and may
+        // already be held (by bootstrap, or another node): then a later pass does it.
+        if (clustered && !justMinted && ctx.state.snapshot().clusterPangolin?.keyActions != KEY_ACTIONS_HASH) {
+            if (!clusterKeyLock.tryLock()) return
+            try {
+                if (ctx.state.snapshot().clusterPangolin?.keyActions != KEY_ACTIONS_HASH) updateKeyActions(node, ssh, slot, secrets, keyId, false)
+            } finally {
+                clusterKeyLock.unlock()
+            }
+            return
+        }
+        updateKeyActions(node, ssh, slot, secrets, keyId, justMinted)
+    }
+
+    private suspend fun updateKeyActions(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, keyId: String, justMinted: Boolean) {
+        val want = KEY_ACTIONS_HASH
+        val have = if (clustered) ctx.state.snapshot().clusterPangolin?.keyActions else ctx.state.node(node.id).facts[KEY_ACTIONS_FACT]
+        if (have == want) return
+        try {
+            if (!justMinted) {
+                val boot = dashboardClient(ssh, slot).also { it.login(secrets.adminEmail, secrets.adminPassword) }
+                boot.setApiKeyActions(keyId, PangolinBootstrapClient.ORCHESTRATOR_ACTIONS)
+                log.change(domain, "updated the orchestrator API key's permissions", node.id.takeIf { !clustered })
+            }
+            if (clustered) ctx.state.update { s -> s.copy(clusterPangolin = s.clusterPangolin?.copy(keyActions = want)) }
+            else ctx.state.updateNode(node.id) { it.copy(facts = it.facts + (KEY_ACTIONS_FACT to want)) }
+        } catch (e: Exception) {
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
+            log.warn(domain, "could not update the API key's permissions: ${e.message}", node.id)
+        }
     }
 
     private suspend fun mint(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, integrationUrl: String): ReadyNode {
@@ -633,8 +673,10 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
         }
         log.change(domain, if (clustered) "minted the cluster's orchestrator API key" else "minted orchestrator API key", node.id)
         storeKey(node.id, keyId, key)
+        // Minted with the current actions: record them without another call.
+        ensureKeyActions(node, ssh, slot, secrets, keyId, justMinted = true)
         maybeActivateLicense(node, ssh, slot, secrets, boot)
-        return ReadyNode(node, PangolinClient(ctx.localHttp, integrationUrl, "$keyId.$key"))
+        return ReadyNode(node, PangolinClient(ctx.localHttp, integrationUrl, "$keyId.$key"), dashboardUrl(ssh, slot))
     }
 
     private suspend fun dashboardClient(ssh: SshSession, slot: Int) =
@@ -846,6 +888,8 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
         val SUPPORTED_UBUNTU = setOf("22.04", "24.04", "26.04", "26.10")
         /** The Pangolin image a node last provisioned successfully. */
         const val PANGOLIN_IMAGE_FACT = "pangolinImage"
+        private const val KEY_ACTIONS_FACT = "keyActions"
+        private val KEY_ACTIONS_HASH = Crypto.fnv64(PangolinBootstrapClient.ORCHESTRATOR_ACTIONS.sorted().joinToString(","))
         /** The node's running stack is the cluster's (not a standalone Pangolin). */
         const val CLUSTER_STACK_FACT = "clusterStack"
         private val CLUSTER_MEMBER_WAIT = 20.minutes
