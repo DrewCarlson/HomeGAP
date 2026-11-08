@@ -24,6 +24,9 @@ object SetupScripts {
         |echo "VERSION_ID=$VERSION_ID"
         |echo "ARCH=$(uname -m)"
         |echo "CLIENT=${SSH_CLIENT%% *}"
+        |set -- $SSH_CONNECTION
+        |echo "SERVER_ADDR=${3:-}"
+        |echo "SERVER_PORT=${4:-}"
         |if command -v docker >/dev/null 2>&1; then echo "DOCKER=yes"; else echo "DOCKER=no"; fi
         |if [ "$(id -u)" = 0 ]; then echo "PRIV=root"
         |elif sudo -n true 2>/dev/null; then echo "PRIV=nopasswd"
@@ -186,6 +189,15 @@ object SetupScripts {
 
     /** Cancels the revert timer for [name] once access was verified. */
     fun disarm(name: String): String = "rm -f ${marker(name)}"
+
+    /**
+     * Cancels the revert timers for [names] after the final check, failing if one already fired
+     * (its change was undone while setup was still verifying, so the server is not as reported).
+     */
+    fun confirm(names: List<String>): String = names.joinToString("\n") { name ->
+        val mark = marker(name)
+        "[ -f $mark ] || { echo \"the $name change was already reverted by its safety timer; run setup again\" >&2; exit 1; }"
+    } + "\n" + names.joinToString("\n") { "rm -f ${marker(it)}" }
 
     private const val RESTORE_SSHD =
         $$"""if [ -f "$CONF.homegap-prev" ]; then mv -f "$CONF.homegap-prev" "$CONF"; else rm -f "$CONF"; fi"""

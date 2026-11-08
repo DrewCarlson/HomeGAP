@@ -1,5 +1,6 @@
 package homegap.setup
 
+import homegap.clients.SshSession.Companion.shQuote
 import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.ProcessResult
@@ -44,8 +45,11 @@ class SetupConnectionException(message: String) : Exception(message)
  *
  * A setup job holds one [Connection] open with the initial login and runs every command through it,
  * so a run costs a single login instead of one per command: servers with fail2ban, sshguard or
- * CrowdSec ban addresses that open many logins in a short time. Only the checks that must prove a
- * *new* login works ([run] with a [SetupLogin]) open a fresh connection.
+ * CrowdSec ban addresses that open many logins in a short time, and intrusion-prevention systems on
+ * the orchestrator's own network (UniFi Threat Management, Suricata/Snort) cut off a source that
+ * opens several outbound SSH connections in a row as a "scan". Checks that need a *new* login run
+ * it inside the held connection ([runThrough]); only the final check from outside ([run] with a
+ * [SetupLogin]) opens a second connection.
  *
  * Passwords go to OpenSSH through `SSH_ASKPASS`: a small script that prints an environment variable
  * set only for that `ssh` child. They never appear in arguments, files or logs.
@@ -111,6 +115,39 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         val (auth, env) = authFor(login)
         val argv = baseArgs(login) + auth + listOf("-o", "ControlPath=none", target(login), command)
         return Subprocess.run(argv, stdin, timeout, env)
+    }
+
+    /**
+     * Runs [command] with a fresh [login] carried *inside* [via]: the new SSH session reaches the
+     * server's own sshd at [address]:[port] through a stdio forward (`-W`) of the held-open
+     * connection. It proves the key, sshd's settings and sudo for that login without opening another
+     * connection from the orchestrator, which an intrusion-prevention system on the orchestrator's
+     * network (or a login blocker on the server) would count as one more login in a burst.
+     *
+     * It does not cross the server's firewall (the forward arrives over loopback), so a final check
+     * of the firewall still needs [run] with a [SetupLogin].
+     */
+    suspend fun runThrough(
+        via: Connection,
+        address: String,
+        port: Int,
+        login: SetupLogin.Key,
+        command: String,
+        timeout: Duration = 60.seconds,
+    ): ProcessResult {
+        val hop = if (':' in address) "[$address]:$port" else "$address:$port"
+        val proxy = (baseArgs(via.login) + listOf(
+            "-o", "ControlPath=${via.controlPath}", "-o", "ControlMaster=no", "-o", "ProxyCommand=none",
+            "-W", hop, target(via.login),
+        )).joinToString(" ") { shQuote(it) }.replace("%", "%%")
+        val (auth, env) = authFor(login)
+        // Host keys are checked against the server's own name, the same key a direct login sees.
+        val argv = baseArgs(login) + auth + listOf("-o", "ControlPath=none", "-o", "ProxyCommand=$proxy", target(login), command)
+        val r = Subprocess.run(argv, "", timeout, env)
+        if (r.exitCode == 255 && !Files.exists(via.controlPath)) {
+            return r.copy(stderr = "Connection closed: the setup connection to the server was lost.")
+        }
+        return r
     }
 
     /** Closes [connection]'s master. */
@@ -206,6 +243,9 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
                 "Permission denied" in err -> LOGIN_REJECTED
                 "Connection refused" in err -> "Nothing is listening for SSH on that port."
                 "Could not resolve hostname" in err -> "The host name does not resolve."
+                // Connected, then nothing more got through: ssh's own banner timeout, or ours
+                // (Subprocess marks a kill after the timeout; ssh exits 255 on SIGTERM).
+                "during banner exchange" in err || "[homegap] process timed out" in err -> STALLED
                 "timed out" in err || "No route to host" in err || "Network is unreachable" in err -> NO_ANSWER
                 "Connection closed" in err || "Connection reset" in err || "kex_exchange_identification" in err -> DROPPED
                 err.isBlank() -> DROPPED
@@ -216,7 +256,10 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         const val LOGIN_REJECTED = "Login rejected: wrong user, password or key."
 
         /** Whether [error] (from [connectionError]) means packets were dropped or the connection was cut. */
-        fun isDropped(error: String) = error == NO_ANSWER || error == DROPPED
+        fun isDropped(error: String) = error == NO_ANSWER || error == DROPPED || error == STALLED
+
+        const val STALLED =
+            "The server accepted the connection, then the SSH session stalled: packets stopped getting through."
 
         const val NO_ANSWER =
             "The server did not answer (wrong address, a firewall in front of it, or a login blocker on the server that banned this address)."

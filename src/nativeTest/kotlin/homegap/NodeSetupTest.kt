@@ -52,6 +52,21 @@ class NodeSetupTest {
         assertEquals(SetupShell.DROPPED, error("kex_exchange_identification: Connection closed by remote host"))
         assertTrue(SetupShell.isDropped(error("ssh: connect to host x port 22: Connection timed out")!!))
         assertTrue(!SetupShell.isDropped(SetupShell.LOGIN_REJECTED))
+        assertEquals(SetupShell.STALLED, error("Connection timed out during banner exchange\nConnection to 203.0.113.30 port 22 timed out"))
+        assertEquals(SetupShell.STALLED, error("\n[homegap] process timed out after 30s"), "a login killed by our timeout connected first")
+        assertTrue(SetupShell.isDropped(SetupShell.STALLED))
+    }
+
+    @Test
+    fun probeReportsWhereSshdTookTheConnection() {
+        assertTrue("SERVER_ADDR=" in SetupScripts.PROBE && "SERVER_PORT=" in SetupScripts.PROBE)
+    }
+
+    @Test
+    fun confirmFailsWhenARevertTimerAlreadyFired() {
+        val script = SetupScripts.confirm(listOf("ufw", "ssh"))
+        assertTrue("[ -f /run/homegap-setup-ufw.armed ] ||" in script && "[ -f /run/homegap-setup-ssh.armed ] ||" in script)
+        assertTrue(script.indexOf("exit 1") < script.indexOf("rm -f"), "every timer is checked before any is cancelled")
     }
 
     @Test

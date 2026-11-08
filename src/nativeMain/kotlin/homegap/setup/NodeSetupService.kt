@@ -151,8 +151,9 @@ class NodeSetupService(private val controller: Controller) {
             SetupStepDto("connect", "Connect as ${initial.user}"),
             SetupStepDto("user", if (request.createUser != null) "Create user $target" else "Authorize the key for $target"),
             SetupStepDto("key", "Log in with the node key as $target"),
-            SetupStepDto("ssh", "Harden SSH", if (hardenSsh) "pending" else "skipped"),
             SetupStepDto("firewall", "Configure the firewall", if (request.configureFirewall) "pending" else "skipped"),
+            SetupStepDto("ssh", "Harden SSH", if (hardenSsh) "pending" else "skipped"),
+            SetupStepDto("verify", "Reconnect from the orchestrator with the node key"),
             SetupStepDto("add", "Add ${node.id} and start provisioning"),
         )
 
@@ -191,7 +192,13 @@ class NodeSetupService(private val controller: Controller) {
 
     /**
      * One execution of a [SetupPlan], reporting into [state]. Everything runs through one held-open
-     * connection ([Admin]); only the checks that must prove a new login works open their own.
+     * connection ([Admin]), and the checks that need a new login run it inside that connection. The
+     * only other connection is the final check from outside, so a run opens two connections in all:
+     * a burst of SSH logins gets the orchestrator cut off by intrusion-prevention systems on its own
+     * network and by login blockers on the server.
+     *
+     * The firewall and the SSH hardening stay armed (their revert timers running) until that final
+     * check passes, and are both reverted when it fails.
      */
     private inner class SetupRun(private val plan: SetupPlan, private val state: MutableStateFlow<SetupJobDto>) {
         private val node = plan.node
@@ -202,14 +209,22 @@ class NodeSetupService(private val controller: Controller) {
         /** The orchestrator's address as the server sees it (from the probe). */
         private var clientIp: String? = null
 
+        /** Where the server's sshd took the setup connection (from the probe); new logins inside it go there. */
+        private var serverAddr: String? = null
+        private var serverPort: Int = node.sshPort
+
+        /** Changes whose revert timer is running, by marker name, with how to undo them now. */
+        private val armed = linkedMapOf<String, String>()
+
         suspend fun execute() {
             log("setup started (${plan.initial})")
             try {
                 val admin = step("connect") { connect() }
                 step("user") { prepareUser(admin) }
-                step("key") { verifyKeyLogin("key login failed") }
-                if (plan.hardenSsh) step("ssh") { hardenSsh(admin) }
+                step("key") { verifyInside(admin, "key login failed") }
                 if (plan.request.configureFirewall) step("firewall") { firewall(admin) }
+                if (plan.hardenSsh) step("ssh") { hardenSsh(admin) }
+                step("verify") { verifyFromOutside(admin) }
                 step("add") { controller.addNode(node) }
                 state.update { it.copy(state = "succeeded", finishedAt = nowMillis()) }
                 log("setup finished; provisioning starts on the next pass")
@@ -266,6 +281,8 @@ class NodeSetupService(private val controller: Controller) {
             val os = "${facts["ID"]} ${facts["VERSION_ID"]}"
             check(facts["ID"] == "ubuntu" && facts["VERSION_ID"] in NodeReconciler.SUPPORTED_UBUNTU) { "unsupported system: $os" }
             clientIp = facts["CLIENT"]?.takeIf { SetupScripts.isIpAddress(it) }
+            serverAddr = facts["SERVER_ADDR"]?.takeIf { SetupScripts.isIpAddress(it) }
+            facts["SERVER_PORT"]?.toIntOrNull()?.takeIf { it in 1..65535 }?.let { serverPort = it }
             val privilege = privilegeOf(opened, facts["PRIV"])
             check(privilege != Privilege.None) { "${opened.login.user} cannot become root" }
             val access = when (privilege) {
@@ -288,11 +305,64 @@ class NodeSetupService(private val controller: Controller) {
 
         private val target get() = plan.target
 
-        /** A fresh connection with the node key, as the orchestrator will use it. */
-        private suspend fun verifyKeyLogin(what: String) {
-            val r = shell.run(keyLogin, verifyCommand, timeout = 30.seconds)
+        /**
+         * A new login with the node key, carried inside the setup connection: proves the key, sshd's
+         * current settings and sudo without another connection from the orchestrator. Falls back to
+         * a direct login only if the probe could not tell where sshd took the setup connection.
+         */
+        private suspend fun verifyInside(admin: Admin, what: String) {
+            val addr = serverAddr
+            val r = if (addr != null) {
+                shell.runThrough(admin.connection, addr, serverPort, keyLogin, verifyCommand, 60.seconds)
+            } else {
+                shell.run(keyLogin, verifyCommand, timeout = 60.seconds)
+            }
+            checkKeyLogin(r, what)
+        }
+
+        private fun checkKeyLogin(r: ProcessResult, what: String) {
             SetupShell.connectionError(r)?.let { throw IllegalStateException("$what: ${explain(it)}") }
             check(r.ok) { "$what: ${plan.target} cannot use passwordless sudo (${r.errorText()})" }
+        }
+
+        /**
+         * The one direct login with the node key, as the orchestrator will connect from now on: it
+         * crosses the new firewall and the hardened sshd. On success the armed changes are kept; on
+         * failure they are all reverted.
+         */
+        private suspend fun verifyFromOutside(admin: Admin): String? {
+            val r = shell.run(keyLogin, verifyCommand, timeout = 60.seconds)
+            val limited = "ufw" in armed && node.sshAllowFrom.isNotEmpty() && SetupShell.connectionError(r)?.let(SetupShell::isDropped) == true
+            try {
+                // The new firewall is the likeliest cause when it only lets listed sources reach SSH.
+                if (limited) {
+                    throw IllegalStateException(
+                        "with SSH limited to ${node.sshAllowFrom.joinToString()}, the orchestrator" +
+                            "${clientIp?.let { " ($it)" }.orEmpty()} could not log in; add its address to the allowed sources",
+                    )
+                }
+                checkKeyLogin(r, "key login from the orchestrator failed")
+            } catch (e: Exception) {
+                if (e is CancellationException) currentCoroutineContext().ensureActive()
+                if (armed.isEmpty()) throw e
+                val undone = revertArmed(admin)
+                throw IllegalStateException("${e.message} ($undone)")
+            }
+            if (armed.isEmpty()) return null
+            root(admin, "keeping the changes", SetupScripts.confirm(armed.keys.toList()), 30.seconds)
+            val kept = armed.keys.joinToString(" and ") { if (it == "ufw") "firewall" else "SSH settings" }
+            armed.clear()
+            return "$kept kept"
+        }
+
+        /** Undoes every armed change now (best effort; their timers would do it shortly anyway). */
+        private suspend fun revertArmed(admin: Admin): String {
+            val names = armed.keys.reversed().map { if (it == "ufw") "firewall turned off again" else "SSH settings reverted" }
+            armed.entries.reversed().forEach { (_, revert) ->
+                withContext(NonCancellable) { runCatching { shell.runAsRoot(admin.connection, admin.privilege, revert, 60.seconds) } }
+            }
+            armed.clear()
+            return names.joinToString(", ")
         }
 
         /** Runs [script] as root through the run's connection; returns its output or throws. */
@@ -304,36 +374,30 @@ class NodeSetupService(private val controller: Controller) {
         }
 
         /**
-         * Hardens sshd, then proves a fresh key login still works. Whether password and root login are
-         * really off is checked inside the script with `sshd -T -C` for the users involved and the
-         * orchestrator's address, rather than by attempting a login that should fail (which a login
-         * blocker would count against the orchestrator).
+         * Hardens sshd (armed), then proves a new key login still works, inside the setup connection.
+         * Whether password and root login are really off is checked inside the script with
+         * `sshd -T -C` for the users involved and the orchestrator's address, rather than by
+         * attempting a login that should fail (which a login blocker would count against the
+         * orchestrator). The final check from outside then keeps or reverts it.
          */
         private suspend fun hardenSsh(admin: Admin): String {
             val users = listOf(plan.initial.user, plan.target, "root").distinct()
             val script = SetupScripts.hardenSsh(plan.request.disableRootLogin, plan.request.disablePasswordLogin, users, clientIp)
             val out = root(admin, "hardening SSH", script, 120.seconds)
+            armed["ssh"] = SetupScripts.REVERT_SSH
             try {
-                verifyKeyLogin("after hardening SSH, key login failed")
+                verifyInside(admin, "after hardening SSH, key login failed")
             } catch (e: Exception) {
                 if (e is CancellationException) currentCoroutineContext().ensureActive()
-                shell.runAsRoot(admin.connection, admin.privilege, SetupScripts.REVERT_SSH, 60.seconds)
-                throw IllegalStateException("${e.message} (SSH settings reverted)")
+                throw IllegalStateException("${e.message} (${revertArmed(admin)})")
             }
-            root(admin, "confirming the SSH settings", SetupScripts.disarm("ssh"), 30.seconds)
             return out.changes()
         }
 
+        /** Applies the firewall and turns it on (armed); the final check from outside keeps or reverts it. */
         private suspend fun firewall(admin: Admin): String {
             val out = root(admin, "configuring the firewall", SetupScripts.firewall(FirewallRules.specs(node)), 300.seconds)
-            try {
-                verifyKeyLogin("with the firewall on, SSH from the orchestrator failed; check the allowed sources")
-            } catch (e: Exception) {
-                if (e is CancellationException) currentCoroutineContext().ensureActive()
-                shell.runAsRoot(admin.connection, admin.privilege, SetupScripts.REVERT_UFW, 60.seconds)
-                throw IllegalStateException("${e.message} (firewall turned off again)")
-            }
-            root(admin, "confirming the firewall", SetupScripts.disarm("ufw"), 30.seconds)
+            armed["ufw"] = SetupScripts.REVERT_UFW
             val ssh = if (node.sshAllowFrom.isEmpty()) "SSH from anywhere" else "SSH from ${node.sshAllowFrom.joinToString()}"
             return (listOf("$ssh; web, WireGuard and raw ports open") + out.changes().lines()).filter { it.isNotBlank() }.joinToString("; ")
         }
@@ -354,9 +418,12 @@ class NodeSetupService(private val controller: Controller) {
 
     private companion object {
         const val BLOCKED_HINT =
-            "It answered earlier in this run, so it has most likely started blocking the orchestrator's address " +
-                "(fail2ban, sshguard, CrowdSec or a provider firewall). Lift the block from the provider's console " +
-                "or another network, then retry; setup then exempts the orchestrator."
+            "It answered earlier in this run, so something is now cutting off new SSH connections from the orchestrator. " +
+                "Most often that is an intrusion-prevention system on the orchestrator's own network (UniFi Threat " +
+                "Management, Suricata or Snort on pfSense/OPNsense, Firewalla) treating several SSH logins in a row as an " +
+                "outbound SSH scan; otherwise a login blocker on the server (fail2ban, sshguard, CrowdSec) or a provider " +
+                "firewall. Allow the orchestrator to reach this server there, or wait a few minutes for the block to " +
+                "expire, then retry."
     }
 }
 
