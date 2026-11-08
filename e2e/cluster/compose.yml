@@ -1,70 +1,84 @@
-# Prototype: Pangolin EE clustering across two HomeGAP nodes. Each node runs Pangolin, Gerbil and
-# Traefik; the nodes share PostgreSQL (primary on c1) and Valkey. The homelab runs its own
-# Traefik (origin certificate, for passthrough checks) and one connector (Newt) per node.
+# Prototype: Pangolin EE clustering across two HomeGAP nodes. Each node is one network namespace
+# (its "host" container, like a VPS) shared by Pangolin, Gerbil, Traefik, PostgreSQL and Valkey;
+# nodes reach each other only through the WireGuard mesh (mesh0, 10.77.0.0/24). c1 holds the
+# PostgreSQL and Valkey primaries, c2 streaming replicas. The homelab runs its own Traefik (origin
+# certificate, for passthrough checks) and one connector (Newt) per node.
 # Test-only credentials. Run ./setup.sh first.
 name: homegap-cluster
 
+x-host: &host
+  image: docker.io/library/alpine:3.20
+  command: ["/bin/sh", "/host-init.sh"]
+  cap_add: [NET_ADMIN, SYS_MODULE]
+  healthcheck:
+    test: ["CMD", "ip", "link", "show", "mesh0"]
+    interval: 2s
+    retries: 60
+
 x-pangolin: &pangolin
   image: docker.io/fosrl/pangolin:ee-postgresql-1.26.0
+  environment:
+    PANGOLIN_SETUP_TOKEN: ${SETUP_TOKEN:-}
   healthcheck:
     test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
     interval: 5s
     timeout: 5s
-    retries: 30
-  depends_on:
-    db-c1: { condition: service_healthy }
-    valkey: { condition: service_started }
-
-x-gerbil: &gerbil
-  image: docker.io/fosrl/gerbil:1.6.0
-  cap_add: [NET_ADMIN, SYS_MODULE]
+    retries: 40
 
 x-traefik: &traefik
   image: docker.io/traefik:v3.7.16
   command: ["--configFile=/etc/traefik/traefik_config.yml"]
 
+x-db: &db
+  image: docker.io/library/postgres:17
+  environment:
+    POSTGRES_PASSWORD: ${DB_PASSWORD:-}
+  healthcheck:
+    test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
+    interval: 3s
+    retries: 60
+
 services:
-  db-c1:
-    image: docker.io/library/postgres:17
-    environment:
-      POSTGRES_PASSWORD: cluster-e2e
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
-      interval: 3s
-      retries: 30
-    networks: { cl: { ipv4_address: 172.31.0.5 } }
-
-  valkey:
+  # ------------------------------------------------------------------ node c1 (primaries)
+  c1-host:
+    <<: *host
+    volumes: ["./host-init.sh:/host-init.sh:ro", "./work/c1:/node:ro"]
+    ports: ["127.0.0.1:18101:3080"]
+    networks: { cl: { ipv4_address: 172.31.0.11 } }
+  c1-db:
+    <<: *db
+    network_mode: service:c1-host
+    command: ["postgres", "-c", "listen_addresses=*"]
+    volumes: ["./db-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro"]
+    depends_on: { c1-host: { condition: service_healthy } }
+  c1-valkey:
     image: docker.io/valkey/valkey:8.1
-    networks: { cl: { ipv4_address: 172.31.0.6 } }
-
-  # ------------------------------------------------------------------ node c1
+    network_mode: service:c1-host
+    command: ["valkey-server", "--protected-mode", "no"]
+    depends_on: { c1-host: { condition: service_healthy } }
   c1-pangolin:
     <<: *pangolin
-    environment:
-      PANGOLIN_SETUP_TOKEN: ${SETUP_TOKEN:-}
+    network_mode: service:c1-host
     volumes:
       - ./work/c1/config:/app/config
       - ./work/c1/config/certificates:/var/certificates
       - ./work/c1/config/dynamic:/var/dynamic
-    networks:
-      c1: { aliases: [pangolin] }
-      cl: { ipv4_address: 172.31.0.12 }
+    depends_on:
+      c1-db: { condition: service_healthy }
+      c1-valkey: { condition: service_started }
   c1-gerbil:
-    <<: *gerbil
+    image: docker.io/fosrl/gerbil:1.6.0
+    network_mode: service:c1-host
+    cap_add: [NET_ADMIN, SYS_MODULE]
     command:
-      - --reachableAt=http://172.31.0.11:3004
+      - --reachableAt=http://10.77.0.1:3004
       - --generateAndSaveKeyTo=/var/config/key
-      - --remoteConfig=http://pangolin:3001/api/v1/
+      - --remoteConfig=http://127.0.0.1:3001/api/v1/
     volumes: [./work/c1/config:/var/config]
     depends_on: { c1-pangolin: { condition: service_healthy } }
-    ports: ["127.0.0.1:18101:3000"]
-    networks:
-      c1: { aliases: [gerbil] }
-      cl: { ipv4_address: 172.31.0.11 }
   c1-traefik:
     <<: *traefik
-    network_mode: service:c1-gerbil
+    network_mode: service:c1-host
     depends_on: { c1-pangolin: { condition: service_healthy } }
     volumes:
       - ./work/c1/config/traefik:/etc/traefik:ro
@@ -72,33 +86,52 @@ services:
       - ./work/c1/config/dynamic:/var/dynamic:ro
       - ./work/c1/certs:/certs:ro
 
-  # ------------------------------------------------------------------ node c2
+  # ------------------------------------------------------------------ node c2 (replicas)
+  c2-host:
+    <<: *host
+    volumes: ["./host-init.sh:/host-init.sh:ro", "./work/c2:/node:ro"]
+    ports: ["127.0.0.1:18102:3080"]
+    networks: { cl: { ipv4_address: 172.31.0.21 } }
+  c2-db:
+    <<: *db
+    network_mode: service:c2-host
+    entrypoint: ["/bin/sh", "/db-replica.sh"]
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
+      PRIMARY_HOST: 10.77.0.1
+    volumes: ["./db-replica.sh:/db-replica.sh:ro"]
+    depends_on:
+      c2-host: { condition: service_healthy }
+      c1-db: { condition: service_healthy }
+  c2-valkey:
+    image: docker.io/valkey/valkey:8.1
+    network_mode: service:c2-host
+    command: ["valkey-server", "--protected-mode", "no", "--replicaof", "10.77.0.1", "6379"]
+    depends_on: { c2-host: { condition: service_healthy } }
   c2-pangolin:
     <<: *pangolin
-    environment:
-      PANGOLIN_SETUP_TOKEN: ${SETUP_TOKEN:-}
+    network_mode: service:c2-host
     volumes:
       - ./work/c2/config:/app/config
       - ./work/c2/config/certificates:/var/certificates
       - ./work/c2/config/dynamic:/var/dynamic
-    networks:
-      c2: { aliases: [pangolin] }
-      cl: { ipv4_address: 172.31.0.22 }
+    depends_on:
+      c2-db: { condition: service_healthy }
+      # The first node migrates the empty database; others start after it.
+      c1-pangolin: { condition: service_healthy }
   c2-gerbil:
-    <<: *gerbil
+    image: docker.io/fosrl/gerbil:1.6.0
+    network_mode: service:c2-host
+    cap_add: [NET_ADMIN, SYS_MODULE]
     command:
-      - --reachableAt=http://172.31.0.21:3004
+      - --reachableAt=http://10.77.0.2:3004
       - --generateAndSaveKeyTo=/var/config/key
-      - --remoteConfig=http://pangolin:3001/api/v1/
+      - --remoteConfig=http://127.0.0.1:3001/api/v1/
     volumes: [./work/c2/config:/var/config]
     depends_on: { c2-pangolin: { condition: service_healthy } }
-    ports: ["127.0.0.1:18102:3000"]
-    networks:
-      c2: { aliases: [gerbil] }
-      cl: { ipv4_address: 172.31.0.21 }
   c2-traefik:
     <<: *traefik
-    network_mode: service:c2-gerbil
+    network_mode: service:c2-host
     depends_on: { c2-pangolin: { condition: service_healthy } }
     volumes:
       - ./work/c2/config/traefik:/etc/traefik:ro
@@ -123,7 +156,7 @@ services:
     image: docker.io/fosrl/newt:1.20.0
     profiles: [sites]
     environment:
-      PANGOLIN_ENDPOINT: http://pangolin-c1.test.example.net:3000
+      PANGOLIN_ENDPOINT: http://pangolin-c1.test.example.net:3080
       NEWT_ID: ${NEWT_C1_ID:-}
       NEWT_SECRET: ${NEWT_C1_SECRET:-}
     extra_hosts: ["pangolin-c1.test.example.net:172.31.0.11"]
@@ -132,7 +165,7 @@ services:
     image: docker.io/fosrl/newt:1.20.0
     profiles: [sites]
     environment:
-      PANGOLIN_ENDPOINT: http://pangolin-c2.test.example.net:3000
+      PANGOLIN_ENDPOINT: http://pangolin-c2.test.example.net:3080
       NEWT_ID: ${NEWT_C2_ID:-}
       NEWT_SECRET: ${NEWT_C2_SECRET:-}
     extra_hosts: ["pangolin-c2.test.example.net:172.31.0.21"]
@@ -145,7 +178,7 @@ services:
     cap_add: [NET_ADMIN]
     devices: ["/dev/net/tun"]
     environment:
-      PANGOLIN_ENDPOINT: http://pangolin.test.example.net:3000
+      PANGOLIN_ENDPOINT: http://pangolin.test.example.net:3080
       OLM_ID: ${OLM_ID:-}
       OLM_SECRET: ${OLM_SECRET:-}
     extra_hosts: ["pangolin.test.example.net:${CLIENT_NODE_IP:-172.31.0.11}"]
@@ -154,6 +187,4 @@ services:
 networks:
   cl:
     ipam: { config: [{ subnet: 172.31.0.0/24 }] }
-  c1: {}
-  c2: {}
   home: {}
