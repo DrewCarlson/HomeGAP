@@ -1,8 +1,10 @@
-# Prototype: Pangolin EE clustering across two HomeGAP nodes. Each node is one network namespace
-# (its "host" container, like a VPS) shared by Pangolin, Gerbil, Traefik, PostgreSQL and Valkey;
-# nodes reach each other only through the WireGuard mesh (mesh0, 10.77.0.0/24). c1 holds the
-# PostgreSQL and Valkey primaries, c2 streaming replicas. The homelab runs its own Traefik (origin
-# certificate, for passthrough checks) and one connector (Newt) per node.
+# Prototype: Pangolin EE clustering across two HomeGAP nodes with a dynamic database primary.
+# Three mesh members (homelab hl, nodes c1 and c2), each one network namespace (its "host"
+# container, like a real host) reachable from the others only through the WireGuard mesh.
+# Every member runs etcd (the vote), Patroni-managed PostgreSQL, and Valkey with Sentinel; the
+# primary lives on the homelab by default and moves to a node while the homelab is down. Each node
+# also runs HAProxy (stable local addresses for the current primaries), Pangolin, Gerbil and
+# Traefik. The homelab's Traefik (origin certificate) and connectors stand in for the homelab stack.
 # Test-only credentials. Run ./setup.sh first.
 name: homegap-cluster
 
@@ -14,6 +16,26 @@ x-host: &host
     test: ["CMD", "ip", "link", "show", "mesh0"]
     interval: 2s
     retries: 60
+
+x-etcd: &etcd
+  image: gcr.io/etcd-development/etcd:v3.5.17
+  command: ["/usr/local/bin/etcd"]
+  environment:
+    ETCD_INITIAL_CLUSTER: hl=http://10.77.0.10:2380,c1=http://10.77.0.1:2380,c2=http://10.77.0.2:2380
+    ETCD_INITIAL_CLUSTER_STATE: new
+    ETCD_INITIAL_CLUSTER_TOKEN: homegap-e2e
+    ETCD_DATA_DIR: /etcd-data
+
+x-db: &db
+  build: { context: ., dockerfile: patroni.Dockerfile }
+  image: homegap-e2e-patroni:17
+  healthcheck:
+    test: ["CMD", "pg_isready", "-h", "127.0.0.1"]
+    interval: 3s
+    retries: 100
+
+x-valkey: &valkey
+  image: docker.io/valkey/valkey:8.1
 
 x-pangolin: &pangolin
   image: docker.io/fosrl/pangolin:ee-postgresql-1.26.0
@@ -29,32 +51,83 @@ x-traefik: &traefik
   image: docker.io/traefik:v3.7.16
   command: ["--configFile=/etc/traefik/traefik_config.yml"]
 
-x-db: &db
-  image: docker.io/library/postgres:17
-  environment:
-    POSTGRES_PASSWORD: ${DB_PASSWORD:-}
-  healthcheck:
-    test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres"]
-    interval: 3s
-    retries: 60
-
 services:
-  # ------------------------------------------------------------------ node c1 (primaries)
+  # ------------------------------------------------------------------ homelab member
+  hl-host:
+    <<: *host
+    volumes: ["./host-init.sh:/host-init.sh:ro", "./work/hl:/node:ro"]
+    networks: { cl: { ipv4_address: 172.31.0.30 } }
+  hl-etcd:
+    <<: *etcd
+    network_mode: service:hl-host
+    environment:
+      ETCD_NAME: hl
+      ETCD_INITIAL_CLUSTER: hl=http://10.77.0.10:2380,c1=http://10.77.0.1:2380,c2=http://10.77.0.2:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: homegap-e2e
+      ETCD_DATA_DIR: /etcd-data
+      ETCD_LISTEN_PEER_URLS: http://10.77.0.10:2380
+      ETCD_LISTEN_CLIENT_URLS: http://10.77.0.10:2379,http://127.0.0.1:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://10.77.0.10:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://10.77.0.10:2380
+    depends_on: { hl-host: { condition: service_healthy } }
+  hl-db:
+    <<: *db
+    network_mode: service:hl-host
+    volumes: ["./work/hl:/node:ro"]
+    depends_on: { hl-etcd: { condition: service_started } }
+  hl-valkey:
+    <<: *valkey
+    network_mode: service:hl-host
+    command: ["valkey-server", "--protected-mode", "no", "--replica-announce-ip", "10.77.0.10", "--replica-priority", "1"]
+    depends_on: { hl-host: { condition: service_healthy } }
+  hl-sentinel:
+    <<: *valkey
+    network_mode: service:hl-host
+    command: ["sh", "-c", "cp /node/sentinel.conf /tmp/sentinel.conf && exec valkey-server /tmp/sentinel.conf --sentinel"]
+    volumes: ["./work/hl:/node:ro"]
+    depends_on: { hl-valkey: { condition: service_started } }
+
+  # ------------------------------------------------------------------ node c1
   c1-host:
     <<: *host
     volumes: ["./host-init.sh:/host-init.sh:ro", "./work/c1:/node:ro"]
     ports: ["127.0.0.1:18101:3080"]
     networks: { cl: { ipv4_address: 172.31.0.11 } }
+  c1-etcd:
+    <<: *etcd
+    network_mode: service:c1-host
+    environment:
+      ETCD_NAME: c1
+      ETCD_INITIAL_CLUSTER: hl=http://10.77.0.10:2380,c1=http://10.77.0.1:2380,c2=http://10.77.0.2:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: homegap-e2e
+      ETCD_DATA_DIR: /etcd-data
+      ETCD_LISTEN_PEER_URLS: http://10.77.0.1:2380
+      ETCD_LISTEN_CLIENT_URLS: http://10.77.0.1:2379,http://127.0.0.1:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://10.77.0.1:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://10.77.0.1:2380
+    depends_on: { c1-host: { condition: service_healthy } }
   c1-db:
     <<: *db
     network_mode: service:c1-host
-    command: ["postgres", "-c", "listen_addresses=*"]
-    volumes: ["./db-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro"]
-    depends_on: { c1-host: { condition: service_healthy } }
+    volumes: ["./work/c1:/node:ro"]
+    depends_on: { c1-etcd: { condition: service_started } }
   c1-valkey:
-    image: docker.io/valkey/valkey:8.1
+    <<: *valkey
     network_mode: service:c1-host
-    command: ["valkey-server", "--protected-mode", "no"]
+    command: ["valkey-server", "--protected-mode", "no", "--replicaof", "10.77.0.10", "6379", "--replica-announce-ip", "10.77.0.1", "--replica-priority", "100"]
+    depends_on: { c1-host: { condition: service_healthy } }
+  c1-sentinel:
+    <<: *valkey
+    network_mode: service:c1-host
+    command: ["sh", "-c", "cp /node/sentinel.conf /tmp/sentinel.conf && exec valkey-server /tmp/sentinel.conf --sentinel"]
+    volumes: ["./work/c1:/node:ro"]
+    depends_on: { c1-valkey: { condition: service_started } }
+  c1-haproxy:
+    image: docker.io/library/haproxy:3.0-alpine
+    network_mode: service:c1-host
+    volumes: ["./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"]
     depends_on: { c1-host: { condition: service_healthy } }
   c1-pangolin:
     <<: *pangolin
@@ -63,9 +136,7 @@ services:
       - ./work/c1/config:/app/config
       - ./work/c1/config/certificates:/var/certificates
       - ./work/c1/config/dynamic:/var/dynamic
-    depends_on:
-      c1-db: { condition: service_healthy }
-      c1-valkey: { condition: service_started }
+    depends_on: { c1-haproxy: { condition: service_started } }
   c1-gerbil:
     image: docker.io/fosrl/gerbil:1.6.0
     network_mode: service:c1-host
@@ -86,27 +157,46 @@ services:
       - ./work/c1/config/dynamic:/var/dynamic:ro
       - ./work/c1/certs:/certs:ro
 
-  # ------------------------------------------------------------------ node c2 (replicas)
+  # ------------------------------------------------------------------ node c2
   c2-host:
     <<: *host
     volumes: ["./host-init.sh:/host-init.sh:ro", "./work/c2:/node:ro"]
     ports: ["127.0.0.1:18102:3080"]
     networks: { cl: { ipv4_address: 172.31.0.21 } }
+  c2-etcd:
+    <<: *etcd
+    network_mode: service:c2-host
+    environment:
+      ETCD_NAME: c2
+      ETCD_INITIAL_CLUSTER: hl=http://10.77.0.10:2380,c1=http://10.77.0.1:2380,c2=http://10.77.0.2:2380
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_INITIAL_CLUSTER_TOKEN: homegap-e2e
+      ETCD_DATA_DIR: /etcd-data
+      ETCD_LISTEN_PEER_URLS: http://10.77.0.2:2380
+      ETCD_LISTEN_CLIENT_URLS: http://10.77.0.2:2379,http://127.0.0.1:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://10.77.0.2:2379
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://10.77.0.2:2380
+    depends_on: { c2-host: { condition: service_healthy } }
   c2-db:
     <<: *db
     network_mode: service:c2-host
-    entrypoint: ["/bin/sh", "/db-replica.sh"]
-    environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-}
-      PRIMARY_HOST: 10.77.0.1
-    volumes: ["./db-replica.sh:/db-replica.sh:ro"]
-    depends_on:
-      c2-host: { condition: service_healthy }
-      c1-db: { condition: service_healthy }
+    volumes: ["./work/c2:/node:ro"]
+    depends_on: { c2-etcd: { condition: service_started } }
   c2-valkey:
-    image: docker.io/valkey/valkey:8.1
+    <<: *valkey
     network_mode: service:c2-host
-    command: ["valkey-server", "--protected-mode", "no", "--replicaof", "10.77.0.1", "6379"]
+    command: ["valkey-server", "--protected-mode", "no", "--replicaof", "10.77.0.10", "6379", "--replica-announce-ip", "10.77.0.2", "--replica-priority", "100"]
+    depends_on: { c2-host: { condition: service_healthy } }
+  c2-sentinel:
+    <<: *valkey
+    network_mode: service:c2-host
+    command: ["sh", "-c", "cp /node/sentinel.conf /tmp/sentinel.conf && exec valkey-server /tmp/sentinel.conf --sentinel"]
+    volumes: ["./work/c2:/node:ro"]
+    depends_on: { c2-valkey: { condition: service_started } }
+  c2-haproxy:
+    image: docker.io/library/haproxy:3.0-alpine
+    network_mode: service:c2-host
+    volumes: ["./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"]
     depends_on: { c2-host: { condition: service_healthy } }
   c2-pangolin:
     <<: *pangolin
@@ -115,10 +205,7 @@ services:
       - ./work/c2/config:/app/config
       - ./work/c2/config/certificates:/var/certificates
       - ./work/c2/config/dynamic:/var/dynamic
-    depends_on:
-      c2-db: { condition: service_healthy }
-      # The first node migrates the empty database; others start after it.
-      c1-pangolin: { condition: service_healthy }
+    depends_on: { c2-haproxy: { condition: service_started } }
   c2-gerbil:
     image: docker.io/fosrl/gerbil:1.6.0
     network_mode: service:c2-host
@@ -139,7 +226,7 @@ services:
       - ./work/c2/config/dynamic:/var/dynamic:ro
       - ./work/c2/certs:/certs:ro
 
-  # ------------------------------------------------------------------ homelab
+  # ------------------------------------------------------------------ homelab services
   whoami:
     image: docker.io/traefik/whoami:v1.10
     networks: { home: {} }
