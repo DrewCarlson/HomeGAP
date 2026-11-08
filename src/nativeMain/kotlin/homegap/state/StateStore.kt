@@ -31,6 +31,25 @@ data class NodeState(
     val facts: Map<String, String> = emptyMap(),
     val drift: List<String> = emptyList(),
     val pendingDecommission: Boolean = false,
+    /** Outcome of the last stack update that did not go through (rolled back or skipped). */
+    val update: UpdateState? = null,
+)
+
+/**
+ * A stack update that failed on this node. While [status] is `failed`, the rollout to every other
+ * node is held; `skipped` releases the hold but keeps this node on its previous stack until its
+ * desired stack changes again or an update is retried.
+ */
+@Serializable
+data class UpdateState(
+    /** Stack hash the update tried to apply. */
+    val targetHash: String,
+    /** `failed` or `skipped`. */
+    val status: String,
+    val error: String? = null,
+    val at: Long,
+    /** The previous stack was restored and came back healthy. */
+    val rolledBack: Boolean = false,
 )
 
 @Serializable

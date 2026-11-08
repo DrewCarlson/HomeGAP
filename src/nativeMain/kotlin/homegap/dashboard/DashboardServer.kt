@@ -78,6 +78,12 @@ class DashboardServer(private val controller: Controller, private val configPath
                     controller.requestProvision(id)
                     call.respond(ActionResponse(true, "Re-provision of $id queued"))
                 }
+                post("/nodes/{id}/update/retry") {
+                    call.respond(ActionResponse(true, controller.retryUpdate(call.parameters["id"]!!)))
+                }
+                post("/nodes/{id}/update/skip") {
+                    call.respond(ActionResponse(true, controller.skipUpdate(call.parameters["id"]!!)))
+                }
                 post("/nodes") {
                     val dto = call.receive<NodeConfigDto>()
                     call.respond(ActionResponse(true, controller.addNode(dto.toConfig())))

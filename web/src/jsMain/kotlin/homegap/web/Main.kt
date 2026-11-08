@@ -173,6 +173,7 @@ fun App(app: AppState) {
                 }
                 if (s.dryRun) Banner("warn", "Dry-run mode: discovery and planning only. Nothing is written to nodes, Pangolin or DNS.")
                 if (s.paused) Banner("warn", "Reconciliation is paused globally. Manual changes on nodes, Pangolin and Bunny are left alone.")
+                RolloutBanner(app, s)
                 when (app.tab) {
                     Tab.OVERVIEW -> Overview(app, s)
                     Tab.NODES -> NodesView(app, s)
@@ -210,6 +211,35 @@ fun PassStatus(s: StatusSnapshot) {
                 else -> "Synced ${ago(r.finishedAt)}" + if (r.errors > 0) " · ${r.errors} error${if (r.errors == 1) "" else "s"}" else ""
             }
         )
+    }
+}
+
+/** Shown while a failed node update holds the rollout to the other nodes. */
+@Composable
+fun RolloutBanner(app: AppState, s: StatusSnapshot) {
+    val failed = s.nodes.filter { it.update?.status == "failed" }
+    if (failed.isEmpty()) return
+    val waiting = s.nodes.filter { it.updateWaiting != null && it.update == null }.map { it.id }
+    Div({ classes("banner", "error", "rollout-banner") }) {
+        Div {
+            B { Text("Update rollout held. ") }
+            failed.forEach { n ->
+                val u = n.update!!
+                Text("${n.id}: the update failed ${ago(u.at)}" + if (u.rolledBack) " and was rolled back; it is running its previous stack. " else " and the rollback failed. ")
+            }
+            Text(if (waiting.isEmpty()) "No other node is waiting." else "Waiting: ${waiting.joinToString()}. ")
+            failed.firstNotNullOfOrNull { it.update?.error }?.let { Div({ classes("mono", "banner-detail") }) { Text(it.take(400)) } }
+        }
+        Div({ classes("row-actions") }) {
+            failed.forEach { n ->
+                Button({ classes("btn", "sm"); onClick { app.run("Retry update") { Api.retryUpdate(n.id) } } }) { Text("Retry ${n.id}") }
+                Button({
+                    classes("btn", "sm")
+                    title("Leave ${n.id} on its current stack and continue updating the other nodes")
+                    onClick { if (window.confirm("Skip the update on ${n.id}? It stays on its current stack and the other nodes are updated.")) app.run("Skip update") { Api.skipUpdate(n.id) } }
+                }) { Text("Skip ${n.id}") }
+            }
+        }
     }
 }
 
@@ -376,8 +406,15 @@ fun NodesTable(app: AppState, s: StatusSnapshot, compact: Boolean) {
                 Cell("Last provision") {
                     Div({ classes("inline-row") }) {
                         Span { Text(n.lastProvisionAt?.let { ago(it) } ?: "never") }
-                        n.lastProvisionOk?.let { ok -> Pill(if (ok) Health.OK else Health.DOWN, if (ok) "ok" else "failed") }
+                        when {
+                            n.job != null -> Pill(Health.DEGRADED, "${n.job}…")
+                            n.update?.status == "failed" -> Pill(Health.DOWN, if (n.update!!.rolledBack) "update rolled back" else "update failed")
+                            n.update?.status == "skipped" -> Pill(Health.DEGRADED, "update skipped")
+                            else -> n.lastProvisionOk?.let { ok -> Pill(if (ok) Health.OK else Health.DOWN, if (ok) "ok" else "failed") }
+                        }
                     }
+                    n.updateWaiting?.takeIf { n.job == null }?.let { Muted("Pending: $it") }
+                    n.update?.error?.takeIf { n.update?.status == "failed" }?.let { Div({ classes("error-text", "mono") }) { Text(it.take(300)) } }
                     n.lastProvisionError?.let { Div({ classes("error-text", "mono") }) { Text(it.take(300)) } }
                 }
                 if (!compact) {
@@ -387,7 +424,18 @@ fun NodesTable(app: AppState, s: StatusSnapshot, compact: Boolean) {
                     Cell("Actions", "actions-cell") {
                         Div({ classes("row-actions") }) {
                             if (!n.pendingDecommission) {
-                                Button({ classes("btn", "sm"); onClick { app.run("Re-provision") { Api.provision(n.id) } } }) { Text("Re-provision") }
+                                if (n.update != null) {
+                                    Button({ classes("btn", "sm", "primary"); onClick { app.run("Retry update") { Api.retryUpdate(n.id) } } }) { Text("Retry update") }
+                                    if (n.update?.status == "failed") Button({
+                                        classes("btn", "sm")
+                                        onClick { if (window.confirm("Skip the update on ${n.id}? It stays on its current stack and the other nodes are updated.")) app.run("Skip update") { Api.skipUpdate(n.id) } }
+                                    }) { Text("Skip update") }
+                                }
+                                Button({
+                                    classes("btn", "sm")
+                                    if (n.job != null) disabled()
+                                    onClick { app.run("Re-provision") { Api.provision(n.id) } }
+                                }) { Text("Re-provision") }
                                 Button({ classes("btn", "sm"); onClick { app.run("Pause") { Api.pause("node", n.id, !n.paused) } } }) { Text(if (n.paused) "Resume" else "Pause") }
                                 Button({
                                     classes("btn", "sm", "danger")

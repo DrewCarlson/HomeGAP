@@ -50,6 +50,11 @@ class Controller(
     private val passMutex = Mutex()
     private val triggers = Channel<String>(Channel.UNLIMITED)
     private val forceProvision = mutableSetOf<String>()
+    /** Background provisioning per node: the kind of work and its job. */
+    private val jobs = mutableMapOf<String, Pair<NodeReconciler.Kind, Job>>()
+    /** Why a node's pending provisioning is not running yet (shown on the dashboard). */
+    private val waiting = mutableMapOf<String, String>()
+    private var jobScope: CoroutineScope? = null
     val speedTokens = homegap.speedtest.SpeedTestTokens()
     val speedStore = homegap.speedtest.SpeedTestStore("${initialConfig.dataDir}/speedtests.json")
     private val speedRunning = mutableSetOf<String>()
@@ -82,11 +87,31 @@ class Controller(
         trigger("provision:$nodeId")
     }
 
+    /** Clears a failed or skipped update and applies it to [nodeId] now, with rollback. */
+    suspend fun retryUpdate(nodeId: String): String {
+        requireNotNull(config.node(nodeId)) { "unknown node $nodeId" }
+        check(jobs[nodeId]?.second?.isActive != true) { "$nodeId is already being provisioned" }
+        state.updateNode(nodeId) { it.copy(update = null) }
+        log.change("nodes", "update retry requested", nodeId)
+        requestProvision(nodeId)
+        return "Retrying the update on $nodeId"
+    }
+
+    /** Releases the rollout hold caused by [nodeId]: it stays on its current stack. */
+    suspend fun skipUpdate(nodeId: String): String {
+        val u = state.node(nodeId).update ?: throw IllegalStateException("$nodeId has no failed update")
+        state.updateNode(nodeId) { it.copy(update = u.copy(status = "skipped")) }
+        log.change("nodes", "update skipped; the rollout continues without this node", nodeId)
+        trigger("skip:$nodeId")
+        return "Skipped the update on $nodeId; other nodes continue"
+    }
+
     suspend fun run(scope: CoroutineScope, once: Boolean) {
         if (once) {
             reconcileOnce("startup")
             return
         }
+        jobScope = scope
         scope.launch { watchDocker() }
         scope.launch {
             while (isActive) {
@@ -198,8 +223,62 @@ class Controller(
                 cfg.nodes.mapIndexed { index, node ->
                     async {
                         val nd = effective.nodes.getValue(node.id)
+                        // A node being provisioned in the background keeps its last observation.
+                        fun carryOver() {
+                            nodeObs[node.id]?.let { synchronizedPut(obs, node.id, it) }
+                            synchronizedPut(online, node.id, siteOnline[node.id])
+                            serviceHealth[node.id]?.let { synchronizedPut(health, node.id, it) }
+                        }
+                        if (jobs[node.id]?.second?.isActive == true) {
+                            carryOver()
+                            return@async
+                        }
                         val force = forceProvision.remove(node.id)
-                        val ready = runDomain("nodes", node.id) { nodeRec.reconcile(nd, index, force, certs) }
+                        val a = runDomain("nodes", node.id) { nodeRec.assess(nd, index, force, certs) }
+                        var ready: ReadyNode? = null
+                        if (a != null) {
+                            val decision = if (a.paused || a.kind == NodeReconciler.Kind.NONE) RolloutPolicy.Decision.Start
+                            else RolloutPolicy.decide(
+                                node.id, a.kind, a.hash, force, state.snapshot().nodes,
+                                jobs.filter { (_, j) -> j.first == NodeReconciler.Kind.UPDATE && j.second.isActive }.keys, nowMillis(),
+                            )
+                            when {
+                                decision is RolloutPolicy.Decision.Wait -> {
+                                    if (waiting.put(node.id, decision.reason) != decision.reason) log.info("nodes", "${a.reason}: ${decision.reason}", node.id)
+                                    // A node waiting for its update keeps serving on its current stack.
+                                    if (a.kind != NodeReconciler.Kind.FRESH) ready = runDomain("nodes", node.id) { nodeRec.ready(a, index) }
+                                }
+                                a.paused || a.kind == NodeReconciler.Kind.NONE -> {
+                                    waiting.remove(node.id)
+                                    // The desired stack is back to what the node runs: nothing left to retry.
+                                    if (!a.paused && state.node(node.id).update?.let { it.targetHash != a.hash } == true) {
+                                        state.updateNode(node.id) { it.copy(update = null) }
+                                        log.change("nodes", "pending update no longer needed (desired stack matches the running one)", node.id)
+                                    }
+                                    ready = runDomain("nodes", node.id) { nodeRec.ready(a, index) }
+                                }
+                                else -> {
+                                    waiting.remove(node.id)
+                                    val tunnelWasUp = siteOnline[node.id] == true
+                                    val sc = jobScope
+                                    if (sc == null) {
+                                        // One-shot mode: provision inline.
+                                        if (nodeRec.provisionJob(a, index, tunnelWasUp)) ready = runDomain("nodes", node.id) { nodeRec.ready(a, index) }
+                                    } else {
+                                        jobs[node.id] = a.kind to sc.launch {
+                                            try {
+                                                nodeRec.provisionJob(a, index, tunnelWasUp)
+                                            } finally {
+                                                jobs.remove(node.id)
+                                                trigger("provisioned:${node.id}")
+                                            }
+                                        }
+                                        carryOver()
+                                        return@async
+                                    }
+                                }
+                            }
+                        }
                         var site: PangolinSite? = null
                         var resources: List<PangolinResource> = emptyList()
                         if (ready != null) {
@@ -448,6 +527,9 @@ class Controller(
                 pendingDecommission = ns?.pendingDecommission == true || n == null,
                 facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "tcp_cc", "qdisc", "edge_tcp") } +
                     (tunnel?.let { mapOf("newt_restarts" to it.restarts.toString()) } ?: emptyMap()),
+                job = jobs[id]?.takeIf { it.second.isActive }?.let { if (it.first == NodeReconciler.Kind.UPDATE) "updating" else "provisioning" },
+                updateWaiting = waiting[id],
+                update = ns?.update?.let { NodeUpdateDto(it.status, it.error, it.at, it.rolledBack) },
             )
         }
         val services = plan?.services?.map { s ->

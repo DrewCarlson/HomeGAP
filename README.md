@@ -303,6 +303,33 @@ the key changes.
 > Activations are recorded by the license server, so avoid activating production keys on
 > throwaway or test instances.
 
+### Node updates and rollback
+
+Provisioning runs in the background, so a slow node (a first install, a Docker download) never
+delays health checks, tunnels or DNS for the others. The dashboard shows `provisioning…` or
+`updating…` on the node while it runs.
+
+When a change alters the stack of nodes that are already healthy (a new image version, MTU,
+tuning, raw ports and so on), the update **rolls out one node at a time**:
+
+1. The running stack is saved on the node (`<install_dir>/.homegap-rollback`): every managed file
+   and, when the Pangolin image changes, Pangolin's database, since a newer version migrates it.
+2. The node is updated, then must pass Pangolin's health check, the API bootstrap, the verify
+   checks (Gerbil UDP ports, Integration API) and, if its tunnel was up, the tunnel reconnecting.
+3. If any step fails, the saved stack is restored and restarted, and the node keeps serving on it.
+
+A failed update **holds the rollout**: no other node is updated, and the dashboard shows a banner
+with the error. To recover:
+
+- **Retry**: apply the update to that node again (after fixing the cause on the node).
+- **Skip**: leave that node on its current stack and let the rollout continue with the others.
+- **Change the config**: a new desired stack is tried on the failed node first, then rolls out.
+  Reverting the change clears the failure.
+
+New nodes and drift repairs do not wait for rollouts. A first provisioning that fails is retried
+after five minutes, or at once with *Re-provision*. Host-level steps (Docker, firewall, TCP
+tuning) are idempotent and not rolled back.
+
 ### Node management host
 
 Newt and the Pangolin client must reach each node's Pangolin API. HomeGAP routes
@@ -464,6 +491,7 @@ a public issue.
 | Failure | Effect | Recovery |
 | --- | --- | --- |
 | Regional node down | Bunny drops it; its viewers resolve to the next-nearest node | The orchestrator repairs or re-provisions it; DNS recovers automatically |
+| Node update fails | That node is rolled back to its previous stack; the rollout to other nodes stops | Retry or skip it from the dashboard, or change the config (see [Node updates and rollback](#node-updates-and-rollback)) |
 | Orchestrator down | None on live traffic; only new label or config changes wait | Restart it; it reconciles to the desired state |
 | Homelab origin down | All remote access down (single origin, by design) | Restore the origin; tunnels reconnect |
 | Newt tunnel drops | That node's health probe fails, so it drops out of DNS | The supervisor restarts Newt with backoff; failover covers the gap |

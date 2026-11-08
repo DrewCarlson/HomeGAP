@@ -53,6 +53,8 @@ object Api {
 
     suspend fun resync() = action("POST", "/resync")
     suspend fun provision(node: String) = action("POST", "/nodes/$node/provision")
+    suspend fun retryUpdate(node: String) = action("POST", "/nodes/$node/update/retry")
+    suspend fun skipUpdate(node: String) = action("POST", "/nodes/$node/update/skip")
     suspend fun pause(scope: String, id: String?, paused: Boolean) =
         action("POST", "/pause", json.encodeToString(PauseRequest.serializer(), PauseRequest(scope, id, paused)))
     suspend fun addNode(n: NodeConfigDto) = action("POST", "/nodes", json.encodeToString(NodeConfigDto.serializer(), n))

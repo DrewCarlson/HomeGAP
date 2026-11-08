@@ -314,3 +314,8 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
   .log-msg { flex-basis: 100%; }
   .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
 }
+
+/* ---------------------------------------------------------------- rollout */
+.rollout-banner { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+.rollout-banner .row-actions { flex-shrink: 0; }
+.banner-detail { margin-top: 6px; font-size: 12px; opacity: .85; word-break: break-word; }

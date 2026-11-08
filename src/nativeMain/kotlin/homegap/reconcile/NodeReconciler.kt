@@ -13,6 +13,7 @@ import homegap.provision.CertMaterial
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.provision.RenderedFile
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
@@ -26,12 +27,43 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     private val log get() = ctx.log
     private val dir get() = ctx.config.pangolin.installDir
 
+    /** What kind of provisioning a node needs. */
+    enum class Kind {
+        /** Nothing to do. */
+        NONE,
+        /** First provisioning, or retrying one that never succeeded. No previous stack to keep. */
+        FRESH,
+        /** A healthy node's stack changed: rolled out one node at a time, with rollback. */
+        UPDATE,
+        /** Same stack re-applied (drift, or a requested re-provision). */
+        REPAIR,
+    }
+
+    /** A node's state as seen by this pass, before anything is changed. */
+    class Assessment(
+        val desired: NodeDesired,
+        val ssh: SshSession,
+        val secrets: NodeSecrets,
+        val files: List<RenderedFile>,
+        val hash: String,
+        val kind: Kind,
+        val reason: String?,
+        val paused: Boolean,
+        /** Ready handle for a paused node (no provisioning or bootstrap is attempted). */
+        val pausedReady: ReadyNode? = null,
+    ) {
+        val node: NodeConfig get() = desired.node
+    }
+
     /**
+     * Connects, renders the stack and decides whether the node needs provisioning. Changes nothing
+     * on the node except a periodic drift check. Returns null when the node is unreachable or in
+     * dry-run mode.
+     *
      * @param force re-run every provisioning step even if nothing appears to have changed.
      * @param certs wildcard certificate material to install, if configured.
-     * @return a handle to the node's Integration API, or null if the node is not ready.
      */
-    suspend fun reconcile(desired: NodeDesired, index: Int, force: Boolean, certs: CertMaterial?): ReadyNode? {
+    suspend fun assess(desired: NodeDesired, index: Int, force: Boolean, certs: CertMaterial?): Assessment? {
         val node = desired.node
         val paused = ctx.nodePaused(node.id)
         val st = ctx.state.node(node.id)
@@ -55,7 +87,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
 
         if (paused) {
             log.info(domain, "paused: skipping provisioning and drift repair", node.id)
-            return connectApi(node, ssh, index, st.apiKeyId, st.apiKey)
+            val secrets = st.toSecrets() ?: placeholderSecrets()
+            return Assessment(desired, ssh, secrets, emptyList(), st.stackHash ?: "", Kind.NONE, null, true, connectApi(node, ssh, index, st.apiKeyId, st.apiKey))
         }
 
         val secrets = ensureSecrets(node, ssh)
@@ -70,37 +103,160 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         }
         val needsProvision = force || st.lastProvisionOk != true || st.stackHash != stackHash || drift.isNotEmpty()
         ctx.diff.add(domain, node.id, "stack", if (needsProvision) "provision" else "none", stackHash, st.stackHash)
-
-        if (needsProvision) {
-            val reason = when {
-                force -> "requested"
-                st.lastProvisionOk == null -> "new node"
-                st.lastProvisionOk == false -> "previous attempt failed"
-                st.stackHash != stackHash -> "stack changed"
-                else -> "drift"
-            }
-            log.change(domain, "provisioning ($reason)", node.id)
-            try {
-                provision(node, ssh, desired, files)
-                ctx.state.updateNode(node.id) {
-                    it.copy(stackHash = stackHash, lastProvisionAt = nowMillis(), lastProvisionOk = true, lastProvisionError = null, lastCheckAt = nowMillis(), drift = emptyList())
-                }
-            } catch (e: Exception) {
-                log.error(domain, "provisioning failed: ${e.message}", node.id)
-                ctx.state.updateNode(node.id) { it.copy(lastProvisionAt = nowMillis(), lastProvisionOk = false, lastProvisionError = e.message?.take(2000)) }
-                return null
-            }
+        val hadGoodStack = st.lastProvisionOk == true && st.stackHash != null
+        val kind = when {
+            !needsProvision -> Kind.NONE
+            hadGoodStack && st.stackHash != stackHash -> Kind.UPDATE
+            hadGoodStack -> Kind.REPAIR
+            else -> Kind.FRESH
         }
+        val reason = if (!needsProvision) null else when {
+            force -> "requested"
+            st.lastProvisionOk == null -> "new node"
+            st.lastProvisionOk == false -> "previous attempt failed"
+            st.stackHash != stackHash -> "stack changed"
+            else -> "drift"
+        }
+        return Assessment(desired, ssh, secrets, files, stackHash, kind, reason, false)
+    }
 
+    /** API handle for a node that needs no provisioning now (or is waiting for its update). */
+    suspend fun ready(a: Assessment, index: Int): ReadyNode? {
+        if (a.paused) return a.pausedReady
         return try {
-            val ready = bootstrap(node, ssh, index, secrets)
-            if (needsProvision) verify(node, ssh, desired)
-            ready
+            bootstrap(a.node, a.ssh, index, a.secrets)
         } catch (e: Exception) {
-            log.error(domain, "bootstrap failed: ${e.message}", node.id)
-            ctx.state.updateNode(node.id) { it.copy(lastProvisionOk = false, lastProvisionError = "bootstrap: ${e.message}") }
+            log.error(domain, "bootstrap failed: ${e.message}", a.node.id)
+            ctx.state.updateNode(a.node.id) { it.copy(lastProvisionOk = false, lastProvisionError = "bootstrap: ${e.message}") }
             null
         }
+    }
+
+    /**
+     * Provisions the node; runs as a background job so passes keep serving the other nodes.
+     * An [Kind.UPDATE] backs up the running stack first and restores it if any step, the
+     * bootstrap, the verify checks or the tunnel reconnect fails.
+     *
+     * @param tunnelWasUp the node's tunnel was online before the update (so it must come back).
+     * @return true when the node ends up on the new stack.
+     */
+    suspend fun provisionJob(a: Assessment, index: Int, tunnelWasUp: Boolean): Boolean {
+        val node = a.node
+        val ssh = a.ssh
+        val update = a.kind == Kind.UPDATE
+        log.change(domain, "${if (update) "updating" else "provisioning"} (${a.reason})", node.id)
+        var changed = false
+        try {
+            if (update) backup(node, ssh)
+            changed = true
+            provision(node, ssh, a.desired, a.files)
+            val ready = bootstrap(node, ssh, index, a.secrets)
+            val missing = verify(node, ssh)
+            if (update && missing.isNotEmpty()) throw IllegalStateException("verify failed: ${missing.joinToString(", ")}")
+            if (update && tunnelWasUp) waitForTunnel(node, ready)
+            ctx.state.updateNode(node.id) {
+                it.copy(
+                    stackHash = a.hash, lastProvisionAt = nowMillis(), lastProvisionOk = true, lastProvisionError = null,
+                    lastCheckAt = nowMillis(), drift = emptyList(), update = null,
+                )
+            }
+            if (update) log.change(domain, "update complete", node.id)
+            return true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val msg = e.message?.take(2000) ?: e.toString()
+            if (!update) {
+                log.error(domain, "provisioning failed: $msg", node.id)
+                ctx.state.updateNode(node.id) { it.copy(lastProvisionAt = nowMillis(), lastProvisionOk = false, lastProvisionError = msg) }
+                return false
+            }
+            log.error(domain, "update failed: $msg", node.id)
+            val restored = if (!changed) true else try {
+                log.change(domain, "rolling back to the previous stack", node.id)
+                rollback(node, ssh, a.files)
+                log.change(domain, "rollback complete; previous stack is running", node.id)
+                true
+            } catch (r: Exception) {
+                log.error(domain, "rollback failed: ${r.message}", node.id)
+                false
+            }
+            ctx.state.updateNode(node.id) {
+                it.copy(
+                    lastProvisionAt = nowMillis(),
+                    lastProvisionOk = if (restored) true else false,
+                    lastProvisionError = if (restored) null else "update failed and rollback failed: $msg",
+                    update = homegap.state.UpdateState(a.hash, "failed", msg, nowMillis(), restored),
+                )
+            }
+            return false
+        }
+    }
+
+    /** Waits for the node's Newt site to reconnect after an update. */
+    private suspend fun waitForTunnel(node: NodeConfig, ready: ReadyNode) {
+        val siteId = ctx.state.node(node.id).siteId ?: return
+        val org = ctx.config.pangolin.orgId
+        waitFor("tunnel to reconnect (site $siteId)", attempts = 60) {
+            runCatching { ready.api.listSites(org).firstOrNull { it.siteId == siteId }?.online == true }.getOrDefault(false)
+        }
+    }
+
+    /**
+     * Keeps a copy of the running stack: every managed file (not data: Pangolin's database,
+     * certificates, logs and CrowdSec's data are left in place) and, when the Pangolin image
+     * changes, its database, since a newer Pangolin migrates it on start.
+     */
+    private suspend fun backup(node: NodeConfig, ssh: SshSession) {
+        val d = shQuote(dir)
+        val image = shQuote(ctx.config.pangolin.pangolinImage)
+        val out = ssh.runScriptOrThrow(
+            "backup",
+            """
+            |cd $d
+            |B=$d/$ROLLBACK_DIR
+            |rm -rf "${'$'}B" && mkdir -p "${'$'}B" && chmod 0700 "${'$'}B"
+            |set --
+            |for p in compose.yml .env secrets config; do [ -e "${'$'}p" ] && set -- "${'$'}@" "${'$'}p"; done
+            |tar -czf "${'$'}B/files.tgz" --exclude=config/db --exclude=config/letsencrypt --exclude=config/traefik/logs --exclude=config/crowdsec/db "${'$'}@"
+            |CUR=${'$'}(docker inspect -f '{{.Config.Image}}' pangolin 2>/dev/null || true)
+            |if [ -n "${'$'}CUR" ] && [ "${'$'}CUR" != $image ] && [ -d config/db ]; then
+            |  docker compose stop pangolin >/dev/null 2>&1
+            |  cp -a config/db "${'$'}B/db"
+            |  echo "DBSNAP ${'$'}CUR"
+            |fi
+            """.trimMargin(), 300,
+        )
+        out.lines().firstOrNull { it.startsWith("DBSNAP ") }?.let {
+            log.info(domain, "saved Pangolin database before upgrading from ${it.removePrefix("DBSNAP ")}", node.id)
+        }
+    }
+
+    /** Restores [backup]: removes files only the new stack had, puts back the old ones, restarts. */
+    private suspend fun rollback(node: NodeConfig, ssh: SshSession, newFiles: List<RenderedFile>) {
+        val d = shQuote(dir)
+        ssh.runScriptOrThrow(
+            "rollback",
+            """
+            |cd $d
+            |B=$d/$ROLLBACK_DIR
+            |[ -f "${'$'}B/files.tgz" ] || { echo "no backup to restore" >&2; exit 1; }
+            |tar -tzf "${'$'}B/files.tgz" > "${'$'}B/list"
+            |for p in ${newFiles.joinToString(" ") { shQuote(it.path) }}; do grep -qxF "${'$'}p" "${'$'}B/list" || rm -f "${'$'}p"; done
+            |tar -xzf "${'$'}B/files.tgz"
+            |if [ -d "${'$'}B/db" ]; then
+            |  docker compose stop pangolin >/dev/null 2>&1 || true
+            |  rm -rf config/db && cp -a "${'$'}B/db" config/db
+            |fi
+            |docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20
+            |ok=0
+            |for i in $(seq 1 120); do
+            |  if curl -fsS -o /dev/null http://127.0.0.1:3000/api/v1/ 2>/dev/null; then ok=1; break; fi
+            |  sleep 2
+            |done
+            |[ "${'$'}ok" = 1 ] || { echo "Pangolin did not become healthy after rollback" >&2; docker compose ps >&2; exit 1; }
+            """.trimMargin(), 900,
+        )
     }
 
     private fun homegap.state.NodeState.toSecrets(): NodeSecrets? {
@@ -400,7 +556,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         }
     }
 
-    private suspend fun verify(node: NodeConfig, ssh: SshSession, desired: NodeDesired) {
+    /** Post-provision checks; returns the ones that failed. */
+    private suspend fun verify(node: NodeConfig, ssh: SshSession): List<String> {
         val r = ssh.runScript(
             """
             |cd ${shQuote(dir)}
@@ -409,9 +566,9 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             |curl -fsS -o /dev/null http://127.0.0.1:3003/v1/ && echo "CHECK integration-api ok" || echo "CHECK integration-api missing"
             """.trimMargin(), 60,
         )
-        r.stdout.lines().filter { it.startsWith("CHECK ") && it.endsWith("missing") }.forEach {
-            log.warn(domain, "verify: ${it.removePrefix("CHECK ")}", node.id)
-        }
+        val missing = r.stdout.lines().filter { it.startsWith("CHECK ") && it.endsWith("missing") }.map { it.removePrefix("CHECK ") }
+        missing.forEach { log.warn(domain, "verify: $it", node.id) }
+        return missing
     }
 
     private suspend fun waitFor(what: String, attempts: Int = 60, check: suspend () -> Boolean) {
@@ -431,6 +588,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
 
     companion object {
         const val LOCAL_PORT_BASE = 47100
+        /** Previous stack kept on the node during an update, relative to install_dir. */
+        const val ROLLBACK_DIR = ".homegap-rollback"
         val SUPPORTED_UBUNTU = setOf("22.04", "24.04", "26.04", "26.10")
 
         /** Congestion control and max send buffer inside Gerbil's namespace (Traefik shares it). */

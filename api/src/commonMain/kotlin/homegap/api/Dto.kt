@@ -60,6 +60,21 @@ data class NodeStatusDto(
     val paused: Boolean = false,
     val pendingDecommission: Boolean = false,
     val facts: Map<String, String> = emptyMap(),
+    /** Background work in progress: `provisioning` (new or repair) or `updating` (rolling update). */
+    val job: String? = null,
+    /** Why a pending stack update is waiting (rollout held, another node updating, retry backoff). */
+    val updateWaiting: String? = null,
+    val update: NodeUpdateDto? = null,
+)
+
+/** A stack update that failed (and was rolled back) or that the user skipped on this node. */
+@Serializable
+data class NodeUpdateDto(
+    /** `failed` (holds the rollout) or `skipped`. */
+    val status: String,
+    val error: String? = null,
+    val at: Long,
+    val rolledBack: Boolean = false,
 )
 
 @Serializable
