@@ -10,7 +10,8 @@ plugins {
 kotlin {
     jvmToolchain(21)
     js(IR) {
-        browser()
+        // No browser tests: a disabled test task keeps Karma (a GitHub tarball) out of the npm install.
+        browser { testTask { enabled = false } }
         useEsModules()
         binaries.executable()
     }
