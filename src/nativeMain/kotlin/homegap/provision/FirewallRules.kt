@@ -8,8 +8,8 @@ import homegap.model.RawPort
  * always agree. Rules HomeGAP adds carry the comment `homegap`; only those are ever removed.
  */
 object FirewallRules {
-    /** `ufw` rule specs (the arguments after `ufw`) for [node]. */
-    fun specs(node: NodeConfig, rawPorts: List<RawPort> = emptyList()): List<String> = buildList {
+    /** `ufw` rule specs (the arguments after `ufw`) for [node]; [meshPort] opens the cluster mesh. */
+    fun specs(node: NodeConfig, rawPorts: List<RawPort> = emptyList(), meshPort: Int? = null): List<String> = buildList {
         // SSH: from anywhere (key-only once hardened) or only from the listed sources.
         if (node.sshAllowFrom.isEmpty()) {
             add("allow ${node.sshPort}/tcp")
@@ -21,6 +21,8 @@ object FirewallRules {
         add("allow 443/udp")
         add("allow 51820/udp")
         add("allow 21820/udp")
+        // WireGuard authenticates every packet, and the homelab dials in from a changing address.
+        meshPort?.let { add("allow $it/udp") }
         rawPorts.forEach { add("allow ${it.port}/${it.protocol}") }
     }.distinct()
 

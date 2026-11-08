@@ -7,6 +7,8 @@ import homegap.presentation.core.ScreenModel
 data class NodesScreenModel(
     val nodes: List<NodeRowModel>,
     val events: NodeEvents,
+    /** The cluster mesh; null when the cluster is not configured. */
+    val mesh: MeshPanelModel? = null,
 ) : ScreenModel
 
 /** Per-node actions; the view asks for confirmation where an action is destructive. */

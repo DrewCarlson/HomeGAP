@@ -71,6 +71,17 @@ object ConfigLoader {
             if (c.speedtest.bind == c.dashboard.bind) errors += "speedtest.bind must differ from dashboard.bind"
         }
         try { c.dashboard.port } catch (_: Exception) { errors += "dashboard.bind must be host:port" }
+        c.cluster?.mesh?.let { m ->
+            val subnet = runCatching { homegap.provision.Mesh.parseSubnet(m.subnet) }
+                .onFailure { errors += "cluster.mesh.subnet: ${it.message}" }
+                .getOrNull()
+            if (subnet != null) {
+                if (subnet.overlapsCgnat()) errors += "cluster.mesh.subnet must not overlap 100.64.0.0/10 (Pangolin's tunnel ranges)"
+                if (!subnet.fits(homegap.reconcile.TunnelSlots.MAX)) errors += "cluster.mesh.subnet is too small for ${homegap.reconcile.TunnelSlots.MAX} nodes (use /26 or larger)"
+            }
+            if (m.port !in 1..65535) errors += "cluster.mesh.port must be 1-65535"
+            if (m.port in setOf(51820, 21820)) errors += "cluster.mesh.port must differ from Gerbil's ports (51820, 21820)"
+        }
         if (errors.isNotEmpty()) throw IllegalArgumentException("Invalid configuration:\n  - " + errors.joinToString("\n  - "))
     }
 

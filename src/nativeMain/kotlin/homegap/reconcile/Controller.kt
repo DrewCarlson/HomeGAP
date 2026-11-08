@@ -85,6 +85,8 @@ class Controller(
     @Volatile private var serviceHealth: Map<String, Map<String, ServiceNodeHealthDto>> = emptyMap()
     @Volatile private var dnsObs: List<DnsReconciler.Observed> = emptyList()
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
+    private val meshRec by lazy { MeshReconciler(HomelabMesh("${config.dataDir}/mesh")) }
+    @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
     /** Desired-records hash and time of the last successful DNS sync (see the DNS step). */
     private var dnsKey: String? = null
     private var dnsSyncedAt = 0L
@@ -334,6 +336,10 @@ class Controller(
                 }.awaitAll()
             }
             if (!dryRun) runDomain("tunnels", null) { tunnelRec.prune(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.map { it.id }.toSet()) }
+
+            // The cluster mesh (host-level, independent of each node's stack).
+            meshStatus = if (cfg.cluster == null || dryRun) null
+            else runDomain("mesh", null) { meshRec.reconcile(ctx, cfg.nodes, state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap()) } ?: meshStatus
 
             // Private access on the primary (manual anchor): only private resources are written.
             if (discoveryOk) runDomain("private", "primary") { reconcilePrimary(ctx, effective, pausedKeys) }
@@ -667,6 +673,7 @@ class Controller(
             tunnels = tunnels,
             labelErrors = plan?.labelErrors?.map { LabelErrorDto(it.container, it.message) } ?: emptyList(),
             pauses = PausesDto(st.pauses.global, st.pauses.nodes.sorted(), st.pauses.services.sorted()),
+            mesh = meshStatus.takeIf { cfg.cluster != null },
         )
     }
 

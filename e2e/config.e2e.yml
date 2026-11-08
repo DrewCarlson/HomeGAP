@@ -22,6 +22,10 @@ tunnels:
   native: true
 speedtest:
   enabled: true
+# The cluster mesh between the homelab (the orchestrator) and every node.
+cluster:
+  mesh: {}
+
 nodes:
   - id: na1
     region: NA

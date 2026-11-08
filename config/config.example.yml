@@ -49,6 +49,13 @@ primary_pangolin:
   org: homegap
   site: homelab
 
+# Optional: the private WireGuard mesh between the homelab and every node (the first part of
+# clustered Pangolin). The orchestrator needs NET_ADMIN; see deploy/homelab-compose.yml.
+# cluster:
+#   mesh:
+#     subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
+#     port: 51821            # udp, opened in each node's firewall
+
 nodes:
   - id: na1
     region: NA

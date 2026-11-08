@@ -37,6 +37,8 @@ data class NodeState(
     val tunnelSlot: Int? = null,
     /** [tunnelSlot] matched the node's live site subnet at least once. */
     val tunnelSlotConfirmed: Boolean = false,
+    /** The node's mesh public key, learned from the node (its private key never leaves it). */
+    val meshPublicKey: String? = null,
 )
 
 /**

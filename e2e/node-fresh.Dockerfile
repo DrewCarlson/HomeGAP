@@ -6,7 +6,7 @@
 # wizard. Used only by the end-to-end test harness.
 FROM docker.io/library/ubuntu:24.04
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      openssh-server sudo curl ca-certificates iproute2 openssl diffutils iptables nftables ufw fail2ban \
+      openssh-server sudo curl ca-certificates iproute2 openssl diffutils iptables nftables ufw fail2ban wireguard-tools \
       docker.io docker-compose-v2 \
     && rm -rf /var/lib/apt/lists/* \
     && echo 'root:e2e-fresh-root' | chpasswd \

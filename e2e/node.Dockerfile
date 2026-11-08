@@ -2,7 +2,7 @@
 # Used only by the end-to-end test harness.
 FROM docker.io/library/ubuntu:24.04
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      openssh-server sudo curl ca-certificates iproute2 openssl diffutils iptables ufw \
+      openssh-server sudo curl ca-certificates iproute2 openssl diffutils iptables ufw wireguard-tools \
       docker.io docker-compose-v2 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -s /bin/bash deploy \

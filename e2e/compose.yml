@@ -126,9 +126,22 @@ services:
     volumes: [ "./bunny-mock.py:/mock.py:ro" ]
     networks: [e2e]
 
+  # Holds the orchestrator's network namespace, so the cluster mesh interface (hg-mesh) outlives
+  # orchestrator restarts. Ports and networks live here.
+  mesh:
+    image: homegap:e2e
+    entrypoint: ["/usr/bin/tini", "--", "sleep", "infinity"]
+    ports: [ "127.0.0.1:18088:8088", "127.0.0.1:18089:8089" ]
+    networks:
+      e2e:
+        aliases: [orchestrator]
+
   orchestrator:
     image: homegap:e2e
     command: ["run"]
+    network_mode: service:mesh
+    cap_add: [NET_ADMIN]
+    depends_on: [mesh]
     environment:
       BUNNY_API_KEY: e2e-bunny-key
       # Optional EE license, exported by run.sh from the repository's untracked .env.
@@ -139,8 +152,6 @@ services:
       - ./work/keys:/keys:ro
       - ./work/certs:/certs:ro
       - ./work/data:/data
-    ports: [ "127.0.0.1:18088:8088", "127.0.0.1:18089:8089" ]
-    networks: [e2e]
 
   tunnels:
     image: homegap:e2e

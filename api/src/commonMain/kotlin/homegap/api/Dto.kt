@@ -26,6 +26,8 @@ data class StatusSnapshot(
     val tunnels: List<TunnelStatusDto> = emptyList(),
     val labelErrors: List<LabelErrorDto> = emptyList(),
     val pauses: PausesDto = PausesDto(),
+    /** The cluster mesh; null when the cluster is not configured. */
+    val mesh: MeshStatusDto? = null,
 )
 
 @Serializable
@@ -271,4 +273,33 @@ data class DeviceResultRequest(
     val pingSamples: Int = 0,
     val auto: Boolean = false,
     val error: String? = null,
+)
+
+/** The cluster's WireGuard mesh, as each member sees it. */
+@Serializable
+data class MeshStatusDto(
+    val subnet: String,
+    val members: List<MeshMemberDto> = emptyList(),
+)
+
+@Serializable
+data class MeshMemberDto(
+    /** `homelab` or a node id. */
+    val id: String,
+    val address: String,
+    /** Why this member's mesh could not be configured or read. */
+    val error: String? = null,
+    val peers: List<MeshPeerDto> = emptyList(),
+)
+
+@Serializable
+data class MeshPeerDto(
+    /** The peer's member id (`homelab` or a node id), or `unknown` for a key HomeGAP does not know. */
+    val id: String,
+    /** Where this member last heard the peer from (null before the first handshake). */
+    val endpoint: String? = null,
+    /** Epoch milliseconds of the latest WireGuard handshake; null if there has been none. */
+    val lastHandshakeAt: Long? = null,
+    val rxBytes: Long = 0,
+    val txBytes: Long = 0,
 )

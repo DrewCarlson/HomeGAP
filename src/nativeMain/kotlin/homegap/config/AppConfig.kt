@@ -26,6 +26,8 @@ data class AppConfig(
     val certificates: CertificatesConfig = CertificatesConfig(),
     @SerialName("primary_pangolin") val primaryPangolin: PrimaryPangolinConfig? = null,
     val tunnels: TunnelsConfig = TunnelsConfig(),
+    /** Clustered Pangolin across the nodes; null keeps one independent Pangolin per node. */
+    val cluster: ClusterConfig? = null,
     val nodes: List<NodeConfig> = emptyList(),
     val dashboard: DashboardConfig = DashboardConfig(),
     val speedtest: SpeedtestConfig = SpeedtestConfig(),
@@ -127,6 +129,25 @@ data class PrimaryPangolinConfig(
 ) {
     val apiKey: SecretRef get() = SecretRef("primary_pangolin.api_key", apiKeyEnv, apiKeyFile)
 }
+
+/** The cluster: what the nodes and the homelab share. */
+@Serializable
+data class ClusterConfig(
+    val mesh: MeshConfig = MeshConfig(),
+)
+
+/**
+ * The private WireGuard mesh between the homelab and every node. Cluster traffic (database,
+ * Valkey, Gerbil's node API) only ever crosses it. The homelab dials out, so it works behind NAT
+ * and its address is never published.
+ */
+@Serializable
+data class MeshConfig(
+    /** IPv4 subnet for mesh addresses; must not overlap Pangolin's 100.64.0.0/10 tunnel ranges. */
+    val subnet: String = "10.77.0.0/24",
+    /** UDP port every node listens on (opened in the node firewall). */
+    val port: Int = 51821,
+)
 
 @Serializable
 data class TunnelsConfig(

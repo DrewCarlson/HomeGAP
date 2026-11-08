@@ -409,7 +409,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     }
 
     private fun firewallScript(node: NodeConfig, desired: NodeDesired): String =
-        FirewallRules.script(FirewallRules.specs(node, desired.rawPorts))
+        FirewallRules.script(FirewallRules.specs(node, desired.rawPorts, ctx.config.cluster?.mesh?.port))
 
     private fun stackScript(files: List<RenderedFile>): String = buildString {
         val d = shQuote(dir)
@@ -616,6 +616,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     suspend fun decommission(node: NodeConfig) {
         val ssh = ctx.ssh.session(node)
         ssh.runScriptOrThrow("decommission", "cd ${shQuote(dir)} 2>/dev/null && docker compose down --remove-orphans || true", 300)
+        if (ctx.config.cluster != null) ssh.runScript(homegap.provision.Mesh.TEARDOWN, 60)
         ctx.ssh.drop(node.id)
     }
 

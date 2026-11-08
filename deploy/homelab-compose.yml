@@ -19,10 +19,32 @@ volumes:
   homegap-data:
 
 services:
+  # Holds the orchestrator's network namespace, so the cluster mesh interface (hg-mesh, see
+  # `cluster:` in the config) outlives orchestrator restarts and upgrades. The orchestrator's
+  # networks, published ports and Traefik labels belong here.
+  homegap-mesh:
+    image: ghcr.io/drewcarlson/homegap:latest
+    entrypoint: ["/usr/bin/tini", "--", "sleep", "infinity"]
+    restart: unless-stopped
+    networks:
+      traefik:
+        aliases: [orchestrator]
+    # Speed tests (speedtest.enabled: true): route speedtest*.<domain> here on port 8089.
+    # labels:
+    #   traefik.enable: "true"
+    #   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"
+    #   traefik.http.routers.homegap-speedtest.entrypoints: websecure
+    #   traefik.http.routers.homegap-speedtest.tls: "true"
+    #   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
+
   orchestrator:
     image: ghcr.io/drewcarlson/homegap:latest
     command: ["run"]
     restart: unless-stopped
+    network_mode: service:homegap-mesh
+    # Manages the cluster mesh interface (only used when `cluster:` is configured).
+    cap_add: [NET_ADMIN]
+    depends_on: [homegap-mesh]
     environment:
       BUNNY_API_KEY: ${BUNNY_API_KEY:?set BUNNY_API_KEY}
       PRIMARY_PANGOLIN_KEY: ${PRIMARY_PANGOLIN_KEY:-}
@@ -35,14 +57,6 @@ services:
       - homegap-data:/data                              # state cache, known_hosts, tunnel specs
       # Optional: the homelab Traefik ACME store, so nodes get the same wildcard certificate.
       # - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
-    networks: [traefik]
-    # Speed tests (speedtest.enabled: true): route speedtest*.<domain> here on port 8089.
-    # labels:
-    #   traefik.enable: "true"
-    #   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"
-    #   traefik.http.routers.homegap-speedtest.entrypoints: websecure
-    #   traefik.http.routers.homegap-speedtest.tls: "true"
-    #   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
     # The dashboard must only be reachable privately: expose it as a *private* Pangolin
     # resource on the primary (alias e.g. homegap.<domain> -> orchestrator:8088), not publicly.
 

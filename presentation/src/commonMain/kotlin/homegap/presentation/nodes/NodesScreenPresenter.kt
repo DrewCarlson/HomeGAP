@@ -21,8 +21,9 @@ class NodesScreenPresenter(
     @Composable
     override fun model(props: NodesScreenProps): NodesScreenModel {
         val rows = remember(props.status.nodes, props.now) { props.status.nodes.map { it.toRowModel(props.now) } }
+        val mesh = remember(props.status.mesh, props.now) { props.status.mesh?.toPanelModel(props.now) }
         val events = remember { nodeEvents() }
-        return NodesScreenModel(rows, events)
+        return NodesScreenModel(rows, events, mesh)
     }
 
     private fun nodeEvents() = NodeEvents(
