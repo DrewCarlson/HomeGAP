@@ -221,6 +221,8 @@ object NodeTemplates {
 
     fun pangolinConfig(config: AppConfig, node: NodeConfig, secrets: NodeSecrets, slot: Int, cluster: ClusterLink? = null): String {
         val mgmt = node.managementHost(config.domain)
+        // In a cluster, links and redirects use the shared client address.
+        val dashboard = config.clientHost.takeIf { cluster != null } ?: mgmt
         val root = buildJsonObject {
             putJsonObject("gerbil") {
                 put("start_port", 51820)
@@ -232,7 +234,7 @@ object NodeTemplates {
                 put("subnet_group", homegap.reconcile.TunnelSlots.subnet(slot))
             }
             putJsonObject("app") {
-                put("dashboard_url", "https://$mgmt")
+                put("dashboard_url", "https://$dashboard")
                 put("log_level", "info")
                 putJsonObject("telemetry") { put("anonymous_usage", false) }
             }
@@ -255,7 +257,7 @@ object NodeTemplates {
             putJsonObject("server") {
                 put("secret", secrets.serverSecret)
                 putJsonObject("cors") {
-                    putJsonArray("origins") { add("https://$mgmt") }
+                    putJsonArray("origins") { listOf(dashboard, mgmt).distinct().forEach { add("https://$it") } }
                     putJsonArray("methods") { listOf("GET", "POST", "PUT", "DELETE", "PATCH").forEach { add(it) } }
                     putJsonArray("allowed_headers") { add("X-CSRF-Token"); add("Content-Type") }
                     put("credentials", false)
@@ -441,6 +443,31 @@ object NodeTemplates {
                             put("service", "homegap-pangolin-next")
                             put("priority", 9999)
                             putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                        }
+                    }
+                    desired.clientHost?.let { client ->
+                        // The cluster's client address: Pangolin's login pages and the API (with
+                        // the client websocket) on every node.
+                        putJsonObject("homegap-client-api") {
+                            put("rule", "Host(`$client`) && PathPrefix(`/api/v1`)")
+                            putJsonArray("entryPoints") { add("websecure") }
+                            put("service", "homegap-pangolin-api")
+                            put("priority", 10000)
+                            putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                        }
+                        putJsonObject("homegap-client-ui") {
+                            put("rule", "Host(`$client`)")
+                            putJsonArray("entryPoints") { add("websecure") }
+                            put("service", "homegap-pangolin-next")
+                            put("priority", 9999)
+                            putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                        }
+                        putJsonObject("homegap-client-redirect") {
+                            put("rule", "Host(`$client`)")
+                            putJsonArray("entryPoints") { add("web") }
+                            putJsonArray("middlewares") { add("homegap-redirect-https") }
+                            put("service", "noop@internal")
+                            put("priority", 10000)
                         }
                     }
                     putJsonObject("homegap-mgmt-redirect") {

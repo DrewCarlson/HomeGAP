@@ -12,6 +12,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
+import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
@@ -37,7 +38,8 @@ class DashboardServer(private val routingControllers: RoutingControllers) {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     fun start(host: String, port: Int) {
-        embeddedServer(CIO, port = port, host = host) { module() }.start(wait = false)
+        // Reuse the address: after a restart the old process's connections linger in TIME_WAIT.
+        embeddedServer(CIO, configure = { reuseAddress = true; connector { this.host = host; this.port = port } }) { module() }.start(wait = false)
     }
 
     fun Application.module() {

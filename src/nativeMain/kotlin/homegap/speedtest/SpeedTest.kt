@@ -74,7 +74,8 @@ class SpeedTestServer(
     private val payload = Crypto.randomBytes(256 * 1024)
 
     fun start(host: String, port: Int) {
-        embeddedServer(CIO, port = port, host = host) { module() }.start(wait = false)
+        // Reuse the address: after a restart the old process's connections linger in TIME_WAIT.
+        embeddedServer(CIO, configure = { reuseAddress = true; connector { this.host = host; this.port = port } }) { module() }.start(wait = false)
     }
 
     /** Node id for a per-node speed test hostname, or null for the auto hostname. */

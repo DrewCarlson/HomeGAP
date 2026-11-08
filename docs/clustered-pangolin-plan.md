@@ -1,6 +1,6 @@
 # Build plan: clustered Pangolin with nearest-node client access
 
-Status: phases 1-3 built (mesh, cluster database, clustered Pangolin on the nodes). One site per node, from phase 4, came with phase 3. The design is proven in the `e2e/cluster` prototype (commits d2f94a0, b0c64db,
+Status: phases 1-4 built (mesh, cluster database, clustered Pangolin, reconciling one Pangolin). Private access from a real client is verified in phase 5, which adds users and devices. The design is proven in the `e2e/cluster` prototype (commits d2f94a0, b0c64db,
 6123ef4). This plan turns it into HomeGAP.
 
 ## Goal

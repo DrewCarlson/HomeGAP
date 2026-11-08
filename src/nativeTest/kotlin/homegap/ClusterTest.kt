@@ -2,6 +2,7 @@ package homegap
 
 import homegap.clients.PatroniClient
 import homegap.config.MeshConfig
+import homegap.config.ClusterConfig
 import homegap.config.NodeConfig
 import homegap.config.PangolinNodeDefaults
 import homegap.model.Planner
@@ -12,6 +13,7 @@ import homegap.provision.ClusterTemplates.Member
 import homegap.provision.FirewallRules
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
+import homegap.reconcile.ResourceReconciler
 import homegap.reconcile.SwitchBack
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -159,5 +161,68 @@ class ClusterTest {
         assertTrue("traefik-config" in files.getValue("config/traefik/traefik_config.yml").content)
         assertFalse("postgres" in files.getValue("config/config.yml").content)
         assertTrue("\"--reachableAt=http://gerbil:3004\"" in files.getValue("compose.yml").content)
+    }
+
+    private val clusterCfg = testConfig().copy(cluster = ClusterConfig())
+    private val services = listOf(
+        TRAEFIK,
+        container("git", "homegap.expose" to "git.test.example.net", "homegap.protocol" to "https", "homegap.tls" to "passthrough", "homegap.regions" to "as1"),
+        container("game", "homegap.expose" to "game.test.example.net", "homegap.port" to "41000", "homegap.protocol" to "tcp", "homegap.regions" to "na1"),
+        container("ssh", "homegap.expose" to "ssh.test.example.net", "homegap.port" to "22", "homegap.protocol" to "tcp", "homegap.access" to "private"),
+    )
+
+    @Test
+    fun clusterNodesAgreeOnSharedResourcesAndKeepTheirOwn() {
+        val plan = Planner.plan(clusterCfg, services)
+        val na1 = plan.nodes.getValue("na1")
+        val as1 = plan.nodes.getValue("as1")
+        // A passthrough port is the same on every node, whatever else each node serves.
+        val ports = { n: homegap.model.NodeDesired -> n.publicResources.filter { it.niceId == Planner.FRONTDOOR_TCP }.map { it.proxyPort } }
+        assertEquals(ports(na1), ports(as1))
+        val shared = (na1.publicResources + as1.publicResources).filter { (it.proxyPort ?: 0) > 0 }.groupBy { it.niceId }
+        assertTrue(shared.values.all { rs -> rs.map { it.proxyPort }.distinct().size == 1 }, "each resource has one port on every node")
+        val byPort = shared.mapValues { it.value.first().proxyPort }
+        assertEquals(byPort.size, byPort.values.distinct().size, "no two resources share a port")
+
+        // Health checks are per node.
+        assertEquals("hg-health-na1", na1.healthResourceNiceId)
+        assertEquals("hg-health-as1", as1.healthResourceNiceId)
+        assertTrue(as1.publicResources.none { it.niceId == "hg-health-na1" })
+
+        // The client address is served everywhere and never passed through to the homelab.
+        assertEquals("pangolin.test.example.net", na1.clientHost)
+        assertTrue(na1.sniRoutes.single { it.resourceNiceId == Planner.FRONTDOOR_TCP }.excludeHosts.contains("pangolin.test.example.net"))
+        val client = plan.dns.filter { it.purpose == "client" }
+        assertEquals(setOf("na1", "as1"), client.map { it.nodeId }.toSet())
+        assertTrue(client.all { it.geo })
+
+        val routes = NodeTemplates.dynamicRoutes(na1, emptyMap(), cluster = true)
+        assertTrue("Host(`pangolin.test.example.net`) && PathPrefix(`/api/v1`)" in routes)
+    }
+
+    @Test
+    fun aSharedResourceTargetsEverySiteThatServesIt() {
+        val plan = Planner.plan(clusterCfg, services)
+        val sites = mapOf("na1" to "homelab-na1", "as1" to "homelab-as1")
+        val public = ResourceReconciler.clusterResources(plan.nodes.mapValues { it.value.publicResources }, sites) { it.niceId }
+            .mapKeys { it.key.niceId }
+        assertEquals(listOf("homelab-na1", "homelab-as1"), public.getValue(Planner.FRONTDOOR_TCP))
+        assertEquals(listOf("homelab-as1"), public.getValue("hg-git-test-example-net"), "regions limit the targets")
+        assertEquals(listOf("homelab-na1"), public.getValue("hg-health-na1"))
+
+        val private = ResourceReconciler.clusterResources(plan.nodes.mapValues { it.value.privateResources }, sites) { it.niceId }
+        assertEquals(listOf("homelab-na1", "homelab-as1"), private.values.single())
+
+        // A node without a site yet is left out.
+        val partial = ResourceReconciler.clusterResources(plan.nodes.mapValues { it.value.publicResources }, mapOf("na1" to "homelab-na1")) { it.niceId }
+        assertTrue(partial.values.all { it == listOf("homelab-na1") })
+    }
+
+    @Test
+    fun clusterPangolinLinksToTheClientAddress() {
+        val node = clusterCfg.node("na1")!!
+        val yml = NodeTemplates.pangolinConfig(clusterCfg, node, NodeSecrets("t", "s", "a@b", "p", "k", true), 0, ClusterLink("10.77.0.10", secrets))
+        assertTrue("dashboard_url: \"https://pangolin.test.example.net\"" in yml)
+        assertTrue("https://pangolin-na1.test.example.net" in yml, "the management host stays an allowed origin")
     }
 }

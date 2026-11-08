@@ -33,6 +33,8 @@ data class NodeDesired(
     val healthPath: String,
     /** Speed test entry redirect on :80 (auto hostname -> this node's hostname), when enabled. */
     val speedtestRedirect: Pair<String, String>? = null,
+    /** The cluster's client address, served by this node's Pangolin (login pages and API). */
+    val clientHost: String? = null,
 ) {
     val id: String get() = node.id
 }
@@ -120,6 +122,14 @@ object Planner {
     const val SPEEDTEST = "hg-speedtest"
     const val SPEEDTEST_AUTO = "hg-speedtest-auto"
 
+    /**
+     * A resource only one node serves (its health check, its speed test host). In a cluster all
+     * nodes share one org, so these get the node's id.
+     */
+    fun perNode(config: AppConfig, base: String, nodeId: String) = if (config.cluster != null) "$base-$nodeId" else base
+
+    fun isHealth(niceId: String) = niceId == HEALTH || niceId.startsWith("$HEALTH-")
+
     fun plan(
         config: AppConfig,
         containers: List<DockerContainerSummary>,
@@ -151,7 +161,8 @@ object Planner {
         val frontDoor = services.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
 
-        val nodes = config.nodes.associate { node -> node.id to planNode(config, node, services, frontDoor) }
+        val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, frontDoor) }
+        val nodes = if (config.cluster != null) sharePassthroughPorts(config, planned) else planned
         val dns = planDns(config, activeNodes, services, frontDoor)
         val primary = config.primaryPangolin?.let { p ->
             services.filter { it.access == Access.PRIVATE }.map { privateResource(it, p.site) }
@@ -193,7 +204,7 @@ object Planner {
                     // The speed test hostnames ride the front door to the homelab proxy.
                     exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts,
                     wildcardOf = if (fd.wildcard) fd.hostname else null,
-                    excludeHosts = (listOf(mgmt) + terminateDedicated).distinct().sorted(),
+                    excludeHosts = (listOfNotNull(mgmt, config.clientHost) + terminateDedicated).distinct().sorted(),
                     priority = 100,
                 )
                 redirects += fd.hostname
@@ -203,7 +214,7 @@ object Planner {
                 if (fd.wildcard) publicRes += httpResource(NICE_PREFIX + "wildcard-" + fd.key, fd, "*." + fd.hostname, method)
                 if (st != null) {
                     publicRes += httpResource(SPEEDTEST_AUTO, fd, stHosts[0], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
-                    publicRes += httpResource(SPEEDTEST, fd, stHosts[1], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
+                    publicRes += httpResource(perNode(config, SPEEDTEST, node.id), fd, stHosts[1], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
                 }
             }
         }
@@ -247,10 +258,10 @@ object Planner {
         var healthNice: String? = null
         var healthPath = "/"
         if (healthTarget != null) {
-            healthNice = HEALTH
+            healthNice = perNode(config, HEALTH, node.id)
             healthPath = (healthTarget.healthcheck as? HealthCheck.Http)?.path ?: "/"
             withPorts += PublicResource(
-                niceId = HEALTH, serviceKey = healthTarget.key, mode = ResourceMode.HTTP,
+                niceId = healthNice, serviceKey = healthTarget.key, mode = ResourceMode.HTTP,
                 fullDomain = "homegap-health-${node.id}.${config.domain}", proxyPort = null, ssl = false,
                 target = Target(healthTarget.targetHost, healthTarget.port, if (healthTarget.protocol == Protocol.HTTPS) "https" else "http"),
                 hostHeader = healthTarget.hostname,
@@ -272,6 +283,7 @@ object Planner {
             healthResourceNiceId = healthNice,
             healthPath = healthPath,
             speedtestRedirect = st?.let { stHosts[0] to stHosts[1] },
+            clientHost = config.clientHost,
         )
     }
 
@@ -330,6 +342,8 @@ object Planner {
                 n.publicIpv6?.let { out += DesiredDnsRecord(rel(h), h, "AAAA", it, n.id, false, null, null, null, "none", config.bunny.ttl, "speedtest") }
             }
         }
+        // Every node serves the cluster's login pages and client API.
+        config.clientHost?.let { geoSet(it, "client", nodes) }
         for (n in nodes) {
             val mgmt = n.managementHost(config.domain)
             n.ipv4()?.let { out += DesiredDnsRecord(rel(mgmt), mgmt, "A", it, n.id, false, null, null, null, "none", config.bunny.ttl, "management") }
@@ -339,6 +353,19 @@ object Planner {
     }
 
     /** Deterministic, collision-free port assignment: hash into a window, probe forward. */
+    /**
+     * In a cluster every node serves one shared resource per passthrough service, so its internal
+     * proxy port must be the same on every node: allocated over all nodes' keys and raw ports.
+     */
+    private fun sharePassthroughPorts(config: AppConfig, nodes: Map<String, NodeDesired>): Map<String, NodeDesired> {
+        val keys = nodes.values.flatMap { n -> n.sniRoutes.map { it.resourceNiceId } }
+        val avoid = nodes.values.flatMap { n -> n.rawPorts.map { it.port } }.toSet()
+        val ports = allocatePorts(keys, config.pangolin.passthroughPortBase, avoid)
+        return nodes.mapValues { (_, n) ->
+            n.copy(publicResources = n.publicResources.map { r -> ports[r.niceId]?.let { r.copy(proxyPort = it) } ?: r })
+        }
+    }
+
     fun allocatePorts(keys: List<String>, base: Int, avoid: Set<Int>): Map<String, Int> {
         val window = 5000
         val used = avoid.toMutableSet()

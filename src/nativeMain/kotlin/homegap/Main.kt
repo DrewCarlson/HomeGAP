@@ -86,7 +86,11 @@ fun main(args: Array<String>) {
             }
         }
     } catch (e: Exception) {
+        // A failed child coroutine surfaces as the parent's cancellation: report what caused it.
+        val root = generateSequence<Throwable>(e) { it.cause?.takeIf { c -> c !== it } }.last()
         eprintln("homegap: ${e.message}")
+        if (root !== e) eprintln("homegap: caused by ${root::class.simpleName}: ${root.message}")
+        if (env("HOMEGAP_DEBUG") != null) eprintln(root.stackTraceToString())
         exitProcess(1)
     }
 }

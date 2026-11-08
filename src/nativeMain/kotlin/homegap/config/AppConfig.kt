@@ -36,6 +36,9 @@ data class AppConfig(
      * The homelab's site on a node. A cluster has one org shared by every node, so each node gets
      * its own site there (created through that node, which pins it to the node's exit node).
      */
+    /** The cluster's client address (see [ClusterConfig.clientHostname]); null without a cluster. */
+    val clientHost: String? get() = cluster?.let { "${it.clientHostname}.$domain" }
+
     fun siteNiceId(nodeId: String): String = if (cluster != null) "${pangolin.siteName}-$nodeId" else pangolin.siteName
     val wildcardDomain: String get() = "*.$domain"
     fun node(id: String): NodeConfig? = nodes.firstOrNull { it.id == id }
@@ -156,6 +159,11 @@ data class ClusterConfig(
     val primary: PrimaryConfig = PrimaryConfig(),
     /** The cluster image every member runs (PostgreSQL with Patroni, etcd, Valkey, HAProxy). */
     val image: String = "ghcr.io/drewcarlson/homegap-cluster:latest",
+    /**
+     * `<client_hostname>.<domain>`: the address Pangolin clients and the login pages use, served
+     * by every node and geo-routed to the nearest healthy one.
+     */
+    @SerialName("client_hostname") val clientHostname: String = "pangolin",
 )
 
 /**

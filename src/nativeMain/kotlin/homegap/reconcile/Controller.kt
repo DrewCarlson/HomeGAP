@@ -247,6 +247,9 @@ class Controller(
             val present = mutableMapOf<String, Set<String>>()
             val online = mutableMapOf<String, Boolean?>()
             val obs = mutableMapOf<String, NodeObservation>()
+            // In a cluster the resources are shared: applied once after the per-node work.
+            val clustered = cfg.cluster != null
+            val readyNodes = mutableMapOf<String, Pair<ReadyNode, PangolinSite>>()
             // Permanent tunnel slots (subnet, interface, ports); never derived from list position.
             val slots = TunnelSlots.assign(cfg.nodes.map { it.id }, state.snapshot().nodes)
             if (!dryRun) for ((id, slot) in slots) {
@@ -321,7 +324,9 @@ class Controller(
                         var resources: List<PangolinResource> = emptyList()
                         if (ready != null) {
                             site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, slot) }
-                            if (discoveryOk && site != null) {
+                            if (clustered) {
+                                if (site != null) synchronizedPut(readyNodes, node.id, ready to site)
+                            } else if (discoveryOk && site != null) {
                                 resources = runDomain("resources", node.id) { resourceRec.reconcile(ready, nd, pausedKeys) } ?: emptyList()
                                 if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()
                             }
@@ -333,9 +338,25 @@ class Controller(
                         val o = runDomain("observe", node.id) { observeNode(ctx, node, ready, site) }
                         synchronizedPut(obs, node.id, o ?: NodeObservation(false, emptyList(), null, false))
                         synchronizedPut(online, node.id, site?.online)
-                        synchronizedPut(health, node.id, serviceHealthFor(effective, node.id, resources, site))
+                        if (!clustered || ready == null || site == null) synchronizedPut(health, node.id, serviceHealthFor(effective, node.id, resources, site))
                     }
                 }.awaitAll()
+            }
+            if (clustered && discoveryOk && readyNodes.isNotEmpty()) {
+                // Through the first ready node in config order; each node then writes its own routes.
+                val sites = readyNodes.mapValues { (_, v) -> v.second.niceId }
+                val via = cfg.nodes.first { it.id in readyNodes }.id
+                val actual = runDomain("resources", ResourceReconciler.CLUSTER_SCOPE) {
+                    resourceRec.reconcileCluster(readyNodes.getValue(via).first, effective.nodes, sites, pausedKeys)
+                }
+                if (actual != null) for ((id, rs) in readyNodes) {
+                    val (ready, site) = rs
+                    // What this node can serve: resources with a target on its own site.
+                    val mine = actual.filter { r -> r.targets.any { it.siteNiceId == site.niceId } }
+                    runDomain("resources", id) { resourceRec.writeRoutes(ready, effective.nodes.getValue(id), mine) }
+                    present[id] = mine.map { it.niceId }.toSet()
+                    health[id] = serviceHealthFor(effective, id, mine, site)
+                }
             }
             if (!dryRun) runDomain("tunnels", null) { tunnelRec.prune(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.map { it.id }.toSet()) }
 
@@ -395,9 +416,9 @@ class Controller(
             val fdWildcard = frontDoor?.let { "*.${it.hostname}" }
             val needed = when {
                 d.purpose == "management" -> emptyList()
-                d.purpose == "root" -> nd.publicResources.filter { it.serviceKey == fdKey && it.fullDomain != fdWildcard && it.niceId != Planner.HEALTH }
+                d.purpose == "root" -> nd.publicResources.filter { it.serviceKey == fdKey && it.fullDomain != fdWildcard && !Planner.isHealth(it.niceId) }
                 d.purpose == "wildcard" -> nd.publicResources.filter { it.serviceKey == fdKey && (it.mode.wire == "tcp" || it.fullDomain == fdWildcard) }
-                d.purpose.startsWith("service:") -> nd.publicResources.filter { it.serviceKey == d.purpose.removePrefix("service:") && it.niceId != Planner.HEALTH }
+                d.purpose.startsWith("service:") -> nd.publicResources.filter { it.serviceKey == d.purpose.removePrefix("service:") && !Planner.isHealth(it.niceId) }
                 else -> emptyList()
             }.filter { !it.paused }.map { it.niceId }
             val missing = needed.filter { it !in have }
@@ -547,7 +568,7 @@ class Controller(
         val out = mutableMapOf<String, ServiceNodeHealthDto>()
         for (s in plan.services) {
             if (!s.servesNode(nodeId)) continue
-            val res = nd.publicResources.filter { it.serviceKey == s.key && it.niceId != Planner.HEALTH } +
+            val res = nd.publicResources.filter { it.serviceKey == s.key && !Planner.isHealth(it.niceId) } +
                 emptyList()
             val priv = nd.privateResources.filter { it.serviceKey == s.key }
             if (res.isEmpty() && priv.isEmpty()) continue

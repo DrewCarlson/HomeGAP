@@ -119,6 +119,102 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         return actual
     }
 
+    /**
+     * A cluster's resources, applied once per pass through one node ([via]): one resource per
+     * purpose, with a target on every serving node's site (each node only routes its own), and one
+     * private resource listing every serving node's site. [sites] maps the nodes that take part to
+     * their site; a node without one yet (or not on the cluster stack) is left out until it has one.
+     */
+    suspend fun reconcileCluster(
+        via: ReadyNode,
+        plan: Map<String, NodeDesired>,
+        sites: Map<String, String>,
+        pausedServiceKeys: Set<String>,
+    ): List<PangolinResource> {
+        val org = ctx.config.pangolin.orgId
+        val api = via.api
+        val paused = ctx.nodePaused(via.node.id)
+        applyBaseBlueprint(api, CLUSTER_SCOPE, org, paused)
+
+        val serving = plan.filterKeys { it in sites }
+        val public = clusterResources(serving.mapValues { (_, n) -> n.publicResources }, sites) { it.niceId }
+        val private = clusterResources(serving.mapValues { (_, n) -> n.privateResources }, sites) { it.niceId }
+        val known = ctx.state.snapshot().clusterPangolin?.blueprints.orEmpty()
+        val hashes = known.toMutableMap()
+
+        var actual = api.listResources(org)
+        val byNice = actual.associateBy { it.niceId }
+        var applied = 0
+        for ((d, onSites) in public) {
+            if (d.paused) continue
+            val a = byNice[d.niceId]
+            val bp = buildBlueprint(mapOf(d to onSites), emptyMap())
+            val h = Crypto.fnv64(bp.toString())
+            val drifted = !matches(d, a, onSites)
+            val action = when { a == null -> "create"; drifted || known[d.niceId] != h -> "update"; else -> "none" }
+            ctx.diff.add(domain, CLUSTER_SCOPE, d.niceId, action, "${describe(d)} on ${onSites.joinToString()}", a?.let { describe(it) })
+            if (action == "none" || paused) continue
+            try {
+                api.applyBlueprint(org, bp)
+                applied++
+                hashes[d.niceId] = h
+                ctx.log.change(domain, "${if (a == null) "created" else if (drifted) "repaired" else "updated"} ${d.niceId} (${describe(d)}) on ${onSites.joinToString()}")
+            } catch (e: Exception) {
+                if (e is CancellationException) currentCoroutineContext().ensureActive()
+                hashes.remove(d.niceId)
+                ctx.log.error(domain, "${d.niceId}: ${e.message}")
+            }
+        }
+        val siteResources = runCatching { api.listSiteResources(org) }.onFailure {
+            if (it is CancellationException) currentCoroutineContext().ensureActive()
+        }
+        val privateActual = siteResources.getOrNull()?.map { it.niceId }?.toSet()
+        for ((p, onSites) in private) {
+            if (p.paused) continue
+            val bp = buildBlueprint(emptyMap(), mapOf(p to onSites))
+            val h = Crypto.fnv64(bp.toString())
+            val key = "private:${p.niceId}"
+            if (known[key] == h && (privateActual == null || p.niceId in privateActual)) continue
+            ctx.diff.add(domain, CLUSTER_SCOPE, key, "ensure", "${p.alias} -> ${p.destination} on ${onSites.joinToString()}")
+            if (paused) continue
+            try {
+                api.applyBlueprint(org, bp)
+                hashes[key] = h
+                ctx.log.change(domain, "ensured private resource ${p.niceId} (${p.alias}) on ${onSites.joinToString()}")
+            } catch (e: Exception) {
+                if (e is CancellationException) currentCoroutineContext().ensureActive()
+                ctx.log.error(domain, "private ${p.niceId}: ${e.message}")
+            }
+        }
+        if (applied > 0) actual = api.listResources(org)
+
+        // Every node's plan counts, even one without a site yet: never delete what a node still wants.
+        val keep = plan.values.flatMap { n -> n.publicResources.map { it.niceId } }.toSet()
+        for (a in actual) {
+            if (!a.niceId.startsWith(Planner.NICE_PREFIX) || a.niceId in keep) continue
+            if (pausedServiceKeys.any { a.niceId.startsWith(Planner.NICE_PREFIX + it) }) continue
+            ctx.diff.add(domain, CLUSTER_SCOPE, a.niceId, "delete", null, describe(a))
+            if (paused) continue
+            api.deleteResource(a.resourceId)
+            hashes.remove(a.niceId)
+            ctx.log.change(domain, "deleted resource ${a.niceId}")
+        }
+        if (!paused) actual = actual.filter { it.niceId in keep || !it.niceId.startsWith(Planner.NICE_PREFIX) || pausedServiceKeys.any { k -> it.niceId.startsWith(Planner.NICE_PREFIX + k) } }
+
+        val keepPrivate = plan.values.flatMap { n -> n.privateResources.map { it.niceId } }.toSet()
+        siteResources.getOrNull()?.forEach { a ->
+            if (!a.niceId.startsWith(Planner.NICE_PREFIX) || a.niceId in keepPrivate) return@forEach
+            if (pausedServiceKeys.any { a.niceId.startsWith(Planner.NICE_PREFIX + it) }) return@forEach
+            ctx.diff.add(domain, CLUSTER_SCOPE, "private:${a.niceId}", "delete")
+            if (paused) return@forEach
+            api.deleteSiteResource(a.siteResourceId)
+            hashes.remove("private:${a.niceId}")
+            ctx.log.change(domain, "deleted private resource ${a.niceId}")
+        }
+        if (hashes != known) ctx.state.update { st -> st.copy(clusterPangolin = st.clusterPangolin?.copy(blueprints = hashes)) }
+        return actual
+    }
+
     private suspend fun reconcilePrivate(
         api: PangolinClient, nodeId: String, desired: NodeDesired, pausedKeys: Set<String>, paused: Boolean,
         listed: Result<List<homegap.clients.PangolinSiteResource>>,
@@ -147,14 +243,17 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
             return
         }
         val hash = Crypto.fnv64(text)
-        if (ctx.state.node(nodeId).facts["baseBlueprintHash"] == hash || paused) return
+        val cluster = nodeId == CLUSTER_SCOPE
+        val applied = if (cluster) ctx.state.snapshot().clusterPangolin?.blueprints?.get(BASE_KEY) else ctx.state.node(nodeId).facts["baseBlueprintHash"]
+        if (applied == hash || paused) return
         val json = if (text.trimStart().startsWith("{")) Json.parseToJsonElement(text).jsonObject else yamlToJson(text).jsonObject
         api.applyBlueprint(org, json)
-        ctx.state.updateNode(nodeId) { it.copy(facts = it.facts + ("baseBlueprintHash" to hash)) }
-        ctx.log.change(domain, "applied base blueprint $path", nodeId)
+        if (cluster) ctx.state.update { st -> st.copy(clusterPangolin = st.clusterPangolin?.let { it.copy(blueprints = it.blueprints + (BASE_KEY to hash)) }) }
+        else ctx.state.updateNode(nodeId) { it.copy(facts = it.facts + ("baseBlueprintHash" to hash)) }
+        ctx.log.change(domain, "applied base blueprint $path", nodeId.takeIf { !cluster })
     }
 
-    private suspend fun writeRoutes(ready: ReadyNode, desired: NodeDesired, actual: List<PangolinResource>) {
+    suspend fun writeRoutes(ready: ReadyNode, desired: NodeDesired, actual: List<PangolinResource>) {
         val ids = actual.associate { it.niceId to it.resourceId }
         val content = NodeTemplates.dynamicRoutes(desired, ids, ctx.config.cluster != null)
         val hash = Crypto.fnv64(content)
@@ -176,13 +275,18 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         ctx.state.updateNode(ready.node.id) { it.copy(facts = it.facts + ("routesHash" to hash) + ("routesCheckedAt" to (st.lastCheckAt ?: 0).toString())) }
     }
 
-    private fun matches(d: PublicResource, a: PangolinResource?): Boolean {
+    private fun matches(d: PublicResource, a: PangolinResource?, sites: List<String>? = null): Boolean {
         if (a == null) return false
         if (a.mode != d.mode.wire) return false
         if (d.mode == ResourceMode.HTTP && a.fullDomain != d.fullDomain) return false
         if (d.mode != ResourceMode.HTTP && a.proxyPort != d.proxyPort) return false
         if (a.enabled == false) return false
         val t = a.targets
+        if (sites != null) {
+            // One target per serving node's site, each pointing at the service.
+            if (t.mapNotNull { it.siteNiceId }.sorted() != sites.sorted()) return false
+            return t.all { it.ip == d.target.host && it.port == d.target.port && it.enabled != false }
+        }
         if (t.size != 1 || t[0].ip != d.target.host || t[0].port != d.target.port || t[0].enabled == false) return false
         return true
     }
@@ -190,17 +294,21 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
     private fun describe(d: PublicResource) = "${d.mode.wire} ${d.fullDomain ?: ":${d.proxyPort}"} -> ${d.target.host}:${d.target.port}"
     private fun describe(a: PangolinResource) = "${a.mode} ${a.fullDomain ?: ":${a.proxyPort}"} -> ${a.targets.joinToString { "${it.ip}:${it.port}" }}"
 
-    fun buildBlueprint(publicRes: List<PublicResource>, privateRes: List<PrivateResource>, site: String = ctx.config.pangolin.siteName): JsonObject {
+    fun buildBlueprint(publicRes: List<PublicResource>, privateRes: List<PrivateResource>, site: String = ctx.config.pangolin.siteName): JsonObject =
+        buildBlueprint(publicRes.associateWith { listOf(site) }, privateRes.associateWith { listOf(it.siteNiceId) })
+
+    /** [publicRes] and [privateRes] map each resource to the sites that serve it. */
+    fun buildBlueprint(publicRes: Map<PublicResource, List<String>>, privateRes: Map<PrivateResource, List<String>>): JsonObject {
         return buildJsonObject {
             putJsonObject("public-resources") {
-                for (r in publicRes) putJsonObject(r.niceId) { publicResource(r, site) }
+                for ((r, sites) in publicRes) putJsonObject(r.niceId) { publicResource(r, sites) }
             }
             if (privateRes.isNotEmpty()) {
                 putJsonObject("private-resources") {
-                    for (r in privateRes) putJsonObject(r.niceId) {
+                    for ((r, sites) in privateRes) putJsonObject(r.niceId) {
                         put("name", r.name)
                         put("mode", "host")
-                        putJsonArray("sites") { add(r.siteNiceId) }
+                        putJsonArray("sites") { sites.forEach { add(it) } }
                         put("destination", r.destination)
                         put("alias", r.alias)
                         if (r.tcpPorts.isNotEmpty()) put("tcp-ports", r.tcpPorts)
@@ -212,7 +320,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         }
     }
 
-    private fun JsonObjectBuilder.publicResource(r: PublicResource, site: String) {
+    private fun JsonObjectBuilder.publicResource(r: PublicResource, sites: List<String>) {
         put("name", r.niceId)
         put("mode", r.mode.wire)
         put("enabled", true)
@@ -240,7 +348,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
             put("proxy-port", r.proxyPort!!)
         }
         putJsonArray("targets") {
-            addJsonObject {
+            for (site in sites) addJsonObject {
                 put("site", site)
                 put("hostname", r.target.host)
                 put("port", r.target.port)
@@ -265,6 +373,23 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
     }
 
     companion object {
+        /** Diff and base-blueprint scope for the cluster's shared resources. */
+        const val CLUSTER_SCOPE = "cluster"
+        private const val BASE_KEY = "base"
+
+        /**
+         * Groups each node's resources by niceId: the resource (identical on every node that
+         * serves it) and the sites of the nodes that do, in node order.
+         */
+        fun <R> clusterResources(byNode: Map<String, List<R>>, sites: Map<String, String>, niceId: (R) -> String): Map<R, List<String>> {
+            val out = linkedMapOf<String, Pair<R, MutableList<String>>>()
+            for ((node, resources) in byNode) {
+                val site = sites[node] ?: continue
+                for (r in resources) out.getOrPut(niceId(r)) { r to mutableListOf() }.second += site
+            }
+            return out.values.associate { it.first to it.second.toList() }
+        }
+
         private val INT = Regex("^-?(0|[1-9]\\d*)$")
         private val FLOAT = Regex("^-?\\d+\\.\\d+$")
 

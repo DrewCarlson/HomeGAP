@@ -84,6 +84,8 @@ data class ClusterPangolinState(
     val licenseRejected: String? = null,
     /** Nodes whose running Pangolin has not seen the license activated through another node. */
     val licenseRecheck: Set<String> = emptySet(),
+    /** Hash of each shared resource's last applied blueprint (`private:<id>` for private ones, `base`). */
+    val blueprints: Map<String, String> = emptyMap(),
 )
 
 @Serializable
