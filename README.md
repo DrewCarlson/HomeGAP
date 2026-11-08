@@ -104,7 +104,7 @@ works in six independent domains, so a failure in one never blocks the others:
 | Domain | What it does |
 | --- | --- |
 | Discovery | Reads `homegap.*` labels from the Docker socket (mounted read-only). If discovery fails, the resource and DNS domains are skipped for that pass, so an empty view can never delete anything. |
-| Nodes | Uses SSH to turn a bare Ubuntu 22.04/24.04 VPS into a Pangolin EE node: preflight, Docker, `ufw`, the compose stack, secrets, health wait, headless bootstrap (admin, org, least-privilege API key, license) and a verify step. Every step is idempotent, and a periodic drift check repairs out-of-band changes. |
+| Nodes | Uses SSH to turn a bare Ubuntu 22.04/24.04/26.04/26.10 VPS into a Pangolin EE node: preflight, Docker, `ufw`, the compose stack, secrets, health wait, headless bootstrap (admin, org, least-privilege API key, license) and a verify step. Every step is idempotent, and a periodic drift check repairs out-of-band changes. |
 | Tunnels | On each node, keeps a Pangolin site that represents the homelab. Writes one Newt connector spec per node for the `homegap tunnels` supervisor. |
 | Resources | Declares Pangolin resources through per-resource blueprints keyed by deterministic `hg-*` niceIds. It deletes only stale `hg-*` resources and never touches unmanaged ones. It also writes the node's hot-reloaded Traefik routes (SNI passthrough, health, management API). |
 | DNS | Keeps Bunny geo record sets for the root, the wildcard and each dedicated hostname, plus a plain record per node management host. |
@@ -159,7 +159,7 @@ the health interval plus the 60s TTL plus resolver caching: roughly 1–5 minute
 | Component | Requirement |
 | --- | --- |
 | Homelab | Docker with Compose; a Traefik instance fronting your services |
-| Regional nodes | Ubuntu 22.04 or 24.04 VPS (x86_64 or aarch64), SSH access as a user with passwordless sudo, public IPv4 (IPv6 optional) |
+| Regional nodes | Ubuntu 22.04, 24.04, 26.04 or 26.10 VPS (x86_64 or aarch64), SSH access as a user with passwordless sudo, public IPv4 (IPv6 optional) |
 | DNS | A [Bunny DNS](https://bunny.net/dns/) zone and API key |
 | Pangolin EE license | Optional; required for wildcard resources in `terminate` mode — one key per Pangolin instance (see [EE licenses](#ee-licenses)) |
 | Primary Pangolin | Optional; a hand-curated Pangolin EE on the homelab for private (client) access |
@@ -175,7 +175,7 @@ supervisor (`homegap tunnels`).
 1. Choose a test domain that no live services depend on — a spare domain, or a subdomain of your
    real domain (e.g. `gap.example.net`) delegated to Bunny with NS records — host it in Bunny DNS,
    and create an API key.
-2. Create a bare VPS per region (Ubuntu 22.04 or 24.04) that is reachable over SSH as a user with
+2. Create a bare VPS per region (Ubuntu 22.04, 24.04, 26.04 or 26.10) that is reachable over SSH as a user with
    passwordless sudo. Use a dedicated SSH key per node.
 3. Stand up the primary Pangolin EE on the homelab by hand (optional, for private access). Create
    its admin, org and homelab site, plus an Integration API key.
