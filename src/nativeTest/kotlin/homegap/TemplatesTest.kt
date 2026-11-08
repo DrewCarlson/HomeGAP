@@ -35,7 +35,7 @@ class TemplatesTest {
         val game = container("game", "homegap.expose" to "game.test.example.net", "homegap.port" to "27015", "homegap.protocol" to "udp")
         val plan = Planner.plan(cfg, listOf(TRAEFIK, game))
         val nd = plan.nodes.getValue("na1")
-        val files = NodeTemplates.staticFiles(cfg, cfg.node("na1")!!, secrets, nd.rawPorts)
+        val files = NodeTemplates.staticFiles(cfg, cfg.node("na1")!!, secrets, nd.rawPorts, 0)
         for (f in files.filter { it.path.endsWith(".yml") || it.path.endsWith(".yaml") }) {
             val node = Yaml.default.parseToYamlNode(f.content)
             assertTrue(node is YamlMap, "${f.path} should parse as a mapping")

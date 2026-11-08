@@ -219,9 +219,15 @@ class Controller(
             val present = mutableMapOf<String, Set<String>>()
             val online = mutableMapOf<String, Boolean?>()
             val obs = mutableMapOf<String, NodeObservation>()
+            // Permanent tunnel slots (subnet, interface, ports); never derived from list position.
+            val slots = TunnelSlots.assign(cfg.nodes.map { it.id }, state.snapshot().nodes)
+            if (!dryRun) for ((id, slot) in slots) {
+                if (state.node(id).tunnelSlot != slot) state.updateNode(id) { it.copy(tunnelSlot = slot) }
+            }
             coroutineScope {
-                cfg.nodes.mapIndexed { index, node ->
+                cfg.nodes.map { node ->
                     async {
+                        val slot = state.node(node.id).tunnelSlot ?: slots.getValue(node.id)
                         val nd = effective.nodes.getValue(node.id)
                         // A node being provisioned in the background keeps its last observation.
                         fun carryOver() {
@@ -234,10 +240,12 @@ class Controller(
                             return@async
                         }
                         val force = forceProvision.remove(node.id)
-                        val a = runDomain("nodes", node.id) { nodeRec.assess(nd, index, force, certs) }
+                        val a = runDomain("nodes", node.id) { nodeRec.assess(nd, slot, force, certs) }
                         var ready: ReadyNode? = null
                         if (a != null) {
                             val decision = if (a.paused || a.kind == NodeReconciler.Kind.NONE) RolloutPolicy.Decision.Start
+                            // Until the slot is checked against the live subnet, the rendered stack may be wrong.
+                            else if (a.kind == NodeReconciler.Kind.UPDATE && !state.node(node.id).tunnelSlotConfirmed) RolloutPolicy.Decision.Wait("confirming the node's tunnel slot")
                             else RolloutPolicy.decide(
                                 node.id, a.kind, a.hash, force, state.snapshot().nodes,
                                 jobs.filter { (_, j) -> j.first == NodeReconciler.Kind.UPDATE && j.second.isActive }.keys, nowMillis(),
@@ -246,7 +254,7 @@ class Controller(
                                 decision is RolloutPolicy.Decision.Wait -> {
                                     if (waiting.put(node.id, decision.reason) != decision.reason) log.info("nodes", "${a.reason}: ${decision.reason}", node.id)
                                     // A node waiting for its update keeps serving on its current stack.
-                                    if (a.kind != NodeReconciler.Kind.FRESH) ready = runDomain("nodes", node.id) { nodeRec.ready(a, index) }
+                                    if (a.kind != NodeReconciler.Kind.FRESH) ready = runDomain("nodes", node.id) { nodeRec.ready(a, slot) }
                                 }
                                 a.paused || a.kind == NodeReconciler.Kind.NONE -> {
                                     waiting.remove(node.id)
@@ -255,7 +263,7 @@ class Controller(
                                         state.updateNode(node.id) { it.copy(update = null) }
                                         log.change("nodes", "pending update no longer needed (desired stack matches the running one)", node.id)
                                     }
-                                    ready = runDomain("nodes", node.id) { nodeRec.ready(a, index) }
+                                    ready = runDomain("nodes", node.id) { nodeRec.ready(a, slot) }
                                 }
                                 else -> {
                                     waiting.remove(node.id)
@@ -263,11 +271,11 @@ class Controller(
                                     val sc = jobScope
                                     if (sc == null) {
                                         // One-shot mode: provision inline.
-                                        if (nodeRec.provisionJob(a, index, tunnelWasUp)) ready = runDomain("nodes", node.id) { nodeRec.ready(a, index) }
+                                        if (nodeRec.provisionJob(a, slot, tunnelWasUp)) ready = runDomain("nodes", node.id) { nodeRec.ready(a, slot) }
                                     } else {
                                         jobs[node.id] = a.kind to sc.launch {
                                             try {
-                                                nodeRec.provisionJob(a, index, tunnelWasUp)
+                                                nodeRec.provisionJob(a, slot, tunnelWasUp)
                                             } finally {
                                                 jobs.remove(node.id)
                                                 trigger("provisioned:${node.id}")
@@ -282,7 +290,7 @@ class Controller(
                         var site: PangolinSite? = null
                         var resources: List<PangolinResource> = emptyList()
                         if (ready != null) {
-                            site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, index) }
+                            site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, slot) }
                             if (discoveryOk && site != null) {
                                 resources = runDomain("resources", node.id) { resourceRec.reconcile(ready, nd, pausedKeys) } ?: emptyList()
                                 if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()

@@ -40,11 +40,11 @@ object NodeTemplates {
 
     fun adminEmail(config: AppConfig) = config.pangolin.adminEmail ?: "admin@${config.domain}"
 
-    fun staticFiles(config: AppConfig, node: NodeConfig, secrets: NodeSecrets, rawPorts: List<RawPort>): List<RenderedFile> {
+    fun staticFiles(config: AppConfig, node: NodeConfig, secrets: NodeSecrets, rawPorts: List<RawPort>, slot: Int): List<RenderedFile> {
         val files = mutableListOf(
             RenderedFile("compose.yml", compose(config, rawPorts)),
             RenderedFile(".env", envFile(secrets, config.pangolin.crowdsec), "0600"),
-            RenderedFile("config/config.yml", pangolinConfig(config, node, secrets), "0600").apply { restarts = "pangolin" },
+            RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot), "0600").apply { restarts = "pangolin" },
             RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts)).apply { restarts = "traefik" },
             RenderedFile(SECRETS, Json { prettyPrint = true }.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
         )
@@ -180,23 +180,17 @@ object NodeTemplates {
         if (crowdsec) appendLine("CROWDSEC_BOUNCER_KEY=${secrets.crowdsecBouncerKey}")
     }
 
-    fun tunnelSubnet(config: AppConfig, node: NodeConfig): String? {
-        val i = config.nodes.indexOfFirst { it.id == node.id }
-        if (i < 0 || i > 31) return null
-        return "100.89.${128 + i * 4}.0/22"
-    }
-
-    fun pangolinConfig(config: AppConfig, node: NodeConfig, secrets: NodeSecrets): String {
+    fun pangolinConfig(config: AppConfig, node: NodeConfig, secrets: NodeSecrets, slot: Int): String {
         val mgmt = node.managementHost(config.domain)
         val root = buildJsonObject {
             putJsonObject("gerbil") {
                 put("start_port", 51820)
                 put("base_endpoint", mgmt)
                 put("exit_node_name", "homegap-${node.id}")
-                // Distinct tunnel subnet per node, so the homelab can hold every node's tunnel
-                // in one network namespace (kernel WireGuard routes would collide otherwise).
-                // Index 0 keeps Pangolin's default first block (100.89.128.0/24).
-                tunnelSubnet(config, node)?.let { put("subnet_group", it) }
+                // Distinct tunnel subnet per node (its permanent slot), so the homelab can hold
+                // every node's tunnel in one network namespace (kernel WireGuard routes would
+                // collide otherwise). Slot 0 keeps Pangolin's default first block.
+                put("subnet_group", homegap.reconcile.TunnelSlots.subnet(slot))
             }
             putJsonObject("app") {
                 put("dashboard_url", "https://$mgmt")

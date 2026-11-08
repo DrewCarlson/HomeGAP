@@ -64,7 +64,7 @@ class TunnelSupervisor(
 ) {
     private val logger = KotlinLogging.logger {}
 
-    private class Proc(val spec: TunnelSpec, val pid: Int, val startedAt: Long, var restarts: Int)
+    private class Proc(val spec: TunnelSpec, val pid: Int, val startedAt: Long, var restarts: Int, var logOffset: Long)
 
     private val procs = mutableMapOf<String, Proc>()
     private val backoffUntil = mutableMapOf<String, Long>()
@@ -115,10 +115,39 @@ class TunnelSupervisor(
             }
         }
 
+        // Kernel interface creation can fail (an interface or port another connector still
+        // holds); Newt then stays up without a working tunnel, so restart it.
+        for ((id, p) in procs.toMap()) {
+            if (p.spec.nativeInterface == null) continue
+            val log = "$dir/logs/$id.log"
+            val size = Files.size(log)
+            if (size < p.logOffset) p.logOffset = 0
+            if (size == p.logOffset) continue
+            val fresh = Files.readFrom(log, p.logOffset, 262_144)
+            p.logOffset = size
+            if (NATIVE_FAILURES.any { it in fresh }) {
+                logger.warn { "newt for $id could not create kernel interface ${p.spec.nativeInterface}; restarting" }
+                stop(p)
+                procs.remove(id)
+                lastExit[id] = "kernel interface ${p.spec.nativeInterface} could not be created"
+                val n = (restartCounts[id] ?: 0) + 1
+                restartCounts[id] = n
+                backoffUntil[id] = nowMillis() + minOf(60_000L, 2_000L * n)
+            }
+        }
+
         // start missing
         for ((id, spec) in specs) {
             if (id in procs) continue
             if ((backoffUntil[id] ?: 0) > nowMillis()) continue
+            // Never start while another connector still holds this interface or admin port.
+            val clash = procs.values.firstOrNull { o ->
+                o.spec.nodeId != id && (o.spec.adminPort == spec.adminPort || (spec.nativeInterface != null && o.spec.nativeInterface == spec.nativeInterface))
+            }
+            if (clash != null) {
+                logger.warn { "not starting $id yet: ${clash.spec.nodeId} still uses ${if (clash.spec.adminPort == spec.adminPort) "admin port ${spec.adminPort}" else "interface ${spec.nativeInterface}"}" }
+                continue
+            }
             val env = mapOf(
                 "PANGOLIN_ENDPOINT" to spec.endpoint,
                 "NEWT_ID" to spec.newtId,
@@ -134,9 +163,10 @@ class TunnelSupervisor(
                 spec.mtu?.let { add("--mtu"); add(it.toString()) }
                 spec.nativeInterface?.let { add("--native-main"); add("--interface-main"); add(it) }
             }
+            val logOffset = Files.size("$dir/logs/$id.log")
             val pid = Processes.spawnDetached(argv, env, "$dir/logs/$id.log", inherit = true)
             logger.info { "started newt for $id -> ${spec.endpoint} (pid $pid${spec.mtu?.let { ", mtu $it" } ?: ""}${spec.nativeInterface?.let { ", kernel wireguard $it" } ?: ""})" }
-            procs[id] = Proc(spec, pid, nowMillis(), restartCounts[id] ?: 0)
+            procs[id] = Proc(spec, pid, nowMillis(), restartCounts[id] ?: 0, logOffset)
         }
 
         // publish status
@@ -176,6 +206,9 @@ class TunnelSupervisor(
     }.getOrNull()
 
     companion object {
+        /** Newt log lines meaning the kernel WireGuard tunnel was not set up. */
+        val NATIVE_FAILURES = listOf("Failed to create native main TUN device")
+
         fun parseMetrics(text: String): Metrics {
             var inBytes = 0.0
             var outBytes = 0.0

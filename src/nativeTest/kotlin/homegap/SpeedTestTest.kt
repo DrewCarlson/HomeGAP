@@ -47,7 +47,7 @@ class SpeedTestTest {
     @Test
     fun tuningRendersGerbilMtuAndSysctls() {
         val node = cfg.node("na1")!!
-        val files = NodeTemplates.staticFiles(cfg, node, secrets, emptyList())
+        val files = NodeTemplates.staticFiles(cfg, node, secrets, emptyList(), 0)
         assertTrue(files.single { it.path == "compose.yml" }.content.contains("--mtu=1420"))
         assertTrue(NodeTemplates.sysctlConf().contains("tcp_congestion_control = bbr"))
         // The edge namespace (Gerbil + Traefik) gets its own TCP buffers.

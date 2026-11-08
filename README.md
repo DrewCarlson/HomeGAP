@@ -367,10 +367,13 @@ Three settings matter most:
 | `tunnels.mtu: 1420` | Sets the WireGuard MTU on both ends (Newt `--mtu`, Gerbil `--mtu`). The upstream default of 1280 costs throughput. Lower it if the path has PPPoE or another tunnel: check with `ping -M do -s <mtu - 28> <node>` from the homelab. |
 | `tunnels.native: true` | Runs each Newt main tunnel on a kernel WireGuard interface instead of Newt's userspace network stack, usually the largest gain. The `tunnels` container then needs `cap_add: [NET_ADMIN]`, `devices: [/dev/net/tun]` and a host kernel with WireGuard. |
 
-Each node gets its own tunnel subnet (`100.89.<128 + 4·index>.0/22`, by position in `nodes[]`) so
-kernel interfaces for several nodes can coexist in the `tunnels` container. The subnet is fixed
-when a node's Pangolin first registers its exit node, so keep the order of `nodes[]` stable, and
-re-create a node that predates this layout before enabling `native` with more than one node.
+Each node gets a permanent tunnel slot, stored in the orchestrator's state, which picks its
+tunnel subnet (`100.89.<128 + 4·slot>.0/22`), its kernel interface (`hgnewt<slot>`) and its local
+ports, so connectors for several nodes can coexist in the `tunnels` container. New nodes take the
+lowest free slot; removing or reordering nodes never moves another node. Pangolin fixes the subnet
+when a node first registers its exit node, and the orchestrator checks each node's slot against
+its live site subnet. Two nodes sharing a subnet (for example, both created before slots existed)
+are reported as an error: re-create one node's Pangolin database before enabling `native`.
 
 For the homelab side in native mode, tune the `tunnels` container itself. TCP settings are per
 network namespace, so the host's `/etc/sysctl.d` does not reach containers, and the defaults

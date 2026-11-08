@@ -28,6 +28,18 @@ object Files {
     fun readBytes(path: String): ByteArray =
         SystemFileSystem.source(Path(path)).buffered().use { it.readByteArray() }
 
+    fun size(path: String): Long = SystemFileSystem.metadataOrNull(Path(path))?.size ?: 0L
+
+    /** Up to [max] bytes of the file starting at [offset], as text ("" if missing). */
+    fun readFrom(path: String, offset: Long, max: Int = 65536): String = runCatching {
+        val n = (size(path) - offset).coerceIn(0, max.toLong()).toInt()
+        if (n == 0) return@runCatching ""
+        SystemFileSystem.source(Path(path)).buffered().use { src ->
+            src.skip(offset)
+            src.readByteArray(n).decodeToString()
+        }
+    }.getOrDefault("")
+
     fun mkdirs(path: String) {
         SystemFileSystem.createDirectories(Path(path))
     }

@@ -14,7 +14,7 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
     private val domain = "tunnels"
 
     /** Ensures the homelab site exists on the node; returns its niceId when ready. */
-    suspend fun reconcile(ready: ReadyNode, index: Int): PangolinSite? {
+    suspend fun reconcile(ready: ReadyNode, slot: Int): PangolinSite? {
         val node = ready.node
         val org = ctx.config.pangolin.orgId
         val siteNice = ctx.config.pangolin.siteName
@@ -52,19 +52,54 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
             ctx.diff.add(domain, node.id, "site:$siteNice", "none")
         }
 
+        val liveSlot = adoptLiveSlot(node.id, site, slot)
         st = ctx.state.node(node.id)
         val spec = TunnelSpec(
             nodeId = node.id,
             endpoint = endpoint,
             newtId = st.newtId!!,
             newtSecret = st.newtSecret!!,
-            adminPort = ADMIN_PORT_BASE + index,
+            adminPort = ADMIN_PORT_BASE + liveSlot,
             mtu = ctx.config.tunnels.mtu,
-            // Interface names are limited to 15 characters; the index keeps them unique.
-            nativeInterface = if (ctx.config.tunnels.native) "hgnewt$index" else null,
+            // Interface names are limited to 15 characters; the permanent slot keeps them unique.
+            nativeInterface = if (ctx.config.tunnels.native) TunnelSlots.interfaceName(liveSlot) else null,
         )
         writeSpec(spec)
         return site
+    }
+
+    /**
+     * The site's subnet shows which slot Pangolin really gave this node (nodes provisioned before
+     * slots were stored got theirs from their list position). Adopts it, or reports a collision
+     * with another node, which kernel WireGuard cannot carry.
+     */
+    private suspend fun adoptLiveSlot(nodeId: String, site: PangolinSite, passSlot: Int): Int {
+        // Another node's correction earlier in this pass may already have moved this one.
+        val assigned = ctx.state.node(nodeId).tunnelSlot ?: passSlot
+        val live = TunnelSlots.fromSubnet(site.subnet) ?: return assigned
+        if (live == assigned) {
+            if (!ctx.state.node(nodeId).tunnelSlotConfirmed && !ctx.dryRun) ctx.state.updateNode(nodeId) { it.copy(tunnelSlotConfirmed = true) }
+            return assigned
+        }
+        val holder = ctx.state.snapshot().nodes.entries.firstOrNull { (id, s) -> id != nodeId && s.tunnelSlot == live }
+        if (holder != null && holder.value.tunnelSlotConfirmed) {
+            ctx.log.error(
+                domain,
+                "tunnel subnet ${site.subnet} collides with node ${holder.key} (both use slot $live). Kernel WireGuard " +
+                    "(tunnels.native) cannot carry both; re-create one node's Pangolin database to give it a new subnet.",
+                nodeId,
+            )
+            return assigned
+        }
+        if (ctx.dryRun) return live
+        // The holder's slot was only a guess from its list position: hand it this node's guess.
+        if (holder != null) {
+            ctx.state.updateNode(holder.key) { it.copy(tunnelSlot = assigned) }
+            ctx.log.change(domain, "tunnel slot $live -> $assigned (provisional, swapped with $nodeId)", holder.key)
+        }
+        ctx.state.updateNode(nodeId) { it.copy(tunnelSlot = live, tunnelSlotConfirmed = true) }
+        ctx.log.change(domain, "tunnel slot $assigned -> $live (from the live site subnet ${site.subnet})", nodeId)
+        return live
     }
 
     private fun writeSpec(spec: TunnelSpec) {

@@ -60,6 +60,8 @@ data class PangolinSite(
     val online: Boolean? = null,
     val type: String? = null,
     val exitNodeId: Int? = null,
+    /** The site's WireGuard address block inside its exit node's subnet, e.g. 100.89.128.4/30. */
+    val subnet: String? = null,
     val newtVersion: String? = null,
     val megabytesIn: Double? = null,
     val megabytesOut: Double? = null,

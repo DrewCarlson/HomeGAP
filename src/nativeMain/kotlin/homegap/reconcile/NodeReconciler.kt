@@ -63,14 +63,14 @@ class NodeReconciler(private val ctx: ReconcileContext) {
      * @param force re-run every provisioning step even if nothing appears to have changed.
      * @param certs wildcard certificate material to install, if configured.
      */
-    suspend fun assess(desired: NodeDesired, index: Int, force: Boolean, certs: CertMaterial?): Assessment? {
+    suspend fun assess(desired: NodeDesired, slot: Int, force: Boolean, certs: CertMaterial?): Assessment? {
         val node = desired.node
         val paused = ctx.nodePaused(node.id)
         val st = ctx.state.node(node.id)
 
         if (ctx.dryRun) {
             val secrets = st.toSecrets() ?: placeholderSecrets()
-            val files = renderAll(node, desired, secrets, certs)
+            val files = renderAll(node, desired, secrets, certs, slot)
             log.info(domain, "[dry-run] would ensure stack (${files.size} files, hash ${hash(files)}) at $dir; raw ports: ${desired.rawPorts.joinToString { it.entryPoint }.ifEmpty { "none" }}", node.id)
             ctx.diff.add(domain, node.id, "stack", if (st.stackHash == hash(files)) "none" else "provision", hash(files), st.stackHash)
             return null
@@ -88,11 +88,11 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         if (paused) {
             log.info(domain, "paused: skipping provisioning and drift repair", node.id)
             val secrets = st.toSecrets() ?: placeholderSecrets()
-            return Assessment(desired, ssh, secrets, emptyList(), st.stackHash ?: "", Kind.NONE, null, true, connectApi(node, ssh, index, st.apiKeyId, st.apiKey))
+            return Assessment(desired, ssh, secrets, emptyList(), st.stackHash ?: "", Kind.NONE, null, true, connectApi(node, ssh, slot, st.apiKeyId, st.apiKey))
         }
 
         val secrets = ensureSecrets(node, ssh)
-        val files = renderAll(node, desired, secrets, certs)
+        val files = renderAll(node, desired, secrets, certs, slot)
         val stackHash = hash(files)
         val dueCheck = force || st.lastCheckAt == null || nowMillis() - st.lastCheckAt > ctx.config.reconcile.nodeCheck.inWholeMilliseconds
         var drift = emptyList<String>()
@@ -121,10 +121,10 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     }
 
     /** API handle for a node that needs no provisioning now (or is waiting for its update). */
-    suspend fun ready(a: Assessment, index: Int): ReadyNode? {
+    suspend fun ready(a: Assessment, slot: Int): ReadyNode? {
         if (a.paused) return a.pausedReady
         return try {
-            bootstrap(a.node, a.ssh, index, a.secrets)
+            bootstrap(a.node, a.ssh, slot, a.secrets)
         } catch (e: Exception) {
             log.error(domain, "bootstrap failed: ${e.message}", a.node.id)
             ctx.state.updateNode(a.node.id) { it.copy(lastProvisionOk = false, lastProvisionError = "bootstrap: ${e.message}") }
@@ -140,7 +140,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
      * @param tunnelWasUp the node's tunnel was online before the update (so it must come back).
      * @return true when the node ends up on the new stack.
      */
-    suspend fun provisionJob(a: Assessment, index: Int, tunnelWasUp: Boolean): Boolean {
+    suspend fun provisionJob(a: Assessment, slot: Int, tunnelWasUp: Boolean): Boolean {
         val node = a.node
         val ssh = a.ssh
         val update = a.kind == Kind.UPDATE
@@ -150,7 +150,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             if (update) backup(node, ssh)
             changed = true
             provision(node, ssh, a.desired, a.files)
-            val ready = bootstrap(node, ssh, index, a.secrets)
+            val ready = bootstrap(node, ssh, slot, a.secrets)
             val missing = verify(node, ssh)
             if (update && missing.isNotEmpty()) throw IllegalStateException("verify failed: ${missing.joinToString(", ")}")
             if (update && tunnelWasUp) waitForTunnel(node, ready)
@@ -295,8 +295,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         return secrets
     }
 
-    fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, certs: CertMaterial?): List<RenderedFile> {
-        val files = NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts).toMutableList()
+    fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, certs: CertMaterial?, slot: Int): List<RenderedFile> {
+        val files = NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts, slot).toMutableList()
         if (certs != null) {
             files += RenderedFile(NodeTemplates.CERT, certs.certPem, "0600")
             files += RenderedFile(NodeTemplates.KEY, certs.keyPem, "0600")
@@ -458,18 +458,18 @@ class NodeReconciler(private val ctx: ReconcileContext) {
 
     // ---------------------------------------------------------------- headless bootstrap
 
-    private suspend fun connectApi(node: NodeConfig, ssh: SshSession, index: Int, keyId: String?, key: String?): ReadyNode? {
+    private suspend fun connectApi(node: NodeConfig, ssh: SshSession, slot: Int, keyId: String?, key: String?): ReadyNode? {
         if (keyId == null || key == null) return null
         return runCatching {
-            val port = ssh.forward(3003, LOCAL_PORT_BASE + index * 10)
+            val port = ssh.forward(3003, LOCAL_PORT_BASE + slot * 10)
             ReadyNode(node, PangolinClient(ctx.localHttp, "http://127.0.0.1:$port/v1", "$keyId.$key"))
         }.getOrNull()
     }
 
-    private suspend fun bootstrap(node: NodeConfig, ssh: SshSession, index: Int, secrets: NodeSecrets): ReadyNode {
+    private suspend fun bootstrap(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets): ReadyNode {
         val org = ctx.config.pangolin.orgId
         val st = ctx.state.node(node.id)
-        val apiPort = ssh.forward(3003, LOCAL_PORT_BASE + index * 10)
+        val apiPort = ssh.forward(3003, LOCAL_PORT_BASE + slot * 10)
         val integrationUrl = "http://127.0.0.1:$apiPort/v1"
 
         // Fast path: the cached key still works.
@@ -477,13 +477,13 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             val api = PangolinClient(ctx.localHttp, integrationUrl, "${st.apiKeyId}.${st.apiKey}")
             val ok = runCatching { api.getOrg(org) }.isSuccess
             if (ok) {
-                maybeActivateLicense(node, ssh, index, secrets)
+                maybeActivateLicense(node, ssh, slot, secrets)
                 return ReadyNode(node, api)
             }
             log.warn(domain, "cached API key rejected; minting a new one", node.id)
         }
 
-        val dashPort = ssh.forward(3000, LOCAL_PORT_BASE + index * 10 + 5)
+        val dashPort = ssh.forward(3000, LOCAL_PORT_BASE + slot * 10 + 5)
         val boot = PangolinBootstrapClient(ctx.localHttp, "http://127.0.0.1:$dashPort/api/v1")
         waitFor("Pangolin API") { runCatching { boot.initialSetupComplete(); true }.getOrDefault(false) }
 
@@ -511,11 +511,11 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         }
         log.change(domain, "minted orchestrator API key", node.id)
         ctx.state.updateNode(node.id) { it.copy(apiKeyId = keyId, apiKey = key) }
-        maybeActivateLicense(node, ssh, index, secrets, boot)
+        maybeActivateLicense(node, ssh, slot, secrets, boot)
         return ReadyNode(node, PangolinClient(ctx.localHttp, integrationUrl, "$keyId.$key"))
     }
 
-    private suspend fun maybeActivateLicense(node: NodeConfig, ssh: SshSession, index: Int, secrets: NodeSecrets, existing: PangolinBootstrapClient? = null) {
+    private suspend fun maybeActivateLicense(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, existing: PangolinBootstrapClient? = null) {
         val ref = node.licenseKey(ctx.config.pangolin) ?: return
         if (ctx.state.node(node.id).licenseActivated) return
         val key = ref.resolve() ?: run {
@@ -530,7 +530,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             return
         }
         try {
-            val boot = existing ?: PangolinBootstrapClient(ctx.localHttp, "http://127.0.0.1:${ssh.forward(3000, LOCAL_PORT_BASE + index * 10 + 5)}/api/v1").also {
+            val boot = existing ?: PangolinBootstrapClient(ctx.localHttp, "http://127.0.0.1:${ssh.forward(3000, LOCAL_PORT_BASE + slot * 10 + 5)}/api/v1").also {
                 it.login(secrets.adminEmail, secrets.adminPassword)
             }
             boot.activateLicense(key)

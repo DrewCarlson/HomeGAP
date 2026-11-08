@@ -33,6 +33,10 @@ data class NodeState(
     val pendingDecommission: Boolean = false,
     /** Outcome of the last stack update that did not go through (rolled back or skipped). */
     val update: UpdateState? = null,
+    /** Permanent tunnel slot (subnet, interface name, local ports); see TunnelSlots. */
+    val tunnelSlot: Int? = null,
+    /** [tunnelSlot] matched the node's live site subnet at least once. */
+    val tunnelSlotConfirmed: Boolean = false,
 )
 
 /**

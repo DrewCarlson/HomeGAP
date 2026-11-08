@@ -67,3 +67,33 @@ class RolloutPolicyTest {
         assertEquals(Decision.Start, decide("c", Kind.FRESH, mapOf("c" to old)))
     }
 }
+
+class TunnelSlotsTest {
+    private fun good(slot: Int? = null) = NodeState(stackHash = "h", siteId = 1, lastProvisionOk = true, tunnelSlot = slot)
+
+    @Test
+    fun removingANodeDoesNotMoveTheOthers() {
+        val states = mapOf("a" to good(0), "b" to good(1), "c" to good(2))
+        // b removed from config but still known (awaiting decommission): c keeps 2, a new node d gets neither.
+        val s = homegap.reconcile.TunnelSlots.assign(listOf("a", "c", "d"), states)
+        assertEquals(0, s["a"]); assertEquals(2, s["c"]); assertEquals(3, s["d"])
+        // Once b is decommissioned (state gone) its slot is free again.
+        val s2 = homegap.reconcile.TunnelSlots.assign(listOf("a", "c", "d"), states - "b")
+        assertEquals(1, s2["d"])
+    }
+
+    @Test
+    fun legacyNodesStartFromTheirPosition() {
+        val states = mapOf("a" to good(), "c" to good(), "n" to NodeState())
+        val s = homegap.reconcile.TunnelSlots.assign(listOf("a", "c", "n"), states)
+        assertEquals(0, s["a"]); assertEquals(1, s["c"]); assertEquals(2, s["n"])
+    }
+
+    @Test
+    fun parsesSiteSubnets() {
+        assertEquals(0, homegap.reconcile.TunnelSlots.fromSubnet("100.89.128.4/30"))
+        assertEquals(2, homegap.reconcile.TunnelSlots.fromSubnet("100.89.136.4/30"))
+        assertEquals(null, homegap.reconcile.TunnelSlots.fromSubnet("10.0.0.4/30"))
+        assertEquals("100.89.136.0/22", homegap.reconcile.TunnelSlots.subnet(2))
+    }
+}

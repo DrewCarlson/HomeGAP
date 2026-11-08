@@ -74,7 +74,7 @@ fun main(args: Array<String>) {
                 val node = c.node(id) ?: error("unknown node $id")
                 val secrets = NodeSecrets("<setup-token>", "<server-secret>", NodeTemplates.adminEmail(c), "<password>", "<bouncer-key>")
                 val plan = Planner.plan(c, emptyList())
-                for (f in NodeTemplates.staticFiles(c, node, secrets, plan.nodes.getValue(id).rawPorts)) {
+                for (f in NodeTemplates.staticFiles(c, node, secrets, plan.nodes.getValue(id).rawPorts, c.nodes.indexOf(node))) {
                     println("=== ${f.path} (${f.mode})")
                     println(f.content)
                 }
