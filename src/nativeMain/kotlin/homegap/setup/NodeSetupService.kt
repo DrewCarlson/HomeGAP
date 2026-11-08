@@ -4,7 +4,6 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.*
-import homegap.clients.SshSession
 import homegap.config.ConfigLoader
 import homegap.config.NodeConfig
 import homegap.platform.Crypto
@@ -19,6 +18,7 @@ import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -41,44 +41,55 @@ class NodeSetupService(private val controller: Controller) {
 
     // ------------------------------------------------------------------ connection test
 
+    /** Logs in once with [dto] (a single connection, closed afterwards) and reports what it found. */
     suspend fun test(dto: SshLoginDto): ConnectionTestDto {
         val login = dto.toLogin()
         if (dto.resetHostKey) shell.forgetHostKey(login.host, login.port)
-        val probe = shell.run(login, "bash -s", SetupScripts.PROBE, 30.seconds)
-        SetupShell.connectionError(probe)?.let {
-            return ConnectionTestDto(ok = false, error = it, hostKeyChanged = it == SetupShell.HOST_KEY_CHANGED)
+        val connection = try {
+            shell.connect(login)
+        } catch (e: SetupConnectionException) {
+            return ConnectionTestDto(ok = false, error = e.message, hostKeyChanged = e.message == SetupShell.HOST_KEY_CHANGED)
         }
-        if (!probe.ok) return ConnectionTestDto(ok = false, error = "Logged in, but the probe failed: ${probe.errorText()}")
-        val facts = probe.facts()
-        val privilege = privilegeOf(login, facts["PRIV"])
-        val os = facts["ID"].orEmpty()
-        val version = facts["VERSION_ID"].orEmpty()
-        val arch = facts["ARCH"].orEmpty()
-        val supported = os == "ubuntu" && version in NodeReconciler.SUPPORTED_UBUNTU && arch in setOf("x86_64", "aarch64")
-        val problem = when {
-            !supported -> "Unsupported system: $os $version ($arch). HomeGAP provisions Ubuntu ${NodeReconciler.SUPPORTED_UBUNTU.joinToString("/")} on x86_64 or aarch64."
-            privilege == Privilege.None -> "${login.user} cannot become root (no sudo, or the password is not accepted by sudo)."
-            else -> null
+        try {
+            val probe = shell.run(connection, "bash -s", SetupScripts.PROBE, 30.seconds)
+            SetupShell.connectionError(probe)?.let { return ConnectionTestDto(ok = false, error = it) }
+            if (!probe.ok) return ConnectionTestDto(ok = false, error = "Logged in, but the probe failed: ${probe.errorText()}")
+            val facts = probe.facts()
+            val privilege = privilegeOf(connection, facts["PRIV"])
+            val os = facts["ID"].orEmpty()
+            val version = facts["VERSION_ID"].orEmpty()
+            val arch = facts["ARCH"].orEmpty()
+            val supported = os == "ubuntu" && version in NodeReconciler.SUPPORTED_UBUNTU && arch in setOf("x86_64", "aarch64")
+            val problem = when {
+                !supported -> "Unsupported system: $os $version ($arch). HomeGAP provisions Ubuntu ${NodeReconciler.SUPPORTED_UBUNTU.joinToString("/")} on x86_64 or aarch64."
+                privilege == Privilege.None -> "${login.user} cannot become root (no sudo, or the password is not accepted by sudo)."
+                else -> null
+            }
+            return ConnectionTestDto(
+                ok = problem == null,
+                error = problem,
+                hostKeyFingerprint = shell.recordedHostKey(login.host, login.port),
+                os = os, osVersion = version, arch = arch, supported = supported,
+                privilege = privilege.wire,
+                dockerInstalled = facts["DOCKER"] == "yes",
+                clientIp = facts["CLIENT"]?.takeIf { it.isNotBlank() },
+            )
+        } finally {
+            withContext(NonCancellable) { shell.close(connection) }
         }
-        return ConnectionTestDto(
-            ok = problem == null,
-            error = problem,
-            hostKeyFingerprint = shell.recordedHostKey(login.host, login.port),
-            os = os, osVersion = version, arch = arch, supported = supported,
-            privilege = privilege.wire,
-            dockerInstalled = facts["DOCKER"] == "yes",
-            clientIp = facts["CLIENT"]?.takeIf { it.isNotBlank() },
-        )
     }
 
     /** Sudo for a non-root login: without password, with the login password, or not at all. */
-    private suspend fun privilegeOf(login: SetupLogin, probed: String?): Privilege = when (probed) {
+    private suspend fun privilegeOf(connection: SetupShell.Connection, probed: String?): Privilege = when (probed) {
         "root" -> Privilege.Root
         "nopasswd" -> Privilege.NoPasswdSudo
-        "maybe" -> if (login is SetupLogin.Password && shell.run(login, "sudo -S -k -p '' true", "${login.password}\n", 30.seconds).ok) {
-            Privilege.PasswordSudo
-        } else {
-            Privilege.None
+        "maybe" -> {
+            val password = (connection.login as? SetupLogin.Password)?.password
+            if (password != null && shell.run(connection, "sudo -S -k -p '' true", "$password\n", 30.seconds).ok) {
+                Privilege.PasswordSudo
+            } else {
+                Privilege.None
+            }
         }
         else -> Privilege.None
     }
@@ -175,12 +186,21 @@ class NodeSetupService(private val controller: Controller) {
         }
     }
 
-    /** One execution of a [SetupPlan], reporting into [state]. */
+    /** The held-open connection a run works through, and how its login gains root. */
+    private class Admin(val connection: SetupShell.Connection, val privilege: Privilege)
+
+    /**
+     * One execution of a [SetupPlan], reporting into [state]. Everything runs through one held-open
+     * connection ([Admin]); only the checks that must prove a new login works open their own.
+     */
     private inner class SetupRun(private val plan: SetupPlan, private val state: MutableStateFlow<SetupJobDto>) {
         private val node = plan.node
         private val keyLogin = SetupLogin.Key(node.host, node.sshPort, plan.target, node.sshKeyFile)
         private val verifyCommand = if (plan.target == "root") "true" else "sudo -n true"
-        private var master: SshSession? = null
+        private var connection: SetupShell.Connection? = null
+
+        /** The orchestrator's address as the server sees it (from the probe). */
+        private var clientIp: String? = null
 
         suspend fun execute() {
             log("setup started (${plan.initial})")
@@ -188,8 +208,8 @@ class NodeSetupService(private val controller: Controller) {
                 val admin = step("connect") { connect() }
                 step("user") { prepareUser(admin) }
                 step("key") { verifyKeyLogin("key login failed") }
-                if (plan.hardenSsh) step("ssh") { hardenSsh() }
-                if (plan.request.configureFirewall) step("firewall") { firewall() }
+                if (plan.hardenSsh) step("ssh") { hardenSsh(admin) }
+                if (plan.request.configureFirewall) step("firewall") { firewall(admin) }
                 step("add") { controller.addNode(node) }
                 state.update { it.copy(state = "succeeded", finishedAt = nowMillis()) }
                 log("setup finished; provisioning starts on the next pass")
@@ -198,7 +218,7 @@ class NodeSetupService(private val controller: Controller) {
                 state.update { it.copy(state = "failed", error = e.message ?: e.toString(), finishedAt = nowMillis()) }
                 controller.log.error("setup", e.message ?: e.toString(), node.id)
             } finally {
-                master?.let { withContext(NonCancellable) { runCatching { it.close() } } }
+                connection?.let { withContext(NonCancellable) { runCatching { shell.close(it) } } }
             }
         }
 
@@ -221,102 +241,122 @@ class NodeSetupService(private val controller: Controller) {
             state.update { job -> job.copy(steps = job.steps.map { if (it.id == id) it.copy(status = status, detail = detail) else it }) }
         }
 
-        /** Logs in with the initial credentials; on a re-run after hardening, falls back to the node key. */
-        private suspend fun connect(): Pair<SetupLogin, Privilege> {
-            val probe = shell.run(plan.initial, "bash -s", SetupScripts.PROBE, 30.seconds)
-            val error = SetupShell.connectionError(probe)
-            if (error != null) {
-                if (shell.run(keyLogin, verifyCommand, timeout = 30.seconds).ok) {
-                    val privilege = if (plan.target == "root") Privilege.Root else Privilege.NoPasswdSudo
-                    setDetail("connect", "The initial login is no longer accepted (an earlier run hardened SSH); continuing with the node key.")
-                    return keyLogin to privilege
+        /**
+         * Opens the run's connection with the initial login. On a re-run after an earlier run disabled
+         * that login, continues with the node key instead.
+         */
+        private suspend fun connect(): Admin {
+            var note: String? = null
+            val opened = try {
+                shell.connect(plan.initial)
+            } catch (e: SetupConnectionException) {
+                if (e.message != SetupShell.LOGIN_REJECTED) throw IllegalStateException(e.message)
+                note = "the initial login is no longer accepted (an earlier run hardened SSH), so setup continues with the node key"
+                try {
+                    shell.connect(keyLogin)
+                } catch (_: SetupConnectionException) {
+                    throw IllegalStateException(e.message)
                 }
-                throw IllegalStateException(error)
             }
+            connection = opened
+            val probe = shell.run(opened, "bash -s", SetupScripts.PROBE, 30.seconds)
+            SetupShell.connectionError(probe)?.let { throw IllegalStateException(explain(it)) }
             check(probe.ok) { "probe failed: ${probe.errorText()}" }
             val facts = probe.facts()
             val os = "${facts["ID"]} ${facts["VERSION_ID"]}"
             check(facts["ID"] == "ubuntu" && facts["VERSION_ID"] in NodeReconciler.SUPPORTED_UBUNTU) { "unsupported system: $os" }
-            val privilege = privilegeOf(plan.initial, facts["PRIV"])
-            check(privilege != Privilege.None) { "${plan.initial.user} cannot become root" }
+            clientIp = facts["CLIENT"]?.takeIf { SetupScripts.isIpAddress(it) }
+            val privilege = privilegeOf(opened, facts["PRIV"])
+            check(privilege != Privilege.None) { "${opened.login.user} cannot become root" }
             val access = when (privilege) {
                 Privilege.Root -> "logged in as root"
                 Privilege.NoPasswdSudo -> "passwordless sudo"
                 else -> "sudo with password"
             }
-            setDetail("connect", "$os (${facts["ARCH"]}); $access")
-            return plan.initial to privilege
+            setDetail("connect", listOfNotNull("$os (${facts["ARCH"]}); $access", note).joinToString("; "))
+            return Admin(opened, privilege)
         }
 
-        private suspend fun prepareUser(admin: Pair<SetupLogin, Privilege>): String {
+        /** Exempts the orchestrator from login blockers first, then prepares the management user. */
+        private suspend fun prepareUser(admin: Admin): String {
+            val exempt = clientIp?.let { root(admin, "exempting the orchestrator from login blockers", SetupScripts.exemptFromBlockers(it), 120.seconds) }
             val publicKey = keys.existing(node.sshKeyFile).publicKey
             val script = SetupScripts.prepareUser(plan.target, publicKey, plan.request.createUser != null, plan.request.dockerGroup)
-            val r = shell.runAsRoot(admin.first, admin.second, script)
-            SetupShell.connectionError(r)?.let { throw IllegalStateException(it) }
-            check(r.ok) { r.errorText() }
-            return r.changes().ifEmpty { "already set up" }
+            val out = root(admin, "preparing $target", script)
+            return listOfNotNull(out.changes(), exempt?.changes()).filter { it.isNotBlank() }.joinToString("; ").ifEmpty { "already set up" }
         }
+
+        private val target get() = plan.target
 
         /** A fresh connection with the node key, as the orchestrator will use it. */
         private suspend fun verifyKeyLogin(what: String) {
             val r = shell.run(keyLogin, verifyCommand, timeout = 30.seconds)
-            SetupShell.connectionError(r)?.let { throw IllegalStateException("$what: $it") }
+            SetupShell.connectionError(r)?.let { throw IllegalStateException("$what: ${explain(it)}") }
             check(r.ok) { "$what: ${plan.target} cannot use passwordless sudo (${r.errorText()})" }
         }
 
-        /** The management connection used while changing sshd and the firewall (kept open across both). */
-        private suspend fun master(): SshSession = master ?: SshSession(
-            NodeConfig(id = "setup-${node.id}", host = node.host, sshUser = plan.target, sshPort = node.sshPort, sshKeyFile = node.sshKeyFile),
-            "/tmp/homegap-setup",
-            "$dataDir/known_hosts",
-        ).also {
-            it.ensureMaster()
-            master = it
+        /** Runs [script] as root through the run's connection; returns its output or throws. */
+        private suspend fun root(admin: Admin, what: String, script: String, timeout: Duration = 600.seconds): String {
+            val r = shell.runAsRoot(admin.connection, admin.privilege, script, timeout)
+            SetupShell.connectionError(r)?.let { throw IllegalStateException("$what: ${explain(it)}") }
+            check(r.ok) { "$what: ${r.errorText()}" }
+            return r.stdout
         }
 
-        private suspend fun hardenSsh(): String {
-            val session = master()
-            val out = session.runScriptOrThrow("harden", SetupScripts.hardenSsh(plan.request.disableRootLogin, plan.request.disablePasswordLogin), 120)
+        /**
+         * Hardens sshd, then proves a fresh key login still works. Whether password and root login are
+         * really off is checked inside the script with `sshd -T -C` for the users involved and the
+         * orchestrator's address, rather than by attempting a login that should fail (which a login
+         * blocker would count against the orchestrator).
+         */
+        private suspend fun hardenSsh(admin: Admin): String {
+            val users = listOf(plan.initial.user, plan.target, "root").distinct()
+            val script = SetupScripts.hardenSsh(plan.request.disableRootLogin, plan.request.disablePasswordLogin, users, clientIp)
+            val out = root(admin, "hardening SSH", script, 120.seconds)
             try {
                 verifyKeyLogin("after hardening SSH, key login failed")
-                passwordRefused()
             } catch (e: Exception) {
                 if (e is CancellationException) currentCoroutineContext().ensureActive()
-                session.runScript(SetupScripts.REVERT_SSH, 60)
+                shell.runAsRoot(admin.connection, admin.privilege, SetupScripts.REVERT_SSH, 60.seconds)
                 throw IllegalStateException("${e.message} (SSH settings reverted)")
             }
-            session.runScriptOrThrow("disarm", SetupScripts.disarm("ssh"), 30)
+            root(admin, "confirming the SSH settings", SetupScripts.disarm("ssh"), 30.seconds)
             return out.changes()
         }
 
-        /** With password login disabled, the initial password must now be refused. */
-        private suspend fun passwordRefused() {
-            val initial = plan.initial as? SetupLogin.Password ?: return
-            if (!plan.request.disablePasswordLogin && !(plan.request.disableRootLogin && initial.user == "root")) return
-            val r = shell.run(initial, "true", timeout = 30.seconds)
-            check(!r.ok) { "the initial password login is still accepted" }
-        }
-
-        private suspend fun firewall(): String {
-            val session = master()
-            val out = session.runScriptOrThrow("firewall", SetupScripts.firewall(FirewallRules.specs(node)), 300)
+        private suspend fun firewall(admin: Admin): String {
+            val out = root(admin, "configuring the firewall", SetupScripts.firewall(FirewallRules.specs(node)), 300.seconds)
             try {
                 verifyKeyLogin("with the firewall on, SSH from the orchestrator failed; check the allowed sources")
             } catch (e: Exception) {
                 if (e is CancellationException) currentCoroutineContext().ensureActive()
-                session.runScript(SetupScripts.REVERT_UFW, 60)
+                shell.runAsRoot(admin.connection, admin.privilege, SetupScripts.REVERT_UFW, 60.seconds)
                 throw IllegalStateException("${e.message} (firewall turned off again)")
             }
-            session.runScriptOrThrow("disarm", SetupScripts.disarm("ufw"), 30)
+            root(admin, "confirming the firewall", SetupScripts.disarm("ufw"), 30.seconds)
             val ssh = if (node.sshAllowFrom.isEmpty()) "SSH from anywhere" else "SSH from ${node.sshAllowFrom.joinToString()}"
             return (listOf("$ssh; web, WireGuard and raw ports open") + out.changes().lines()).filter { it.isNotBlank() }.joinToString("; ")
         }
+
+        /**
+         * Adds a hint to a dropped connection once this run had connected: the server answered a
+         * moment ago, so it has most likely started blocking the orchestrator's address.
+         */
+        private fun explain(error: String): String =
+            if (connection != null && SetupShell.isDropped(error)) "$error $BLOCKED_HINT" else error
 
         private fun setDetail(id: String, detail: String) {
             state.update { job -> job.copy(steps = job.steps.map { if (it.id == id) it.copy(detail = detail) else it }) }
         }
 
         private fun log(message: String) = controller.log.change("setup", message, node.id)
+    }
+
+    private companion object {
+        const val BLOCKED_HINT =
+            "It answered earlier in this run, so it has most likely started blocking the orchestrator's address " +
+                "(fail2ban, sshguard, CrowdSec or a provider firewall). Lift the block from the provider's console " +
+                "or another network, then retry; setup then exempts the orchestrator."
     }
 }
 

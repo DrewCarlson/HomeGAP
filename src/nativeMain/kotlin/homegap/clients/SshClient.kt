@@ -84,7 +84,8 @@ class SshSession(
             throw SshException("ssh to ${node.id} (${node.host}) timed out")
         }
         if (code != 0 || !io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
-            val detail = Files.readTextOrNull(log)?.trim()?.takeLast(500).orEmpty()
+            val detail = Files.readTextOrNull(log)?.trim()?.takeLast(500)?.takeIf { it.isNotEmpty() }
+                ?: "the connection was closed or dropped before login, with no message from ssh (a login blocker such as fail2ban may have banned this address)"
             throw SshException("ssh to ${node.id} (${node.host}) failed (exit $code): $detail")
         }
         masterVerifiedAt = nowMillis()

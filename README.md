@@ -353,14 +353,21 @@ leave the page while it works.
    listed sources (pre-filled with the address seen in the connection test).
 5. **Review & run.**
 
+Setup logs in once with the initial credentials and runs every step through that one connection.
+Servers with a login blocker (fail2ban, sshguard, CrowdSec) ban addresses that open many SSH logins
+in a short time, so the only other logins are the checks that must prove a new login works. If a
+blocker is installed, the orchestrator's address (as the server sees it) is exempted from it first,
+and any current ban on it is lifted.
+
 Each change is proven before it is kept:
 
 - The new user's key login and passwordless sudo are checked over a fresh connection before SSH is
   hardened.
 - SSH settings go into `/etc/ssh/sshd_config.d/01-homegap.conf` (ahead of cloud-init's drop-in),
-  are syntax-checked and checked for their effective values, and are applied while the setup
-  session stays open. A fresh key login must then succeed (and a password login must fail, when
-  disabled), or the previous settings are restored.
+  are syntax-checked, and their effective values are checked (`sshd -T -C`) for root, the login
+  user and the management user connecting from the orchestrator's address, so a `Match` block
+  that overrides them is caught. They are applied while the setup connection stays open; a fresh
+  key login must then succeed, or the previous settings are restored.
 - Before SSH settings or the firewall change, a timer on the node is armed to undo the change
   after two minutes; it is disarmed only once a fresh login works. If the orchestrator loses the
   node mid-change, the node reverts by itself.
@@ -553,6 +560,7 @@ a public issue.
 | Homelab origin down | All remote access down (single origin, by design) | Restore the origin; tunnels reconnect |
 | Newt tunnel drops | That node's health probe fails, so it drops out of DNS | The supervisor restarts Newt with backoff; failover covers the gap |
 | Certificate issuance fails on a node | That node cannot serve TLS for affected names | Push the wildcard via `certificates`, or fix ACME; the dashboard shows expiry |
+| A login blocker on a node (fail2ban, sshguard, CrowdSec) bans the orchestrator | SSH from the orchestrator times out or is cut before login; setup or provisioning for that node fails | Lift the ban from the provider's console or another network, then retry; the add-node wizard exempts the orchestrator's address from these blockers |
 | Orchestrator IP changes while `ssh_allow_from` is set | Provisioning and SSH checks fail for those nodes; live traffic is unaffected | Allow SSH again from the provider's console (`ufw allow <port>/tcp`), then update `ssh_allow_from` |
 | Bunny outage | DNS resolution affected | Accepted single dependency |
 | State cache lost | None | Secrets are re-read from the nodes, API keys re-minted, Newt credentials recovered from the connector spec |

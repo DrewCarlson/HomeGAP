@@ -48,14 +48,31 @@ class NodeSetupTest {
         assertEquals(SetupShell.HOST_KEY_CHANGED, error("@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@"))
         assertTrue("did not answer" in error("ssh: connect to host x port 22: Operation timed out")!!)
         assertNull(SetupShell.connectionError(ProcessResult(1, "", "sudo: a password is required")), "remote command failures are not connection errors")
+        assertEquals(SetupShell.DROPPED, error(""), "a connection cut without a message is still explained")
+        assertEquals(SetupShell.DROPPED, error("kex_exchange_identification: Connection closed by remote host"))
+        assertTrue(SetupShell.isDropped(error("ssh: connect to host x port 22: Connection timed out")!!))
+        assertTrue(!SetupShell.isDropped(SetupShell.LOGIN_REJECTED))
+    }
+
+    @Test
+    fun exemptsTheOrchestratorFromLoginBlockers() {
+        val script = SetupScripts.exemptFromBlockers("198.51.100.7")
+        assertTrue("IP=198.51.100.7" in script)
+        assertTrue("fail2ban-client" in script && "sshguard" in script && "cscli decisions delete" in script)
+        assertTrue("unbanip" in script, "a current ban is lifted")
+        assertTrue(script.trimEnd().endsWith("exit 0"), "best effort: never fails the step")
+        assertTrue(SetupScripts.exemptFromBlockers("2001:db8::7").contains("IP=2001:db8::7"))
+        assertFailsWith<IllegalArgumentException> { SetupScripts.exemptFromBlockers("198.51.100.7; reboot") }
     }
 
     @Test
     fun hardeningVerifiesTheEffectiveSettingsAndArmsARevert() {
-        val script = SetupScripts.hardenSsh(disableRootLogin = true, disablePasswordLogin = true)
+        val script = SetupScripts.hardenSsh(disableRootLogin = true, disablePasswordLogin = true, listOf("root", "homegap"), "198.51.100.7")
         assertTrue(SetupScripts.SSHD_DROP_IN in script)
         assertTrue("PermitRootLogin no" in script && "PasswordAuthentication no" in script)
-        assertTrue("sshd -t" in script && "sshd -T" in script, "config is syntax-checked and its effect confirmed")
+        assertTrue("sshd -t" in script, "config is syntax-checked")
+        assertTrue("for who in root homegap" in script && "addr=198.51.100.7" in script, "effect confirmed per user, for the orchestrator's address")
+        assertTrue("addr=127.0.0.1" in SetupScripts.hardenSsh(true, true, listOf("root"), "not an ip"), "an unusable address is never put in the script")
         assertTrue("sleep ${SetupScripts.REVERT_AFTER_SECONDS}" in script, "a revert timer is armed")
         assertTrue(script.indexOf("sleep ${SetupScripts.REVERT_AFTER_SECONDS}") < script.lastIndexOf("reload"), "armed before the reload")
     }

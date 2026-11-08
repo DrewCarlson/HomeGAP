@@ -1,6 +1,7 @@
 package homegap.setup
 
 import homegap.clients.SshSession.Companion.shQuote
+import homegap.config.ConfigLoader
 
 /**
  * Shell scripts the add-node wizard runs on the server, as root. Each is idempotent so a failed
@@ -68,8 +69,18 @@ object SetupScripts {
     /**
      * Writes the sshd drop-in, checks the effective configuration, arms the revert timer and
      * reloads sshd. Existing sessions (the orchestrator's master connection) are unaffected.
+     *
+     * The effective settings are checked with `sshd -T -C` for each of [users] connecting from
+     * [clientAddr], so a `Match` block that would override them for those users or this address is
+     * caught. That replaces trying a password login and expecting it to fail, which a login blocker
+     * would count against the orchestrator's address.
      */
-    fun hardenSsh(disableRootLogin: Boolean, disablePasswordLogin: Boolean): String {
+    fun hardenSsh(
+        disableRootLogin: Boolean,
+        disablePasswordLogin: Boolean,
+        users: List<String> = listOf("root"),
+        clientAddr: String? = null,
+    ): String {
         val settings = buildList {
             if (disableRootLogin) add("PermitRootLogin no")
             if (disablePasswordLogin) {
@@ -78,6 +89,8 @@ object SetupScripts {
             }
         }
         val expected = settings.map { it.lowercase() }
+        val addr = clientAddr?.takeIf { IP_ADDRESS.matches(it) } ?: "127.0.0.1"
+        val who = users.filter { ConfigLoader.UNIX_USER.matches(it) }.distinct().ifEmpty { listOf("root") }
         return $$"""
             |CONF=$$SSHD_DROP_IN
             |grep -Eiq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config || {
@@ -91,13 +104,70 @@ object SetupScripts {
             |chmod 0644 "$CONF.tmp"
             |mv -f "$CONF.tmp" "$CONF"
             |if ! sshd -t; then $$RESTORE_SSHD; echo "sshd rejected the new settings; restored" >&2; exit 1; fi
-            |EFFECTIVE=$(sshd -T 2>/dev/null | tr 'A-Z' 'a-z')
-            |for want in $${expected.joinToString(" ") { shQuote(it) }}; do
-            |  printf '%s\n' "$EFFECTIVE" | grep -qxF "$want" || { $$RESTORE_SSHD; echo "another sshd setting overrides: $want" >&2; exit 1; }
+            |for who in $${who.joinToString(" ")}; do
+            |  EFFECTIVE=$(sshd -T -C "user=$who,host=$(hostname),addr=$$addr" 2>/dev/null | tr 'A-Z' 'a-z')
+            |  for want in $${expected.joinToString(" ") { shQuote(it) }}; do
+            |    printf '%s\n' "$EFFECTIVE" | grep -qxF "$want" || { $$RESTORE_SSHD; echo "another sshd setting overrides for $who: $want" >&2; exit 1; }
+            |  done
             |done
             |$${arm("ssh", "$RESTORE_SSHD; $RELOAD_SSHD")}
             |$$RELOAD_SSHD
             |echo "CHANGED sshd: $${settings.joinToString(", ")}"
+        """.trimMargin()
+    }
+
+    /**
+     * Exempts [ip] (the orchestrator, as the server sees it) from login blockers that are installed:
+     * fail2ban, sshguard and CrowdSec. Each one bans addresses that open many SSH logins quickly,
+     * which setup and provisioning do. Any current ban on [ip] is lifted. Best effort: a blocker
+     * this cannot configure is reported, not fatal. If the orchestrator's address later changes, it
+     * only loses the exemption.
+     */
+    fun exemptFromBlockers(ip: String): String {
+        require(IP_ADDRESS.matches(ip)) { "not an IP address: $ip" }
+        return $$"""
+            |set +e
+            |IP=$$ip
+            |if command -v fail2ban-client >/dev/null 2>&1 && [ -d /etc/fail2ban/jail.d ]; then
+            |  F=/etc/fail2ban/jail.d/zz-homegap.local
+            |  if ! grep -qF "$IP" "$F" 2>/dev/null; then
+            |    # Extend an ignoreip set earlier; when none is (the default), "known/" cannot resolve,
+            |    # so write fail2ban's stock loopback entries plus the orchestrator instead.
+            |    SAVED=no
+            |    for LIST in "%(known/ignoreip)s $IP" "127.0.0.1/8 ::1 $IP"; do
+            |      printf '# Managed by HomeGAP: never ban the orchestrator.\n[DEFAULT]\nignoreip = %s\n' "$LIST" > "$F"
+            |      if fail2ban-client --test >/dev/null 2>&1; then SAVED=yes; break; fi
+            |    done
+            |    if [ "$SAVED" = yes ]; then echo "CHANGED fail2ban ignores $IP"
+            |    else rm -f "$F"; echo "CHANGED fail2ban ignores $IP until it restarts (its config did not accept a permanent entry)"; fi
+            |    fail2ban-client reload >/dev/null 2>&1
+            |  fi
+            |  for jail in $(fail2ban-client status 2>/dev/null | sed -n 's/.*Jail list:[[:space:]]*//p' | tr ',' ' '); do
+            |    fail2ban-client set "$jail" addignoreip "$IP" >/dev/null 2>&1
+            |    fail2ban-client set "$jail" unbanip "$IP" >/dev/null 2>&1
+            |  done
+            |fi
+            |if command -v sshguard >/dev/null 2>&1 && [ -f /etc/sshguard/sshguard.conf ]; then
+            |  WL=$(sed -n 's/^WHITELIST_FILE=//p' /etc/sshguard/sshguard.conf | tr -d '"' | tail -n 1)
+            |  if [ -z "$WL" ]; then WL=/etc/sshguard/whitelist; echo "WHITELIST_FILE=$WL" >> /etc/sshguard/sshguard.conf; fi
+            |  if ! grep -qxF "$IP" "$WL" 2>/dev/null; then
+            |    echo "$IP" >> "$WL"
+            |    systemctl restart sshguard >/dev/null 2>&1
+            |    echo "CHANGED sshguard ignores $IP"
+            |  fi
+            |fi
+            |if command -v cscli >/dev/null 2>&1 && [ -d /etc/crowdsec/parsers ]; then
+            |  D=/etc/crowdsec/parsers/s02-enrich
+            |  F=$D/homegap-whitelist.yaml
+            |  if ! grep -qF "$IP" "$F" 2>/dev/null; then
+            |    mkdir -p "$D"
+            |    printf 'name: homegap/orchestrator-whitelist\ndescription: "Never ban the HomeGAP orchestrator"\nwhitelist:\n  reason: "HomeGAP orchestrator"\n  ip:\n    - "%s"\n' "$IP" > "$F"
+            |    systemctl reload crowdsec >/dev/null 2>&1 || systemctl restart crowdsec >/dev/null 2>&1
+            |    echo "CHANGED CrowdSec ignores $IP"
+            |  fi
+            |  cscli decisions delete --ip "$IP" >/dev/null 2>&1
+            |fi
+            |exit 0
         """.trimMargin()
     }
 
@@ -125,6 +195,12 @@ object SetupScripts {
         $$"""if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ssh 2>/dev/null; then systemctl reload ssh; """ +
             $$"""elif command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet sshd 2>/dev/null; then systemctl reload sshd; """ +
             $$"""elif [ -s /run/sshd.pid ]; then kill -HUP "$(cat /run/sshd.pid)"; fi"""
+
+    /** Whether [value] is a plain IPv4 or IPv6 address. */
+    fun isIpAddress(value: String) = IP_ADDRESS.matches(value)
+
+    /** An IPv4 or IPv6 address (no CIDR), safe to put in scripts unquoted. */
+    private val IP_ADDRESS = Regex("""^(\d{1,3}(\.\d{1,3}){3}|[0-9a-fA-F:]*:[0-9a-fA-F:.]*)$""")
 
     private fun marker(name: String) = "/run/homegap-setup-$name.armed"
 
