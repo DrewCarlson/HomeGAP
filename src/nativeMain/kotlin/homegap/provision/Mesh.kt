@@ -115,7 +115,8 @@ object Mesh {
             |KEY=/etc/wireguard/$IFACE.key
             |ADDR=$${shQuote("$address/$prefix")}
             |export DEBIAN_FRONTEND=noninteractive
-            |command -v wg >/dev/null 2>&1 || { apt-get update -q >/dev/null && apt-get install -yq --no-install-recommends wireguard-tools >/dev/null; }
+            |# The node's first provisioning may be installing Docker at the same time: wait for apt.
+            |command -v wg >/dev/null 2>&1 || { apt-get -o DPkg::Lock::Timeout=300 update -q >/dev/null && apt-get -o DPkg::Lock::Timeout=300 install -yq --no-install-recommends wireguard-tools >/dev/null; }
             |install -d -m 0700 /etc/wireguard
             |if [ ! -s "$KEY" ]; then (umask 077; wg genkey > "$KEY"); echo "CHANGED created the node's mesh key"; fi
             |cat > "$CONF.new" <<'HOMEGAP_MESH'
@@ -136,7 +137,16 @@ object Mesh {
             |  wg-quick up "$IFACE" >/dev/null
             |  echo "CHANGED mesh interface up at $ADDR"
             |fi
-            |if [ -d /run/systemd/system ]; then systemctl enable "wg-quick@$IFACE" >/dev/null 2>&1 || true; fi
+            |if [ -d /run/systemd/system ]; then
+            |  systemctl enable "wg-quick@$IFACE" >/dev/null 2>&1 || true
+            |  # Containers publish ports on the mesh address (Gerbil's API), so Docker starts after it.
+            |  DROPIN=$${shQuote(DOCKER_DROPIN)}
+            |  WANT="$(printf '[Unit]\nWants=wg-quick@%s.service\nAfter=wg-quick@%s.service' "$IFACE" "$IFACE")"
+            |  if [ "$(cat "$DROPIN" 2>/dev/null)" != "$WANT" ]; then
+            |    install -d "$(dirname "$DROPIN")"; printf '%s\n' "$WANT" > "$DROPIN"; systemctl daemon-reload
+            |    echo "CHANGED Docker now starts after the mesh interface"
+            |  fi
+            |fi
             |$${if (openFirewall) OPEN_PORT.replace("@PORT@", mesh.port.toString()) else ":"}
             |echo "PUBKEY=$(wg pubkey < "$KEY")"
             |echo DUMP-BEGIN
@@ -148,11 +158,16 @@ object Mesh {
     /** Takes a node out of the mesh (decommission): best effort, never fails. */
     val TEARDOWN = $$"""
         |IFACE=$${shQuote(INTERFACE)}
-        |if [ -d /run/systemd/system ]; then systemctl disable "wg-quick@$IFACE" >/dev/null 2>&1 || true; fi
+        |if [ -d /run/systemd/system ]; then
+        |  systemctl disable "wg-quick@$IFACE" >/dev/null 2>&1 || true
+        |  if [ -f $${shQuote(DOCKER_DROPIN)} ]; then rm -f $${shQuote(DOCKER_DROPIN)}; systemctl daemon-reload; fi
+        |fi
         |ip link show "$IFACE" >/dev/null 2>&1 && { wg-quick down "$IFACE" >/dev/null 2>&1 || ip link del "$IFACE"; }
         |rm -f "/etc/wireguard/$IFACE.conf"
         |true
     """.trimMargin()
+
+    private const val DOCKER_DROPIN = "/etc/systemd/system/docker.service.d/10-homegap-mesh.conf"
 
     private const val OPEN_PORT =
         "if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then " +

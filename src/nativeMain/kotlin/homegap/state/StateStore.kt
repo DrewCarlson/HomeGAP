@@ -65,12 +65,34 @@ data class Pauses(
     val services: Set<String> = emptySet(),
 )
 
+/**
+ * The cluster's one Pangolin: shared by every node (one database), so its secrets, admin, API key
+ * and license are kept once rather than per node.
+ */
+@Serializable
+data class ClusterPangolinState(
+    val serverSecret: String,
+    val setupToken: String,
+    val adminEmail: String,
+    val adminPassword: String,
+    val apiKeyId: String? = null,
+    val apiKey: String? = null,
+    /** A node's Pangolin has migrated the database and the server admin and org exist. */
+    val bootstrapped: Boolean = false,
+    val licenseActivated: Boolean = false,
+    /** Hash of a key the license server refused, so it is not retried every pass. */
+    val licenseRejected: String? = null,
+    /** Nodes whose running Pangolin has not seen the license activated through another node. */
+    val licenseRecheck: Set<String> = emptySet(),
+)
+
 @Serializable
 data class ControllerState(
     val version: Int = 1,
     val nodes: Map<String, NodeState> = emptyMap(),
     val pauses: Pauses = Pauses(),
     val bunnyZoneId: Long? = null,
+    val clusterPangolin: ClusterPangolinState? = null,
 )
 
 class StateStore(private val path: String) {

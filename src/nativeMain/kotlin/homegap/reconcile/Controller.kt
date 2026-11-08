@@ -239,7 +239,7 @@ class Controller(
             }
 
             // 2-4. Node lifecycle, tunnels and resources, per node in parallel.
-            val nodeRec = NodeReconciler(ctx)
+            val nodeRec = NodeReconciler(ctx, if (cfg.cluster != null) clusterRec else null)
             val tunnelRec = TunnelReconciler(ctx)
             val resourceRec = ResourceReconciler(ctx)
             val health = mutableMapOf<String, Map<String, ServiceNodeHealthDto>>()
@@ -299,7 +299,7 @@ class Controller(
                                     val sc = jobScope
                                     if (sc == null) {
                                         // One-shot mode: provision inline.
-                                        if (nodeRec.provisionJob(a, slot, tunnelWasUp)) ready = runDomain("nodes", node.id) { nodeRec.ready(a, slot) }
+                                        if (nodeRec.provisionJob(a, slot, tunnelWasUp, waitForCluster = false)) ready = runDomain("nodes", node.id) { nodeRec.ready(a, slot) }
                                     } else {
                                         jobs[node.id] = a.kind to sc.launch {
                                             try {
@@ -326,7 +326,7 @@ class Controller(
                                 if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()
                             }
                         } else if (dryRun) {
-                            val bp = resourceRec.buildBlueprint(nd.publicResources.filter { !it.paused }, nd.privateResources.filter { !it.paused })
+                            val bp = resourceRec.buildBlueprint(nd.publicResources.filter { !it.paused }, nd.privateResources.filter { !it.paused }, cfg.siteNiceId(node.id))
                             log.info("resources", "[dry-run] blueprint: $bp", node.id)
                             nd.publicResources.forEach { diff.add("resources", node.id, it.niceId, "unknown", "${it.mode.wire} ${it.fullDomain ?: ":${it.proxyPort}"} -> ${it.target.host}:${it.target.port}") }
                         }
@@ -651,7 +651,7 @@ class Controller(
             val fresh = t != null && nowMillis() - t.updatedAt < 60_000
             TunnelStatusDto(
                 nodeId = n.id,
-                siteNiceId = cfg.pangolin.siteName,
+                siteNiceId = cfg.siteNiceId(n.id),
                 endpoint = "https://${n.managementHost(cfg.domain)}",
                 up = siteOnline[n.id] == true,
                 processRunning = fresh && t.running,
@@ -701,7 +701,7 @@ class Controller(
                 plan.nodes.forEach { (id, n) ->
                     putJsonObject(id) {
                         put("managementHost", n.managementHost)
-                        put("blueprint", rr.buildBlueprint(n.publicResources.filter { !it.paused }, n.privateResources.filter { !it.paused }))
+                        put("blueprint", rr.buildBlueprint(n.publicResources.filter { !it.paused }, n.privateResources.filter { !it.paused }, config.siteNiceId(id)))
                         putJsonArray("sniRoutes") { n.sniRoutes.forEach { add(homegap.provision.NodeTemplates.sniRule(it)) } }
                         putJsonArray("rawPorts") { n.rawPorts.forEach { add(it.entryPoint) } }
                     }

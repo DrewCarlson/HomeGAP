@@ -45,7 +45,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         // license) must not block the others. Each is re-applied when missing, drifted, or changed.
         for (d in active) {
             val a = byNice[d.niceId]
-            val bp = buildBlueprint(listOf(d), emptyList())
+            val bp = buildBlueprint(listOf(d), emptyList(), ctx.config.siteNiceId(node.id))
             val h = Crypto.fnv64(bp.toString())
             val drifted = !matches(d, a)
             val changed = st.facts["bp:${d.niceId}"] != h
@@ -79,7 +79,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         }
         val privateActual = siteResources.getOrNull()?.map { it.niceId }?.toSet()
         for (p in activePrivate) {
-            val bp = buildBlueprint(emptyList(), listOf(p))
+            val bp = buildBlueprint(emptyList(), listOf(p), ctx.config.siteNiceId(node.id))
             val h = Crypto.fnv64(bp.toString())
             if (st.facts["bp:private:${p.niceId}"] == h && (privateActual == null || p.niceId in privateActual)) {
                 ctx.diff.add(domain, node.id, "private:${p.niceId}", "none")
@@ -156,7 +156,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
 
     private suspend fun writeRoutes(ready: ReadyNode, desired: NodeDesired, actual: List<PangolinResource>) {
         val ids = actual.associate { it.niceId to it.resourceId }
-        val content = NodeTemplates.dynamicRoutes(desired, ids)
+        val content = NodeTemplates.dynamicRoutes(desired, ids, ctx.config.cluster != null)
         val hash = Crypto.fnv64(content)
         val st = ctx.state.node(ready.node.id)
         val dueCheck = st.facts["routesHash"] != hash || st.drift.isNotEmpty() || (st.lastCheckAt ?: 0) > (st.facts["routesCheckedAt"]?.toLongOrNull() ?: 0)
@@ -190,8 +190,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
     private fun describe(d: PublicResource) = "${d.mode.wire} ${d.fullDomain ?: ":${d.proxyPort}"} -> ${d.target.host}:${d.target.port}"
     private fun describe(a: PangolinResource) = "${a.mode} ${a.fullDomain ?: ":${a.proxyPort}"} -> ${a.targets.joinToString { "${it.ip}:${it.port}" }}"
 
-    fun buildBlueprint(publicRes: List<PublicResource>, privateRes: List<PrivateResource>): JsonObject {
-        val site = ctx.config.pangolin.siteName
+    fun buildBlueprint(publicRes: List<PublicResource>, privateRes: List<PrivateResource>, site: String = ctx.config.pangolin.siteName): JsonObject {
         return buildJsonObject {
             putJsonObject("public-resources") {
                 for (r in publicRes) putJsonObject(r.niceId) { publicResource(r, site) }

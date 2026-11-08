@@ -16,7 +16,16 @@ data class NodeSecrets(
     val adminEmail: String,
     val adminPassword: String,
     val crowdsecBouncerKey: String,
+    /** The server secret and admin are the cluster's, shared by every node. */
+    val cluster: Boolean = false,
 )
+
+/**
+ * What a node's stack needs to run as part of the cluster: its mesh address and the shared
+ * database passwords. Pangolin reaches the current primaries through `cluster-proxy` and reads from
+ * the node's own database member.
+ */
+data class ClusterLink(val meshIp: String, val db: ClusterSecrets)
 
 data class RenderedFile(val path: String, val content: String, val mode: String = "0644") {
     /** Restart the named compose service when this file changes (bind-mounted config). */
@@ -33,6 +42,9 @@ object NodeTemplates {
     const val CERT = "config/traefik/certs/homegap.crt"
     const val KEY = "config/traefik/certs/homegap.key"
     const val SECRETS = "secrets/node.json"
+    /** Pangolin's own routes in a cluster (file mode), next to HomeGAP's in the dynamic directory. */
+    const val PANGOLIN_ROUTES = "/var/dynamic/router_config.yml"
+    const val GERBIL_API_PORT = 3004
     private val PRETTY_JSON = Json { prettyPrint = true }
     /** Rendered into the install dir (so it is hashed and drift-checked), installed into /etc/sysctl.d. */
     const val SYSCTL = "config/homegap-sysctl.conf"
@@ -41,14 +53,24 @@ object NodeTemplates {
 
     fun adminEmail(config: AppConfig) = config.pangolin.adminEmail ?: "admin@${config.domain}"
 
-    fun staticFiles(config: AppConfig, node: NodeConfig, secrets: NodeSecrets, rawPorts: List<RawPort>, slot: Int): List<RenderedFile> {
+    fun staticFiles(
+        config: AppConfig,
+        node: NodeConfig,
+        secrets: NodeSecrets,
+        rawPorts: List<RawPort>,
+        slot: Int,
+        cluster: ClusterLink? = null,
+    ): List<RenderedFile> {
         val files = mutableListOf(
-            RenderedFile("compose.yml", compose(config, rawPorts)),
+            RenderedFile("compose.yml", compose(config, rawPorts, cluster)),
             RenderedFile(".env", envFile(secrets, config.pangolin.crowdsec), "0600"),
-            RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot), "0600").apply { restarts = "pangolin" },
-            RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts)).apply { restarts = "traefik" },
+            RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot, cluster), "0600").apply { restarts = "pangolin" },
+            RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts, cluster != null)).apply { restarts = "traefik" },
             RenderedFile(SECRETS, PRETTY_JSON.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
         )
+        if (cluster != null) {
+            files += RenderedFile("config/privateConfig.yml", pangolinPrivateConfig(node, cluster), "0600").apply { restarts = "pangolin" }
+        }
         if (config.pangolin.crowdsec) {
             files += RenderedFile("config/crowdsec/acquis.d/traefik.yaml", YamlEmitter.emit(buildJsonObject {
                 put("poll_without_inotify", false)
@@ -60,17 +82,25 @@ object NodeTemplates {
         return files
     }
 
-    fun compose(config: AppConfig, rawPorts: List<RawPort>): String {
+    fun compose(config: AppConfig, rawPorts: List<RawPort>, cluster: ClusterLink? = null): String {
         val p = config.pangolin
         val root = buildJsonObject {
             put("name", "homegap")
             putJsonObject("services") {
                 putJsonObject("pangolin") {
-                    put("image", p.pangolinImage)
+                    put("image", p.pangolinImage(cluster != null))
                     put("container_name", "pangolin")
                     put("restart", "unless-stopped")
                     putJsonArray("env_file") { add(".env") }
-                    putJsonArray("volumes") { add("./config:/app/config") }
+                    putJsonArray("volumes") {
+                        add("./config:/app/config")
+                        if (cluster != null) {
+                            // File mode: Pangolin writes its routes where Traefik's file provider reads.
+                            add("./config/traefik/dynamic:/var/dynamic")
+                            add("./config/certificates:/var/certificates")
+                        }
+                    }
+                    if (cluster != null) putJsonArray("networks") { add("default"); add(CLUSTER_NETWORK_KEY) }
                     // Loopback only: reached by the orchestrator through SSH port-forwarding.
                     putJsonArray("ports") {
                         add("127.0.0.1:3000:3000"); add("127.0.0.1:3002:3002"); add("127.0.0.1:3003:3003")
@@ -86,7 +116,8 @@ object NodeTemplates {
                     put("restart", "unless-stopped")
                     putJsonObject("depends_on") { putJsonObject("pangolin") { put("condition", "service_healthy") } }
                     putJsonArray("command") {
-                        add("--reachableAt=http://gerbil:3004")
+                        // In a cluster, every node's Pangolin reaches this Gerbil over the mesh.
+                        add("--reachableAt=http://${cluster?.meshIp ?: "gerbil"}:$GERBIL_API_PORT")
                         add("--generateAndSaveKeyTo=/var/config/key")
                         add("--remoteConfig=http://pangolin:3001/api/v1/")
                         config.tunnels.mtu?.let { add("--mtu=$it") }
@@ -102,6 +133,8 @@ object NodeTemplates {
                         add("51820:51820/udp"); add("21820:21820/udp")
                         add("443:443"); add("443:443/udp"); add("80:80")
                         rawPorts.forEach { add("${it.port}:${it.port}/${it.protocol}") }
+                        // The mesh address only: Gerbil's API must never be public.
+                        cluster?.let { add("${it.meshIp}:$GERBIL_API_PORT:$GERBIL_API_PORT") }
                     }
                 }
                 putJsonObject("traefik") {
@@ -115,6 +148,7 @@ object NodeTemplates {
                         add("./config/traefik:/etc/traefik:ro")
                         add("./config/letsencrypt:/letsencrypt")
                         add("./config/traefik/logs:/var/log/traefik")
+                        if (cluster != null) add("./config/certificates:/var/certificates:ro")
                     }
                 }
                 if (p.crowdsec) {
@@ -139,6 +173,8 @@ object NodeTemplates {
             }
             putJsonObject("networks") {
                 putJsonObject("default") { put("driver", "bridge"); put("name", "homegap_node") }
+                // Created by the node's cluster member (its own compose project) before the stack starts.
+                if (cluster != null) putJsonObject(CLUSTER_NETWORK_KEY) { put("external", true); put("name", ClusterTemplates.NETWORK) }
             }
         }
         return YamlEmitter.emit(root, HEADER)
@@ -181,7 +217,9 @@ object NodeTemplates {
         if (crowdsec) appendLine("CROWDSEC_BOUNCER_KEY=${secrets.crowdsecBouncerKey}")
     }
 
-    fun pangolinConfig(config: AppConfig, node: NodeConfig, secrets: NodeSecrets, slot: Int): String {
+    private const val CLUSTER_NETWORK_KEY = "cluster"
+
+    fun pangolinConfig(config: AppConfig, node: NodeConfig, secrets: NodeSecrets, slot: Int, cluster: ClusterLink? = null): String {
         val mgmt = node.managementHost(config.domain)
         val root = buildJsonObject {
             putJsonObject("gerbil") {
@@ -205,6 +243,15 @@ object NodeTemplates {
                     put("prefer_wildcard_cert", config.certificates.source != "none")
                 }
             }
+            if (cluster != null) {
+                putJsonObject("postgres") {
+                    // Writes go to the current primary through HAProxy; reads use this node's member.
+                    put("connection_string", postgresUrl(cluster, ClusterTemplates.PROXY_HOST, ClusterTemplates.PROXY_POSTGRES_PORT))
+                    putJsonArray("replicas") {
+                        addJsonObject { put("connection_string", postgresUrl(cluster, cluster.meshIp, ClusterTemplates.POSTGRES_PORT)) }
+                    }
+                }
+            }
             putJsonObject("server") {
                 put("secret", secrets.serverSecret)
                 putJsonObject("cors") {
@@ -218,6 +265,12 @@ object NodeTemplates {
                 put("cert_resolver", "letsencrypt")
                 put("http_entrypoint", "web")
                 put("https_entrypoint", "websecure")
+                if (cluster != null) {
+                    // Each node writes the routes for its own sites; Traefik never polls a Pangolin.
+                    put("file_mode", true)
+                    put("dynamic_router_config_path", PANGOLIN_ROUTES)
+                    putJsonArray("site_types") { add("newt") }
+                }
             }
             putJsonObject("flags") {
                 put("require_email_verification", false)
@@ -225,18 +278,44 @@ object NodeTemplates {
                 put("disable_user_create_org", true)
                 put("allow_raw_resources", true)
                 put("enable_integration_api", true)
+                if (cluster != null) {
+                    put("disable_local_sites", true)
+                    put("disable_basic_wireguard_sites", true)
+                }
             }
         }
         return YamlEmitter.emit(root, HEADER)
     }
 
-    fun traefikStatic(config: AppConfig, rawPorts: List<RawPort>): String {
+    /**
+     * The cluster settings Pangolin reads from `privateConfig.yml`: the node's region (which pins
+     * the sites created through it to its own exit node), Valkey, and its local Gerbil.
+     */
+    fun pangolinPrivateConfig(node: NodeConfig, cluster: ClusterLink): String = YamlEmitter.emit(buildJsonObject {
+        putJsonObject("app") { put("region", node.id) }
+        putJsonObject("redis") {
+            put("host", ClusterTemplates.PROXY_HOST)
+            put("port", ClusterTemplates.PROXY_VALKEY_PORT)
+            put("password", cluster.db.valkey)
+        }
+        putJsonObject("gerbil") { put("local_exit_node_reachable_at", "http://gerbil:$GERBIL_API_PORT") }
+        putJsonObject("flags") { put("enable_redis", true) }
+    }, HEADER)
+
+    private fun postgresUrl(cluster: ClusterLink, host: String, port: Int) =
+        "postgresql://postgres:${cluster.db.postgres}@$host:$port/postgres"
+
+    /** The Traefik service Pangolin generates for a resource, as HomeGAP's routes reference it. */
+    fun pangolinService(resourceId: Int, niceId: String, cluster: Boolean) =
+        "$resourceId-$niceId-service@${if (cluster) "file" else "http"}"
+
+    fun traefikStatic(config: AppConfig, rawPorts: List<RawPort>, cluster: Boolean = false): String {
         val p = config.pangolin
         val email = p.acmeEmail ?: adminEmail(config)
         val root = buildJsonObject {
             putJsonObject("api") { put("insecure", false); put("dashboard", false) }
             putJsonObject("providers") {
-                putJsonObject("http") {
+                if (!cluster) putJsonObject("http") {
                     put("endpoint", "http://pangolin:3001/api/v1/traefik-config")
                     put("pollInterval", "5s")
                 }
@@ -329,7 +408,7 @@ object NodeTemplates {
      * [resourceIds] maps Pangolin resource niceIds to numeric ids (Pangolin's generated Traefik
      * service names embed them); routes whose resource does not exist yet are omitted.
      */
-    fun dynamicRoutes(desired: NodeDesired, resourceIds: Map<String, Int>): String {
+    fun dynamicRoutes(desired: NodeDesired, resourceIds: Map<String, Int>, cluster: Boolean = false): String {
         val node = desired.node
         val mgmt = desired.managementHost
         val root = buildJsonObject {
@@ -398,13 +477,14 @@ object NodeTemplates {
                     val ipHosts = listOfNotNull(node.ipv4(), node.publicIpv6?.let { "[$it]" })
                     if (ipHosts.isNotEmpty()) {
                         val ipRule = ipHosts.joinToString(" || ") { "Host(`$it`)" }
-                        val healthId = desired.healthResourceNiceId?.let { resourceIds[it] }
-                        if (healthId != null) {
+                        val healthNiceId = desired.healthResourceNiceId
+                        val healthId = healthNiceId?.let { resourceIds[it] }
+                        if (healthNiceId != null && healthId != null) {
                             putJsonObject("homegap-health") {
                                 put("rule", ipRule)
                                 putJsonArray("entryPoints") { add("web") }
                                 putJsonArray("middlewares") { add("homegap-health-path") }
-                                put("service", "$healthId-${desired.healthResourceNiceId}-service@http")
+                                put("service", pangolinService(healthId, healthNiceId, cluster))
                                 put("priority", 60)
                             }
                         }
@@ -431,7 +511,7 @@ object NodeTemplates {
                             putJsonObject(route.name) {
                                 putJsonArray("entryPoints") { add("websecure") }
                                 put("rule", sniRule(route))
-                                put("service", "$id-${route.resourceNiceId}-service@http")
+                                put("service", pangolinService(id, route.resourceNiceId, cluster))
                                 put("priority", route.priority)
                                 putJsonObject("tls") { put("passthrough", true) }
                             }

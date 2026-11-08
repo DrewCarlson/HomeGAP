@@ -262,6 +262,11 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
 
     suspend fun licenseKeys(): JsonElement = call(HttpMethod.Get, "/license/keys").pangolinData()
 
+    /** Makes a running instance re-read the license (activated through another cluster node). */
+    suspend fun recheckLicense() {
+        call(HttpMethod.Post, "/license/recheck").pangolinData()
+    }
+
     companion object {
         /** Least-privilege action set the orchestrator's per-node key needs. */
         val ORCHESTRATOR_ACTIONS = listOf(

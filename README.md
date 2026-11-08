@@ -441,6 +441,33 @@ Pangolin stack, so stack updates never restart the database. Removing a node rem
 from the vote and deletes its data. The **Nodes** page shows each member's role, state and
 replication lag, and when a switch back is due.
 
+### Clustered Pangolin
+
+With `cluster:` set, every node's Pangolin is one instance of a single Pangolin EE cluster on the
+[cluster database](#cluster-database), instead of an independent Pangolin with its own SQLite
+database. There is one org, one set of users and one license.
+
+- **Each node runs the PostgreSQL build** of the configured image (`ee-<version>` becomes
+  `ee-postgresql-<version>`).
+- **Writes go to the current primary, reads stay local.** Pangolin writes through
+  `cluster-proxy` and reads from the node's own database member.
+- **Each node is its own region.** The homelab gets one site per node (`<site_name>-<node id>`),
+  created through that node so its connector always uses that node's exit node.
+- **Traefik reads Pangolin's routes from a file** (`traefik.file_mode`), which each node writes
+  for its own sites. HomeGAP's passthrough routes sit next to it in the same directory.
+- **Gerbil's API is reachable over the mesh only** (on the node's mesh address), so the
+  cluster's other Pangolins can reach it. Docker starts after the mesh interface.
+- **One admin, one API key, one license.** The first node sets up the cluster's admin, org and
+  API key. The admin and server secret are kept in the controller's state and on every node, so
+  they can be recovered from any node. `pangolin.license_key_env` is activated once, through the
+  first node that can, and the other nodes are told to re-read it. A per-node `license_key_env`
+  is ignored.
+- **Nodes start one at a time until the cluster's Pangolin exists**, so the empty database is
+  migrated only once. A node's stack waits until its database member is streaming.
+- **Upgrades are rolled out one node at a time, as before.** The first node to start a new
+  Pangolin version (the one that migrates the database) saves a dump of it first. If that update
+  fails, rolling it back also restores the dump.
+
 ### Node management host
 
 Newt and the Pangolin client must reach each node's Pangolin API. HomeGAP routes

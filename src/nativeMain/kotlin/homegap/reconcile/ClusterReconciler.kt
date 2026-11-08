@@ -20,6 +20,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.Json
+import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
 
 /**
@@ -47,6 +48,11 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     private val lastErrors = mutableMapOf<String, String>()
     private var preferredCaughtUpSince: Long? = null
+    /** Members whose database is up (the primary, or a streaming replica), as last seen. */
+    @Volatile private var ready: Set<String> = emptySet()
+
+    /** The node's member can serve its Pangolin: read by provisioning jobs between passes. */
+    fun memberReady(id: String): Boolean = id in ready
 
     suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>): ClusterStatusDto? {
         val cluster = ctx.config.cluster ?: return null
@@ -65,6 +71,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val etcdMembers = runCatching { etcd.members() }.getOrNull()
         report(ctx, "etcd", if (etcdMembers == null) "the homelab's etcd is not reachable yet" else null)
         val pg = databaseView(patroni, members)
+        if (pg != null) ready = pg.filter { (it.role == "leader" && it.state == "running") || it.state == "streaming" }.map { it.name }.toSet()
         val initialized = Files.exists(initializedFile) ||
             (pg?.any { it.role == "leader" } == true).also { if (it) Files.writeAtomic(initializedFile, "") }
 
@@ -76,6 +83,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
                 val existing = etcdMembers.firstOrNull { it.name == member.id || ClusterTemplates.peerUrl(member) in it.peerUrls }
                 try {
                     when {
+                        // Docker comes with the node's own provisioning; until then it can't run a member.
+                        existing == null && !joining && !hasDocker(ctx, node) -> Unit
                         existing == null && !joining -> {
                             etcd.addLearner(ClusterTemplates.peerUrl(member))
                             joining = true
@@ -108,7 +117,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
 
     // ------------------------------------------------------------------ secrets and files
 
-    private fun secrets(): ClusterSecrets {
+    fun secrets(): ClusterSecrets {
         Files.readTextOrNull(secretsFile)?.let { return json.decodeFromString(ClusterSecrets.serializer(), it) }
         val created = ClusterSecrets(Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32))
         Files.mkdirs(dir)
@@ -174,6 +183,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         )
         val base = "${ctx.config.pangolin.installDir}/cluster"
         val script = buildString {
+            // Docker comes with the node's own provisioning.
+            appendLine("command -v docker >/dev/null 2>&1 || { echo WAITING-FOR-DOCKER; exit 0; }")
             appendLine("set -e")
             appendLine("B=${shQuote(base)}")
             appendLine("install -d -m 0755 \"\$B\" \"\$B/etcd\" \"\$B/pgdata\" \"\$B/valkey\" \"\$B/sentinel\"")
@@ -198,6 +209,9 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val out = ssh.runScriptOrThrow("cluster", "CHANGED=no\n$script", 900)
         out.lines().filter { it.startsWith("CHANGED ") }.forEach { ctx.log.change(domain, it.removePrefix("CHANGED "), node.id) }
     }
+
+    private suspend fun hasDocker(ctx: ReconcileContext, node: NodeConfig): Boolean =
+        ctx.ssh.session(node).runScript("command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && echo DOCKER-OK", 60).stdout.contains("DOCKER-OK")
 
     private fun fileStep(path: String, content: String, mode: String = "0600", writeOnce: Boolean = false): String {
         val b64 = Base64.encode(content.encodeToByteArray())

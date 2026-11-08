@@ -32,6 +32,11 @@ data class AppConfig(
     val dashboard: DashboardConfig = DashboardConfig(),
     val speedtest: SpeedtestConfig = SpeedtestConfig(),
 ) {
+    /**
+     * The homelab's site on a node. A cluster has one org shared by every node, so each node gets
+     * its own site there (created through that node, which pins it to the node's exit node).
+     */
+    fun siteNiceId(nodeId: String): String = if (cluster != null) "${pangolin.siteName}-$nodeId" else pangolin.siteName
     val wildcardDomain: String get() = "*.$domain"
     fun node(id: String): NodeConfig? = nodes.firstOrNull { it.id == id }
 }
@@ -104,6 +109,20 @@ data class PangolinNodeDefaults(
     fun licenseKey(): SecretRef? =
         if (licenseKeyEnv == null && licenseKeyFile == null) null
         else SecretRef("pangolin.license_key", licenseKeyEnv, licenseKeyFile)
+
+    /**
+     * The Pangolin image a node runs. A cluster needs the PostgreSQL build, so `ee-<version>` becomes
+     * `ee-postgresql-<version>`; any other tag is used as given.
+     */
+    fun pangolinImage(cluster: Boolean): String {
+        if (!cluster) return pangolinImage
+        val tagAt = pangolinImage.lastIndexOf(':')
+        if (tagAt < 0 || '/' in pangolinImage.substring(tagAt)) return pangolinImage
+        val tag = pangolinImage.substring(tagAt + 1)
+        return if (tag.startsWith("ee-") && !tag.startsWith("ee-postgresql-")) {
+            pangolinImage.substring(0, tagAt + 1) + "ee-postgresql-" + tag.removePrefix("ee-")
+        } else pangolinImage
+    }
 }
 
 @Serializable

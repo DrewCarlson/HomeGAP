@@ -28,8 +28,11 @@ services:
   # `cluster:` in the config) outlives orchestrator restarts and upgrades. The orchestrator's
   # networks, published ports and Traefik labels belong here.
   homegap-mesh:
-    image: ghcr.io/drewcarlson/homegap:latest
-    entrypoint: ["/usr/bin/tini", "--", "sleep", "infinity"]
+    # A fixed image, never the HomeGAP one: recreating this container replaces the namespace
+    # (and drops the mesh), so it must not change with HomeGAP updates. Everything sharing the
+    # namespace restarts with it if it ever is recreated (depends_on restart: true).
+    image: docker.io/library/busybox:1.37
+    entrypoint: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait; done"]
     restart: unless-stopped
     networks:
       traefik:
@@ -49,7 +52,7 @@ services:
     network_mode: service:homegap-mesh
     # Manages the cluster mesh interface (only used when `cluster:` is configured).
     cap_add: [NET_ADMIN]
-    depends_on: [homegap-mesh]
+    depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     environment:
       BUNNY_API_KEY: ${BUNNY_API_KEY:?set BUNNY_API_KEY}
       PRIMARY_PANGOLIN_KEY: ${PRIMARY_PANGOLIN_KEY:-}
@@ -75,7 +78,7 @@ services:
     command: [etcd]
     restart: unless-stopped
     network_mode: service:homegap-mesh
-    depends_on: [homegap-mesh]
+    depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     environment: { HG_CONFIG: /data/cluster/config }
     volumes: [homegap-data:/data:ro, homegap-etcd:/var/lib/etcd]
 
@@ -84,7 +87,7 @@ services:
     command: [patroni]
     restart: unless-stopped
     network_mode: service:homegap-mesh
-    depends_on: [homegap-mesh]
+    depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     shm_size: 256m
     stop_grace_period: 60s
     environment:
@@ -100,7 +103,7 @@ services:
     command: [valkey]
     restart: unless-stopped
     network_mode: service:homegap-mesh
-    depends_on: [homegap-mesh]
+    depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     environment: { HG_CONFIG: /data/cluster/config, HG_VALKEY_DIR: /var/lib/valkey }
     volumes: [homegap-data:/data:ro, homegap-valkey:/var/lib/valkey]
 
@@ -109,7 +112,7 @@ services:
     command: [sentinel]
     restart: unless-stopped
     network_mode: service:homegap-mesh
-    depends_on: [homegap-mesh]
+    depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     environment: { HG_CONFIG: /data/cluster/config }
     volumes: [homegap-data:/data:ro, homegap-sentinel:/var/lib/sentinel]
 

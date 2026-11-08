@@ -17,7 +17,7 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
     suspend fun reconcile(ready: ReadyNode, slot: Int): PangolinSite? {
         val node = ready.node
         val org = ctx.config.pangolin.orgId
-        val siteNice = ctx.config.pangolin.siteName
+        val siteNice = ctx.config.siteNiceId(node.id)
         val endpoint = "https://${node.managementHost(ctx.config.domain)}"
         val paused = ctx.nodePaused(node.id)
 
@@ -29,7 +29,7 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
             ctx.diff.add(domain, node.id, "site:$siteNice", "create")
             if (paused) return null
             val d = ready.api.pickSiteDefaults(org)
-            site = ready.api.createNewtSite(org, ctx.config.pangolin.siteName, siteNice, d)
+            site = ready.api.createNewtSite(org, if (ctx.config.cluster != null) "${ctx.config.pangolin.siteName} via ${node.id}" else ctx.config.pangolin.siteName, siteNice, d)
             ctx.state.updateNode(node.id) { it.copy(siteId = site.siteId, newtId = d.newtId, newtSecret = d.newtSecret) }
             ctx.log.change(domain, "created site '$siteNice' and Newt credentials", node.id)
         } else if ((st.newtId == null || st.newtSecret == null) && site.online == true &&

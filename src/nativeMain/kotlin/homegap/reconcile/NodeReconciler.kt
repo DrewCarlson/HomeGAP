@@ -10,26 +10,36 @@ import homegap.model.NodeDesired
 import homegap.platform.Crypto
 import homegap.platform.nowMillis
 import homegap.provision.CertMaterial
+import homegap.provision.ClusterLink
+import homegap.provision.ClusterSecrets
+import homegap.provision.ClusterTemplates
+import homegap.provision.Mesh
 import homegap.provision.FirewallRules
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.provision.RenderedFile
+import homegap.state.ClusterPangolinState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
  * Node lifecycle domain: turns a bare SSH-reachable Ubuntu VPS into a Pangolin EE node and
  * keeps it there. Every step is idempotent so the same pass provisions and repairs drift.
  */
-class NodeReconciler(private val ctx: ReconcileContext) {
+class NodeReconciler(private val ctx: ReconcileContext, private val cluster: ClusterReconciler? = null) {
     private val domain = "nodes"
     private val log get() = ctx.log
     private val dir get() = ctx.config.pangolin.installDir
+    /** Every node runs one Pangolin of the cluster, sharing its database. */
+    private val clustered get() = ctx.config.cluster != null
 
     /** What kind of provisioning a node needs. */
     enum class Kind {
@@ -73,7 +83,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         val st = ctx.state.node(node.id)
 
         if (ctx.dryRun) {
-            val secrets = st.toSecrets() ?: placeholderSecrets()
+            val secrets = (if (clustered) ctx.state.snapshot().clusterPangolin?.let { sharedSecrets(it, "<generated>") } else st.toSecrets()) ?: placeholderSecrets()
             val files = renderAll(node, desired, secrets, certs, slot)
             log.info(domain, "[dry-run] would ensure stack (${files.size} files, hash ${hash(files)}) at $dir; raw ports: ${desired.rawPorts.joinToString { it.entryPoint }.ifEmpty { "none" }}", node.id)
             ctx.diff.add(domain, node.id, "stack", if (st.stackHash == hash(files)) "none" else "provision", hash(files), st.stackHash)
@@ -95,7 +105,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         if (paused) {
             log.info(domain, "paused: skipping provisioning and drift repair", node.id)
             val secrets = st.toSecrets() ?: placeholderSecrets()
-            return Assessment(desired, ssh, secrets, emptyList(), st.stackHash ?: "", Kind.NONE, null, true, connectApi(node, ssh, slot, st.apiKeyId, st.apiKey))
+            val (keyId, key) = cachedKey(node.id) ?: (null to null)
+            return Assessment(desired, ssh, secrets, emptyList(), st.stackHash ?: "", Kind.NONE, null, true, connectApi(node, ssh, slot, keyId, key))
         }
 
         val secrets = ensureSecrets(node, ssh)
@@ -130,6 +141,9 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     /** API handle for a node that needs no provisioning now (or is waiting for its update). */
     suspend fun ready(a: Assessment, slot: Int): ReadyNode? {
         if (a.paused) return a.pausedReady
+        // A node still on its own standalone Pangolin is not part of the cluster's: never mint the
+        // cluster's key or license against it.
+        if (clustered && ctx.state.node(a.node.id).facts[CLUSTER_STACK_FACT] != "true") return null
         return try {
             bootstrap(a.node, a.ssh, slot, a.secrets)
         } catch (e: Exception) {
@@ -150,24 +164,31 @@ class NodeReconciler(private val ctx: ReconcileContext) {
      * @param tunnelWasUp the node's tunnel was online before the update (so it must come back).
      * @return true when the node ends up on the new stack.
      */
-    suspend fun provisionJob(a: Assessment, slot: Int, tunnelWasUp: Boolean): Boolean {
+    suspend fun provisionJob(a: Assessment, slot: Int, tunnelWasUp: Boolean, waitForCluster: Boolean = true): Boolean {
         val node = a.node
         val ssh = a.ssh
         val update = a.kind == Kind.UPDATE
         log.change(domain, "${if (update) "updating" else "provisioning"} (${a.reason})", node.id)
         var changed = false
+        // A node joining the cluster leaves its standalone Pangolin (and that site) behind.
+        val sameSite = !clustered || ctx.state.node(node.id).facts[CLUSTER_STACK_FACT] == "true"
         try {
-            if (update) backup(node, ssh)
-            changed = true
-            provision(node, ssh, a.desired, a.files)
-            val ready = bootstrap(node, ssh, slot, a.secrets)
+            provisionHost(node, ssh, a.desired)
+            if (clustered) awaitClusterMember(node, waitForCluster)
+            val ready = firstClusterStart(node) {
+                if (update) backup(node, ssh)
+                changed = true
+                provisionStack(node, ssh, a.files)
+                bootstrap(node, ssh, slot, a.secrets)
+            }
             val missing = verify(node, ssh)
             if (update && missing.isNotEmpty()) throw IllegalStateException("verify failed: ${missing.joinToString(", ")}")
-            if (update && tunnelWasUp) waitForTunnel(node, ready)
+            if (update && tunnelWasUp && sameSite) waitForTunnel(node, ready)
             ctx.state.updateNode(node.id) {
                 it.copy(
                     stackHash = a.hash, lastProvisionAt = nowMillis(), lastProvisionOk = true, lastProvisionError = null,
                     lastCheckAt = nowMillis(), drift = emptyList(), update = null,
+                    facts = it.facts + (PANGOLIN_IMAGE_FACT to ctx.config.pangolin.pangolinImage(clustered)) + (CLUSTER_STACK_FACT to clustered.toString()),
                 )
             }
             if (update) log.change(domain, "update complete", node.id)
@@ -230,7 +251,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
      */
     private suspend fun backup(node: NodeConfig, ssh: SshSession) {
         val d = shQuote(dir)
-        val image = shQuote(ctx.config.pangolin.pangolinImage)
+        val image = shQuote(ctx.config.pangolin.pangolinImage(clustered))
         val out = ssh.runScriptOrThrow(
             "backup",
             $$"""
@@ -246,7 +267,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             |  cp -a config/db "$B/db"
             |  echo "DBSNAP $CUR"
             |fi
-            """.trimMargin(), 300,
+            |$${clusterDumpStep(node)}
+            """.trimMargin(), 600,
         )
         out.lines()
             .firstOrNull { it.startsWith("DBSNAP ") }
@@ -271,6 +293,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             |  docker compose stop pangolin >/dev/null 2>&1 || true
             |  rm -rf config/db && cp -a "$B/db" config/db
             |fi
+            |$${clusterRestoreStep()}
             |docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20
             |ok=0
             |for i in $(seq 1 120); do
@@ -289,8 +312,49 @@ class NodeReconciler(private val ctx: ReconcileContext) {
 
     private fun placeholderSecrets() = NodeSecrets("<generated>", "<generated>", NodeTemplates.adminEmail(ctx.config), "<generated>", "<generated>")
 
+    private fun sharedSecrets(shared: ClusterPangolinState, crowdsecKey: String) =
+        NodeSecrets(shared.setupToken, shared.serverSecret, shared.adminEmail, shared.adminPassword, crowdsecKey, cluster = true)
+
+    /**
+     * In a cluster the server secret and admin are shared: kept in the controller's state and
+     * copied to every node, so they can be recovered from any node if the state is lost. The
+     * CrowdSec key stays per node.
+     */
+    private suspend fun ensureClusterSecrets(node: NodeConfig, ssh: SshSession): NodeSecrets {
+        val st = ctx.state.node(node.id)
+        val known = ctx.state.snapshot().clusterPangolin
+        st.facts["crowdsecKey"]?.takeIf { known != null && it.isNotEmpty() }?.let { return sharedSecrets(known!!, it) }
+        val remote = ssh.runScript("cat ${shQuote("$dir/${NodeTemplates.SECRETS}")} 2>/dev/null || true", 60).stdout.trim()
+            .takeIf { it.startsWith("{") }
+            ?.let { runCatching { LENIENT_JSON.decodeFromString(NodeSecrets.serializer(), it) }.getOrNull() }
+        val shared = known ?: run {
+            val recovered = remote?.takeIf { it.cluster }?.let {
+                ClusterPangolinState(it.serverSecret, it.setupToken, it.adminEmail, it.adminPassword, bootstrapped = true)
+            }
+            val candidate = recovered ?: ClusterPangolinState(
+                serverSecret = Crypto.token(48),
+                setupToken = Crypto.setupToken(),
+                adminEmail = NodeTemplates.adminEmail(ctx.config),
+                adminPassword = Crypto.password(),
+            )
+            // Another node's assessment may have stored them first.
+            val kept = ctx.state.update { s -> s.copy(clusterPangolin = s.clusterPangolin ?: candidate) }.clusterPangolin!!
+            if (kept === candidate) {
+                if (recovered != null) log.info(domain, "recovered the cluster's Pangolin secrets from the node", node.id)
+                else log.change(domain, "generated the cluster's Pangolin secrets (admin, server secret, setup token)")
+            }
+            kept
+        }
+        val crowdsec = st.facts["crowdsecKey"]?.takeIf { it.isNotEmpty() }
+            ?: remote?.crowdsecBouncerKey?.takeIf { it.isNotEmpty() }
+            ?: Crypto.token(40)
+        ctx.state.updateNode(node.id) { it.copy(facts = it.facts + ("crowdsecKey" to crowdsec)) }
+        return sharedSecrets(shared, crowdsec)
+    }
+
     /** Node-held secrets are authoritative; the local cache is refilled from them when lost. */
     private suspend fun ensureSecrets(node: NodeConfig, ssh: SshSession): NodeSecrets {
+        if (clustered) return ensureClusterSecrets(node, ssh)
         ctx.state.node(node.id).toSecrets()?.takeIf { it.crowdsecBouncerKey.isNotEmpty() }?.let { return it }
         val remote = ssh.runScript("cat ${shQuote("$dir/${NodeTemplates.SECRETS}")} 2>/dev/null || true", 60).stdout.trim()
         val secrets = if (remote.startsWith("{")) {
@@ -319,7 +383,11 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     }
 
     fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, certs: CertMaterial?, slot: Int): List<RenderedFile> {
-        val files = NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts, slot).toMutableList()
+        val link = ctx.config.cluster?.let { c ->
+            val db = if (ctx.dryRun || cluster == null) ClusterSecrets("<generated>", "<generated>", "<generated>", "<generated>") else cluster.secrets()
+            ClusterLink(Mesh.nodeAddress(c.mesh, slot), db)
+        }
+        val files = NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts, slot, link).toMutableList()
         if (certs != null) {
             files += RenderedFile(NodeTemplates.CERT, certs.certPem, "0600")
             files += RenderedFile(NodeTemplates.KEY, certs.keyPem, "0600")
@@ -333,7 +401,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
 
     // ---------------------------------------------------------------- provisioning steps
 
-    private suspend fun provision(node: NodeConfig, ssh: SshSession, desired: NodeDesired, files: List<RenderedFile>) {
+    /** Steps 1-4: everything the node needs before its stack (and its cluster member). */
+    private suspend fun provisionHost(node: NodeConfig, ssh: SshSession, desired: NodeDesired) {
         // 1. Preflight
         val facts = preflight(node, ssh)
         ctx.state.updateNode(node.id) { it.copy(facts = it.facts + facts + ("reachable" to "true")) }
@@ -350,7 +419,9 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         // 4. Kernel network tuning (best effort: some virtualization types lock these knobs).
         // Before the stack, so new container namespaces inherit the host's congestion control.
         runTuningStep(node, ssh, tuningScript())
+    }
 
+    private suspend fun provisionStack(node: NodeConfig, ssh: SshSession, files: List<RenderedFile>) {
         // 5 + 6. Stack files and secrets (restrictive modes), then 7. bring up and wait for health.
         val out = ssh.runScriptOrThrow("stack", stackScript(files), 1200)
         out.lines().filter { it.startsWith("CHANGED ") }.forEach { log.change(domain, "updated ${it.removePrefix("CHANGED ")}", node.id) }
@@ -413,7 +484,7 @@ class NodeReconciler(private val ctx: ReconcileContext) {
 
     private fun stackScript(files: List<RenderedFile>): String = buildString {
         val d = shQuote(dir)
-        appendLine("install -d -m 0755 $d $d/config $d/config/traefik $d/config/traefik/dynamic $d/config/letsencrypt $d/config/traefik/logs")
+        appendLine("install -d -m 0755 $d $d/config $d/config/traefik $d/config/traefik/dynamic $d/config/letsencrypt $d/config/traefik/logs $d/config/certificates")
         appendLine("install -d -m 0700 $d/secrets $d/config/traefik/certs")
         appendLine("RESTART=\"\"")
         for (f in files) {
@@ -476,28 +547,48 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         }.getOrNull()
     }
 
+    /** The orchestrator's API key: per node, or the cluster's one key (it lives in the shared database). */
+    private fun cachedKey(nodeId: String): Pair<String, String>? =
+        if (clustered) ctx.state.snapshot().clusterPangolin?.let { c -> c.apiKeyId?.let { id -> c.apiKey?.let { id to it } } }
+        else ctx.state.node(nodeId).let { s -> s.apiKeyId?.let { id -> s.apiKey?.let { id to it } } }
+
+    private suspend fun storeKey(nodeId: String, keyId: String, key: String) {
+        if (clustered) ctx.state.update { s -> s.copy(clusterPangolin = s.clusterPangolin?.copy(apiKeyId = keyId, apiKey = key, bootstrapped = true)) }
+        else ctx.state.updateNode(nodeId) { it.copy(apiKeyId = keyId, apiKey = key) }
+    }
+
     private suspend fun bootstrap(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets): ReadyNode {
-        val org = ctx.config.pangolin.orgId
-        val st = ctx.state.node(node.id)
         val apiPort = ssh.forward(3003, LOCAL_PORT_BASE + slot * 10)
         val integrationUrl = "http://127.0.0.1:$apiPort/v1"
-
-        // Fast path: the cached key still works.
-        if (st.apiKeyId != null && st.apiKey != null) {
-            val api = PangolinClient(ctx.localHttp, integrationUrl, "${st.apiKeyId}.${st.apiKey}")
-            val ok = runCatching {
-                api.getOrg(org)
-            }.onFailure {
-                if (it is CancellationException) {
-                    currentCoroutineContext().ensureActive()
-                }
-            }.isSuccess
-            if (ok) {
-                maybeActivateLicense(node, ssh, slot, secrets)
-                return ReadyNode(node, api)
-            }
-            log.warn(domain, "cached API key rejected; minting a new one", node.id)
+        fastPath(node, ssh, slot, secrets, integrationUrl, warn = !clustered)?.let { return it }
+        if (!clustered) return mint(node, ssh, slot, secrets, integrationUrl)
+        // One node at a time sets up the cluster's admin, org and key; the others then reuse them.
+        return clusterKeyLock.withLock {
+            fastPath(node, ssh, slot, secrets, integrationUrl, warn = true) ?: mint(node, ssh, slot, secrets, integrationUrl)
         }
+    }
+
+    /** The cached key still works. */
+    private suspend fun fastPath(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, integrationUrl: String, warn: Boolean): ReadyNode? {
+        val (keyId, key) = cachedKey(node.id) ?: return null
+        val api = PangolinClient(ctx.localHttp, integrationUrl, "$keyId.$key")
+        val ok = runCatching {
+            api.getOrg(ctx.config.pangolin.orgId)
+        }.onFailure {
+            if (it is CancellationException) {
+                currentCoroutineContext().ensureActive()
+            }
+        }.isSuccess
+        if (!ok) {
+            if (warn) log.warn(domain, "cached API key rejected; minting a new one", node.id)
+            return null
+        }
+        maybeActivateLicense(node, ssh, slot, secrets)
+        return ReadyNode(node, api)
+    }
+
+    private suspend fun mint(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, integrationUrl: String): ReadyNode {
+        val org = ctx.config.pangolin.orgId
 
         val dashPort = ssh.forward(3000, LOCAL_PORT_BASE + slot * 10 + 5)
         val boot = PangolinBootstrapClient(ctx.localHttp, "http://127.0.0.1:$dashPort/api/v1")
@@ -520,7 +611,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         } catch (e: PangolinApiException) {
             throw IllegalStateException(
                 "cannot log in as ${secrets.adminEmail} (${e.message}). The node has an admin the controller does not know; " +
-                    "restore $dir/${NodeTemplates.SECRETS} or wipe the node's $dir/config/db to re-bootstrap."
+                    if (clustered) "restore the cluster's Pangolin secrets from any node's $dir/${NodeTemplates.SECRETS}."
+                    else "restore $dir/${NodeTemplates.SECRETS} or wipe the node's $dir/config/db to re-bootstrap."
             )
         }
         if (!boot.orgExists(org)) {
@@ -539,13 +631,68 @@ class NodeReconciler(private val ctx: ReconcileContext) {
                 currentCoroutineContext().ensureActive()
             }
         }
-        log.change(domain, "minted orchestrator API key", node.id)
-        ctx.state.updateNode(node.id) { it.copy(apiKeyId = keyId, apiKey = key) }
+        log.change(domain, if (clustered) "minted the cluster's orchestrator API key" else "minted orchestrator API key", node.id)
+        storeKey(node.id, keyId, key)
         maybeActivateLicense(node, ssh, slot, secrets, boot)
         return ReadyNode(node, PangolinClient(ctx.localHttp, integrationUrl, "$keyId.$key"))
     }
 
+    private suspend fun dashboardClient(ssh: SshSession, slot: Int) =
+        PangolinBootstrapClient(ctx.localHttp, "http://127.0.0.1:${ssh.forward(3000, LOCAL_PORT_BASE + slot * 10 + 5)}/api/v1")
+
+    /**
+     * A cluster has one license (it is stored in the shared database): activated through the first
+     * node that can, then every other running Pangolin is told to re-read it.
+     */
+    private suspend fun maybeActivateClusterLicense(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, existing: PangolinBootstrapClient?) {
+        val shared = ctx.state.snapshot().clusterPangolin ?: return
+        if (shared.licenseActivated) {
+            if (node.id !in shared.licenseRecheck) return
+            try {
+                val boot = existing ?: dashboardClient(ssh, slot).also { it.login(secrets.adminEmail, secrets.adminPassword) }
+                boot.recheckLicense()
+                ctx.state.update { s -> s.copy(clusterPangolin = s.clusterPangolin?.let { it.copy(licenseRecheck = it.licenseRecheck - node.id) }) }
+                log.change(domain, "picked up the cluster's EE license", node.id)
+            } catch (e: Exception) {
+                if (e is CancellationException) currentCoroutineContext().ensureActive()
+                log.warn(domain, "license recheck failed: ${e.message}", node.id)
+            }
+            return
+        }
+        val ref = ctx.config.pangolin.licenseKey() ?: return
+        val key = ref.resolve() ?: run {
+            if (!licenseWarned) log.warn(domain, "license key ${ref.describe()} not set; EE wildcard resources will be refused")
+            licenseWarned = true
+            return
+        }
+        licenseWarned = false
+        val keyHash = Crypto.fnv64(key)
+        if (shared.licenseRejected == keyHash) return
+        suspend fun activated() {
+            val others = ctx.config.nodes.map { it.id }.toSet() - node.id
+            ctx.state.update { s -> s.copy(clusterPangolin = s.clusterPangolin?.copy(licenseActivated = true, licenseRecheck = others)) }
+        }
+        try {
+            val boot = existing ?: dashboardClient(ssh, slot).also { it.login(secrets.adminEmail, secrets.adminPassword) }
+            boot.activateLicense(key)
+            activated()
+            log.change(domain, "activated the cluster's Pangolin EE license", node.id)
+        } catch (e: Exception) {
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
+            val msg = e.message.orEmpty()
+            when {
+                msg.contains("License key already exists") -> activated()
+                msg.contains("different instance", ignoreCase = true) -> {
+                    ctx.state.update { s -> s.copy(clusterPangolin = s.clusterPangolin?.copy(licenseRejected = keyHash)) }
+                    log.error(domain, "EE license rejected: the key is already bound to another Pangolin instance (one key covers the whole cluster).")
+                }
+                else -> log.error(domain, "license activation failed: $msg", node.id)
+            }
+        }
+    }
+
     private suspend fun maybeActivateLicense(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, existing: PangolinBootstrapClient? = null) {
+        if (clustered) return maybeActivateClusterLicense(node, ssh, slot, secrets, existing)
         val ref = node.licenseKey(ctx.config.pangolin) ?: return
         if (ctx.state.node(node.id).licenseActivated) return
         val key = ref.resolve() ?: run {
@@ -589,6 +736,73 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         }
     }
 
+    // ---------------------------------------------------------------- cluster
+
+    /**
+     * Pangolin needs the node's cluster member (its database replica and HAProxy) before it can
+     * start. The member is set up by the cluster step of later passes, so a background job waits.
+     */
+    private suspend fun awaitClusterMember(node: NodeConfig, wait: Boolean) {
+        val rec = cluster ?: return
+        if (rec.memberReady(node.id)) return
+        if (!wait) throw IllegalStateException("this node's cluster database member is not ready yet")
+        log.info(domain, "waiting for this node's cluster database member", node.id)
+        val deadline = nowMillis() + CLUSTER_MEMBER_WAIT.inWholeMilliseconds
+        while (!rec.memberReady(node.id)) {
+            if (nowMillis() > deadline) throw IllegalStateException("this node's cluster database member did not become ready in $CLUSTER_MEMBER_WAIT")
+            delay(5.seconds)
+        }
+    }
+
+    /**
+     * The first Pangolin on an empty cluster database migrates it and creates the admin: only one
+     * node may do that, so until the cluster's Pangolin is set up, nodes start one at a time.
+     */
+    private suspend fun <T> firstClusterStart(node: NodeConfig, block: suspend () -> T): T {
+        if (!clustered || ctx.state.snapshot().clusterPangolin?.bootstrapped == true) return block()
+        if (firstStartLock.isLocked) log.info(domain, "waiting for another node to set up the cluster's Pangolin", node.id)
+        return firstStartLock.withLock { block() }
+    }
+
+    /**
+     * A Pangolin upgrade migrates the shared database when the first node starts the new version:
+     * that node saves a dump first, so a failed upgrade can restore it. Later nodes find the
+     * database already migrated and save nothing.
+     */
+    private fun clusterDumpStep(node: NodeConfig): String {
+        if (!clustered || cluster == null) return ":"
+        val image = ctx.config.pangolin.pangolinImage(true)
+        val first = ctx.state.snapshot().nodes.none { (id, s) -> id != node.id && s.facts[PANGOLIN_IMAGE_FACT] == image }
+        if (!first) return ":"
+        return $$"""
+            |if [ -n "$CUR" ] && [ "$CUR" != $${shQuote(image)} ]; then
+            |  $${pgEnvFile()}
+            |  docker run --rm --network $${ClusterTemplates.NETWORK} --env-file "$B/pg.env" -v "$B:/backup" --entrypoint pg_dump $${shQuote(ctx.config.cluster!!.image)} \
+            |    -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U postgres -Fc -f /backup/cluster.dump postgres
+            |  rm -f "$B/pg.env"
+            |  echo "DBSNAP $CUR"
+            |fi
+        """.trimMargin()
+    }
+
+    private fun clusterRestoreStep(): String {
+        if (!clustered || cluster == null) return ":"
+        return $$"""
+            |if [ -f "$B/cluster.dump" ]; then
+            |  docker compose stop pangolin >/dev/null 2>&1 || true
+            |  $${pgEnvFile()}
+            |  docker run --rm --network $${ClusterTemplates.NETWORK} --env-file "$B/pg.env" -v "$B:/backup:ro" --entrypoint pg_restore $${shQuote(ctx.config.cluster!!.image)} \
+            |    -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U postgres --clean --if-exists --single-transaction -d postgres /backup/cluster.dump
+            |  rm -f "$B/pg.env"
+            |  echo "restored the cluster database from before the upgrade"
+            |fi
+        """.trimMargin()
+    }
+
+    /** The database password in a private file (never in a command line). */
+    private fun pgEnvFile(): String =
+        "(umask 077; printf 'PGPASSWORD=%s\\n' ${shQuote(cluster!!.secrets().postgres)} > \"\$B/pg.env\")"
+
     /** Post-provision checks; returns the ones that failed. */
     private suspend fun verify(node: NodeConfig, ssh: SshSession): List<String> {
         val r = ssh.runScript(
@@ -630,6 +844,17 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         /** Previous stack kept on the node during an update, relative to install_dir. */
         const val ROLLBACK_DIR = ".homegap-rollback"
         val SUPPORTED_UBUNTU = setOf("22.04", "24.04", "26.04", "26.10")
+        /** The Pangolin image a node last provisioned successfully. */
+        const val PANGOLIN_IMAGE_FACT = "pangolinImage"
+        /** The node's running stack is the cluster's (not a standalone Pangolin). */
+        const val CLUSTER_STACK_FACT = "clusterStack"
+        private val CLUSTER_MEMBER_WAIT = 20.minutes
+        /** Serialises the first start of the cluster's Pangolin (an empty database is migrated once). */
+        private val firstStartLock = Mutex()
+        /** Serialises minting the cluster's one API key (minting retires every other). */
+        private val clusterKeyLock = Mutex()
+        /** The cluster's missing license key is reported once, not on every pass. */
+        @kotlin.concurrent.Volatile private var licenseWarned = false
 
         /** Congestion control and max send buffer inside Gerbil's namespace (Traefik shares it). */
         val EDGE_TCP_SCRIPT = $$"""

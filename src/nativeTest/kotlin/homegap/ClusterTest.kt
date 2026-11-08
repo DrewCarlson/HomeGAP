@@ -3,10 +3,15 @@ package homegap
 import homegap.clients.PatroniClient
 import homegap.config.MeshConfig
 import homegap.config.NodeConfig
+import homegap.config.PangolinNodeDefaults
+import homegap.model.Planner
+import homegap.provision.ClusterLink
 import homegap.provision.ClusterSecrets
 import homegap.provision.ClusterTemplates
 import homegap.provision.ClusterTemplates.Member
 import homegap.provision.FirewallRules
+import homegap.provision.NodeSecrets
+import homegap.provision.NodeTemplates
 import homegap.reconcile.SwitchBack
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -102,5 +107,57 @@ class ClusterTest {
         assertTrue("allow in on hg-mesh" in specs)
         assertTrue("allow in on hg-cluster" in specs, "the node's own containers reach its cluster services")
         assertTrue("com.docker.network.bridge.name: hg-cluster" in ClusterTemplates.nodeCompose("x", emptyMap()))
+    }
+
+    @Test
+    fun aClusterRunsThePostgresqlBuildOfPangolin() {
+        assertEquals("docker.io/fosrl/pangolin:ee-postgresql-1.26.0", PangolinNodeDefaults().pangolinImage(cluster = true))
+        assertEquals("docker.io/fosrl/pangolin:ee-1.26.0", PangolinNodeDefaults().pangolinImage(cluster = false))
+        val pinned = PangolinNodeDefaults(pangolinImage = "registry.example:5000/pangolin:ee-postgresql-1.27.0")
+        assertEquals("registry.example:5000/pangolin:ee-postgresql-1.27.0", pinned.pangolinImage(cluster = true))
+    }
+
+    @Test
+    fun clusterStackSharesTheDatabaseAndKeepsGerbilOffThePublicInternet() {
+        val cfg = testConfig()
+        val node = cfg.node("na1")!!
+        val nodeSecrets = NodeSecrets("t".repeat(32), "server", "admin@test.example.net", "pw", "bk", cluster = true)
+        val link = ClusterLink("10.77.0.10", secrets)
+        val files = NodeTemplates.staticFiles(cfg, node, nodeSecrets, emptyList(), 0, link).associateBy { it.path }
+
+        val compose = files.getValue("compose.yml").content
+        assertTrue("ee-postgresql-" in compose)
+        assertTrue("\"--reachableAt=http://10.77.0.10:3004\"" in compose, "other nodes reach this Gerbil over the mesh")
+        assertTrue("\"10.77.0.10:3004:3004\"" in compose, "Gerbil's API is published on the mesh address only")
+        assertFalse("\"3004:3004\"" in compose.replace("\"10.77.0.10:3004:3004\"", ""))
+        assertTrue("name: \"homegap-cluster\"" in compose && "external: true" in compose)
+        assertTrue("\"./config/traefik/dynamic:/var/dynamic\"" in compose)
+
+        val pangolin = files.getValue("config/config.yml").content
+        assertTrue("postgresql://postgres:pgpass@cluster-proxy:5433/postgres" in pangolin, "writes go to the primary")
+        assertTrue("postgresql://postgres:pgpass@10.77.0.10:5432/postgres" in pangolin, "reads stay on the node")
+        assertTrue("file_mode: true" in pangolin && "router_config.yml" in pangolin)
+        assertTrue("disable_local_sites: true" in pangolin)
+
+        val private = files.getValue("config/privateConfig.yml")
+        assertEquals("0600", private.mode)
+        assertTrue("region: \"na1\"" in private.content || "region: na1" in private.content)
+        assertTrue("valkeypass" in private.content && "6380" in private.content)
+
+        val traefik = files.getValue("config/traefik/traefik_config.yml").content
+        assertFalse("traefik-config" in traefik, "Traefik reads Pangolin's file, never its HTTP endpoint")
+
+        val routes = NodeTemplates.dynamicRoutes(Planner.plan(cfg, listOf(TRAEFIK)).nodes.getValue("na1"), mapOf(Planner.FRONTDOOR_TCP to 7), cluster = true)
+        assertTrue("-service@file" in routes && "@http\"" !in routes)
+    }
+
+    @Test
+    fun standaloneStackIsUnchanged() {
+        val cfg = testConfig()
+        val files = NodeTemplates.staticFiles(cfg, cfg.node("na1")!!, NodeSecrets("t", "s", "a@b", "p", "k"), emptyList(), 0).associateBy { it.path }
+        assertNull(files["config/privateConfig.yml"])
+        assertTrue("traefik-config" in files.getValue("config/traefik/traefik_config.yml").content)
+        assertFalse("postgres" in files.getValue("config/config.yml").content)
+        assertTrue("\"--reachableAt=http://gerbil:3004\"" in files.getValue("compose.yml").content)
     }
 }

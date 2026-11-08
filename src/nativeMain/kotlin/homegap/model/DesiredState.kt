@@ -161,7 +161,7 @@ object Planner {
     }
 
     private fun planNode(config: AppConfig, node: NodeConfig, services: List<ServiceSpec>, frontDoor: ServiceSpec?): NodeDesired {
-        val site = config.pangolin.siteName
+        val site = config.siteNiceId(node.id)
         val mgmt = node.managementHost(config.domain)
         val mine = services.filter { it.servesNode(node.id) }
         val publicRes = mutableListOf<PublicResource>()

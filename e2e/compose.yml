@@ -134,8 +134,11 @@ services:
   # Holds the orchestrator's network namespace, so the cluster mesh interface (hg-mesh) outlives
   # orchestrator restarts. Ports and networks live here.
   mesh:
-    image: homegap:e2e
-    entrypoint: ["/usr/bin/tini", "--", "sleep", "infinity"]
+    # A fixed image, never the HomeGAP one: recreating this container replaces the namespace
+    # (and drops the mesh), so it must not change with HomeGAP updates. Everything sharing the
+    # namespace restarts with it if it ever is recreated (depends_on restart: true).
+    image: docker.io/library/busybox:1.37
+    entrypoint: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait; done"]
     ports: [ "127.0.0.1:18088:8088", "127.0.0.1:18089:8089" ]
     networks:
       e2e:
@@ -148,7 +151,7 @@ services:
     restart: unless-stopped
     command: [etcd]
     network_mode: service:mesh
-    depends_on: [mesh]
+    depends_on: { mesh: { condition: service_started, restart: true } }
     environment: { HG_CONFIG: /data/cluster/config }
     volumes: ["./work/data:/data:ro", "cluster-etcd:/var/lib/etcd"]
   cluster-db:
@@ -156,7 +159,7 @@ services:
     restart: unless-stopped
     command: [patroni]
     network_mode: service:mesh
-    depends_on: [mesh]
+    depends_on: { mesh: { condition: service_started, restart: true } }
     shm_size: 256m
     stop_grace_period: 60s
     environment: { HG_CONFIG: /data/cluster/config, HG_BACKUP_DIR: /backups }
@@ -166,7 +169,7 @@ services:
     restart: unless-stopped
     command: [valkey]
     network_mode: service:mesh
-    depends_on: [mesh]
+    depends_on: { mesh: { condition: service_started, restart: true } }
     environment: { HG_CONFIG: /data/cluster/config, HG_VALKEY_DIR: /var/lib/valkey }
     volumes: ["./work/data:/data:ro", "cluster-valkey:/var/lib/valkey"]
   cluster-sentinel:
@@ -174,7 +177,7 @@ services:
     restart: unless-stopped
     command: [sentinel]
     network_mode: service:mesh
-    depends_on: [mesh]
+    depends_on: { mesh: { condition: service_started, restart: true } }
     environment: { HG_CONFIG: /data/cluster/config }
     volumes: ["./work/data:/data:ro", "cluster-sentinel:/var/lib/sentinel"]
 
@@ -183,7 +186,7 @@ services:
     command: ["run"]
     network_mode: service:mesh
     cap_add: [NET_ADMIN]
-    depends_on: [mesh]
+    depends_on: { mesh: { condition: service_started, restart: true } }
     environment:
       BUNNY_API_KEY: e2e-bunny-key
       # Optional EE license, exported by run.sh from the repository's untracked .env.
