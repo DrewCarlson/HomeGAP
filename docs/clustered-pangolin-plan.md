@@ -219,13 +219,29 @@ also be moved between databases later.
 | Leader cut off from the mesh | Unaffected | Unaffected | About 20 s while the rest elect a new primary. The isolated member stops taking writes |
 | Mesh between two nodes broken | Unaffected | Unaffected | Unaffected while a majority can still reach each other |
 
-## Open questions to settle while building
+## Decisions
 
-- Whether to bump Olm or Newt for continuous re-selection of the nearest site. Today the choice is
-  made when a client connects or changes network.
-- Whether `client_hostname` should serve the full Pangolin UI publicly (needed for browser-based
-  app sign-in), with CrowdSec in front.
-- etcd and Patroni versions to pin, and whether HomeGAP builds the Patroni image or uses a
-  published one.
-- The "primary on a node" option (`cluster.primary.preferred: <node>`). It is the same machinery
-  with a different switch-back target.
+- **Public login pages on `client_hostname`: yes.** The Pangolin apps sign in through the browser,
+  so new devices can't enroll without the UI. Every node serves it, so it works while the homelab
+  is down. Protections: Pangolin's login rate limit (15 per 15 minutes, cluster-wide), optional
+  two-factor per user, and CrowdSec in front when `pangolin.crowdsec` is on. This also fixes the
+  404 the app hit on a node's management host.
+- **Continuous nearest-site re-selection: not pursued.** Clients pick the nearest node when they
+  connect or change network, which covers roaming. No released Olm re-measures during a session
+  (checked through its development branch). The mobile apps ship their own client, so HomeGAP
+  couldn't change it anyway. Switching mid-session would also reset open connections to private
+  services (SSH sessions, streams). Revisit if Pangolin adds it.
+- **Own Patroni image: yes**, published by this repository's workflow next to the HomeGAP image.
+  - **Why our own:** it's small (PostgreSQL plus Patroni and its etcd driver), pins exact versions,
+    and is built for both architectures.
+  - **Why not Spilo,** Zalando's published image: it's much larger, configured through its own
+    environment variables, and bundles backup tooling HomeGAP doesn't use.
+- **Pinned versions** (bumped deliberately, like Pangolin's):
+  - PostgreSQL 17 and Patroni 4.1 (from the PostgreSQL apt repository);
+  - etcd 3.5;
+  - Valkey 8.1;
+  - HAProxy 3.0 (LTS).
+
+  A future PostgreSQL major upgrade needs a planned `pg_upgrade` path, so it gets its own item.
+- **Primary on a node: deferred.** The homelab stays the default primary. The option
+  (`cluster.primary.preferred: <node>`) uses the same machinery and can be added later.
