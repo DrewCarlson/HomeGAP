@@ -21,6 +21,8 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  # Use the runner's yarn rather than downloading it from GitHub releases (see build.gradle.kts).
+  ORG_GRADLE_PROJECT_homegap.systemYarn: 'true'
 
 jobs:
   test:
@@ -49,6 +51,7 @@ jobs:
       # The npm registry occasionally times out (504) on runners; retry before failing the job.
       - name: Install npm packages
         run: |
+          command -v yarn >/dev/null || npm install --global yarn@1.22.22
           for attempt in 1 2 3; do
             ./gradlew kotlinNpmInstall && exit 0
             echo "::warning::kotlinNpmInstall failed (attempt $attempt of 3)"
@@ -88,6 +91,7 @@ jobs:
       # The npm registry occasionally times out (504) on runners; retry before failing the job.
       - name: Install npm packages
         run: |
+          command -v yarn >/dev/null || npm install --global yarn@1.22.22
           for attempt in 1 2 3; do
             ./gradlew kotlinNpmInstall && exit 0
             echo "::warning::kotlinNpmInstall failed (attempt $attempt of 3)"

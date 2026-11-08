@@ -16,6 +16,14 @@ plugins {
 // (useful for fast iteration on the controller itself; the API still works).
 val skipWeb = providers.gradleProperty("homegap.skipWeb").map { it.toBoolean() }.getOrElse(false)
 
+// Pass -Phomegap.systemYarn=true to use the yarn on PATH instead of downloading it from GitHub
+// releases (CI runner images ship yarn; GitHub downloads there sometimes time out).
+if (providers.gradleProperty("homegap.systemYarn").map { it.toBoolean() }.getOrElse(false)) {
+    plugins.withType<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnPlugin> {
+        the<org.jetbrains.kotlin.gradle.targets.js.yarn.YarnRootEnvSpec>().download.set(false)
+    }
+}
+
 val generatedAssetsDir = layout.buildDirectory.dir("generated/webassets/kotlin")
 
 kotlin {
