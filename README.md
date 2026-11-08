@@ -286,6 +286,7 @@ Key sections:
 | `pangolin.tcp_tuning` | BBR, fq and larger TCP buffers on every node (default `true`). |
 | `speedtest` | `enabled`, `hostname` (default `speedtest`), `bind` (default `0.0.0.0:8089`), `link_ttl`, `phase_seconds`, `streams` (homelab ↔ node, default 4). |
 | `dashboard` | Bind address, optional bearer token, and whether config edits from the UI are allowed. |
+| `reconcile` | `resync_interval` (default `60s`; Docker events trigger passes immediately in between), `debounce`, `node_check_interval` (SSH drift check, default `5m`), `dns_check_interval` (how often the Bunny zone is re-read when the desired records are unchanged, default `5m`; changes sync at once), `dry_run`. |
 
 The orchestrator re-reads the file on every pass. An invalid edit is logged, and the last good
 configuration stays in effect.
@@ -450,6 +451,7 @@ It shows:
 | Method & path | Purpose |
 | --- | --- |
 | `GET /api/status` | Full status snapshot |
+| `GET /api/events?after=SEQ` | Server-sent events: `status` (the snapshot, sent only when it changes) and `log` (new entries after `SEQ`). The dashboard uses this instead of polling. |
 | `GET /api/log?domain=` | Recent reconcile log |
 | `GET /api/diff` | Desired-vs-actual items and the effective desired state |
 | `GET /api/secrets` | Referenced secrets (names, sources, presence only) |

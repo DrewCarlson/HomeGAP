@@ -1,9 +1,12 @@
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import java.util.Base64
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.metro)
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.compose) apply false
     alias(libs.plugins.kotlin.vite) apply false
@@ -58,6 +61,7 @@ kotlin {
                 implementation(libs.kotlinx.io.core)
                 implementation(libs.kotlin.logging)
                 implementation(libs.kaml)
+                implementation(libs.ksubprocess)
             }
         }
         val nativeTest by getting {
@@ -100,7 +104,9 @@ val generateWebAssets by tasks.registering {
         sb.appendLine("        mapOf(")
         files.forEachIndexed { i, f ->
             val path = "/" + f.relativeTo(root).invariantSeparatorsPath
-            sb.appendLine("            \"$path\" to WebAsset(\"$path\", asset$i()),")
+            // Text assets also ship gzip-compressed; served as-is to clients that accept gzip.
+            val gz = if (f.extension in setOf("js", "mjs", "css", "html", "svg", "json", "map", "wasm")) "gz$i()" else "null"
+            sb.appendLine("            \"$path\" to WebAsset(\"$path\", asset$i(), $gz),")
         }
         sb.appendLine("        )")
         sb.appendLine("    }")
@@ -109,6 +115,14 @@ val generateWebAssets by tasks.registering {
             sb.appendLine("    private fun asset$i(): String = buildString {")
             b64.chunked(30_000).forEach { chunk -> sb.appendLine("        append(\"$chunk\")") }
             sb.appendLine("    }")
+            if (f.extension in setOf("js", "mjs", "css", "html", "svg", "json", "map", "wasm")) {
+                val bos = ByteArrayOutputStream()
+                GZIPOutputStream(bos).use { it.write(f.readBytes()) }
+                val gzb64 = Base64.getEncoder().encodeToString(bos.toByteArray())
+                sb.appendLine("    private fun gz$i(): String = buildString {")
+                gzb64.chunked(30_000).forEach { chunk -> sb.appendLine("        append(\"$chunk\")") }
+                sb.appendLine("    }")
+            }
         }
         sb.appendLine("}")
         target.writeText(sb.toString())

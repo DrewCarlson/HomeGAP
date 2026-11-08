@@ -1,20 +1,17 @@
 package homegap
 
+import dev.zacsweers.metro.createGraphFactory
 import homegap.config.ConfigLoader
-import homegap.dashboard.DashboardServer
-import homegap.discovery.DockerClient
+import homegap.di.ControllerGraph
+import homegap.di.RunOptions
+import homegap.di.TunnelOptions
+import homegap.di.TunnelsGraph
 import homegap.model.Planner
 import homegap.platform.env
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
-import homegap.reconcile.Controller
-import homegap.tunnels.TunnelSupervisor
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
-import io.ktor.client.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.engine.curl.*
-import io.ktor.client.plugins.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlin.system.exitProcess
@@ -98,30 +95,16 @@ private fun eprintln(msg: String) {
     platform.posix.fprintf(platform.posix.stderr, "%s\n", msg)
 }
 
-private fun json() = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
-
 private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = runBlocking {
-    val config = ConfigLoader.load(configPath)
+    val graph = createGraphFactory<ControllerGraph.Factory>().create(RunOptions(configPath, dryRun, once))
+    val config = graph.config
     logger.info { "homegap $VERSION starting: domain=${config.domain} nodes=${config.nodes.map { it.id }} dryRun=${dryRun || config.reconcile.dryRun}" }
-
-    val localHttp = HttpClient(CIO) {
-        engine { requestTimeout = 0 }
-        install(HttpTimeout) { connectTimeoutMillis = 10_000 }
-        expectSuccess = false
-    }
-    val externalHttp = HttpClient(Curl) {
-        install(HttpTimeout) { requestTimeoutMillis = 30_000; connectTimeoutMillis = 10_000 }
-        expectSuccess = false
-    }
-    val docker = DockerClient(localHttp, json(), env("DOCKER_SOCKET") ?: "/var/run/docker.sock")
-    val controller = Controller(configPath, config, dryRun, docker, localHttp, externalHttp)
-
+    val controller = graph.controller
     if (!once) {
-        DashboardServer(controller, configPath).start(config.dashboard.host, config.dashboard.port)
+        graph.dashboard.start(config.dashboard.host, config.dashboard.port)
         logger.info { "dashboard listening on ${config.dashboard.bind}" }
         if (config.speedtest.enabled) {
-            homegap.speedtest.SpeedTestServer({ controller.config }, controller.speedTokens, controller.speedStore)
-                .start(config.speedtest.host, config.speedtest.port)
+            graph.speedTestServer.start(config.speedtest.host, config.speedtest.port)
             logger.info { "speed test origin listening on ${config.speedtest.bind}" }
         }
     }
@@ -129,9 +112,5 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
 }
 
 private fun runTunnels(dir: String, newt: String) = runBlocking {
-    val http = HttpClient(CIO) {
-        install(HttpTimeout) { requestTimeoutMillis = 3_000; connectTimeoutMillis = 1_000 }
-        expectSuccess = false
-    }
-    TunnelSupervisor(dir, newt, http).run()
+    createGraphFactory<TunnelsGraph.Factory>().create(TunnelOptions(dir, newt)).supervisor.run()
 }

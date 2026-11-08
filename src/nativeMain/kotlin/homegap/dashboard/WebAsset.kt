@@ -2,8 +2,10 @@ package homegap.dashboard
 
 import kotlin.io.encoding.Base64
 
-internal class WebAsset(val path: String, private val base64: String) {
+internal class WebAsset(val path: String, private val base64: String, private val gzipBase64: String? = null) {
     val bytes: ByteArray by lazy { Base64.decode(base64) }
+    /** Pre-compressed body for clients sending `Accept-Encoding: gzip` (text assets only). */
+    val gzip: ByteArray? by lazy { gzipBase64?.let { Base64.decode(it) } }
     val contentType: String
         get() = when (path.substringAfterLast('.', "")) {
             "html" -> "text/html; charset=utf-8"

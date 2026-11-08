@@ -13,6 +13,7 @@ reconcile:
   resync_interval: 60s        # periodic full resync (drift repair)
   debounce: 2s                # Docker event debounce
   node_check_interval: 5m     # SSH drift check per node
+  dns_check_interval: 5m      # re-read the Bunny zone this often when nothing changed
   dry_run: false              # discovery + logged desired state, no writes
 
 bunny:

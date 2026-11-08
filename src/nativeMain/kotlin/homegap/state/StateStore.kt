@@ -90,6 +90,9 @@ class StateStore(private val path: String) {
 
     fun snapshot(): ControllerState = state
 
+    /** Bumped on every persisted change. */
+    val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+
     fun node(id: String): NodeState = state.nodes[id] ?: NodeState()
 
     suspend fun update(block: (ControllerState) -> ControllerState): ControllerState = mutex.withLock {
@@ -97,6 +100,7 @@ class StateStore(private val path: String) {
         if (next != state) {
             state = next
             Files.writeAtomic(path, json.encodeToString(ControllerState.serializer(), next), "600".toInt(8))
+            revision.value++
         }
         state
     }

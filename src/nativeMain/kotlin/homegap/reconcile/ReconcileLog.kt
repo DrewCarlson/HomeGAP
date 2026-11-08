@@ -6,6 +6,7 @@ import homegap.platform.nowMillis
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Bounded in-memory log of reconcile actions, grouped by domain for the dashboard. */
 class ReconcileLog(private val capacity: Int = 1000) {
@@ -14,6 +15,10 @@ class ReconcileLog(private val capacity: Int = 1000) {
     private val entries = ArrayDeque<LogEntryDto>()
     private var changeCount = 0
     private var errorCount = 0
+    private var seq = 0L
+
+    /** Sequence number of the newest entry; observers are woken on every new entry. */
+    val revision = MutableStateFlow(0L)
 
     fun info(domain: String, message: String, target: String? = null) = add(LogLevel.INFO, domain, message, target)
     fun change(domain: String, message: String, target: String? = null) = add(LogLevel.CHANGE, domain, message, target)
@@ -30,13 +35,20 @@ class ReconcileLog(private val capacity: Int = 1000) {
         synchronized(lock) {
             if (level == LogLevel.ERROR) errorCount++
             if (level == LogLevel.CHANGE) changeCount++
-            entries.addLast(LogEntryDto(nowMillis(), domain, level, message, target))
+            seq++
+            entries.addLast(LogEntryDto(nowMillis(), domain, level, message, target, seq))
             while (entries.size > capacity) entries.removeFirst()
         }
+        revision.value = seq
     }
 
     fun recent(limit: Int = 300, domain: String? = null): List<LogEntryDto> = synchronized(lock) {
         entries.toList().asReversed().filter { domain == null || it.domain == domain }.take(limit)
+    }
+
+    /** Entries newer than [afterSeq], oldest first (at most [limit]). */
+    fun since(afterSeq: Long, limit: Int = 500): List<LogEntryDto> = synchronized(lock) {
+        entries.filter { it.seq > afterSeq }.takeLast(limit)
     }
 
     /** Counters since the last call (used to summarise one reconcile pass). */

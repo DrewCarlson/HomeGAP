@@ -32,6 +32,38 @@ class AppState {
     var toast by mutableStateOf<Toast?>(null)
     var tab by mutableStateOf(tabFromHash())
     var busy by mutableStateOf(false)
+    /** Recent log entries, newest first, fed by the event stream. */
+    var logEntries by mutableStateOf<List<LogEntryDto>>(emptyList())
+    private var lastLogSeq = 0L
+
+    /**
+     * Keeps the dashboard current from the controller's event stream. If the stream cannot be
+     * opened or drops, falls back to one poll and reconnects shortly after.
+     */
+    suspend fun follow() {
+        while (true) {
+            try {
+                Api.events(lastLogSeq) { event, data ->
+                    when (event) {
+                        "status" -> { status = Api.json.decodeFromString(StatusSnapshot.serializer(), data); error = null }
+                        "log" -> {
+                            val fresh = Api.json.decodeFromString(LogResponse.serializer(), data).entries
+                            if (fresh.isNotEmpty()) {
+                                lastLogSeq = fresh.last().seq
+                                logEntries = (fresh.asReversed() + logEntries).take(1000)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Api.ApiError) {
+                error = if (e.status == 401) "Enter the dashboard token to continue." else e.message
+            } catch (e: Throwable) {
+                // Network drop or controller restart: show the last state and retry.
+            }
+            refresh()
+            delay(if (error != null) 5000 else 2000)
+        }
+    }
 
     data class Toast(val text: String, val error: Boolean)
 
@@ -72,12 +104,7 @@ private fun tabFromHash(): Tab = Tab.entries.firstOrNull { "#" + it.name.lowerca
 fun main() {
     val app = AppState()
     window.onhashchange = { app.tab = tabFromHash(); window.scrollTo(0.0, 0.0); null }
-    scope.launch {
-        while (true) {
-            app.refresh()
-            delay(5000)
-        }
-    }
+    scope.launch { app.follow() }
     renderComposable(rootElementId = "root") { App(app) }
 }
 
@@ -181,7 +208,7 @@ fun App(app: AppState) {
                     Tab.DNS -> DnsView(s)
                     Tab.TUNNELS -> TunnelsView(s)
                     Tab.SPEEDTEST -> SpeedTestView(app)
-                    Tab.LOG -> LogView()
+                    Tab.LOG -> LogView(app)
                     Tab.CONFIG -> ConfigView()
                 }
             }
@@ -771,15 +798,10 @@ private fun mbps(v: Double?): String = v?.let { if (it >= 100) "${it.toInt()} Mb
 // ---------------------------------------------------------------------------------- activity
 
 @Composable
-fun LogView() {
+fun LogView(app: AppState) {
     var domain by remember { mutableStateOf<String?>(null) }
-    var entries by remember { mutableStateOf<List<LogEntryDto>>(emptyList()) }
-    LaunchedEffect(domain) {
-        while (true) {
-            entries = runCatching { Api.log(domain).entries }.getOrDefault(entries)
-            delay(4000)
-        }
-    }
+    // Pushed by the event stream; filtered here instead of re-fetching per domain.
+    val entries = app.logEntries.let { all -> if (domain == null) all else all.filter { it.domain == domain } }
     Div({ classes("segmented") }) {
         listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "private", "observe", "speedtest", "controller").forEach { d ->
             Button({ if (d == domain) classes("active"); onClick { domain = d } }) { Text(d ?: "all") }

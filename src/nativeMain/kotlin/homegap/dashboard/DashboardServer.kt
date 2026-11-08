@@ -1,6 +1,10 @@
 package homegap.dashboard
 
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import homegap.api.*
+import homegap.di.RunOptions
 import homegap.config.ConfigLoader
 import homegap.config.GeoLocation
 import homegap.config.NodeConfig
@@ -18,13 +22,22 @@ import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.utils.io.*
+import kotlinx.coroutines.flow.produceIn
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
 /**
  * REST API + embedded SPA. Meant to be exposed only as a private Pangolin resource; an optional
  * bearer token adds defense in depth. Never returns secret values.
  */
-class DashboardServer(private val controller: Controller, private val configPath: String) {
+@Inject
+@SingleIn(AppScope::class)
+class DashboardServer(private val controller: Controller, options: RunOptions) {
+    private val configPath = options.configPath
+
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     fun start(host: String, port: Int) {
@@ -49,6 +62,44 @@ class DashboardServer(private val controller: Controller, private val configPath
                     }
                 }
                 get("/status") { call.respond(controller.snapshot()) }
+                // Server push for the dashboard: the status snapshot whenever it changes and new
+                // log entries, instead of the browser polling both. Tunnel status comes from files
+                // the supervisor writes, so the snapshot is also re-checked every few seconds.
+                get("/events") {
+                    call.response.header(HttpHeaders.CacheControl, "no-cache")
+                    call.response.header("X-Accel-Buffering", "no")
+                    call.respondBytesWriter(ContentType.Text.EventStream) { coroutineScope {
+                        var lastStatus: StatusSnapshot? = null
+                        var lastSeq = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
+                        var lastWrite = 0L
+                        val changes = controller.changes.conflate().produceIn(this@coroutineScope)
+                        try {
+                            while (true) {
+                                val snap = controller.snapshot()
+                                val comparable = snap.copy(generatedAt = 0)
+                                if (comparable != lastStatus) {
+                                    writeStringUtf8("event: status\ndata: ${json.encodeToString(StatusSnapshot.serializer(), snap)}\n\n")
+                                    lastStatus = comparable
+                                    lastWrite = nowMillis()
+                                }
+                                val entries = controller.log.since(lastSeq)
+                                if (entries.isNotEmpty()) {
+                                    writeStringUtf8("event: log\ndata: ${json.encodeToString(LogResponse.serializer(), LogResponse(entries))}\n\n")
+                                    lastSeq = entries.last().seq
+                                    lastWrite = nowMillis()
+                                }
+                                if (nowMillis() - lastWrite > 25_000) {
+                                    writeStringUtf8(": keepalive\n\n")
+                                    lastWrite = nowMillis()
+                                }
+                                flush()
+                                withTimeoutOrNull<Long>(5_000) { changes.receive() }
+                            }
+                        } finally {
+                            changes.cancel()
+                        }
+                    } }
+                }
                 get("/log") {
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 300
                     call.respond(LogResponse(controller.log.recent(limit, call.request.queryParameters["domain"])))
@@ -118,7 +169,14 @@ class DashboardServer(private val controller: Controller, private val configPath
                     return@get
                 }
                 if (asset.path != "/index.html") call.response.header(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
-                call.respondBytes(asset.bytes, ContentType.parse(asset.contentType))
+                call.response.header(HttpHeaders.Vary, HttpHeaders.AcceptEncoding)
+                val gz = asset.gzip
+                if (gz != null && call.request.header(HttpHeaders.AcceptEncoding)?.contains("gzip") == true) {
+                    call.response.header(HttpHeaders.ContentEncoding, "gzip")
+                    call.respondBytes(gz, ContentType.parse(asset.contentType))
+                } else {
+                    call.respondBytes(asset.bytes, ContentType.parse(asset.contentType))
+                }
             }
         }
     }

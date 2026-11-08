@@ -1,7 +1,13 @@
 package homegap.reconcile
 
 import homegap.VERSION
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import homegap.api.*
+import homegap.di.ExternalHttp
+import homegap.di.LocalHttp
+import homegap.di.RunOptions
 import homegap.clients.*
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.AppConfig
@@ -34,20 +40,31 @@ import kotlin.time.Duration.Companion.seconds
  * independent domains. Runs event-driven (Docker events, debounced), periodically (full
  * resync) and on demand (dashboard). A failure in one domain never blocks the others.
  */
+@Inject
+@SingleIn(AppScope::class)
 class Controller(
-    private val configPath: String,
+    options: RunOptions,
     initialConfig: AppConfig,
-    private val dryRunOverride: Boolean,
     private val docker: DockerClient,
-    private val localHttp: HttpClient,
-    private val externalHttp: HttpClient,
+    @LocalHttp private val localHttp: HttpClient,
+    @ExternalHttp private val externalHttp: HttpClient,
+    val log: ReconcileLog,
+    val state: StateStore,
+    private val ssh: SshPool,
+    val speedTokens: homegap.speedtest.SpeedTestTokens,
+    val speedStore: homegap.speedtest.SpeedTestStore,
 ) {
+    private val configPath = options.configPath
+    private val dryRunOverride = options.dryRun
     @Volatile var config: AppConfig = initialConfig
         private set
-    val log = ReconcileLog()
-    val state = StateStore("${initialConfig.dataDir}/state.json")
-    private val ssh = SshPool("/tmp/homegap-ssh", "${initialConfig.dataDir}/known_hosts")
     private val passMutex = Mutex()
+    /** Bumped when in-memory status changes (passes, background jobs). */
+    private val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    /** Fires whenever anything the dashboard shows may have changed. */
+    val changes: kotlinx.coroutines.flow.Flow<Long>
+        get() = kotlinx.coroutines.flow.merge(revision, state.revision, log.revision)
     private val triggers = Channel<String>(Channel.UNLIMITED)
     private val forceProvision = mutableSetOf<String>()
     /** Background provisioning per node: the kind of work and its job. */
@@ -55,8 +72,6 @@ class Controller(
     /** Why a node's pending provisioning is not running yet (shown on the dashboard). */
     private val waiting = mutableMapOf<String, String>()
     private var jobScope: CoroutineScope? = null
-    val speedTokens = homegap.speedtest.SpeedTestTokens()
-    val speedStore = homegap.speedtest.SpeedTestStore("${initialConfig.dataDir}/speedtests.json")
     private val speedRunning = mutableSetOf<String>()
 
     val dryRun: Boolean get() = dryRunOverride || config.reconcile.dryRun
@@ -70,6 +85,9 @@ class Controller(
     @Volatile private var serviceHealth: Map<String, Map<String, ServiceNodeHealthDto>> = emptyMap()
     @Volatile private var dnsObs: List<DnsReconciler.Observed> = emptyList()
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
+    /** Desired-records hash and time of the last successful DNS sync (see the DNS step). */
+    private var dnsKey: String? = null
+    private var dnsSyncedAt = 0L
 
     data class NodeObservation(
         val reachable: Boolean,
@@ -164,6 +182,7 @@ class Controller(
 
     suspend fun reconcileOnce(trigger: String) = passMutex.withLock {
         reconciling = true
+        revision.value++
         val started = nowMillis()
         log.drainCounters()
         try {
@@ -278,9 +297,11 @@ class Controller(
                                                 nodeRec.provisionJob(a, slot, tunnelWasUp)
                                             } finally {
                                                 jobs.remove(node.id)
+                                                revision.value++
                                                 trigger("provisioned:${node.id}")
                                             }
                                         }
+                                        revision.value++
                                         carryOver()
                                         return@async
                                     }
@@ -315,7 +336,20 @@ class Controller(
             // 5. DNS
             if (discoveryOk) {
                 val bunny = cfg.bunny.apiKey.resolve()?.let { BunnyClient(externalHttp, cfg.bunny.apiUrl, it) }
-                dnsObs = runDomain("dns", null) { DnsReconciler(ctx, bunny).reconcile(servableDns(effective, present), pausedKeys) } ?: dnsObs
+                val records = servableDns(effective, present)
+                // The zone download is the pass's only external API call: skip it while the desired
+                // records are unchanged and the last sync succeeded recently.
+                val key = homegap.platform.Crypto.fnv64(records.toString() + pausedKeys.sorted() + state.snapshot().pauses + cfg.bunny)
+                val fresh = key == dnsKey && nowMillis() - dnsSyncedAt < cfg.reconcile.dnsCheck.inWholeMilliseconds
+                if (!fresh || trigger.contains("dashboard")) {
+                    val obs = runDomain("dns", null) { DnsReconciler(ctx, bunny).reconcile(records, pausedKeys) }
+                    if (obs != null) {
+                        dnsObs = obs
+                        if (bunny != null) { dnsKey = key; dnsSyncedAt = nowMillis() }
+                    } else {
+                        dnsKey = null
+                    }
+                }
             }
 
             nodeObs = obs
@@ -326,6 +360,7 @@ class Controller(
             val (changes, errors) = log.drainCounters()
             lastSummary = ReconcileSummaryDto(started, nowMillis(), trigger, errors == 0, changes, errors)
             reconciling = false
+            revision.value++
             log.info("controller", "pass complete in ${nowMillis() - started}ms ($changes changes, $errors errors) trigger=$trigger")
         }
     }
@@ -583,7 +618,7 @@ class Controller(
         val tunnelsDir = cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"
         val tunnels = cfg.nodes.map { n ->
             val t = TunnelFiles.readStatus(tunnelsDir, n.id)
-            val fresh = t != null && nowMillis() - t.updatedAt < 30_000
+            val fresh = t != null && nowMillis() - t.updatedAt < 60_000
             TunnelStatusDto(
                 nodeId = n.id,
                 siteNiceId = cfg.pangolin.siteName,

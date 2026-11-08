@@ -63,8 +63,9 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
                 ctx.log.error(domain, "${d.niceId}: ${e.message}", node.id)
             }
         }
-        val privateActual = if (activePrivate.isEmpty()) emptySet() else
-            runCatching { api.listSiteResources(org).map { it.niceId }.toSet() }.getOrNull()
+        // Listed once per pass and shared with reconcilePrivate.
+        val siteResources = runCatching { api.listSiteResources(org) }
+        val privateActual = siteResources.getOrNull()?.map { it.niceId }?.toSet()
         for (p in activePrivate) {
             val bp = buildBlueprint(emptyList(), listOf(p))
             val h = Crypto.fnv64(bp.toString())
@@ -97,15 +98,19 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         }
         if (!paused) actual = actual.filter { it.niceId in keep || !it.niceId.startsWith(Planner.NICE_PREFIX) || pausedServiceKeys.any { k -> it.niceId.startsWith(Planner.NICE_PREFIX + k) } }
 
-        reconcilePrivate(api, node.id, org, desired, pausedServiceKeys, paused)
+        reconcilePrivate(api, node.id, org, desired, pausedServiceKeys, paused, siteResources)
 
         if (!paused) writeRoutes(ready, desired, actual)
         return actual
     }
 
-    private suspend fun reconcilePrivate(api: PangolinClient, nodeId: String, org: String, desired: NodeDesired, pausedKeys: Set<String>, paused: Boolean) {
+    private suspend fun reconcilePrivate(
+        api: PangolinClient, nodeId: String, org: String, desired: NodeDesired, pausedKeys: Set<String>, paused: Boolean,
+        listed: Result<List<homegap.clients.PangolinSiteResource>>,
+    ) {
         val keep = desired.privateResources.map { it.niceId }.toSet()
-        val actual = runCatching { api.listSiteResources(org) }.getOrElse {
+        // Applying a private blueprint above may have added entries; they are kept anyway.
+        val actual = listed.getOrElse {
             ctx.log.warn(domain, "could not list private resources: ${it.message}", nodeId)
             return
         }

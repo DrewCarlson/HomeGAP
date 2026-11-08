@@ -153,6 +153,8 @@ data class LogEntryDto(
     val level: LogLevel,
     val message: String,
     val target: String? = null,
+    /** Increasing sequence number (lets streaming clients resume after the last entry seen). */
+    val seq: Long = 0,
 )
 
 @Serializable

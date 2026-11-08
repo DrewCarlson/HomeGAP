@@ -1,13 +1,19 @@
 package homegap.tunnels
 
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
+import homegap.di.TunnelOptions
+import homegap.di.TunnelScope
 import homegap.platform.Files
-import homegap.platform.Processes
+import homegap.platform.Subprocess
 import homegap.platform.nowMillis
+import homegap.platform.watchDirectory
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -56,67 +62,165 @@ object TunnelFiles {
  * `homegap tunnels`: keeps one Newt connector per node running from spec files in a shared
  * directory. It runs as its own container, so tunnels survive orchestrator restarts and the
  * data plane never depends on the controller process.
+ *
+ * Event-driven: spec changes arrive through [watchDirectory] (inotify on Linux), process exits
+ * through a waiter per child, and a slow tick only scrapes metrics and refreshes status files.
+ * All state is owned by the single event loop in [run].
  */
-class TunnelSupervisor(
-    private val dir: String,
-    private val newtBinary: String,
-    private val http: HttpClient,
-) {
-    private val logger = KotlinLogging.logger {}
+@Inject
+@SingleIn(TunnelScope::class)
+class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
+    private val dir = options.dir
+    private val newtBinary = options.newtBinary
+    private val logger = KotlinLogging.logger("homegap.tunnels")
 
-    private class Proc(val spec: TunnelSpec, val pid: Int, val startedAt: Long, var restarts: Int, var logOffset: Long)
+    private class Proc(
+        val spec: TunnelSpec,
+        val child: Subprocess.Child,
+        val startedAt: Long,
+        var logOffset: Long,
+        val exited: CompletableDeferred<Int> = CompletableDeferred(),
+    )
 
+    private sealed interface Event {
+        data object Rescan : Event
+        data object Tick : Event
+        class Exited(val id: String, val proc: Proc, val code: Int) : Event
+    }
+
+    private val events = Channel<Event>(Channel.UNLIMITED)
     private val procs = mutableMapOf<String, Proc>()
     private val backoffUntil = mutableMapOf<String, Long>()
     private val restartCounts = mutableMapOf<String, Int>()
     private val lastExit = mutableMapOf<String, String>()
+    private val metrics = mutableMapOf<String, Metrics?>()
+    private val published = mutableMapOf<String, Pair<TunnelStatus, Long>>()
 
-    suspend fun run() {
+    suspend fun run() = coroutineScope {
         Files.mkdirs(dir)
         Files.mkdirs("$dir/logs")
         logger.info { "Tunnel supervisor watching $dir (newt: $newtBinary)" }
-        while (true) {
+        // Only spec files: the status files this loop writes live in the same directory.
+        launch { watchDirectory(dir) { it.endsWith(".tunnel.json") }.collect { events.send(Event.Rescan) } }
+        launch { while (true) { delay(TICK_MS); events.send(Event.Tick) } }
+        // Safety net for filesystems that do not deliver inotify events (some network mounts).
+        launch { while (true) { delay(RESCAN_MS); events.send(Event.Rescan) } }
+        events.send(Event.Rescan)
+        for (e in events) {
             try {
-                tick()
-            } catch (e: Exception) {
-                logger.error(e) { "supervisor tick failed" }
+                when (e) {
+                    Event.Rescan -> reconcileSpecs(this)
+                    Event.Tick -> { checkNativeFailures(); scrapeAll(); publish(force = false) }
+                    is Event.Exited -> onExit(this, e)
+                }
+            } catch (ex: CancellationException) {
+                throw ex
+            } catch (ex: Exception) {
+                logger.error(ex) { "supervisor event $e failed" }
             }
-            delay(3000)
         }
     }
 
-    private suspend fun tick() {
-        val specs = TunnelFiles.readSpecs(dir).associateBy { it.nodeId }
+    private fun specs(): Map<String, TunnelSpec> = TunnelFiles.readSpecs(dir).associateBy { it.nodeId }
 
-        // reap exited processes
-        for ((id, p) in procs.toMap()) {
-            val exit = Processes.reap(p.pid) ?: continue
-            logger.warn { "newt for $id exited ($exit)" }
-            lastExit[id] = exit
-            procs.remove(id)
-            val n = (restartCounts[id] ?: 0) + 1
-            restartCounts[id] = n
-            backoffUntil[id] = nowMillis() + minOf(60_000L, 2_000L * n)
-        }
-
-        // stop removed / changed
+    private suspend fun reconcileSpecs(scope: CoroutineScope) {
+        val specs = specs()
+        // Stop removed / changed first, so their interfaces and ports are free before starts.
         for ((id, p) in procs.toMap()) {
             val spec = specs[id]
             if (spec == null || spec != p.spec) {
                 logger.info { if (spec == null) "stopping tunnel $id (spec removed)" else "restarting tunnel $id (spec changed)" }
-                stop(p)
-                procs.remove(id)
+                stop(id, p)
                 if (spec == null) {
                     Files.delete(TunnelFiles.statusPath(dir, id))
-                    restartCounts.remove(id)
+                    restartCounts.remove(id); published.remove(id); metrics.remove(id)
                 } else {
                     backoffUntil.remove(id)
                 }
             }
         }
+        for ((id, spec) in specs) {
+            if (id in procs) continue
+            val wait = (backoffUntil[id] ?: 0) - nowMillis()
+            if (wait > 0) continue
+            // Never start while another connector still holds this interface or admin port.
+            val clash = procs.values.firstOrNull { o ->
+                o.spec.nodeId != id && (o.spec.adminPort == spec.adminPort || (spec.nativeInterface != null && o.spec.nativeInterface == spec.nativeInterface))
+            }
+            if (clash != null) {
+                logger.warn { "not starting $id yet: ${clash.spec.nodeId} still uses ${if (clash.spec.adminPort == spec.adminPort) "admin port ${spec.adminPort}" else "interface ${spec.nativeInterface}"}" }
+                continue
+            }
+            start(scope, id, spec)
+        }
+        publish(force = true)
+    }
 
-        // Kernel interface creation can fail (an interface or port another connector still
-        // holds); Newt then stays up without a working tunnel, so restart it.
+    private fun start(scope: CoroutineScope, id: String, spec: TunnelSpec) {
+        val env = mapOf(
+            "PANGOLIN_ENDPOINT" to spec.endpoint,
+            "NEWT_ID" to spec.newtId,
+            "NEWT_SECRET" to spec.newtSecret,
+            "LOG_LEVEL" to spec.logLevel,
+            "NEWT_METRICS_PROMETHEUS_ENABLED" to "true",
+            "NEWT_ADMIN_ADDR" to "127.0.0.1:${spec.adminPort}",
+            "NEWT_NAME" to "homegap-${spec.nodeId}",
+            "DOCKER_SOCKET" to "",
+        )
+        val argv = buildList {
+            add(newtBinary)
+            spec.mtu?.let { add("--mtu"); add(it.toString()) }
+            spec.nativeInterface?.let { add("--native-main"); add("--interface-main"); add(it) }
+        }
+        val log = "$dir/logs/$id.log"
+        val logOffset = Files.size(log)
+        val child = try {
+            Subprocess.start(argv, log, env)
+        } catch (e: Exception) {
+            logger.error { "could not start newt for $id: ${e.message}" }
+            lastExit[id] = "start failed: ${e.message}"
+            scheduleRetry(scope, id)
+            return
+        }
+        val proc = Proc(spec, child, nowMillis(), logOffset)
+        procs[id] = proc
+        scope.launch {
+            val code = child.awaitExit()
+            proc.exited.complete(code)
+            events.send(Event.Exited(id, proc, code))
+        }
+        logger.info { "started newt for $id -> ${spec.endpoint}${spec.mtu?.let { " (mtu $it" } ?: " ("}${spec.nativeInterface?.let { ", kernel wireguard $it)" } ?: ")"}" }
+    }
+
+    private fun onExit(scope: CoroutineScope, e: Event.Exited) {
+        // Exits of processes we stopped on purpose are already accounted for.
+        if (procs[e.id] !== e.proc) return
+        logger.warn { "newt for ${e.id} exited (exit ${e.code})" }
+        procs.remove(e.id)
+        lastExit[e.id] = "exit ${e.code}"
+        scheduleRetry(scope, e.id)
+    }
+
+    private fun scheduleRetry(scope: CoroutineScope, id: String) {
+        val n = (restartCounts[id] ?: 0) + 1
+        restartCounts[id] = n
+        val wait = minOf(60_000L, 2_000L * n)
+        backoffUntil[id] = nowMillis() + wait
+        scope.launch { delay(wait); events.send(Event.Rescan) }
+        publish(force = true)
+    }
+
+    private suspend fun stop(id: String, p: Proc) {
+        procs.remove(id)
+        p.child.terminate()
+        if (withTimeoutOrNull(5_000) { p.exited.await() } == null) {
+            p.child.kill()
+            p.exited.await()
+        }
+    }
+
+    /** Kernel interface creation can fail; Newt then stays up without a tunnel, so restart it. */
+    private suspend fun checkNativeFailures() {
         for ((id, p) in procs.toMap()) {
             if (p.spec.nativeInterface == null) continue
             val log = "$dir/logs/$id.log"
@@ -127,76 +231,44 @@ class TunnelSupervisor(
             p.logOffset = size
             if (NATIVE_FAILURES.any { it in fresh }) {
                 logger.warn { "newt for $id could not create kernel interface ${p.spec.nativeInterface}; restarting" }
-                stop(p)
-                procs.remove(id)
+                stop(id, p)
                 lastExit[id] = "kernel interface ${p.spec.nativeInterface} could not be created"
                 val n = (restartCounts[id] ?: 0) + 1
                 restartCounts[id] = n
                 backoffUntil[id] = nowMillis() + minOf(60_000L, 2_000L * n)
+                events.send(Event.Rescan)
             }
-        }
-
-        // start missing
-        for ((id, spec) in specs) {
-            if (id in procs) continue
-            if ((backoffUntil[id] ?: 0) > nowMillis()) continue
-            // Never start while another connector still holds this interface or admin port.
-            val clash = procs.values.firstOrNull { o ->
-                o.spec.nodeId != id && (o.spec.adminPort == spec.adminPort || (spec.nativeInterface != null && o.spec.nativeInterface == spec.nativeInterface))
-            }
-            if (clash != null) {
-                logger.warn { "not starting $id yet: ${clash.spec.nodeId} still uses ${if (clash.spec.adminPort == spec.adminPort) "admin port ${spec.adminPort}" else "interface ${spec.nativeInterface}"}" }
-                continue
-            }
-            val env = mapOf(
-                "PANGOLIN_ENDPOINT" to spec.endpoint,
-                "NEWT_ID" to spec.newtId,
-                "NEWT_SECRET" to spec.newtSecret,
-                "LOG_LEVEL" to spec.logLevel,
-                "NEWT_METRICS_PROMETHEUS_ENABLED" to "true",
-                "NEWT_ADMIN_ADDR" to "127.0.0.1:${spec.adminPort}",
-                "NEWT_NAME" to "homegap-${spec.nodeId}",
-                "DOCKER_SOCKET" to "",
-            )
-            val argv = buildList {
-                add(newtBinary)
-                spec.mtu?.let { add("--mtu"); add(it.toString()) }
-                spec.nativeInterface?.let { add("--native-main"); add("--interface-main"); add(it) }
-            }
-            val logOffset = Files.size("$dir/logs/$id.log")
-            val pid = Processes.spawnDetached(argv, env, "$dir/logs/$id.log", inherit = true)
-            logger.info { "started newt for $id -> ${spec.endpoint} (pid $pid${spec.mtu?.let { ", mtu $it" } ?: ""}${spec.nativeInterface?.let { ", kernel wireguard $it" } ?: ""})" }
-            procs[id] = Proc(spec, pid, nowMillis(), restartCounts[id] ?: 0, logOffset)
-        }
-
-        // publish status
-        for ((id, spec) in specs) {
-            val p = procs[id]
-            val metrics = p?.let { scrape(spec.adminPort) }
-            val status = TunnelStatus(
-                nodeId = id,
-                running = p != null,
-                pid = p?.pid,
-                startedAt = p?.startedAt,
-                restarts = restartCounts[id] ?: 0,
-                lastExit = lastExit[id],
-                connected = metrics?.connected,
-                bytesIn = metrics?.bytesIn,
-                bytesOut = metrics?.bytesOut,
-                updatedAt = nowMillis(),
-            )
-            Files.writeAtomic(TunnelFiles.statusPath(dir, id), TunnelFiles.json.encodeToString(TunnelStatus.serializer(), status), "644".toInt(8))
         }
     }
 
-    private suspend fun stop(p: Proc) {
-        Processes.terminate(p.pid)
-        repeat(50) {
-            if (Processes.reap(p.pid) != null) return
-            delay(100)
+    private suspend fun scrapeAll() {
+        for ((id, p) in procs) metrics[id] = scrape(p.spec.adminPort)
+    }
+
+    /** Writes status files only when something changed, plus a heartbeat for staleness checks. */
+    private fun publish(force: Boolean) {
+        val now = nowMillis()
+        for (spec in specs().values) {
+            val id = spec.nodeId
+            val p = procs[id]
+            val m = if (p != null) metrics[id] else null
+            val status = TunnelStatus(
+                nodeId = id,
+                running = p != null,
+                pid = null,
+                startedAt = p?.startedAt,
+                restarts = restartCounts[id] ?: 0,
+                lastExit = lastExit[id],
+                connected = m?.connected,
+                bytesIn = m?.bytesIn,
+                bytesOut = m?.bytesOut,
+                updatedAt = 0,
+            )
+            val prev = published[id]
+            if (!force && prev != null && prev.first == status && now - prev.second < HEARTBEAT_MS) continue
+            published[id] = status to now
+            Files.writeAtomic(TunnelFiles.statusPath(dir, id), TunnelFiles.json.encodeToString(TunnelStatus.serializer(), status.copy(updatedAt = now)), "644".toInt(8))
         }
-        Processes.forceKill(p.pid)
-        Processes.reap(p.pid)
     }
 
     data class Metrics(val connected: Boolean?, val bytesIn: Long?, val bytesOut: Long?)
@@ -206,6 +278,11 @@ class TunnelSupervisor(
     }.getOrNull()
 
     companion object {
+        const val TICK_MS = 10_000L
+        const val RESCAN_MS = 60_000L
+        /** Status files are rewritten at least this often even when unchanged (staleness check). */
+        const val HEARTBEAT_MS = 20_000L
+
         /** Newt log lines meaning the kernel WireGuard tunnel was not set up. */
         val NATIVE_FAILURES = listOf("Failed to create native main TUN device")
 

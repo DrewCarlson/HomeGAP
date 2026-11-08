@@ -3,7 +3,8 @@ package homegap.clients
 import homegap.config.NodeConfig
 import homegap.platform.Files
 import homegap.platform.ProcessResult
-import homegap.platform.Processes
+import homegap.platform.Subprocess
+import homegap.platform.nowMillis
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
@@ -11,6 +12,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.io.encoding.Base64
+import kotlin.time.Duration.Companion.seconds
 
 class SshException(message: String) : Exception(message)
 
@@ -46,40 +48,46 @@ class SshSession(
 
     private val target: String get() = "${node.sshUser}@${node.host}"
 
-    private suspend fun io(argv: List<String>, stdin: ByteArray? = null, timeout: Int = 900): ProcessResult =
-        withContext(Dispatchers.IO) { Processes.run(argv, stdin, timeoutSeconds = timeout) }
+    private suspend fun io(argv: List<String>, stdin: String = "", timeout: Int = 900): ProcessResult =
+        Subprocess.run(argv, stdin, timeout.seconds)
+
+    /** When the master connection was last known to be up; checks within [MASTER_TRUST] are skipped. */
+    private var masterVerifiedAt = 0L
+
+    private fun markMasterSuspect() { masterVerifiedAt = 0L }
 
     suspend fun ensureMaster() = mutex.withLock {
+        // Every pass runs several commands per node; one `ssh -O check` fork per window is enough.
+        if (nowMillis() - masterVerifiedAt < MASTER_TRUST_MS) return@withLock
         Files.mkdirs(controlDir)
         Files.chmodPath(controlDir, "700".toInt(8))
-        if (io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) return@withLock
+        if (io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
+            masterVerifiedAt = nowMillis()
+            return@withLock
+        }
         forwards.clear()
         // A socket left behind by a previous process (e.g. container restart) blocks a new master.
         Files.delete(controlPath)
         // `ssh -f` backgrounds the master while keeping inherited fds, so it must not share our
-        // capture pipes: spawn it detached with output to a log file and wait for the parent to exit.
+        // capture pipes: its output goes to a log file and we wait for the foreground ssh to exit.
         val log = "$controlDir/${node.id}.log"
         Files.writeAtomic(log, "", "600".toInt(8))
-        val pid = withContext(Dispatchers.IO) {
-            Processes.spawnDetached(
-                baseArgs() + listOf("-M", "-f", "-N", "-o", "ControlPersist=15m", "-o", "ExitOnForwardFailure=yes", target),
-                emptyMap(), log,
-            )
-        }
-        var exit: String? = null
-        for (i in 0 until 600) {
-            exit = Processes.reap(pid)
-            if (exit != null) break
-            kotlinx.coroutines.delay(100)
-        }
-        if (exit == null) {
-            Processes.forceKill(pid)
+        val child = Subprocess.start(
+            baseArgs() + listOf("-M", "-f", "-N", "-o", "ControlPersist=15m", "-o", "ExitOnForwardFailure=yes", target),
+            log,
+        )
+        // Bounded wait (ksubprocess polls every 50 ms here); the unbounded wait would block.
+        val code = withContext(Dispatchers.IO) { child.process.waitFor(60.seconds) }
+        if (code == null) {
+            child.kill()
+            child.awaitExit()
             throw SshException("ssh to ${node.id} (${node.host}) timed out")
         }
-        if (exit != "exit 0" || !io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
+        if (code != 0 || !io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
             val detail = Files.readTextOrNull(log)?.trim()?.takeLast(500).orEmpty()
-            throw SshException("ssh to ${node.id} (${node.host}) failed ($exit): $detail")
+            throw SshException("ssh to ${node.id} (${node.host}) failed (exit $code): $detail")
         }
+        masterVerifiedAt = nowMillis()
     }
 
     /** Runs a bash script on the node as root (via `sudo -n` unless already root). */
@@ -87,7 +95,10 @@ class SshSession(
         ensureMaster()
         val wrapped = "set -euo pipefail\n$script\n"
         val cmd = if (node.sshUser == "root") "bash -s" else "sudo -n bash -s"
-        return io(baseArgs() + listOf(target, cmd), wrapped.encodeToByteArray(), timeoutSeconds)
+        val r = io(baseArgs() + listOf(target, cmd), wrapped, timeoutSeconds)
+        // 255 is ssh's own failure (connection lost): re-check the master next time.
+        if (r.exitCode == 255) markMasterSuspect()
+        return r
     }
 
     suspend fun runScriptOrThrow(step: String, script: String, timeoutSeconds: Int = 900): String {
@@ -111,6 +122,7 @@ class SshSession(
                     forwards[remotePort] = local
                     return@withLock local
                 }
+                if (r.exitCode == 255 && "forward" !in r.stderr) markMasterSuspect()
                 local++
             }
             throw SshException("could not open a port-forward to ${node.id}:$remotePort")
@@ -120,6 +132,7 @@ class SshSession(
     suspend fun close() = mutex.withLock {
         io(baseArgs() + listOf("-O", "exit", target), timeout = 10)
         forwards.clear()
+        masterVerifiedAt = 0L
     }
 
     companion object {
@@ -133,6 +146,8 @@ class SshSession(
                 |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod $mode $q.homegap-new; chown $owner $q.homegap-new; mv -f $q.homegap-new $q; echo "CHANGED $path"; else rm -f $q.homegap-new; chmod $mode $q; fi
             """.trimMargin()
         }
+
+        const val MASTER_TRUST_MS = 30_000L
 
         fun shQuote(s: String): String = "'" + s.replace("'", "'\"'\"'") + "'"
     }

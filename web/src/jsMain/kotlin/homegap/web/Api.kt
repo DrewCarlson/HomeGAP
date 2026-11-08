@@ -36,6 +36,40 @@ object Api {
         return text
     }
 
+    /**
+     * Reads the controller's event stream (`/api/events`) until it ends, calling [onEvent] with
+     * each event name and data. Uses fetch rather than EventSource so the bearer token can be sent.
+     */
+    suspend fun events(afterSeq: Long, onEvent: (String, String) -> Unit) {
+        val init = RequestInit(method = "GET", headers = headers(false).apply { this["Accept"] = "text/event-stream" })
+        val resp: Response = window.fetch("/api/events?after=$afterSeq", init).await()
+        if (!resp.ok) throw ApiError(resp.status.toInt(), "HTTP ${resp.status}")
+        val reader = resp.asDynamic().body.getReader()
+        val decoder = js("new TextDecoder()")
+        val opts = js("({stream: true})")
+        var buf = ""
+        while (true) {
+            val chunk = (reader.read() as kotlin.js.Promise<dynamic>).await()
+            if (chunk.done == true) return
+            buf += decoder.decode(chunk.value, opts) as String
+            while (true) {
+                val end = buf.indexOf("\n\n")
+                if (end < 0) break
+                val block = buf.substring(0, end)
+                buf = buf.substring(end + 2)
+                var event = "message"
+                val data = StringBuilder()
+                for (line in block.split('\n')) {
+                    when {
+                        line.startsWith("event:") -> event = line.removePrefix("event:").trim()
+                        line.startsWith("data:") -> { if (data.isNotEmpty()) data.append('\n'); data.append(line.removePrefix("data:").trimStart()) }
+                    }
+                }
+                if (data.isNotEmpty()) onEvent(event, data.toString())
+            }
+        }
+    }
+
     suspend fun status(): StatusSnapshot = json.decodeFromString(StatusSnapshot.serializer(), request("GET", "/status"))
     suspend fun log(domain: String?): LogResponse =
         json.decodeFromString(LogResponse.serializer(), request("GET", "/log?limit=500" + (domain?.let { "&domain=$it" } ?: "")))

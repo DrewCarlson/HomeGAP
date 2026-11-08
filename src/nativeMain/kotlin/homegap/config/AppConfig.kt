@@ -41,10 +41,16 @@ data class ReconcileConfig(
     @SerialName("dry_run") val dryRun: Boolean = false,
     /** How often the (comparatively expensive) SSH drift check runs per node. */
     @SerialName("node_check_interval") val nodeCheckInterval: String = "5m",
+    /**
+     * How often the full Bunny zone is re-read when the desired records have not changed (to
+     * catch edits made in the Bunny console). Changes to desired records sync immediately.
+     */
+    @SerialName("dns_check_interval") val dnsCheckInterval: String = "5m",
 ) {
     val resync: Duration get() = parseDuration(resyncInterval)
     val debounceDuration: Duration get() = parseDuration(debounce)
     val nodeCheck: Duration get() = parseDuration(nodeCheckInterval)
+    val dnsCheck: Duration get() = parseDuration(dnsCheckInterval)
 }
 
 @Serializable

@@ -8,6 +8,8 @@ kotlin-logging = "8.0.6"
 kaml = "0.104.0"
 compose = "1.12.2"
 kotlin-vite = "0.1.0"
+ksubprocess = "0.9.0"
+metro = "1.5.2"
 
 [libraries]
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
@@ -27,6 +29,7 @@ kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-t
 kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
 kotlin-logging = { module = "io.github.oshai:kotlin-logging", version.ref = "kotlin-logging" }
 kaml = { module = "com.charleskorn.kaml:kaml", version.ref = "kaml" }
+ksubprocess = { module = "org.drewcarlson:ksubprocess", version.ref = "ksubprocess" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
@@ -34,3 +37,4 @@ kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", versi
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 compose = { id = "org.jetbrains.compose", version.ref = "compose" }
 kotlin-vite = { id = "org.drewcarlson.kotlin-vite", version.ref = "kotlin-vite" }
+metro = { id = "dev.zacsweers.metro", version.ref = "metro" }
