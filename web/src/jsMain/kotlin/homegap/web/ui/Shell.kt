@@ -7,6 +7,7 @@ import homegap.presentation.app.AppModel
 import homegap.presentation.app.HeaderModel
 import homegap.presentation.app.NavItem
 import homegap.presentation.app.PassStatusModel
+import homegap.presentation.addnode.AddNodeScreenModel
 import homegap.presentation.config.ConfigScreenModel
 import homegap.presentation.core.ScreenModel
 import homegap.presentation.dns.DnsScreenModel
@@ -71,13 +72,14 @@ private fun Content(model: AppModel) {
 private fun Screen(screen: ScreenModel, onNavigate: (Route) -> Unit) {
     when (screen) {
         is OverviewScreenModel -> OverviewScreen(screen, onNavigate)
-        is NodesScreenModel -> NodesScreen(screen)
+        is NodesScreenModel -> NodesScreen(screen, onNavigate)
         is ServicesScreenModel -> ServicesScreen(screen)
         is DnsScreenModel -> DnsScreen(screen)
         is TunnelsScreenModel -> TunnelsScreen(screen)
         is SpeedTestScreenModel -> SpeedTestScreen(screen)
         is ActivityScreenModel -> ActivityScreen(screen)
         is ConfigScreenModel -> ConfigScreen(screen)
+        is AddNodeScreenModel -> AddNodeScreen(screen)
     }
 }
 
@@ -133,7 +135,7 @@ private fun Brand() {
 private fun NavLinks(items: List<NavItem>, onNavigate: (Route) -> Unit, className: String) {
     Nav({ classes(className) }) {
         items.forEach { item ->
-            NavLink(HashRouter.href(item.route), { onNavigate(item.route) }, if (item.selected) "active" else null) {
+            NavLink(HashRouter.href(item.route), { onNavigate(item.route) }, if (item.selected) listOf("active") else emptyList()) {
                 Span { Text(item.route.title) }
                 if (item.needsAttention) Span({ classes("dot"); title("Needs attention") })
             }

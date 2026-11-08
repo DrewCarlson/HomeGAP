@@ -62,6 +62,11 @@ class FetchControllerApi(private val tokens: TokenStore) : ControllerApi {
     override suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto =
         post("/speedtest/nodes/$node?streams=$streams")
 
+    override suspend fun testConnection(login: SshLoginDto): ConnectionTestDto = post("/setup/test", login)
+    override suspend fun createKey(request: SshKeyRequestDto): SshKeyDto = post("/setup/keys", request)
+    override suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto = post("/setup/jobs", request)
+    override suspend fun setupJob(id: String): SetupJobDto = get("/setup/jobs/$id")
+
     private suspend inline fun <reified T> get(path: String): T = send("GET", path)
 
     private suspend inline fun <reified T> post(path: String): T = send("POST", path)

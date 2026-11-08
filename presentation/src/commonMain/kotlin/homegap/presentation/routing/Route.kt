@@ -10,7 +10,18 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     SpeedTest("speedtest", "Speed test", "Latency and throughput through the real traffic path"),
     Activity("log", "Activity", "Reconcile log, newest first"),
     Config("config", "Config", "Desired vs. actual state, secrets and the config file"),
+    AddNode("add-node", "Add node", "Set up a fresh server from its initial login and provision it"),
     ;
+
+    /** Where this route sits in the navigation: itself, or (for sub-pages) its section. */
+    val navSection: Route
+        get() = when (this) {
+            AddNode -> Nodes
+            else -> this
+        }
+
+    /** Shown as its own entry in the navigation. */
+    val inNav: Boolean get() = navSection == this
 
     companion object {
         val DEFAULT = Overview

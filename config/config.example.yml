@@ -58,6 +58,9 @@ nodes:
     ssh_user: deploy
     ssh_key_file: /secrets/ssh/na1
     license_key_env: PANGOLIN_LICENSE_KEY_NA1
+    # Optional: allow SSH through the firewall only from these sources. Locks the orchestrator
+    # out if its public IP leaves the list; see "Adding a node" in the README.
+    # ssh_allow_from: [198.51.100.0/24]
     location: { latitude: 45.5, longitude: -73.6 }
   - id: as1
     region: AS

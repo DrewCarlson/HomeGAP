@@ -207,6 +207,8 @@ data class NodeConfigDto(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val managementHost: String? = null,
+    /** Sources allowed to reach SSH through the node firewall; empty allows any source. */
+    val sshAllowFrom: List<String> = emptyList(),
 )
 
 @Serializable

@@ -52,6 +52,9 @@ object ConfigLoader {
         for (n in c.nodes) {
             if (!NODE_ID.matches(n.id)) errors += "node id '${n.id}' must match ${NODE_ID.pattern}"
             if (!ids.add(n.id)) errors += "duplicate node id '${n.id}'"
+            n.sshAllowFrom.filterNot { SSH_SOURCE.matches(it) }.forEach {
+                errors += "node ${n.id}: ssh_allow_from entry '$it' is not an IP address or CIDR"
+            }
             if (n.ipv4() == null && n.publicIpv6 == null) errors += "node ${n.id}: set public_ipv4 (host is not an IPv4 literal)"
             if (c.bunny.routing == "geolocation" && n.effectiveLocation() == null) {
                 errors += "node ${n.id}: geolocation routing needs `location` or a known region code (${REGION_CENTROIDS.keys.joinToString()})"
@@ -72,4 +75,10 @@ object ConfigLoader {
     }
 
     val NODE_ID = Regex("^[a-z][a-z0-9-]{0,30}$")
+
+    /** An IPv4 or IPv6 address, optionally with a prefix length (loose; `ufw` validates the rest). */
+    val SSH_SOURCE = Regex("""^(\d{1,3}(\.\d{1,3}){3}(/\d{1,2})?|[0-9a-fA-F:]*:[0-9a-fA-F:]*(/\d{1,3})?)$""")
+
+    /** Linux user names HomeGAP creates or logs in as. */
+    val UNIX_USER = Regex("^[a-z_][a-z0-9_-]{0,31}$")
 }

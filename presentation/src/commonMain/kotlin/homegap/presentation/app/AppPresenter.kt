@@ -9,6 +9,8 @@ import homegap.api.StatusSnapshot
 import homegap.presentation.activity.ActivityScreenPresenter
 import homegap.presentation.activity.ActivityScreenProps
 import homegap.presentation.config.ConfigScreenPresenter
+import homegap.presentation.addnode.AddNodeScreenPresenter
+import homegap.presentation.addnode.AddNodeScreenProps
 import homegap.presentation.config.ConfigScreenProps
 import homegap.presentation.core.Presenter
 import homegap.presentation.core.ScreenModel
@@ -58,6 +60,7 @@ class AppPresenter(
     private val speedTest: SpeedTestScreenPresenter,
     private val activity: ActivityScreenPresenter,
     private val config: ConfigScreenPresenter,
+    private val addNode: AddNodeScreenPresenter,
 ) : Presenter<AppProps, AppModel> {
     @Composable
     override fun model(props: AppProps): AppModel {
@@ -73,19 +76,21 @@ class AppPresenter(
         val attention = remember(snapshot) { snapshot?.tabsNeedingAttention().orEmpty() }
         return AppModel(
             route = props.route,
-            nav = Route.entries.map { NavItem(it, selected = it == props.route, needsAttention = it in attention) },
+            nav = Route.entries.filter { it.inNav }.map {
+                NavItem(it, selected = it == props.route.navSection, needsAttention = it in attention)
+            },
             header = snapshot?.let { header(it, busy, now) },
             connection = problem?.let { connection(it) },
             banners = remember(snapshot) { snapshot?.banners().orEmpty() },
             rollout = snapshot?.let { rollout(it, now) },
-            screen = snapshot?.let { screen(props.route, it, now) },
+            screen = snapshot?.let { screen(props.route, it, now, props.router) },
             toast = toast,
             onNavigate = remember { { route: Route -> router.navigate(route) } },
         )
     }
 
     @Composable
-    private fun screen(route: Route, status: StatusSnapshot, now: Long): ScreenModel = when (route) {
+    private fun screen(route: Route, status: StatusSnapshot, now: Long, router: Router): ScreenModel = when (route) {
         Route.Overview -> overview.model(OverviewScreenProps(status, now))
         Route.Nodes -> nodes.model(NodesScreenProps(status, now))
         Route.Services -> services.model(ServicesScreenProps(status))
@@ -94,6 +99,15 @@ class AppPresenter(
         Route.SpeedTest -> speedTest.model(SpeedTestScreenProps(now))
         Route.Activity -> activity.model(ActivityScreenProps)
         Route.Config -> config.model(ConfigScreenProps)
+        Route.AddNode -> {
+            val currentRouter by rememberUpdatedState(router)
+            addNode.model(
+                AddNodeScreenProps(
+                    existingNodeIds = remember(status.nodes) { status.nodes.map { it.id }.toSet() },
+                    onFinished = remember { { currentRouter.navigate(Route.Nodes) } },
+                )
+            )
+        }
     }
 
     @Composable

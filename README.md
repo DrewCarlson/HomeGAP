@@ -159,7 +159,7 @@ the health interval plus the 60s TTL plus resolver caching: roughly 1–5 minute
 | Component | Requirement |
 | --- | --- |
 | Homelab | Docker with Compose; a Traefik instance fronting your services |
-| Regional nodes | Ubuntu 22.04, 24.04, 26.04 or 26.10 VPS (x86_64 or aarch64), SSH access as a user with passwordless sudo, public IPv4 (IPv6 optional) |
+| Regional nodes | Ubuntu 22.04, 24.04, 26.04 or 26.10 VPS (x86_64 or aarch64), public IPv4 (IPv6 optional), and SSH access: either root or a sudo user with a password or key (the [add-node wizard](#adding-a-node) sets up the rest), or a user with passwordless sudo and a key you configure yourself |
 | DNS | A [Bunny DNS](https://bunny.net/dns/) zone and API key |
 | Pangolin EE license | Optional; required for wildcard resources in `terminate` mode — one key per Pangolin instance (see [EE licenses](#ee-licenses)) |
 | Primary Pangolin | Optional; a hand-curated Pangolin EE on the homelab for private (client) access |
@@ -175,8 +175,10 @@ supervisor (`homegap tunnels`).
 1. Choose a test domain that no live services depend on — a spare domain, or a subdomain of your
    real domain (e.g. `gap.example.net`) delegated to Bunny with NS records — host it in Bunny DNS,
    and create an API key.
-2. Create a bare VPS per region (Ubuntu 22.04, 24.04, 26.04 or 26.10) that is reachable over SSH as a user with
-   passwordless sudo. Use a dedicated SSH key per node.
+2. Create a bare VPS per region (Ubuntu 22.04, 24.04, 26.04 or 26.10). Once the orchestrator
+   runs, add it with the dashboard's [add-node wizard](#adding-a-node), starting from the root
+   password your provider gives you. Or set it up yourself: a user with passwordless sudo and a
+   dedicated SSH key per node, then add it to `nodes[]`.
 3. Stand up the primary Pangolin EE on the homelab by hand (optional, for private access). Create
    its admin, org and homelab site, plus an Integration API key.
 4. Label your Traefik container (root + wildcard + `tls`, see [Service labels](#service-labels))
@@ -281,7 +283,7 @@ Key sections:
 | `pangolin` | Image versions, ACME email, org id, optional default `license_key_env`, optional CrowdSec, and `base_blueprint` — a Pangolin blueprint applied to every node before the managed resources. |
 | `certificates` | How the wildcard + root certificate reaches the nodes: `none` (nodes use their own ACME HTTP-01), `files` (PEM chain and key), or `acme_json` (read the homelab Traefik's ACME store, mounted read-only; the certificate must be issued with DNS-01, for example Traefik's `bunny` provider). |
 | `primary_pangolin` | Integration API URL, key, org and site of the hand-curated homelab Pangolin. HomeGAP only writes private resources there. |
-| `nodes[]` | Per node: `id`, `host`, SSH user, port and key file, `location`, and optionally `license_key_env` (each node needs its own EE key), `public_ipv4` / `public_ipv6`, `management_host` (default `pangolin-<id>.<domain>`), `dashboard_public` (default `false`), `firewall` (default `true`), `install_docker` (default `true`). |
+| `nodes[]` | Per node: `id`, `host`, SSH user, port and key file, `location`, and optionally `license_key_env` (each node needs its own EE key), `public_ipv4` / `public_ipv6`, `management_host` (default `pangolin-<id>.<domain>`), `dashboard_public` (default `false`), `firewall` (default `true`), `ssh_allow_from` (sources allowed to reach SSH through the firewall, IPv4/IPv6 addresses or CIDRs; empty, the default, allows SSH from anywhere — see [Adding a node](#adding-a-node) before restricting it), `install_docker` (default `true`). |
 | `tunnels` | Shared state directory, `mtu` (WireGuard MTU for Newt and every Gerbil) and `native` (kernel WireGuard for Newt). See [Performance](#performance). |
 | `pangolin.tcp_tuning` | BBR, fq and larger TCP buffers on every node (default `true`). |
 | `speedtest` | `enabled`, `hostname` (default `speedtest`), `bind` (default `0.0.0.0:8089`), `link_ttl`, `phase_seconds`, `streams` (homelab ↔ node, default 4). |
@@ -331,6 +333,50 @@ New nodes and drift repairs do not wait for rollouts. A first provisioning that 
 after five minutes, or at once with *Re-provision*. Host-level steps (Docker, firewall, TCP
 tuning) are idempotent and not rolled back.
 
+### Adding a node
+
+The dashboard's **Nodes → Add node** wizard takes a fresh VPS from the credentials your provider
+gives you to a provisioned node. Setup runs on the orchestrator as a background job, so you can
+leave the page while it works.
+
+1. **Server:** node id, public IP or host name, SSH port, and a region code or coordinates.
+2. **Initial login:** root (or another user that can sudo) with a password or a private key file.
+   *Test connection* checks the login and reports the OS, how root access works, whether Docker is
+   installed, the host key fingerprint (compare it with your provider's console) and the address
+   the node sees the orchestrator connect from. A changed host key is reported, and can be
+   forgotten after you confirm the server was rebuilt.
+3. **Access:** the user HomeGAP manages the node as (by default a new `homegap` user with
+   passwordless sudo, optionally in the `docker` group) and its SSH key: generated (ed25519, kept in
+   `<data dir>/ssh/`), pasted, or a key file already on the orchestrator. Optionally disable root
+   login and password login over SSH.
+4. **Firewall:** let HomeGAP manage `ufw`, and choose whether SSH is open to anywhere or only to
+   listed sources (pre-filled with the address seen in the connection test).
+5. **Review & run.**
+
+Each change is proven before it is kept:
+
+- The new user's key login and passwordless sudo are checked over a fresh connection before SSH is
+  hardened.
+- SSH settings go into `/etc/ssh/sshd_config.d/01-homegap.conf` (ahead of cloud-init's drop-in),
+  are syntax-checked and checked for their effective values, and are applied while the setup
+  session stays open. A fresh key login must then succeed (and a password login must fail, when
+  disabled), or the previous settings are restored.
+- Before SSH settings or the firewall change, a timer on the node is armed to undo the change
+  after two minutes; it is disarmed only once a fresh login works. If the orchestrator loses the
+  node mid-change, the node reverts by itself.
+
+The password is used only for the setup job and is never written to disk or the config: it reaches
+`ssh` through `SSH_ASKPASS`, and `sudo` on its standard input. A failed job shows which step
+failed and why; fix the cause and retry. Re-running is safe: completed steps are idempotent, and if
+an earlier run already disabled the password login, setup continues with the node key.
+
+> [!WARNING]
+> Restricting SSH with `ssh_allow_from` locks the orchestrator out if its public IP changes to an
+> address not listed (a residential IP, a new ISP, a moved homelab). Provisioning and health checks
+> for that node then fail until the rule is fixed. Prefer a stable range, or leave SSH open to
+> anywhere with password login disabled. To recover, log in through your provider's web console
+> and run `ufw allow <ssh port>/tcp`, then update `ssh_allow_from`; the next pass replaces the rules.
+
 ### Node management host
 
 Newt and the Pangolin client must reach each node's Pangolin API. HomeGAP routes
@@ -348,8 +394,8 @@ needs the node's login pages to be public.
 ## Operations
 
 - **Expose a service:** add labels to its container. The Docker event triggers a reconcile.
-- **Add a region:** add a node to the config, or use the dashboard. It is provisioned and DNS is
-  extended on the next pass.
+- **Add a region:** use the dashboard's [add-node wizard](#adding-a-node), or add a node to the
+  config. It is provisioned and DNS is extended on the next pass.
 - **Remove a region:** remove it from the config. Its DNS records drain on the next pass, and the
   stack keeps running until you confirm the decommission in the dashboard.
 - **Hold a manual change:** pause globally, per node or per service (dashboard or
@@ -463,6 +509,9 @@ It shows:
 | `GET /api/speedtest` | Speed test settings and recent results |
 | `POST /api/speedtest/nodes/{id}` | Run a homelab ↔ node speed test (blocks until done) |
 | `POST /api/speedtest/link` | Create a device test link |
+| `POST /api/setup/test` | Test an initial SSH login (`host`, `port`, `user`, `password` or `keyFile`, `resetHostKey`) |
+| `POST /api/setup/keys` | Generate, import or describe a node's SSH key |
+| `POST /api/setup/jobs` / `GET /api/setup/jobs/{id}` | Start a node setup job (the add-node wizard) / read its progress |
 | `POST /api/pause` | `{"scope":"global|node|service","id":"…","paused":true}` |
 
 ## Security model
@@ -479,8 +528,11 @@ It shows:
   needs. Older keys it minted are retired automatically.
 - Node Pangolin ports (3000/3002/3003) are bound to loopback. The orchestrator reaches them only
   through SSH port forwarding.
-- `ufw` allows only SSH, 80/443, 51820/udp and 21820/udp, plus raw ports that a label asks for.
-  Rules HomeGAP added for ports that are no longer wanted are removed.
+- `ufw` allows only SSH (from anywhere, or from `ssh_allow_from`), 80/443, 51820/udp and
+  21820/udp, plus raw ports that a label asks for. New rules are added before rules HomeGAP added
+  earlier and no longer wants are removed; rules it did not add are left alone.
+- Setup passwords given to the add-node wizard are kept in memory for the job only and never
+  stored. Generated node keys are written to the data directory with mode 0600.
 - The Docker socket is mounted read-only, and labels are only read. Tunnels run in a separate
   container, so the controller never carries traffic.
 - `passthrough` keeps nodes blind to plaintext. Enable `pangolin.crowdsec` for edge abuse
@@ -501,6 +553,7 @@ a public issue.
 | Homelab origin down | All remote access down (single origin, by design) | Restore the origin; tunnels reconnect |
 | Newt tunnel drops | That node's health probe fails, so it drops out of DNS | The supervisor restarts Newt with backoff; failover covers the gap |
 | Certificate issuance fails on a node | That node cannot serve TLS for affected names | Push the wildcard via `certificates`, or fix ACME; the dashboard shows expiry |
+| Orchestrator IP changes while `ssh_allow_from` is set | Provisioning and SSH checks fail for those nodes; live traffic is unaffected | Allow SSH again from the provider's console (`ufw allow <port>/tcp`), then update `ssh_allow_from` |
 | Bunny outage | DNS resolution affected | Accepted single dependency |
 | State cache lost | None | Secrets are re-read from the nodes, API keys re-minted, Newt credentials recovered from the connector spec |
 

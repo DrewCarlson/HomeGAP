@@ -7,6 +7,9 @@ import kotlinx.coroutines.withContext
 import ksubprocess.Process
 import ksubprocess.Redirect
 import ksubprocess.communicate
+import kotlin.experimental.ExperimentalNativeApi
+import kotlin.native.OsFamily
+import kotlin.native.Platform
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -25,12 +28,21 @@ data class ProcessResult(val exitCode: Int, val stdout: String, val stderr: Stri
  *   which can close an unrelated descriptor that reused the number; [start] never merges.
  */
 object Subprocess {
-    /** Runs [argv] to completion, feeding [stdin], capturing output; killed after [timeout]. */
-    suspend fun run(argv: List<String>, stdin: String = "", timeout: Duration = 600.seconds): ProcessResult =
+    /**
+     * Runs [argv] to completion, feeding [stdin], capturing output; killed after [timeout].
+     * [env] is added to this process' environment (for the child only).
+     */
+    suspend fun run(
+        argv: List<String>,
+        stdin: String = "",
+        timeout: Duration = 600.seconds,
+        env: Map<String, String> = emptyMap(),
+    ): ProcessResult =
         withContext(Dispatchers.IO) {
             val started = TimeMark.now()
             val p = Process {
                 args(resolve(argv))
+                environment.putAll(env)
                 this.stdin = Redirect.Pipe
                 stdout = Redirect.Pipe
                 stderr = Redirect.Pipe
@@ -45,13 +57,18 @@ object Subprocess {
         }
 
     /** Reaps [p] if `communicate` did not get that far, then releases its pipe descriptors. */
+    @OptIn(ExperimentalNativeApi::class)
     private suspend fun release(p: Process) {
         if (p.exitCode == null) {
             runCatching { p.kill() }
             p.waitFor()
         }
-        runCatching { p.stdout?.close() }
-        runCatching { p.stderr?.close() }
+        // The leak is in the Linux backend. The macOS backend (NSTask) frees its handles on GC and
+        // can abort the process if a stream its reader thread still uses is closed here.
+        if (Platform.osFamily == OsFamily.LINUX) {
+            runCatching { p.stdout?.close() }
+            runCatching { p.stderr?.close() }
+        }
     }
 
     /**

@@ -17,6 +17,7 @@ internal fun NodeConfig.toDto() = NodeConfigDto(
     latitude = location?.latitude,
     longitude = location?.longitude,
     managementHost = managementHost,
+    sshAllowFrom = sshAllowFrom,
 )
 
 /** Validates a node submitted from the dashboard (400 on bad input via IllegalArgumentException). */
@@ -35,5 +36,6 @@ internal fun NodeConfigDto.toConfig(): NodeConfig {
         sshKeyFile = sshKeyFile,
         location = latitude?.let { lat -> longitude?.let { lon -> GeoLocation(lat, lon) } },
         managementHost = managementHost?.takeIf { it.isNotBlank() },
+        sshAllowFrom = sshAllowFrom.map { it.trim() }.filter { it.isNotEmpty() },
     )
 }

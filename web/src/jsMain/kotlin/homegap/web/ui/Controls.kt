@@ -62,9 +62,9 @@ fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, enabled: 
 
 /** In-app link: keeps a real href (new tab, copy link) but navigates through the presenter. */
 @Composable
-fun NavLink(href: String, onNavigate: () -> Unit, className: String? = null, content: @Composable () -> Unit) {
+fun NavLink(href: String, onNavigate: () -> Unit, classNames: List<String> = emptyList(), content: @Composable () -> Unit) {
     A(href = href, {
-        className?.let { classes(it) }
+        if (classNames.isNotEmpty()) classes(classNames)
         onClick { event ->
             if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
                 event.preventDefault()
@@ -72,4 +72,37 @@ fun NavLink(href: String, onNavigate: () -> Unit, className: String? = null, con
             }
         }
     }) { content() }
+}
+
+/** Labelled multi-line text input. */
+@Composable
+fun TextAreaField(label: String, value: String, placeholder: String, rows: Int = 4, mono: Boolean = false, onChange: (String) -> Unit) {
+    Label {
+        Text(label)
+        TextArea(value) {
+            placeholder(placeholder)
+            attr("rows", rows.toString())
+            attr("spellcheck", "false")
+            if (mono) classes("mono")
+            onInput { onChange(it.value) }
+        }
+    }
+}
+
+/** A checkbox with a title and an explanation underneath. */
+@Composable
+fun CheckOption(title: String, description: String?, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+    Label(attrs = {
+        classes("option")
+        if (!enabled) classes("disabled")
+    }) {
+        CheckboxInput(checked) {
+            if (!enabled) disabled()
+            onChange { onChange(it.value) }
+        }
+        Span({ classes("option-text") }) {
+            Span({ classes("option-title") }) { Text(title) }
+            description?.let { Span({ classes("option-desc") }) { Text(it) } }
+        }
+    }
 }

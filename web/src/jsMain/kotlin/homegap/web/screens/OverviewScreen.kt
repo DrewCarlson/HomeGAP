@@ -35,5 +35,5 @@ fun OverviewScreen(model: OverviewScreenModel, onNavigate: (Route) -> Unit) {
 
 @Composable
 private fun PanelLink(text: String, route: Route, onNavigate: (Route) -> Unit) {
-    NavLink(HashRouter.href(route), { onNavigate(route) }, "link") { Text(text) }
+    NavLink(HashRouter.href(route), { onNavigate(route) }, listOf("link")) { Text(text) }
 }

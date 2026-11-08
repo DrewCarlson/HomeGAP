@@ -23,6 +23,11 @@ interface ControllerApi {
     suspend fun decommission(id: String, confirm: String): ActionResponse
     suspend fun speedLink(): SpeedTestLinkDto
     suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto
+
+    suspend fun testConnection(login: SshLoginDto): ConnectionTestDto
+    suspend fun createKey(request: SshKeyRequestDto): SshKeyDto
+    suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto
+    suspend fun setupJob(id: String): SetupJobDto
 }
 
 /** What a pause request applies to (`PauseRequest.scope` on the wire). */

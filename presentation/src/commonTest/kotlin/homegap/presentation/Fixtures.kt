@@ -66,6 +66,36 @@ class FakeControllerApi(
         calls += "test $node $streams"
         return SpeedTestResultDto("r", NOW, "tunnel", node, downMbps = 250.0, upMbps = 40.0, pingMs = 170.0, streams = streams)
     }
+
+    var connection = ConnectionTestDto(
+        ok = true, hostKeyFingerprint = "SHA256:abc", os = "ubuntu", osVersion = "24.04", arch = "x86_64",
+        supported = true, privilege = "root", clientIp = "198.51.100.7",
+    )
+    var lastSetup: NodeSetupRequestDto? = null
+    var setupStates = ArrayDeque(listOf("running", "succeeded"))
+
+    override suspend fun testConnection(login: SshLoginDto): ConnectionTestDto {
+        calls += "connect ${login.user}@${login.host}:${login.port} ${if (login.password != null) "password" else "key"}"
+        return connection
+    }
+
+    override suspend fun createKey(request: SshKeyRequestDto): SshKeyDto {
+        calls += "key ${request.nodeId} ${request.mode}"
+        return SshKeyDto("/data/ssh/${request.nodeId}_ed25519", "ssh-ed25519 AAAA homegap-${request.nodeId}", "SHA256:key")
+    }
+
+    override suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto {
+        calls += "setup ${request.node.id}"
+        lastSetup = request
+        return job(setupStates.removeFirstOrNull() ?: "running")
+    }
+
+    override suspend fun setupJob(id: String): SetupJobDto = job(setupStates.removeFirstOrNull() ?: "succeeded")
+
+    private fun job(state: String) = SetupJobDto(
+        id = "job1", nodeId = "eu1", state = state, startedAt = NOW,
+        steps = listOf(SetupStepDto("connect", "Connect as root", if (state == "running") "running" else "ok")),
+    )
 }
 
 fun node(

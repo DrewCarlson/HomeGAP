@@ -10,6 +10,7 @@ import homegap.model.NodeDesired
 import homegap.platform.Crypto
 import homegap.platform.nowMillis
 import homegap.provision.CertMaterial
+import homegap.provision.FirewallRules
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.provision.RenderedFile
@@ -407,25 +408,8 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         return facts.mapKeys { (k, _) -> k.lowercase() } + ("os" to "ubuntu-$ver")
     }
 
-    private fun firewallScript(node: NodeConfig, desired: NodeDesired): String {
-        val wanted = buildList {
-            add("${node.sshPort}/tcp"); add("80/tcp"); add("443/tcp"); add("443/udp"); add("51820/udp"); add("21820/udp")
-            desired.rawPorts.forEach { add("${it.port}/${it.protocol}") }
-        }.distinct()
-        return $$"""
-            |export DEBIAN_FRONTEND=noninteractive
-            |command -v ufw >/dev/null || { apt-get update -q >/dev/null && apt-get install -yq ufw >/dev/null; }
-            |ufw default deny incoming >/dev/null
-            |ufw default allow outgoing >/dev/null
-            |WANTED="$${wanted.joinToString(" ")}"
-            |for r in $WANTED; do ufw allow "$r" comment homegap >/dev/null; done
-            |# drop homegap rules that are no longer wanted (raw ports removed from labels)
-            |ufw show added 2>/dev/null | sed -n 's/^ufw allow \([0-9]*\/[a-z]*\) comment .homegap.$/\1/p' | sort -u | while read -r r; do
-            |  case " $WANTED " in *" $r "*) ;; *) ufw delete allow "$r" >/dev/null && echo "CHANGED ufw removed $r";; esac
-            |done
-            |ufw status | grep -q '^Status: active' || { ufw --force enable >/dev/null && echo "CHANGED ufw enabled"; }
-        """.trimMargin()
-    }
+    private fun firewallScript(node: NodeConfig, desired: NodeDesired): String =
+        FirewallRules.script(FirewallRules.specs(node, desired.rawPorts))
 
     private fun stackScript(files: List<RenderedFile>): String = buildString {
         val d = shQuote(dir)

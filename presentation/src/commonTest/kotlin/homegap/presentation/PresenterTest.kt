@@ -17,7 +17,7 @@ import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.ControllerSession
 import homegap.presentation.data.ServerEvent
 import homegap.presentation.dns.DnsScreenPresenter
-import homegap.presentation.nodes.NodeField
+import homegap.presentation.addnode.*
 import homegap.presentation.nodes.NodesScreenModel
 import homegap.presentation.nodes.NodesScreenPresenter
 import homegap.presentation.nodes.NodesScreenProps
@@ -46,10 +46,11 @@ class PresenterTest {
         val nodes = NodesScreenPresenter(api, actions)
         val speedTest = SpeedTestScreenPresenter(api, actions, FakeTimeFormatter, scope)
         val activity = ActivityScreenPresenter(session, FakeTimeFormatter)
+        val addNode = AddNodeScreenPresenter(api, AddNodeWizardStore(), actions, scope)
         val app = AppPresenter(
             session, actions, api, tokens, FixedClock, scope,
             OverviewScreenPresenter(), nodes, ServicesScreenPresenter(api, actions), DnsScreenPresenter(),
-            TunnelsScreenPresenter(), speedTest, activity, ConfigScreenPresenter(api),
+            TunnelsScreenPresenter(), speedTest, activity, ConfigScreenPresenter(api), addNode,
         )
     }
 
@@ -112,18 +113,79 @@ class PresenterTest {
     }
 
     @Test
-    fun nodeFormSubmitsOnlyWhenComplete() = runTest {
+    fun wizardWalksFromFreshServerToSetupJob() = runTest {
         val g = graph
-        val models = present(g.nodes, NodesScreenProps(snapshot(), NOW))
-        val form = models.value.addNode
-        assertFalse(form.canSubmit)
-        form.onChange(NodeField.Id, "eu1")
-        form.onChange(NodeField.Host, " 203.0.113.30 ")
-        form.onChange(NodeField.KeyFile, "/k")
-        val complete = models.first { it.addNode.canSubmit }.addNode
-        complete.onSubmit()
-        testScheduler.runCurrent()
-        assertEquals(listOf("add eu1 203.0.113.30 /k"), g.api.calls)
+        var finished = false
+        val models = present(g.addNode, AddNodeScreenProps(existingNodeIds = setOf("a1")) { finished = true })
+        fun send(event: WizardEvent) = models.value.onEvent(event)
+        suspend fun advanceTo(step: WizardStep) = models.first { it.step == step }
+
+        // Server: invalid input blocks and explains.
+        send(WizardEvent.Edit(WizardField.NodeId, "a1"))
+        send(WizardEvent.Next)
+        val blocked = models.first { it.errors.isNotEmpty() }
+        assertTrue(blocked.errors.any { "already exists" in it } && blocked.errors.any { "public IP" in it }, blocked.errors.toString())
+        send(WizardEvent.Edit(WizardField.NodeId, "eu1"))
+        send(WizardEvent.Edit(WizardField.Host, "203.0.113.30"))
+        send(WizardEvent.Edit(WizardField.Region, "EU"))
+        send(WizardEvent.Next)
+        advanceTo(WizardStep.Login)
+
+        // Login: continuing needs a successful test of exactly these credentials.
+        send(WizardEvent.Edit(WizardField.Password, "hunter2"))
+        send(WizardEvent.Next)
+        assertTrue(models.first { it.errors.isNotEmpty() }.errors.any { "Test the connection" in it })
+        send(WizardEvent.TestConnection)
+        val tested = models.first { it.connection != null }
+        assertEquals("Connected to ubuntu 24.04 (x86_64)", tested.connection?.headline)
+        send(WizardEvent.Edit(WizardField.Password, "changed"))
+        assertNull(models.first { it[WizardField.Password] == "changed" }.connection, "editing the login invalidates the test")
+        send(WizardEvent.TestConnection)
+        models.first { it.connection != null }
+        send(WizardEvent.Next)
+        advanceTo(WizardStep.Access)
+
+        // Access: a key is required; root login can only be disabled for a non-root user.
+        send(WizardEvent.Next)
+        assertTrue(models.first { it.errors.isNotEmpty() }.errors.any { "SSH key" in it })
+        send(WizardEvent.CreateKey)
+        assertEquals("SHA256:key", models.first { it.key != null }.key?.fingerprint)
+        send(WizardEvent.Next)
+        advanceTo(WizardStep.Firewall)
+
+        // Firewall: restricting SSH starts from the address the server saw; an uncovered list warns.
+        send(WizardEvent.Toggle(WizardToggle.RestrictSsh, true))
+        assertEquals("198.51.100.7", models.first { it.has(WizardToggle.RestrictSsh) }[WizardField.AllowFrom])
+        send(WizardEvent.Edit(WizardField.AllowFrom, "10.0.0.0/8"))
+        assertTrue(models.first { it[WizardField.AllowFrom] == "10.0.0.0/8" }.notices.any { "not covered" in it.text })
+        send(WizardEvent.Edit(WizardField.AllowFrom, "198.51.100.0/24"))
+        assertTrue(models.first { it[WizardField.AllowFrom] == "198.51.100.0/24" }.notices.none { "not covered" in it.text })
+        send(WizardEvent.Next)
+        advanceTo(WizardStep.Review)
+
+        // Run: the request carries everything, and the job is followed until it finishes.
+        send(WizardEvent.Run)
+        val done = models.first { it.job?.succeeded == true }
+        val request = assertNotNull(g.api.lastSetup)
+        assertEquals("homegap", request.createUser)
+        assertEquals("homegap", request.node.sshUser)
+        assertEquals("/data/ssh/eu1_ed25519", request.keyFile)
+        assertEquals("changed", request.login.password)
+        assertEquals(listOf("198.51.100.0/24"), request.sshAllowFrom)
+        assertTrue(request.disableRootLogin && request.disablePasswordLogin && request.configureFirewall)
+        assertEquals("", done[WizardField.Password], "the password is dropped once setup succeeded")
+
+        send(WizardEvent.Finish)
+        assertTrue(finished)
+        assertEquals(WizardStep.Server, models.first { it.job == null }.step, "finishing resets the wizard")
+    }
+
+    @Test
+    fun wizardRefusesToDisableRootLoginForRoot() = runTest {
+        val draft = AddNodeDraft(toggles = setOf(WizardToggle.DisableRootLogin), values = mapOf(WizardField.LoginUser to "root"))
+        assertTrue(AddNodeValidation.errors(draft, WizardStep.Access, emptySet()).any { "Root login" in it })
+        assertTrue(AddNodeValidation.covers(listOf("10.1.0.0/16"), "10.1.2.3"))
+        assertFalse(AddNodeValidation.covers(listOf("10.1.0.0/16"), "10.2.0.1"))
     }
 
     @Test

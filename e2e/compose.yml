@@ -14,6 +14,7 @@ volumes:
   node-opt:
   node-as1-docker:
   node-as1-opt:
+  node-fr1-docker:
 
 services:
   node-na1:
@@ -43,6 +44,19 @@ services:
       e2e:
         ipv4_address: 172.30.0.11
         aliases: [pangolin-as1.test.example.net]
+
+  # A fresh VPS for the add-node wizard (root + password only). Not in the config until the wizard
+  # adds it. Recreate it (`docker compose up -d --force-recreate node-fr1`) to test from scratch.
+  node-fr1:
+    build: { context: ., dockerfile: node-fresh.Dockerfile }
+    privileged: true
+    hostname: node-fr1
+    volumes:
+      - node-fr1-docker:/var/lib/docker
+    networks:
+      e2e:
+        ipv4_address: 172.30.0.40
+        aliases: [pangolin-fr1.test.example.net]
 
   whoami:
     image: docker.io/traefik/whoami:v1.10

@@ -196,6 +196,12 @@ data class NodeConfig(
     @SerialName("license_key_file") val licenseKeyFile: String? = null,
     /** Manage `ufw` on the node (disable only where another firewall layer is authoritative). */
     val firewall: Boolean = true,
+    /**
+     * Sources (IPs or CIDRs) allowed to reach SSH through the node firewall; empty allows any
+     * source. If the orchestrator's public IP changes and is not covered, it loses access to the
+     * node until the rule is fixed from the provider's console.
+     */
+    @SerialName("ssh_allow_from") val sshAllowFrom: List<String> = emptyList(),
     /** Install Docker Engine when missing (disable for hosts with a pre-provisioned runtime). */
     @SerialName("install_docker") val installDocker: Boolean = true,
 ) {
