@@ -142,6 +142,8 @@ input[type=checkbox] { height: 16px; width: 16px; accent-color: var(--accent); }
   border: 1px solid var(--border); background: var(--surface); color: var(--text-2); cursor: pointer;
 }
 .segmented button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.stream-picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.segmented button:disabled { opacity: .5; cursor: default; }
 
 /* ---------------------------------------------------------------- panels */
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; min-width: 0; }

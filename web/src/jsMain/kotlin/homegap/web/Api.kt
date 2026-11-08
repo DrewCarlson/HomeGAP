@@ -48,8 +48,8 @@ object Api {
 
     suspend fun speedtest(): SpeedTestOverview = json.decodeFromString(SpeedTestOverview.serializer(), request("GET", "/speedtest"))
     suspend fun speedLink(): SpeedTestLinkDto = json.decodeFromString(SpeedTestLinkDto.serializer(), request("POST", "/speedtest/link"))
-    suspend fun runTunnelTest(node: String): SpeedTestResultDto =
-        json.decodeFromString(SpeedTestResultDto.serializer(), request("POST", "/speedtest/nodes/$node"))
+    suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto =
+        json.decodeFromString(SpeedTestResultDto.serializer(), request("POST", "/speedtest/nodes/$node?streams=$streams"))
 
     suspend fun resync() = action("POST", "/resync")
     suspend fun provision(node: String) = action("POST", "/nodes/$node/provision")

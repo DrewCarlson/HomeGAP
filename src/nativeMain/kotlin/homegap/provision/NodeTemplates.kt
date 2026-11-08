@@ -48,7 +48,6 @@ object NodeTemplates {
             RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts)).apply { restarts = "traefik" },
             RenderedFile(SECRETS, Json { prettyPrint = true }.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
         )
-        if (config.pangolin.tcpTuning) files += RenderedFile(SYSCTL, sysctlConf())
         if (config.pangolin.crowdsec) {
             files += RenderedFile("config/crowdsec/acquis.d/traefik.yaml", YamlEmitter.emit(buildJsonObject {
                 put("poll_without_inotify", false)
@@ -93,6 +92,11 @@ object NodeTemplates {
                     }
                     putJsonArray("volumes") { add("./config/:/var/config") }
                     putJsonArray("cap_add") { add("NET_ADMIN"); add("SYS_MODULE") }
+                    // TCP settings are per network namespace: the host's sysctl.d does not reach
+                    // containers. Traefik shares this namespace, so this is where every
+                    // node -> homelab and node -> viewer connection is sent from. Congestion
+                    // control is inherited from the host when the namespace is created.
+                    if (p.tcpTuning) putJsonObject("sysctls") { CONTAINER_SYSCTLS.forEach { (k, v) -> put(k, v) } }
                     putJsonArray("ports") {
                         add("51820:51820/udp"); add("21820:21820/udp")
                         add("443:443"); add("443:443/udp"); add("80:80")
@@ -142,8 +146,20 @@ object NodeTemplates {
     /**
      * TCP tuning for long fat paths (viewer <-> node <-> homelab): BBR keeps throughput up under
      * loss and high RTT, larger buffers let windows grow to the bandwidth-delay product, MTU
-     * probing recovers from black-holed PMTU discovery across the tunnel.
+     * probing recovers from black-holed PMTU discovery across the tunnel. Higher reordering
+     * thresholds stop long routes that reorder packets (common across aggregated links) from
+     * being mistaken for loss, which would otherwise cut the congestion window.
      */
+    /** Namespaced subset of [sysctlConf] applied to the node's edge containers. */
+    val CONTAINER_SYSCTLS = linkedMapOf(
+        "net.ipv4.tcp_rmem" to "4096 131072 67108864",
+        "net.ipv4.tcp_wmem" to "4096 65536 67108864",
+        "net.ipv4.tcp_mtu_probing" to "1",
+        "net.ipv4.tcp_slow_start_after_idle" to "0",
+        "net.ipv4.tcp_reordering" to "10",
+        "net.ipv4.tcp_max_reordering" to "1000",
+    )
+
     fun sysctlConf(): String = """
         |# Managed by HomeGAP (pangolin.tcp_tuning). Removed when tuning is disabled.
         |net.core.default_qdisc = fq
@@ -154,6 +170,8 @@ object NodeTemplates {
         |net.ipv4.tcp_wmem = 4096 65536 67108864
         |net.ipv4.tcp_mtu_probing = 1
         |net.ipv4.tcp_slow_start_after_idle = 0
+        |net.ipv4.tcp_reordering = 10
+        |net.ipv4.tcp_max_reordering = 1000
         |
     """.trimMargin()
 

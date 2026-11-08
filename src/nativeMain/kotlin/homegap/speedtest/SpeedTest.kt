@@ -166,22 +166,38 @@ class SpeedTestServer(
  */
 object TunnelSpeedTest {
     const val PINGS = 20
+    const val MAX_STREAMS = 16
 
-    fun script(host: String, token: String, seconds: Int): String = """
+    /**
+     * Ping, then [streams] parallel downloads, then [streams] parallel uploads. Each stream is
+     * its own TCP connection (and so its own congestion window) sharing the one tunnel, like
+     * real traffic from several viewers or browser connections. Rates are summed.
+     */
+    fun script(host: String, token: String, seconds: Int, streams: Int = 1): String = """
         |H=${sh(host)}
         |C=(curl -sk --resolve "${'$'}H:443:127.0.0.1" -H ${sh("${SpeedTestServer.TOKEN_HEADER}: $token")} -H 'Expect:' --max-time 90)
+        |T=${'$'}(mktemp -d); trap 'rm -rf "${'$'}T"' EXIT
         |URLS=()
         |for i in $(seq 0 $PINGS); do URLS+=("https://${'$'}H/speedtest/ping?i=${'$'}i"); done
         |"${'$'}{C[@]}" -w 'P %{time_pretransfer} %{time_starttransfer} %{http_code}\n' "${'$'}{URLS[@]}" || true
-        |"${'$'}{C[@]}" -o /dev/null -w 'D %{size_download} %{time_starttransfer} %{time_total} %{http_code}\n' "https://${'$'}H/speedtest/down?seconds=$seconds" || true
-        |{ timeout $seconds cat /dev/zero || true; } | "${'$'}{C[@]}" -T - -w '\nU %{http_code}\n' "https://${'$'}H/speedtest/up" || true
+        |for s in $(seq 1 $streams); do
+        |  "${'$'}{C[@]}" -o /dev/null -w 'D %{size_download} %{time_starttransfer} %{time_total} %{http_code}\n' "https://${'$'}H/speedtest/down?seconds=$seconds" > "${'$'}T/d${'$'}s" 2>/dev/null &
+        |done
+        |wait; for s in $(seq 1 $streams); do cat "${'$'}T/d${'$'}s" 2>/dev/null || echo 'D 0 0 0 000'; done
+        |for s in $(seq 1 $streams); do
+        |  { { timeout $seconds cat /dev/zero || true; } | "${'$'}{C[@]}" -T - -w '\nU %{http_code}\n' "https://${'$'}H/speedtest/up" > "${'$'}T/u${'$'}s" 2>/dev/null; } &
+        |done
+        |wait; for s in $(seq 1 $streams); do cat "${'$'}T/u${'$'}s" 2>/dev/null; echo; done
     """.trimMargin()
 
     private fun sh(s: String) = "'" + s.replace("'", "'\"'\"'") + "'"
 
-    data class Parsed(val pingMs: Double?, val jitterMs: Double?, val samples: Int, val downMbps: Double?, val upMbps: Double?, val error: String?)
+    data class Parsed(
+        val pingMs: Double?, val jitterMs: Double?, val samples: Int, val downMbps: Double?, val upMbps: Double?, val error: String?,
+        val downStreams: List<Double> = emptyList(), val upStreams: List<Double> = emptyList(),
+    )
 
-    fun parse(out: String, host: String): Parsed {
+    fun parse(out: String, host: String, streams: Int = 1): Parsed {
         val errors = mutableListOf<String>()
         fun codeError(phase: String, code: String) {
             errors += when (code) {
@@ -194,9 +210,8 @@ object TunnelSpeedTest {
         }
         val pings = mutableListOf<Double>()
         var pingCode: String? = null
-        var down: Double? = null
-        var up: Double? = null
-        var uploadJson: String? = null
+        val downs = mutableListOf<Double>()
+        val uploadJson = mutableListOf<String>()
         for (l in out.lines()) {
             val p = l.trim().split(' ')
             when (p.firstOrNull()) {
@@ -208,25 +223,32 @@ object TunnelSpeedTest {
                     if (p[4] != "200") codeError("download", p[4])
                     else {
                         val secs = p[3].toDouble() - p[2].toDouble()
-                        if (secs > 0) down = p[1].toDouble() * 8 / secs / 1e6
+                        if (secs > 0) downs += p[1].toDouble() * 8 / secs / 1e6
                     }
                 }
                 "U" -> if (p.size == 2 && p[1] != "200") codeError("upload", p[1])
-                else -> if (l.trim().startsWith("{")) uploadJson = l.trim()
+                else -> if (l.trim().startsWith("{")) uploadJson += l.trim()
             }
         }
         pingCode?.let { codeError("ping", it) }
-        uploadJson?.let { j ->
+        val ups = uploadJson.mapNotNull { j ->
             runCatching {
                 val o = Json.parseToJsonElement(j).jsonObject
                 val bytes = o["bytes"]!!.jsonPrimitive.long
                 val ms = o["ms"]!!.jsonPrimitive.long
-                if (ms > 0) up = bytes * 8.0 / (ms / 1000.0) / 1e6
-            }
+                if (ms > 0) bytes * 8.0 / (ms / 1000.0) / 1e6 else null
+            }.getOrNull()
+        }
+        if (streams > 1) {
+            if (downs.isNotEmpty() && downs.size < streams) errors += "download: only ${downs.size} of $streams streams completed"
+            if (ups.isNotEmpty() && ups.size < streams) errors += "upload: only ${ups.size} of $streams streams completed"
         }
         val samples = pings.drop(1)
         val (avg, jitter) = stats(samples)
-        return Parsed(avg, jitter, samples.size, down, up, errors.distinct().joinToString("; ").ifEmpty { null })
+        return Parsed(
+            avg, jitter, samples.size, downs.takeIf { it.isNotEmpty() }?.sum(), ups.takeIf { it.isNotEmpty() }?.sum(),
+            errors.distinct().joinToString("; ").ifEmpty { null }, downs, ups,
+        )
     }
 
     /** Mean round trip and jitter (mean absolute difference of consecutive samples). */

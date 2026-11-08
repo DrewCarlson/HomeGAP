@@ -217,6 +217,11 @@ data class SpeedTestResultDto(
     val pingSamples: Int = 0,
     val error: String? = null,
     val client: String? = null,
+    /** Parallel TCP streams (tunnel tests); rates are the sum over all streams. */
+    val streams: Int? = null,
+    /** Per-stream rates, in stream order. */
+    val downStreamsMbps: List<Double> = emptyList(),
+    val upStreamsMbps: List<Double> = emptyList(),
 )
 
 @Serializable
@@ -225,6 +230,8 @@ data class SpeedTestOverview(
     val autoUrl: String? = null,
     val nodes: List<String> = emptyList(),
     val results: List<SpeedTestResultDto> = emptyList(),
+    /** Default stream count for homelab <-> node tests. */
+    val streams: Int = 4,
 )
 
 @Serializable

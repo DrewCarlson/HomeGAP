@@ -153,6 +153,8 @@ data class SpeedtestConfig(
     @SerialName("link_ttl") val linkTtl: String = "2h",
     /** Duration of each download/upload phase. */
     @SerialName("phase_seconds") val phaseSeconds: Int = 8,
+    /** Parallel TCP streams for homelab <-> node tests (the dashboard can override per run). */
+    val streams: Int = 4,
 ) {
     val host: String get() = bind.substringBeforeLast(":")
     val port: Int get() = bind.substringAfterLast(":").toInt()

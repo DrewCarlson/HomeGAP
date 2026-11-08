@@ -80,6 +80,7 @@ speedtest:
   hostname: speedtest
   bind: 0.0.0.0:8089
   link_ttl: 2h
+  streams: 4                # parallel streams for homelab <-> node tests
 
 dashboard:
   bind: 0.0.0.0:8088

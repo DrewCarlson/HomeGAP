@@ -362,6 +362,7 @@ fun NodesTable(app: AppState, s: StatusSnapshot, compact: Boolean) {
                     val meta = listOf(n.region, n.provider, n.facts["os"]).filter { !it.isNullOrBlank() }.joinToString(" · ")
                     if (meta.isNotEmpty()) Muted(meta)
                     if (!compact) n.facts["tcp_cc"]?.let { Muted("tcp: $it${n.facts["qdisc"]?.let { q -> " / $q" } ?: ""}") }
+                    if (!compact) n.facts["edge_tcp"]?.takeIf { it != "unknown" }?.let { Muted("edge tcp: $it") }
                 }
                 Cell("Health") { Pill(n.health) }
                 Cell("Checks") { ChecksSummary(n.checks) }
@@ -575,6 +576,7 @@ fun SpeedTestView(app: AppState) {
     var link by remember { mutableStateOf<SpeedTestLinkDto?>(null) }
     var running by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableStateOf(0) }
+    var streams by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(reload) {
         while (true) {
             ov = runCatching { Api.speedtest() }.getOrDefault(ov)
@@ -591,8 +593,19 @@ fun SpeedTestView(app: AppState) {
         return
     }
     val latest = o.nodes.associateWith { id -> o.results.firstOrNull { it.kind == "tunnel" && it.nodeId == id } }
+    val n = streams ?: o.streams
     Div({ classes("two-col") }) {
         Panel("Homelab ↔ node", "curl on the node → its own :443 → WireGuard tunnel → homelab proxy", flush = false) {
+            Div({ classes("stream-picker") }) {
+                Span({ classes("muted") }) { Text("Parallel streams") }
+                Div({ classes("segmented") }) { listOf(1, 4, 8).forEach { c ->
+                    Button({
+                        if (c == n) classes("active")
+                        if (running != null) disabled()
+                        onClick { streams = c }
+                    }) { Text("$c") }
+                } }
+            }
             Div({ classes("node-tests") }) {
                 o.nodes.forEach { id ->
                     val r = latest[id]
@@ -606,7 +619,7 @@ fun SpeedTestView(app: AppState) {
                                     running = id
                                     scope.launch {
                                         try {
-                                            val res = Api.runTunnelTest(id)
+                                            val res = Api.runTunnelTest(id, n)
                                             if (res.error != null) app.notify("$id: ${res.error}", error = true)
                                             else app.notify("$id: ${mbps(res.downMbps)} down, ${mbps(res.upMbps)} up, ${ms(res.pingMs)} ping")
                                         } catch (e: Throwable) {
@@ -623,7 +636,7 @@ fun SpeedTestView(app: AppState) {
                         else Div({ classes("metrics") }) {
                             Metric("Ping", ms(r.pingMs)); Metric("Jitter", ms(r.jitterMs)); Metric("Down", mbps(r.downMbps)); Metric("Up", mbps(r.upMbps))
                         }
-                        r?.let { Muted("${ago(it.at)}${it.error?.let { e -> " · $e" } ?: ""}") }
+                        r?.let { Muted("${ago(it.at)}${streamsNote(it)}${it.error?.let { e -> " · $e" } ?: ""}") }
                     }
                 }
             }
@@ -652,7 +665,7 @@ fun SpeedTestView(app: AppState) {
             o.results.forEach { r ->
                 Tr {
                     Cell("When", "nowrap") { Text(ago(r.at)) }
-                    Cell("Path") { Tag(if (r.kind == "tunnel") "homelab ↔ node" else "device") }
+                    Cell("Path") { Tag(if (r.kind == "tunnel") "homelab ↔ node" else "device"); if ((r.streams ?: 1) > 1) Muted("${r.streams} streams") }
                     Cell("Node") { Text((r.nodeId ?: "unknown") + if (r.auto) " (auto)" else "") }
                     Cell("Ping", "mono") { Text(ms(r.pingMs)) }
                     Cell("Jitter", "mono") { Text(ms(r.jitterMs)) }
@@ -694,6 +707,14 @@ private fun shortClient(ua: String): String {
     val os = listOf("iPhone", "iPad", "Android", "Mac OS X", "Windows", "Linux").firstOrNull { it in ua }?.let { if (it == "Mac OS X") "macOS" else it }
     val browser = listOf("Firefox", "Edg", "Chrome", "Safari").firstOrNull { it in ua }?.let { if (it == "Edg") "Edge" else it }
     return listOfNotNull(browser, os).joinToString(" on ").ifEmpty { ua.take(60) }
+}
+
+/** " · 4 streams (down 62/60/58/61)" for multi-stream tunnel results. */
+private fun streamsNote(r: SpeedTestResultDto): String {
+    val n = r.streams ?: return ""
+    if (n <= 1) return " · 1 stream"
+    val per = r.downStreamsMbps.takeIf { it.size > 1 }?.joinToString("/") { it.fmt() }?.let { " (down $it)" } ?: ""
+    return " · $n streams$per"
 }
 
 private fun ms(v: Double?): String = v?.let { "${it.fmt()} ms" } ?: "—"

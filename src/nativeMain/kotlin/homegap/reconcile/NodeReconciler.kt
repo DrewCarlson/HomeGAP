@@ -168,12 +168,20 @@ class NodeReconciler(private val ctx: ReconcileContext) {
             ssh.runScriptOrThrow("firewall", firewallScript(node, desired), 300)
         }
 
-        // 4 + 5. Stack files and secrets (restrictive modes), then 6. bring up and wait for health.
+        // 4. Kernel network tuning (best effort: some virtualization types lock these knobs).
+        // Before the stack, so new container namespaces inherit the host's congestion control.
+        runTuningStep(node, ssh, tuningScript())
+
+        // 5 + 6. Stack files and secrets (restrictive modes), then 7. bring up and wait for health.
         val out = ssh.runScriptOrThrow("stack", stackScript(files), 1200)
         out.lines().filter { it.startsWith("CHANGED ") }.forEach { log.change(domain, "updated ${it.removePrefix("CHANGED ")}", node.id) }
 
-        // 7. Kernel network tuning (best effort: some virtualization types lock these knobs).
-        val t = ssh.runScriptOrThrow("tuning", tuningScript(), 120)
+        // What the edge namespace (Gerbil + Traefik) actually uses.
+        runTuningStep(node, ssh, EDGE_TCP_SCRIPT)
+    }
+
+    private suspend fun runTuningStep(node: NodeConfig, ssh: SshSession, script: String) {
+        val t = ssh.runScriptOrThrow("tuning", script, 120)
         t.lines().forEach { l ->
             when {
                 l.startsWith("CHANGED ") -> log.change(domain, l.removePrefix("CHANGED "), node.id)
@@ -189,6 +197,10 @@ class NodeReconciler(private val ctx: ReconcileContext) {
         val dst = "/etc/sysctl.d/99-homegap.conf"
         return if (ctx.config.pangolin.tcpTuning) """
             |modprobe tcp_bbr 2>/dev/null || true
+            |mkdir -p ${shQuote("$dir/config")}
+            |cat > $src <<'HOMEGAP_SYSCTL'
+            |${NodeTemplates.sysctlConf().trimEnd()}
+            |HOMEGAP_SYSCTL
             |if ! cmp -s $src $dst 2>/dev/null; then install -m 0644 $src $dst; echo "CHANGED installed TCP tuning ($dst)"; fi
             |sysctl -p $dst >/dev/null 2>&1 || echo "WARN some TCP tuning sysctls could not be applied (container/VPS kernel restrictions?)"
             |echo "FACT tcp_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo unknown)"
@@ -420,6 +432,18 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     companion object {
         const val LOCAL_PORT_BASE = 47100
         val SUPPORTED_UBUNTU = setOf("22.04", "24.04")
+
+        /** Congestion control and max send buffer inside Gerbil's namespace (Traefik shares it). */
+        val EDGE_TCP_SCRIPT = """
+            |PID=${'$'}(docker inspect -f '{{.State.Pid}}' gerbil 2>/dev/null || echo 0)
+            |if [ "${'$'}PID" -gt 0 ] 2>/dev/null; then
+            |  CC=${'$'}(nsenter -t "${'$'}PID" -n cat /proc/sys/net/ipv4/tcp_congestion_control 2>/dev/null || echo unknown)
+            |  WMEM=${'$'}(nsenter -t "${'$'}PID" -n cat /proc/sys/net/ipv4/tcp_wmem 2>/dev/null | awk '{print int(${'$'}3/1048576)"MiB"}')
+            |  echo "FACT edge_tcp=${'$'}CC ${'$'}{WMEM:-unknown}"
+            |else
+            |  echo "FACT edge_tcp=unknown"
+            |fi
+        """.trimMargin()
 
         val PREFLIGHT_SCRIPT = """
             |. /etc/os-release

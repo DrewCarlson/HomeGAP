@@ -49,9 +49,14 @@ class SpeedTestTest {
         val node = cfg.node("na1")!!
         val files = NodeTemplates.staticFiles(cfg, node, secrets, emptyList())
         assertTrue(files.single { it.path == "compose.yml" }.content.contains("--mtu=1420"))
-        assertTrue(files.single { it.path == NodeTemplates.SYSCTL }.content.contains("tcp_congestion_control = bbr"))
+        assertTrue(NodeTemplates.sysctlConf().contains("tcp_congestion_control = bbr"))
+        // The edge namespace (Gerbil + Traefik) gets its own TCP buffers.
+        val compose = NodeTemplates.compose(cfg, emptyList())
+        assertTrue("net.ipv4.tcp_wmem" in compose && "4096 65536 67108864" in compose)
+        assertTrue("net.ipv4.tcp_reordering" in compose)
+        assertTrue(TunnelSpeedTest.script("h", "t", 8, 4).contains("seq 1 4"))
         val off = ConfigLoader.parse(TEST_CONFIG + "\npangolin:\n  tcp_tuning: false\n")
-        assertTrue(NodeTemplates.staticFiles(off, node, secrets, emptyList()).none { it.path == NodeTemplates.SYSCTL })
+        assertFalse(NodeTemplates.compose(off, emptyList()).contains("sysctls"))
         assertFalse(NodeTemplates.compose(off, emptyList()).contains("--mtu"))
     }
 
@@ -78,6 +83,29 @@ class SpeedTestTest {
         assertEquals(15.0, p.jitterMs!!, 0.01)
         assertEquals(100.0, p.downMbps!!, 0.01)
         assertEquals(50.0, p.upMbps!!, 0.01)
+    }
+
+    @Test
+    fun sumsParallelStreams() {
+        val out = buildString {
+            appendLine("P 0 0.1 204"); appendLine("P 0 0.1 204")
+            appendLine("D 50000000 0.2 8.2 200")
+            appendLine("D 25000000 0.2 8.2 200")
+            appendLine("{\"bytes\":20000000,\"ms\":8000}"); appendLine("U 200")
+            appendLine("{\"bytes\":10000000,\"ms\":8000}"); appendLine("U 200")
+        }
+        val p = TunnelSpeedTest.parse(out, "h", streams = 2)
+        assertNull(p.error)
+        assertEquals(75.0, p.downMbps!!, 0.01)
+        assertEquals(listOf(50L, 25L), p.downStreams.map { kotlin.math.round(it).toLong() })
+        assertEquals(30.0, p.upMbps!!, 0.01)
+    }
+
+    @Test
+    fun reportsMissingStreams() {
+        val p = TunnelSpeedTest.parse("P 0 0.1 204\nD 50000000 0.2 8.2 200\nD 0 0 0 000\n", "h", streams = 2)
+        assertEquals(50.0, p.downMbps!!, 0.01)
+        assertTrue(p.error!!.contains("download"))
     }
 
     @Test

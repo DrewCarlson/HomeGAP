@@ -55,6 +55,20 @@ services:
     # Kernel WireGuard (tunnels.native: true) needs these:
     # cap_add: [NET_ADMIN]
     # devices: ["/dev/net/tun:/dev/net/tun"]
+    # TCP settings are per network namespace, so the host's sysctls do not reach this
+    # container. In native mode the homelab end of every node -> homelab connection lives
+    # here, and the defaults (cubic, 4 MiB send buffer) cap long-distance downloads.
+    sysctls:
+      net.ipv4.tcp_rmem: "4096 131072 67108864"
+      net.ipv4.tcp_wmem: "4096 65536 67108864"
+      net.ipv4.tcp_slow_start_after_idle: "0"
+      net.ipv4.tcp_mtu_probing: "1"
+      # Tolerate packet reordering on long routes instead of treating it as loss.
+      net.ipv4.tcp_reordering: "10"
+      net.ipv4.tcp_max_reordering: "1000"
+      # Needs the tcp_bbr module loaded on the host (`modprobe tcp_bbr`), or the container
+      # will not start.
+      # net.ipv4.tcp_congestion_control: bbr
     volumes:
       - homegap-data:/data
     networks: [traefik]

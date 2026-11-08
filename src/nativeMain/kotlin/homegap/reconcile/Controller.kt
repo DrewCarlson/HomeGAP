@@ -446,7 +446,7 @@ class Controller(
                 drift = ns?.drift ?: emptyList(),
                 paused = st.pauses.global || id in st.pauses.nodes,
                 pendingDecommission = ns?.pendingDecommission == true || n == null,
-                facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "tcp_cc", "qdisc") } +
+                facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "tcp_cc", "qdisc", "edge_tcp") } +
                     (tunnel?.let { mapOf("newt_restarts" to it.restarts.toString()) } ?: emptyMap()),
             )
         }
@@ -567,6 +567,7 @@ class Controller(
             autoUrl = if (st.enabled) "http://${st.autoHost(cfg.domain)}/" else null,
             nodes = cfg.nodes.map { it.id },
             results = speedStore.recent(),
+            streams = st.streams,
         )
     }
 
@@ -583,7 +584,7 @@ class Controller(
     }
 
     /** Measures homelab <-> node through the tunnel, driven from the node over SSH. */
-    suspend fun runTunnelSpeedTest(nodeId: String): SpeedTestResultDto {
+    suspend fun runTunnelSpeedTest(nodeId: String, streams: Int? = null): SpeedTestResultDto {
         val cfg = config
         require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
         val node = cfg.node(nodeId) ?: throw IllegalArgumentException("unknown node $nodeId")
@@ -593,16 +594,18 @@ class Controller(
         try {
             val host = cfg.speedtest.nodeHost(cfg.domain, nodeId)
             val secs = cfg.speedtest.phaseSeconds
-            val r = ssh.session(node).runScript(homegap.speedtest.TunnelSpeedTest.script(host, token, secs), secs * 2 + 120)
-            val p = homegap.speedtest.TunnelSpeedTest.parse(r.stdout, host)
+            val n = (streams ?: cfg.speedtest.streams).coerceIn(1, homegap.speedtest.TunnelSpeedTest.MAX_STREAMS)
+            val r = ssh.session(node).runScript(homegap.speedtest.TunnelSpeedTest.script(host, token, secs, n), secs * 2 + 120)
+            val p = homegap.speedtest.TunnelSpeedTest.parse(r.stdout, host, n)
             val err = p.error ?: if (!r.ok) r.stderr.trim().take(300).ifEmpty { "exit ${r.exitCode}" } else null
             val result = SpeedTestResultDto(
                 id = homegap.speedtest.newResultId(), at = nowMillis(), kind = "tunnel", nodeId = nodeId,
                 pingMs = p.pingMs, jitterMs = p.jitterMs, downMbps = p.downMbps, upMbps = p.upMbps, pingSamples = p.samples, error = err,
+                streams = n, downStreamsMbps = p.downStreams, upStreamsMbps = p.upStreams,
                 client = "node ${nodeId} (newt mtu ${cfg.tunnels.mtu ?: "default"}${if (cfg.tunnels.native) ", kernel wireguard" else ""})",
             )
             speedStore.add(result)
-            log.info("speedtest", "tunnel: ping ${p.pingMs?.let { fmt1(it) } ?: "-"} ms, jitter ${p.jitterMs?.let { fmt1(it) } ?: "-"} ms, down ${p.downMbps?.let { fmt1(it) } ?: "-"} Mbps, up ${p.upMbps?.let { fmt1(it) } ?: "-"} Mbps${err?.let { " ($it)" } ?: ""}", nodeId)
+            log.info("speedtest", "tunnel: ping ${p.pingMs?.let { fmt1(it) } ?: "-"} ms, jitter ${p.jitterMs?.let { fmt1(it) } ?: "-"} ms, down ${p.downMbps?.let { fmt1(it) } ?: "-"} Mbps, up ${p.upMbps?.let { fmt1(it) } ?: "-"} Mbps ($n streams)${err?.let { " ($it)" } ?: ""}", nodeId)
             return result
         } finally {
             speedTokens.revoke(token)

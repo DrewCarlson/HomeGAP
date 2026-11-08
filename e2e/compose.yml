@@ -137,6 +137,11 @@ services:
     # Kernel WireGuard for the main tunnel (tunnels.native: true).
     cap_add: [NET_ADMIN]
     devices: [ "/dev/net/tun:/dev/net/tun" ]
+    sysctls:
+      net.ipv4.tcp_rmem: "4096 131072 67108864"
+      net.ipv4.tcp_wmem: "4096 65536 67108864"
+      net.ipv4.tcp_reordering: "10"
+      net.ipv4.tcp_max_reordering: "1000"
     volumes:
       - ./work/data:/data
       - ./work/certs:/certs:ro
