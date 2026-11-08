@@ -75,6 +75,7 @@ class FakeControllerApi(
         calls += "create ${request.email} ${request.roleIds} ${if (request.password != null) "password" else "invite"}"
         return CreateAccessUserResponse(true, "created", if (request.password == null) "https://pangolin.x/invite?token=a-b" else null)
     }
+    override suspend fun switchPrimary(to: String) = ok("switch $to")
     override suspend fun removeUser(id: String) = ok("remove-user $id")
     override suspend fun setUserRoles(id: String, roleIds: List<Int>) = ok("roles $id $roleIds")
     override suspend fun removeInvitation(id: String) = ok("remove-invite $id")

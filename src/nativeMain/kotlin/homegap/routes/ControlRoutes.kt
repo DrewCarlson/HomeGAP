@@ -22,6 +22,10 @@ class ControlRoutes(private val controller: Controller) : RoutingController {
     override fun init(parent: Route) {
         parent.post("/resync") { resync() }
         parent.post("/pause") { setPause() }
+        parent.post("/cluster/switchover") {
+            val to = call.receive<homegap.api.SwitchoverRequest>().to
+            call.respond(homegap.api.ActionResponse(true, controller.switchPrimary(to)))
+        }
     }
 
     suspend fun RoutingContext.resync() {

@@ -2,6 +2,8 @@ package homegap.web.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import homegap.api.Health
+import kotlinx.browser.window
 import homegap.presentation.nodes.DatabasePanelModel
 import homegap.presentation.nodes.MeshPanelModel
 import homegap.presentation.nodes.NodesScreenModel
@@ -20,21 +22,29 @@ fun NodesScreen(model: NodesScreenModel, onNavigate: (Route) -> Unit) {
     }) {
         NodeTable(model.nodes, model.events)
     }
-    model.database?.let { DatabasePanel(it) }
+    model.database?.let { DatabasePanel(it, model.events.onSwitchPrimary) }
     model.mesh?.let { MeshPanel(it) }
 }
 
 @Composable
-private fun DatabasePanel(db: DatabasePanelModel) {
+private fun DatabasePanel(db: DatabasePanelModel, onSwitchPrimary: (String) -> Unit) {
     Panel("Cluster database", "PostgreSQL (Patroni) and Valkey, shared by every node's Pangolin") {
-        Div({ classes("inline-row") }) {
-            Muted("PostgreSQL primary")
-            Pill(db.primary)
-            Muted("Valkey primary")
-            Pill(db.valkeyPrimary)
+        Div({ classes("panel-body") }) {
+            db.alerts.forEach { alert ->
+                val kind = when (alert.health) { Health.DOWN -> "error"; Health.DEGRADED -> "warn"; else -> "info" }
+                Div({ classes("banner", kind) }) { Text(alert.text) }
+            }
+            Div({ classes("inline-row") }) {
+                Muted("PostgreSQL primary")
+                Pill(db.primary)
+                Muted("Valkey primary")
+                Pill(db.valkeyPrimary)
+                Muted("Vote")
+                Pill(db.quorum)
+            }
+            db.switchBack?.let { Div({ classes("banner", "info") }) { Text(it) } }
         }
-        db.switchBack?.let { Div({ classes("banner", "info") }) { Text(it) } }
-        DataTable(listOf("Member", "Address", "Vote", "Database", "Replication lag"), "No members yet.", db.members.isEmpty()) {
+        DataTable(listOf("Member", "Address", "Vote", "Database", "Valkey", "Replication lag", ""), "No members yet.", db.members.isEmpty()) {
             db.members.forEach { m ->
                 key(m.id) {
                     Tr {
@@ -42,13 +52,34 @@ private fun DatabasePanel(db: DatabasePanelModel) {
                         Cell("Address", "mono") { Text(m.address) }
                         Cell("Vote") { Pill(m.vote) }
                         Cell("Database") { Pill(m.database) }
+                        Cell("Valkey") { Pill(m.valkey) }
                         Cell("Replication lag", "mono") { Text(m.lag) }
+                        Cell("", "actions") {
+                            if (m.canBecomePrimary) ActionButton("Make primary", small = true) {
+                                if (window.confirm(SWITCH_CONFIRM.replace("@ID@", m.id))) onSwitchPrimary(m.id)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (db.history.isNotEmpty()) {
+            Div({ classes("panel-body") }) { Muted("Primary history") }
+            DataTable(listOf("When", "Change", "Cause")) {
+                db.history.forEach { h ->
+                    Tr {
+                        Cell("When", "nowrap") { Text(h.time) }
+                        Cell("Change") { Text(h.change) }
+                        Cell("Cause") { Pill(h.cause, small = true) }
                     }
                 }
             }
         }
     }
 }
+
+private const val SWITCH_CONFIRM = "Make @ID@ the database primary now? Writes pause for a second or two while it switches. " +
+    "If @ID@ isn't where the primary belongs, HomeGAP moves it back after the hold."
 
 @Composable
 private fun MeshPanel(mesh: MeshPanelModel) {

@@ -22,7 +22,7 @@ class NodesScreenPresenter(
     override fun model(props: NodesScreenProps): NodesScreenModel {
         val rows = remember(props.status.nodes, props.now) { props.status.nodes.map { it.toRowModel(props.now) } }
         val mesh = remember(props.status.mesh, props.now) { props.status.mesh?.toPanelModel(props.now) }
-        val database = remember(props.status.cluster) { props.status.cluster?.toPanelModel() }
+        val database = remember(props.status.cluster, props.now) { props.status.cluster?.toPanelModel(props.now) }
         val events = remember { nodeEvents() }
         return NodesScreenModel(rows, events, mesh, database)
     }
@@ -36,5 +36,6 @@ class NodesScreenPresenter(
         },
         onRemove = { id -> actions.run("Remove") { api.removeNode(id) } },
         onDecommission = { id, typed -> actions.run("Decommission") { api.decommission(id, typed) } },
+        onSwitchPrimary = { id -> actions.run("Switch primary") { api.switchPrimary(id) } },
     )
 }

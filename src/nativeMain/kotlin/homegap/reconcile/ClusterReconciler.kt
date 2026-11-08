@@ -2,6 +2,7 @@ package homegap.reconcile
 
 import homegap.api.ClusterMemberDto
 import homegap.api.ClusterStatusDto
+import homegap.api.PrimaryChangeDto
 import homegap.clients.EtcdClient
 import homegap.clients.PatroniClient
 import homegap.clients.SshSession.Companion.shQuote
@@ -17,8 +18,12 @@ import homegap.provision.ClusterTemplates.Member
 import homegap.provision.Mesh
 import io.ktor.client.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
@@ -50,6 +55,12 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     private var preferredCaughtUpSince: Long? = null
     /** Members whose database is up (the primary, or a streaming replica), as last seen. */
     @Volatile private var ready: Set<String> = emptySet()
+    private val historyFile = "$dir/history.json"
+    /** Why the next primary change happens, when HomeGAP asked for it (otherwise a failover). */
+    private var pendingCause: String? = null
+    private var switchBackDue: Long? = null
+    /** The members and database view of the last pass, for a switchover from the dashboard. */
+    @Volatile private var lastView: Pair<List<Member>, List<PatroniClient.Member>>? = null
 
     /** The node's member can serve its Pangolin: read by provisioning jobs between passes. */
     fun memberReady(id: String): Boolean = id in ready
@@ -111,8 +122,59 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             }
         }
 
+        if (pg != null) {
+            lastView = members to pg
+            recordPrimary(pg)
+        }
         val switchBack = switchBack(ctx, cluster, patroni, pg, homelab, members, secrets)
         return status(cluster, members, etcdMembers, pg, secrets, switchBack)
+    }
+
+    /**
+     * Makes [to] the PostgreSQL primary now (a planned switchover: no writes are lost). [to] must be
+     * a caught-up replica. Moving it away from the preferred member is undone by the switch-back
+     * once the preferred member has been caught up for the hold.
+     */
+    suspend fun switchover(to: String): String {
+        val (members, pg) = lastView ?: throw IllegalStateException("the cluster has not been read yet")
+        val leader = pg.firstOrNull { it.role == "leader" } ?: throw IllegalStateException("there is no primary right now")
+        require(to != leader.name) { "$to is already the primary" }
+        val target = pg.firstOrNull { it.name == to } ?: throw IllegalArgumentException("$to is not a database member")
+        check(target.state == "streaming" && target.lagBytes == 0L) { "$to is not a caught-up replica (${target.state})" }
+        val leaderMember = members.first { it.id == leader.name }
+        try {
+            PatroniClient(http, ClusterTemplates.REST_USER, secrets().rest).switchover(restUrl(leaderMember), leader.name, to)
+        } catch (e: Exception) {
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
+            // Patroni refuses when the primary moved since the last pass.
+            if (e.message?.contains("leader name does not match") == true) {
+                throw IllegalStateException("The primary changed a moment ago. Wait for the dashboard to refresh and try again.")
+            }
+            throw e
+        }
+        // The view is stale until the next pass: a second request waits for it.
+        lastView = null
+        pendingCause = "manual"
+        preferredCaughtUpSince = null
+        return "Switched the database primary from ${leader.name} to $to"
+    }
+
+    private val historyJson = Json { ignoreUnknownKeys = true }
+
+    fun history(): List<PrimaryChangeDto> = Files.readTextOrNull(historyFile)
+        ?.let { runCatching { historyJson.decodeFromString(ListSerializer(PrimaryChangeDto.serializer()), it) }.getOrNull() }
+        .orEmpty()
+
+    /** Appends a change of primary to the history (kept in the data directory, newest first). */
+    private fun recordPrimary(pg: List<PatroniClient.Member>) {
+        val leader = pg.firstOrNull { it.role == "leader" }?.name ?: return
+        val past = history()
+        val last = past.firstOrNull()?.to
+        if (leader == last) return
+        val cause = pendingCause ?: if (last == null) "initial" else "failover"
+        pendingCause = null
+        val next = (listOf(PrimaryChangeDto(nowMillis(), last, leader, cause)) + past).take(HISTORY)
+        Files.writeAtomic(historyFile, historyJson.encodeToString(ListSerializer(PrimaryChangeDto.serializer()), next))
     }
 
     // ------------------------------------------------------------------ secrets and files
@@ -255,12 +317,16 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     ): String? {
         if (pg == null) return null
         val now = nowMillis()
-        val decision = SwitchBack.evaluate(pg, cluster.primary.preferred, preferredCaughtUpSince, now, cluster.primary.switchBackDelay.inWholeMilliseconds)
+        val hold = cluster.primary.switchBackDelay.inWholeMilliseconds
+        val decision = SwitchBack.evaluate(pg, cluster.primary.preferred, preferredCaughtUpSince, now, hold)
         preferredCaughtUpSince = decision.caughtUpSince
+        switchBackDue = decision.caughtUpSince?.plus(hold)?.takeIf { decision.switchFrom == null }
         decision.switchFrom?.let { leader ->
             val leaderMember = members.firstOrNull { it.id == leader } ?: return decision.note
             try {
                 patroni.switchover(restUrl(leaderMember), leader, cluster.primary.preferred)
+                pendingCause = "switch-back"
+                switchBackDue = null
                 ctx.log.change(domain, "switched the database primary back from $leader to ${cluster.primary.preferred}")
                 preferredCaughtUpSince = null
             } catch (e: Exception) {
@@ -297,12 +363,30 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         secrets: ClusterSecrets,
         switchBack: String?,
     ): ClusterStatusDto {
-        val valkeyMaster = sentinelMaster(ValkeyCli(secrets.valkey), members)
+        val valkey = ValkeyCli(secrets.valkey)
+        val valkeyMaster = sentinelMaster(valkey, members)
+        // Each member's own view: its etcd's health and its Valkey role.
+        val probes = coroutineScope {
+            members.map { m ->
+                async {
+                    val etcdOk = EtcdClient(http, "http://${m.meshIp}:${ClusterTemplates.ETCD_CLIENT_PORT}").healthy()
+                    m.id to (etcdOk to valkey.replication(m.meshIp)?.get("role"))
+                }
+            }.awaitAll().toMap()
+        }
+        val voters = etcdMembers?.filter { !it.learner }
+        val quorum = voters?.let { vs ->
+            val healthy = vs.count { v -> members.firstOrNull { it.id == v.name || ClusterTemplates.peerUrl(it) in v.peerUrls }?.let { probes[it.id]?.first } == true }
+            healthy * 2 > vs.size
+        }
         return ClusterStatusDto(
             primary = pg?.firstOrNull { it.role == "leader" }?.name,
             valkeyPrimary = members.firstOrNull { it.meshIp == valkeyMaster }?.id ?: valkeyMaster,
             preferred = cluster.primary.preferred,
             switchBack = switchBack,
+            switchBackAt = switchBackDue,
+            quorum = quorum,
+            history = history(),
             members = members.map { m ->
                 val e = etcdMembers?.firstOrNull { it.name == m.id || ClusterTemplates.peerUrl(m) in it.peerUrls }
                 val p = pg?.firstOrNull { it.name == m.id }
@@ -319,6 +403,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
                     state = p?.state,
                     lagBytes = p?.lagBytes,
                     timeline = p?.timeline,
+                    valkeyRole = probes[m.id]?.second,
+                    etcdHealthy = probes[m.id]?.first,
                 )
             },
         )
@@ -346,6 +432,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         /** Sentinel promotes the lowest priority: the homelab first. */
         const val PREFERRED_PRIORITY = 1
         const val NODE_PRIORITY = 100
+        const val HISTORY = 20
     }
 }
 

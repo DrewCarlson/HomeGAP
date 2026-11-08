@@ -317,7 +317,34 @@ data class ClusterStatusDto(
     val preferred: String = "homelab",
     /** What the switch-back is waiting for, when the primary is away from [preferred]. */
     val switchBack: String? = null,
+    /** When the switch-back is due (epoch ms), once [preferred] is caught up and the hold runs. */
+    val switchBackAt: Long? = null,
+    /** A majority of the vote (etcd) is healthy, so a primary can be elected. Null when unknown. */
+    val quorum: Boolean? = null,
     val members: List<ClusterMemberDto> = emptyList(),
+    /** Changes of the PostgreSQL primary, newest first. */
+    val history: List<PrimaryChangeDto> = emptyList(),
+    /** Problems worth acting on, most severe first. */
+    val alerts: List<ClusterAlertDto> = emptyList(),
+)
+
+@Serializable
+data class PrimaryChangeDto(
+    val at: Long,
+    /** The previous primary (null for the first one seen). */
+    val from: String? = null,
+    val to: String,
+    /** `initial`, `failover` (elected by the cluster), `switch-back` (HomeGAP, after the hold) or `manual`. */
+    val cause: String,
+)
+
+@Serializable
+data class ClusterAlertDto(val health: Health, val message: String)
+
+@Serializable
+data class SwitchoverRequest(
+    /** The member to make primary (a caught-up replica). */
+    val to: String,
 )
 
 @Serializable
@@ -333,6 +360,10 @@ data class ClusterMemberDto(
     /** Replication lag in bytes (replicas). */
     val lagBytes: Long? = null,
     val timeline: Int? = null,
+    /** Valkey: `master` or `slave` (replica); null when it does not answer. */
+    val valkeyRole: String? = null,
+    /** The member's etcd answers its health check (it is part of a working majority). */
+    val etcdHealthy: Boolean? = null,
 )
 
 /**

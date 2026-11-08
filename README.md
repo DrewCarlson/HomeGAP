@@ -438,8 +438,23 @@ image: etcd (the vote), PostgreSQL under Patroni, Valkey, Valkey Sentinel and HA
 
 Each node's member is its own compose project in `/opt/homegap/cluster`, separate from the
 Pangolin stack, so stack updates never restart the database. Removing a node removes its member
-from the vote and deletes its data. The **Nodes** page shows each member's role, state and
-replication lag, and when a switch back is due.
+from the vote and deletes its data.
+
+The **Nodes** page has a **Cluster database** panel:
+
+- **Each member:** its vote (etcd), its PostgreSQL role and replication lag, and its Valkey role.
+- **Whether the vote has a majority**, and when a pending switch-back is due.
+- **Alerts:**
+  - no majority, or no primary;
+  - a member cut off from the others (by its mesh handshakes or its vote);
+  - a replica more than 16 MiB behind;
+  - fewer than two nodes, so the cluster can't elect a primary without the homelab;
+  - the license state.
+- **The primary's history:** each change, and whether it was a failover, a switch-back or
+  manual.
+- **Make primary** on a caught-up replica: a planned switchover (writes pause for a second or
+  two, nothing is lost). If the new primary isn't where it belongs, the switch-back returns it
+  after the hold.
 
 ### Clustered Pangolin
 
@@ -629,6 +644,7 @@ It shows:
 | `POST /api/nodes/{id}/provision` | Force a full re-provision |
 | `POST /api/nodes` / `DELETE /api/nodes/{id}` | Add / remove a node (rewrites the config file, with a backup) |
 | `POST /api/nodes/{id}/decommission?confirm={id}` | Stop the stack on a removed node and forget it |
+| `POST /api/cluster/switchover` | Make a caught-up replica the database primary now: `{to}` (cluster only) |
 | `GET /api/access` | The cluster's users, roles, open invitations and devices (cluster only) |
 | `POST /api/access/users` | Add a user: `{email, roleIds, password?}`; without a password, the response has the invite link |
 | `DELETE /api/access/users/{id}` / `PUT /api/access/users/{id}/roles` | Remove a user / set their roles (`{roleIds}`) |

@@ -96,6 +96,15 @@ class Controller(
      * A reachable Pangolin of the cluster (the first ready node in config order) and the exit node
      * map, for dashboard actions on its users and devices; null without a cluster or a ready node.
      */
+    /** Moves the database primary to [to] now (dashboard); see [ClusterReconciler.switchover]. */
+    suspend fun switchPrimary(to: String): String {
+        check(config.cluster != null && !dryRun) { "the cluster is not enabled" }
+        val message = clusterRec.switchover(to)
+        log.change("cluster", "$message (requested from the dashboard)")
+        trigger("dashboard:switchover")
+        return message
+    }
+
     fun clusterPangolin(): Pair<ReadyNode, Map<Int, String>>? {
         if (config.cluster == null) return null
         val ready = clusterReady
@@ -384,6 +393,15 @@ class Controller(
             // The cluster's database layer, over the mesh.
             clusterStatus = if (cfg.cluster == null || dryRun) null
             else runDomain("cluster", null) { clusterRec.reconcile(ctx, cfg.nodes, state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap()) } ?: clusterStatus
+            clusterStatus = clusterStatus?.let { cs ->
+                val shared = state.snapshot().clusterPangolin
+                val license = ClusterAlerts.License(
+                    configured = cfg.pangolin.licenseKey() != null,
+                    activated = shared?.licenseActivated == true,
+                    rejected = shared?.licenseRejected != null,
+                )
+                cs.copy(alerts = ClusterAlerts.evaluate(cs, meshStatus, license, nowMillis()))
+            }
 
             // Private access on the primary (manual anchor): only private resources are written.
             if (discoveryOk) runDomain("private", "primary") { reconcilePrimary(ctx, effective, pausedKeys) }
@@ -570,13 +588,14 @@ class Controller(
         checks += CheckDto("pangolin-api", if (apiOk) Health.OK else Health.DOWN, if (apiOk) "integration API" else "not reachable")
         val shared = state.snapshot().clusterPangolin
         if (ctx.config.cluster != null) {
-            // One license for the whole cluster (stored in the shared database).
-            if (ctx.config.pangolin.licenseKey() != null) checks += when {
-                shared?.licenseActivated == true && node.id in shared.licenseRecheck -> CheckDto("ee-license", Health.UNKNOWN, "activated; this node has not re-read it yet")
+            // One license for the whole cluster (stored in the shared database). A missing activation
+            // is a cluster alert, not a problem with this node.
+            if (ctx.config.pangolin.licenseKey() != null) when {
+                shared?.licenseActivated == true && node.id in shared.licenseRecheck -> CheckDto("ee-license", Health.DEGRADED, "activated; this node has not re-read it yet")
                 shared?.licenseActivated == true -> CheckDto("ee-license", Health.OK, "the cluster's license is activated")
                 shared?.licenseRejected != null -> CheckDto("ee-license", Health.DEGRADED, "rejected: key bound to another instance")
-                else -> CheckDto("ee-license", Health.UNKNOWN, "not activated")
-            }
+                else -> null
+            }?.let { checks += it }
         } else if (node.licenseKey(ctx.config.pangolin) != null) {
             val ns = state.node(node.id)
             checks += when {

@@ -22,4 +22,6 @@ class NodeEvents(
     val onTogglePause: (nodeId: String, paused: Boolean) -> Unit,
     val onRemove: (nodeId: String) -> Unit,
     val onDecommission: (nodeId: String, typedId: String) -> Unit,
+    /** Make a cluster member the database primary now. */
+    val onSwitchPrimary: (memberId: String) -> Unit = {},
 )

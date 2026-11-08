@@ -29,6 +29,9 @@ interface ControllerApi {
     suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto
     suspend fun setupJob(id: String): SetupJobDto
 
+    /** Makes cluster member [to] the database primary now. */
+    suspend fun switchPrimary(to: String): ActionResponse
+
     suspend fun access(): AccessOverviewDto
     suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse
     suspend fun removeUser(id: String): ActionResponse
