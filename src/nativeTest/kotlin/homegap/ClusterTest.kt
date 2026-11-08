@@ -14,6 +14,7 @@ import homegap.provision.FirewallRules
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.reconcile.ResourceReconciler
+import homegap.reconcile.drainFromDns
 import homegap.reconcile.SwitchBack
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -224,5 +225,22 @@ class ClusterTest {
         val yml = NodeTemplates.pangolinConfig(clusterCfg, node, NodeSecrets("t", "s", "a@b", "p", "k", true), 0, ClusterLink("10.77.0.10", secrets))
         assertTrue("dashboard_url: \"https://pangolin.test.example.net\"" in yml)
         assertTrue("https://pangolin-na1.test.example.net" in yml, "the management host stays an allowed origin")
+    }
+
+    @Test
+    fun aJoiningNodeLeavesDnsOnlyWhereAnotherNodeServes() {
+        val plan = Planner.plan(clusterCfg, services)
+        val records = plan.dns
+        val drained = drainFromDns(records, setOf("as1"))
+        // as1 leaves every shared name, its IPv6 records included (only as1 has an IPv6 address)...
+        assertTrue(records.any { it.nodeId == "as1" && it.type == "AAAA" && it.purpose == "client" })
+        assertTrue(drained.filter { it.purpose == "root" || it.purpose == "client" }.none { it.nodeId == "as1" })
+        // ...keeps its management host (its tunnel connects through it)...
+        assertTrue(drained.any { it.nodeId == "as1" && it.purpose == "management" })
+        // ...and a name only it serves stays up.
+        val gitOnAs1 = records.filter { it.fqdn == "git.test.example.net" }
+        assertTrue(gitOnAs1.isNotEmpty() && gitOnAs1.all { it.nodeId == "as1" })
+        assertEquals(gitOnAs1, drained.filter { it.fqdn == "git.test.example.net" })
+        assertEquals(records, drainFromDns(records, emptySet()))
     }
 }

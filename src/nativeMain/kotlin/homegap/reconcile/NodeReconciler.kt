@@ -34,7 +34,12 @@ import kotlin.time.Duration.Companion.seconds
  * Node lifecycle domain: turns a bare SSH-reachable Ubuntu VPS into a Pangolin EE node and
  * keeps it there. Every step is idempotent so the same pass provisions and repairs drift.
  */
-class NodeReconciler(private val ctx: ReconcileContext, private val cluster: ClusterReconciler? = null) {
+class NodeReconciler(
+    private val ctx: ReconcileContext,
+    private val cluster: ClusterReconciler? = null,
+    /** Asks for a reconcile pass soon (the DNS drain of a node switching Pangolin). */
+    private val requestPass: (String) -> Unit = {},
+) {
     private val domain = "nodes"
     private val log get() = ctx.log
     private val dir get() = ctx.config.pangolin.installDir
@@ -141,9 +146,10 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
     /** API handle for a node that needs no provisioning now (or is waiting for its update). */
     suspend fun ready(a: Assessment, slot: Int): ReadyNode? {
         if (a.paused) return a.pausedReady
-        // A node still on its own standalone Pangolin is not part of the cluster's: never mint the
-        // cluster's key or license against it.
-        if (clustered && ctx.state.node(a.node.id).facts[CLUSTER_STACK_FACT] != "true") return null
+        // A node still running the other mode's Pangolin (standalone while the cluster is on, or
+        // the reverse) waits for its own update: never use one mode's key, admin or license
+        // against the other's Pangolin. It keeps serving on its current stack meanwhile.
+        if (runningMode(a.node) != clustered) return null
         return try {
             bootstrap(a.node, a.ssh, slot, a.secrets)
         } catch (e: Exception) {
@@ -170,11 +176,14 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
         val update = a.kind == Kind.UPDATE
         log.change(domain, "${if (update) "updating" else "provisioning"} (${a.reason})", node.id)
         var changed = false
-        // A node joining the cluster leaves its standalone Pangolin (and that site) behind.
-        val sameSite = !clustered || ctx.state.node(node.id).facts[CLUSTER_STACK_FACT] == "true"
+        // Moving between a standalone Pangolin and the cluster's (either way) means another site.
+        val sameSite = runningMode(node) == clustered
         try {
             provisionHost(node, ssh, a.desired)
             if (clustered) awaitClusterMember(node, waitForCluster)
+            // A node moving to another Pangolin (onto the cluster, or off it) has no routes or tunnel
+            // there yet: take it out of DNS first, so viewers aren't sent to it until they're back.
+            if (!sameSite && update) drainFromDns(node, waitForCluster)
             val ready = firstClusterStart(node) {
                 if (update) backup(node, ssh)
                 changed = true
@@ -189,7 +198,12 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
                     stackHash = a.hash, lastProvisionAt = nowMillis(), lastProvisionOk = true, lastProvisionError = null,
                     lastCheckAt = nowMillis(), drift = emptyList(), update = null,
                     facts = it.facts + (PANGOLIN_IMAGE_FACT to ctx.config.pangolin.pangolinImage(clustered)) + (CLUSTER_STACK_FACT to clustered.toString()),
-                )
+                ).let { st ->
+                    // A different Pangolin (standalone <-> cluster) has its own site: the saved one
+                    // and its connector credentials belong to the old one, even if the ids match.
+                    // Its connector spec on the homelab is the old one's too: never adopt it.
+                    if (!sameSite) st.copy(siteId = null, newtId = null, newtSecret = null, facts = st.facts + (NEW_SITE_FACT to "true")) else st
+                }
             }
             if (update) log.change(domain, "update complete", node.id)
             return true
@@ -198,6 +212,11 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
                 currentCoroutineContext().ensureActive()
             }
             val msg = e.message?.take(2000) ?: e.toString()
+            if (ctx.state.node(node.id).facts[CLUSTER_JOIN_FACT] != null) {
+                // Rolled back to the Pangolin it ran before (or never left it): it serves again.
+                ctx.state.updateNode(node.id) { it.copy(facts = it.facts - CLUSTER_JOIN_FACT) }
+                log.info(domain, "returned to DNS", node.id)
+            }
             if (!update) {
                 log.error(domain, "provisioning failed: $msg", node.id)
                 ctx.state.updateNode(node.id) { it.copy(lastProvisionAt = nowMillis(), lastProvisionOk = false, lastProvisionError = msg) }
@@ -424,7 +443,9 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
     private suspend fun provisionStack(node: NodeConfig, ssh: SshSession, files: List<RenderedFile>) {
         // 5 + 6. Stack files and secrets (restrictive modes), then 7. bring up and wait for health.
         val out = ssh.runScriptOrThrow("stack", stackScript(files), 1200)
-        out.lines().filter { it.startsWith("CHANGED ") }.forEach { log.change(domain, "updated ${it.removePrefix("CHANGED ")}", node.id) }
+        out.lines().filter { it.startsWith("CHANGED ") }.map { it.removePrefix("CHANGED ") }.forEach {
+            log.change(domain, if (it.startsWith("removed ")) it else "updated $it", node.id)
+        }
 
         // What the edge namespace (Gerbil + Traefik) actually uses.
         runTuningStep(node, ssh, EDGE_TCP_SCRIPT)
@@ -493,6 +514,13 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
                 append("echo \"CHANGED ${f.path}\"")
                 f.restarts?.let { append($$"; RESTART=\"$RESTART $$it\"") }
             }))
+        }
+        // Cluster-only files left from cluster mode would make a standalone Pangolin use the
+        // cluster's Valkey and region, and Traefik load stale routes. (In cluster mode Pangolin
+        // writes the route files itself.)
+        if (!clustered) for ((path, restarts) in CLUSTER_ONLY_FILES) {
+            val q = shQuote("$dir/$path")
+            appendLine("if [ -e $q ]; then rm -f $q; echo \"CHANGED removed $path\"; RESTART=\"\$RESTART $restarts\"; fi")
         }
         appendLine("cd $d")
         appendLine("docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20")
@@ -572,21 +600,31 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
     private suspend fun fastPath(node: NodeConfig, ssh: SshSession, slot: Int, secrets: NodeSecrets, integrationUrl: String, warn: Boolean): ReadyNode? {
         val (keyId, key) = cachedKey(node.id) ?: return null
         val api = PangolinClient(ctx.localHttp, integrationUrl, "$keyId.$key")
-        val ok = runCatching {
-            api.getOrg(ctx.config.pangolin.orgId)
-        }.onFailure {
-            if (it is CancellationException) {
-                currentCoroutineContext().ensureActive()
+        // Only Pangolin refusing the key means a new one is needed: a Pangolin that is still
+        // starting is retried (minting costs an admin login and retires the key every node uses).
+        var attempt = 0
+        while (true) {
+            val failure = try {
+                api.getOrg(ctx.config.pangolin.orgId)
+                null
+            } catch (e: Exception) {
+                if (e is CancellationException) currentCoroutineContext().ensureActive()
+                e
+            } ?: break
+            val rejected = failure is PangolinApiException && failure.status in setOf(401, 403)
+            if (rejected || ++attempt >= KEY_CHECK_ATTEMPTS) {
+                if (warn) log.warn(domain, "cached API key ${if (rejected) "rejected" else "not usable"} (${failure.message}); minting a new one", node.id)
+                return null
             }
-        }.isSuccess
-        if (!ok) {
-            if (warn) log.warn(domain, "cached API key rejected; minting a new one", node.id)
-            return null
+            delay(2.seconds)
         }
         ensureKeyActions(node, ssh, slot, secrets, keyId)
         maybeActivateLicense(node, ssh, slot, secrets)
         return ReadyNode(node, api, dashboardUrl(ssh, slot))
     }
+
+    /** Whether the node's running stack is the cluster's (nodes never switched are standalone). */
+    private fun runningMode(node: NodeConfig): Boolean = ctx.state.node(node.id).facts[CLUSTER_STACK_FACT] == "true"
 
     private suspend fun dashboardUrl(ssh: SshSession, slot: Int) = "http://127.0.0.1:${ssh.forward(3000, LOCAL_PORT_BASE + slot * 10 + 5)}/api/v1"
 
@@ -781,6 +819,33 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
     // ---------------------------------------------------------------- cluster
 
     /**
+     * Marks the node as joining the cluster: the next pass drops its DNS records (where another
+     * node serves the same name) and marks it drained. Waits for that, then for one DNS TTL so
+     * resolvers stop sending viewers here. The node returns to DNS once its site is online and its
+     * resources exist on the cluster (see Controller).
+     */
+    private suspend fun drainFromDns(node: NodeConfig, wait: Boolean) {
+        ctx.state.updateNode(node.id) { it.copy(facts = it.facts + (CLUSTER_JOIN_FACT to DRAINING)) }
+        log.change(domain, "taking the node out of DNS while it ${if (clustered) "joins the cluster" else "leaves the cluster"}", node.id)
+        if (!wait) return
+        requestPass("drain:${node.id}")
+        val deadline = nowMillis() + DRAIN_WAIT.inWholeMilliseconds
+        var drainedAt: Long? = null
+        while (drainedAt == null) {
+            drainedAt = ctx.state.node(node.id).facts[CLUSTER_JOIN_FACT]?.removePrefix("$DRAINED:")?.toLongOrNull()
+            if (drainedAt == null) {
+                if (nowMillis() > deadline) {
+                    log.warn(domain, "DNS was not updated in $DRAIN_WAIT; joining the cluster anyway", node.id)
+                    return
+                }
+                delay(5.seconds)
+            }
+        }
+        val ttlLeft = drainedAt + ctx.config.bunny.ttl * 1000L - nowMillis()
+        if (ttlLeft > 0) delay(ttlLeft)
+    }
+
+    /**
      * Pangolin needs the node's cluster member (its database replica and HAProxy) before it can
      * start. The member is set up by the cluster step of later passes, so a background job waits.
      */
@@ -889,9 +954,26 @@ class NodeReconciler(private val ctx: ReconcileContext, private val cluster: Clu
         /** The Pangolin image a node last provisioned successfully. */
         const val PANGOLIN_IMAGE_FACT = "pangolinImage"
         private const val KEY_ACTIONS_FACT = "keyActions"
+        /** How long a cached key is retried while Pangolin starts (2 s apart). */
+        private const val KEY_CHECK_ATTEMPTS = 10
         private val KEY_ACTIONS_HASH = Crypto.fnv64(PangolinBootstrapClient.ORCHESTRATOR_ACTIONS.sorted().joinToString(","))
+        /** The node moved to another Pangolin: its site credentials must be issued fresh. */
+        const val NEW_SITE_FACT = "newSite"
         /** The node's running stack is the cluster's (not a standalone Pangolin). */
         const val CLUSTER_STACK_FACT = "clusterStack"
+        /** Files a node has only in cluster mode (path to the service to restart once removed). */
+        private val CLUSTER_ONLY_FILES = listOf(
+            "config/privateConfig.yml" to "pangolin",
+            // Pangolin's own routes and certificates in cluster (file) mode.
+            "config/traefik/dynamic/router_config.yml" to "traefik",
+            "config/traefik/dynamic/cert_config.yml" to "traefik",
+        )
+
+        /** Joining the cluster: `draining` (out of DNS next pass), then `drained:<epoch ms>`. */
+        const val CLUSTER_JOIN_FACT = "clusterJoin"
+        const val DRAINING = "draining"
+        const val DRAINED = "drained"
+        private val DRAIN_WAIT = 10.minutes
         private val CLUSTER_MEMBER_WAIT = 20.minutes
         /** Serialises the first start of the cluster's Pangolin (an empty database is migrated once). */
         private val firstStartLock = Mutex()

@@ -262,7 +262,7 @@ class Controller(
             }
 
             // 2-4. Node lifecycle, tunnels and resources, per node in parallel.
-            val nodeRec = NodeReconciler(ctx, if (cfg.cluster != null) clusterRec else null)
+            val nodeRec = NodeReconciler(ctx, if (cfg.cluster != null) clusterRec else null) { trigger(it) }
             val tunnelRec = TunnelReconciler(ctx)
             val resourceRec = ResourceReconciler(ctx)
             val health = mutableMapOf<String, Map<String, ServiceNodeHealthDto>>()
@@ -352,6 +352,7 @@ class Controller(
                             } else if (discoveryOk && site != null) {
                                 resources = runDomain("resources", node.id) { resourceRec.reconcile(ready, nd, pausedKeys) } ?: emptyList()
                                 if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()
+                                returnToDns(node.id, site, effective.nodes.getValue(node.id), present[node.id].orEmpty())
                             }
                         } else if (dryRun) {
                             val bp = resourceRec.buildBlueprint(nd.publicResources.filter { !it.paused }, nd.privateResources.filter { !it.paused }, cfg.siteNiceId(node.id))
@@ -383,6 +384,7 @@ class Controller(
                     runDomain("resources", id) { resourceRec.writeRoutes(ready, effective.nodes.getValue(id), mine) }
                     present[id] = mine.map { it.niceId }.toSet()
                     health[id] = serviceHealthFor(effective, id, mine, site)
+                    returnToDns(id, site, effective.nodes.getValue(id), present.getValue(id))
                 }
             }
             if (!dryRun) runDomain("tunnels", null) { tunnelRec.prune(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.map { it.id }.toSet()) }
@@ -409,18 +411,27 @@ class Controller(
             // 5. DNS
             if (discoveryOk) {
                 val bunny = cfg.bunny.apiKey.resolve()?.let { BunnyClient(externalHttp, cfg.bunny.apiUrl, it) }
-                val records = servableDns(effective, present)
+                // Nodes joining the cluster are kept out of DNS while they switch.
+                val draining = cfg.nodes.map { it.id }.filter { state.node(it).facts[NodeReconciler.CLUSTER_JOIN_FACT] != null }.toSet()
+                val records = drainFromDns(servableDns(effective, present), draining)
                 // The zone download is the pass's only external API call: skip it while the desired
                 // records are unchanged and the last sync succeeded recently.
                 val key = homegap.platform.Crypto.fnv64(records.toString() + pausedKeys.sorted() + state.snapshot().pauses + cfg.bunny)
                 val fresh = key == dnsKey && nowMillis() - dnsSyncedAt < cfg.reconcile.dnsCheck.inWholeMilliseconds
+                var synced = fresh
                 if (!fresh || trigger.contains("dashboard")) {
                     val obs = runDomain("dns", null) { DnsReconciler(ctx, bunny).reconcile(records, pausedKeys) }
                     if (obs != null) {
                         dnsObs = obs
-                        if (bunny != null) { dnsKey = key; dnsSyncedAt = nowMillis() }
+                        if (bunny != null) { dnsKey = key; dnsSyncedAt = nowMillis(); synced = true }
                     } else {
                         dnsKey = null
+                    }
+                }
+                if (synced) for (id in draining) {
+                    if (state.node(id).facts[NodeReconciler.CLUSTER_JOIN_FACT] == NodeReconciler.DRAINING) {
+                        state.updateNode(id) { it.copy(facts = it.facts + (NodeReconciler.CLUSTER_JOIN_FACT to "${NodeReconciler.DRAINED}:${nowMillis()}")) }
+                        log.info("dns", "out of DNS", id)
                     }
                 }
             }
@@ -486,8 +497,33 @@ class Controller(
         plan.dns.forEach { log.info("dns", "[dry-run] ${it.type} ${it.fqdn} -> ${it.value} node=${it.nodeId} geo=${it.geo} monitor=${it.monitor}") }
     }
 
+    /**
+     * A node that moved to another Pangolin (onto the cluster or off it) returns to DNS once its
+     * site is online and every resource it should serve exists there.
+     */
+    private suspend fun returnToDns(id: String, site: PangolinSite, desired: homegap.model.NodeDesired, present: Set<String>) {
+        if (state.node(id).facts[NodeReconciler.CLUSTER_JOIN_FACT] == null || jobs[id]?.second?.isActive == true) return
+        val wanted = desired.publicResources.filter { !it.paused }.map { it.niceId }
+        if (site.online == true && wanted.all { it in present }) {
+            state.updateNode(id) { it.copy(facts = it.facts - NodeReconciler.CLUSTER_JOIN_FACT) }
+            log.change("dns", "back in DNS: serving from ${if (config.cluster != null) "the cluster" else "its own Pangolin"}", id)
+        }
+    }
+
+    /** `primary_pangolin` is ignored in a cluster: reported once. */
+    private var primaryIgnoredReported = false
+
+    /**
+     * Private resources on a hand-made homelab Pangolin (`primary_pangolin`, standalone nodes
+     * only). Kept for existing deployments; the cluster replaces it.
+     */
     private suspend fun reconcilePrimary(ctx: ReconcileContext, plan: DesiredState, pausedKeys: Set<String>) {
         val p = ctx.config.primaryPangolin ?: return
+        if (ctx.config.cluster != null) {
+            if (!primaryIgnoredReported) log.warn("private", "primary_pangolin is ignored with the cluster on: private resources are served by every node; remove it from the config")
+            primaryIgnoredReported = true
+            return
+        }
         val active = plan.primaryPrivate.filter { !it.paused }
         val key = p.apiKey.resolve() ?: run {
             if (active.isNotEmpty()) log.error("private", "primary Pangolin key ${p.apiKey.describe()} missing")
@@ -917,3 +953,14 @@ private fun epochToIso(epochSeconds: Long): String =
     kotlin.time.Instant.fromEpochSeconds(epochSeconds).toString()
 
 private val PRETTY_JSON = Json { prettyPrint = true }
+
+/**
+ * Drops [draining] nodes' records for each name another node still serves, in either address
+ * family (an IPv6 client falls back to the A record), so a name never goes dark. Management
+ * records stay: the node's tunnel connects through them.
+ */
+internal fun drainFromDns(records: List<homegap.model.DesiredDnsRecord>, draining: Set<String>): List<homegap.model.DesiredDnsRecord> =
+    if (draining.isEmpty()) records else records.filter { r ->
+        r.nodeId !in draining || r.purpose == "management" ||
+            records.none { o -> o.fqdn == r.fqdn && o.nodeId !in draining }
+    }
