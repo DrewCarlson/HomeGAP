@@ -58,6 +58,9 @@ from Docker labels:
   terminate on the node instead.
 - **HTTP(S), raw TCP and UDP**, plus private services reachable only through the Pangolin client.
 - **Geo routing with health-checked failover** — viewers reach the nearest healthy node.
+- **A VPN that outlives the homelab** — with the [cluster](#clustered-pangolin), every node is
+  one Pangolin with shared users and devices. Pangolin apps connect through the nearest node,
+  and signing in keeps working while the homelab is down.
 - **One-label exposure** — Docker labels are the source of truth; the controller reconciles the rest.
 - **Hands-off node lifecycle** — bare VPS to working edge node over SSH, with drift repair.
 - **Built-in dashboard** for observability, pausing, re-provisioning and node management.
@@ -72,15 +75,17 @@ never in the traffic path.
 
 ```mermaid
 flowchart TD
-    viewer([Viewers])
+    viewer([Viewers and Pangolin apps])
     dns["Bunny DNS<br/>geo routing + health checks"]
-    node["Nearest regional node<br/>Pangolin EE · Gerbil · Traefik"]
+    node["Nearest regional node<br/>Pangolin EE · Gerbil · Traefik<br/>+ cluster member"]
+    other["Other nodes<br/>(same Pangolin cluster)"]
 
     subgraph homelab["Homelab (no inbound ports)"]
-        newt["Newt connector<br/>homegap tunnels"]
+        newt["Newt connectors<br/>homegap tunnels"]
         traefik["Homelab Traefik"]
         services["Services"]
         orch["Orchestrator<br/>homegap run"]
+        member["Cluster member<br/>PostgreSQL · Valkey · etcd"]
     end
 
     viewer --> dns
@@ -88,12 +93,20 @@ flowchart TD
     node <-->|WireGuard tunnel, dialed outbound from home| newt
     newt --> traefik
     traefik --> services
+    node <-.->|private mesh hg-mesh: shared database| member
+    node <-.->|private mesh| other
 
     orch -.->|reads Docker labels| traefik
     orch -.->|connector specs| newt
     orch -.->|SSH + Pangolin API| node
     orch -.->|Bunny API| dns
 ```
+
+With `cluster:` in the config, every node's Pangolin is one instance of a single Pangolin EE
+cluster. They share a database that has a member on the homelab and on every node, over a
+private WireGuard mesh. The homelab holds the primary while it's up, and the nodes elect one of
+themselves while it isn't. Without `cluster:`, each node runs an independent Pangolin; everything
+below except the cluster sections still applies.
 
 ### Reconciliation
 
@@ -136,9 +149,11 @@ Every pass applies only the minimal diff.
   service; plain HTTP services are terminated on the node.
 - **Raw TCP/UDP.** The service gets its own public port on its nodes: a Traefik entrypoint, a
   published Gerbil port and a `ufw` rule. It also gets its own DNS record.
-- **Private.** Private services become Pangolin private resources (with an alias set to the
-  hostname) on the primary Pangolin and on their nodes. They are reachable only through the
-  Pangolin client, and get no public DNS record and no public port.
+- **Private.** Private services become Pangolin private resources, with an alias set to the
+  hostname. They are reachable only through the Pangolin client, and get no public DNS record and
+  no public port. In a cluster, one private resource lists every node's site: a Pangolin app
+  connects to `pangolin.<domain>`, which DNS sends to the nearest healthy node, and relays through
+  that node to the homelab. The node is chosen when the app connects or changes network.
 
 ### Health and failover
 
@@ -154,6 +169,11 @@ Bunny drops offline members from a record set, so those viewers resolve to the n
 When every member is offline, Bunny returns all of them (fail-open). Realistic failover time is
 the health interval plus the 60s TTL plus resolver caching: roughly 1–5 minutes.
 
+In a cluster, the database fails over on its own: when the member holding the primary is gone,
+the remaining members elect another in about 30 seconds, and HomeGAP moves the primary back to
+the homelab once it has been caught up for `cluster.primary.switch_back_after`. See
+[Cluster database](#cluster-database) and [Failure modes](#failure-modes).
+
 ## Requirements
 
 | Component | Requirement |
@@ -161,8 +181,8 @@ the health interval plus the 60s TTL plus resolver caching: roughly 1–5 minute
 | Homelab | Docker with Compose; a Traefik instance fronting your services |
 | Regional nodes | Ubuntu 22.04, 24.04, 26.04 or 26.10 VPS (x86_64 or aarch64), public IPv4 (IPv6 optional), and SSH access: either root or a sudo user with a password or key (the [add-node wizard](#adding-a-node) sets up the rest), or a user with passwordless sudo and a key you configure yourself |
 | DNS | A [Bunny DNS](https://bunny.net/dns/) zone and API key |
-| Pangolin EE license | Optional; required for wildcard resources in `terminate` mode — one key per Pangolin instance (see [EE licenses](#ee-licenses)) |
-| Primary Pangolin | Optional; a hand-curated Pangolin EE on the homelab for private (client) access |
+| Pangolin EE license | Optional; required for wildcard resources in `terminate` mode. One key for a cluster, or one per node without it (see [EE licenses](#ee-licenses)) |
+| Nodes for the cluster | Two or more, so the cluster can elect a primary (and keep sign-ins working) while the homelab is down |
 
 ## Getting started
 
@@ -179,12 +199,11 @@ supervisor (`homegap tunnels`).
    runs, add it with the dashboard's [add-node wizard](#adding-a-node), starting from the root
    password your provider gives you. Or set it up yourself: a user with passwordless sudo and a
    dedicated SSH key per node, then add it to `nodes[]`.
-3. Stand up the primary Pangolin EE on the homelab by hand (optional, for private access). Create
-   its admin, org and homelab site, plus an Integration API key.
-4. Label your Traefik container (root + wildcard + `tls`, see [Service labels](#service-labels))
+3. Label your Traefik container (root + wildcard + `tls`, see [Service labels](#service-labels))
    and write `config/config.yml` starting from
-   [`config/config.example.yml`](config/config.example.yml).
-5. Run the orchestrator and the tunnel supervisor on the homelab
+   [`config/config.example.yml`](config/config.example.yml). Add `cluster: {}` for
+   [clustered Pangolin](#clustered-pangolin) (recommended with two or more nodes).
+4. Run the orchestrator and the tunnel supervisor on the homelab
    ([`deploy/homelab-compose.yml`](deploy/homelab-compose.yml)) with the Docker socket mounted
    read-only, plus the config, the SSH keys and the secrets.
 
@@ -195,6 +214,8 @@ supervisor (`homegap tunnels`).
 
 ### Automated by the orchestrator
 
+5. With the cluster: set up the private mesh and the shared database (homelab member first, then
+   each node).
 6. Provision each node (Docker, `ufw`, Pangolin EE + Gerbil + Traefik, secrets, certificate,
    admin, org, API key, license).
 7. Create one homelab site per node and one Newt connector per node.
@@ -203,6 +224,8 @@ supervisor (`homegap tunnels`).
 9. Verify on the test domain: nodes green, each name resolving per region, failover working, and
    the passthrough/terminate toggle working. Then point `domain` at your production domain and
    move it to Bunny.
+10. With the cluster: add people on the dashboard's **Access** page, and put
+    `https://pangolin.<domain>` into their Pangolin apps (see [Users and devices](#users-and-devices)).
 
 ## Service labels
 
@@ -282,7 +305,6 @@ Key sections:
 | `bunny.monitor` | `http` (recommended), `ping` or `none`. |
 | `pangolin` | Image versions, ACME email, org id, optional default `license_key_env`, optional CrowdSec, and `base_blueprint` — a Pangolin blueprint applied to every node before the managed resources. |
 | `certificates` | How the wildcard + root certificate reaches the nodes: `none` (nodes use their own ACME HTTP-01), `files` (PEM chain and key), or `acme_json` (read the homelab Traefik's ACME store, mounted read-only; the certificate must be issued with DNS-01, for example Traefik's `bunny` provider). |
-| `primary_pangolin` | Integration API URL, key, org and site of the hand-curated homelab Pangolin. HomeGAP only writes private resources there. |
 | `nodes[]` | Per node: `id`, `host`, SSH user, port and key file, `location`, and optionally `license_key_env` (each node needs its own EE key), `public_ipv4` / `public_ipv6`, `management_host` (default `pangolin-<id>.<domain>`), `dashboard_public` (default `false`), `firewall` (default `true`), `ssh_allow_from` (sources allowed to reach SSH through the firewall, IPv4/IPv6 addresses or CIDRs; empty, the default, allows SSH from anywhere — see [Adding a node](#adding-a-node) before restricting it), `install_docker` (default `true`). |
 | `tunnels` | Shared state directory, `mtu` (WireGuard MTU for Newt and every Gerbil) and `native` (kernel WireGuard for Newt). See [Performance](#performance). |
 | `cluster` | Optional. `mesh.subnet` (default `10.77.0.0/24`) and `mesh.port` (default `51821/udp`) for the private WireGuard mesh between the homelab and every node. `image` (default `ghcr.io/drewcarlson/homegap-cluster:latest`) runs each member's database services. `primary.preferred` (default `homelab`) and `primary.switch_back_after` (default `10m`) decide where the database primary lives. `client_hostname` (default `pangolin`) names the geo-routed address clients and the login pages use. See [Cluster mesh](#cluster-mesh), [Cluster database](#cluster-database) and [Clustered Pangolin](#clustered-pangolin). |
@@ -298,10 +320,16 @@ configuration stays in effect.
 
 Pangolin EE license keys are **bound to a single Pangolin instance** when first activated: a
 second instance trying the same key is rejected ("already been activated with a different
-instance name"). Each regional node and the primary need their own key. Give each node one with
-`nodes[].license_key_env`; `pangolin.license_key_env` is only a default for single-node setups.
-A rejected key is reported once per node (dashboard check `ee-license`) and is not retried until
-the key changes.
+instance name").
+
+- **With the cluster, one key covers every node**, because they share one database. Set
+  `pangolin.license_key_env`. HomeGAP activates it through the first node that can and tells the
+  others to re-read it. Per-node keys are ignored. The cluster database panel shows the license
+  state.
+- **Without the cluster, each node needs its own key.** Give each node one with
+  `nodes[].license_key_env`; `pangolin.license_key_env` is only a default for single-node setups.
+  A rejected key is reported once per node (dashboard check `ee-license`) and is not retried
+  until the key changes.
 
 > [!WARNING]
 > Activations are recorded by the license server, so avoid activating production keys on
@@ -465,7 +493,9 @@ database. There is one org, one set of users and one license.
 - **Each node runs the PostgreSQL build** of the configured image (`ee-<version>` becomes
   `ee-postgresql-<version>`).
 - **Writes go to the current primary, reads stay local.** Pangolin writes through
-  `cluster-proxy` and reads from the node's own database member.
+  `cluster-proxy` and reads from the node's own database member. Signing in and using the
+  session straight away works through a node ~300 ms from the primary (tested in e2e with added
+  mesh latency).
 - **Each node is its own region.** The homelab gets one site per node (`<site_name>-<node id>`),
   created through that node so its connector always uses that node's exit node.
 - **Each service is one resource with a target on every node's site.** HomeGAP applies them
@@ -493,6 +523,31 @@ database. There is one org, one set of users and one license.
 - **Upgrades are rolled out one node at a time, as before.** The first node to start a new
   Pangolin version (the one that migrates the database) saves a dump of it first. If that update
   fails, rolling it back also restores the dump.
+
+#### Moving an existing deployment onto the cluster
+
+Nothing on a standalone node's Pangolin needs copying: its sites, resources and API key are
+all generated from labels and config. So adding `cluster:` to the config of a running
+deployment rebuilds each node instead:
+
+1. **The homelab member and the mesh come first.** Each node joins the mesh and the database
+   cluster next to its running stack. Live traffic isn't touched.
+2. **Then one node at a time**, through the usual rollout (a failed one rolls back and holds the
+   rest):
+   - **It leaves DNS.** Its records are dropped from every name another node also serves, and
+     the switch waits one TTL so resolvers stop sending viewers to it. A name only that node
+     serves stays put.
+   - **It switches to the cluster's Pangolin.** The first node sets up the cluster's admin, org,
+     API key and license. Each node gets a new homelab site, and its connector is re-keyed.
+   - **It returns to DNS** once its site is online and every resource it serves exists.
+3. **Standalone and cluster nodes coexist meanwhile.** Each keeps its own tunnel to the homelab,
+   so public traffic is unaffected.
+
+The old standalone database stays in `config/db` on each node (a failed switch rolls back to it).
+Removing `cluster:` again moves the nodes back to their standalone Pangolins the same way, one at
+a time and out of DNS while they switch. Their mesh and database members are left in place.
+Once every node has moved, the per-node `license_key_env` keys are no longer used: the cluster
+needs only `pangolin.license_key_env`, and the per-node keys can be released.
 
 #### Users and devices
 
@@ -694,7 +749,11 @@ a public issue.
 | Regional node down | Bunny drops it; its viewers resolve to the next-nearest node | The orchestrator repairs or re-provisions it; DNS recovers automatically |
 | Node update fails | That node is rolled back to its previous stack; the rollout to other nodes stops | Retry or skip it from the dashboard, or change the config (see [Node updates and rollback](#node-updates-and-rollback)) |
 | Orchestrator down | None on live traffic; only new label or config changes wait | Restart it; it reconciles to the desired state |
-| Homelab origin down | All remote access down (single origin, by design) | Restore the origin; tunnels reconnect |
+| Homelab origin down | Public services are down (single origin, by design). With the cluster, Pangolin apps stay connected and new sign-ins work after ~30 s, once the nodes elect a database primary; only homelab services are unreachable | Restore the origin; tunnels reconnect, and the primary moves back after the hold |
+| Node holding the database primary down (cluster) | Sign-ins and changes pause ~30 s while the others elect a new primary; public traffic fails over through DNS as for any node | Automatic; the primary returns to the homelab after the hold |
+| Homelab cut off from the nodes, but up (cluster) | The homelab loses the vote and stops taking writes; the nodes elect a primary and keep serving | Heal the link: the homelab rejoins as a replica (rewinding any writes it couldn't keep) and the primary moves back after the hold |
+| Mesh link between two nodes broken (cluster) | Nothing visible while a majority of members still reach each other; the dashboard flags the isolated member | Fix the network; WireGuard reconnects on its own |
+| Fewer than half the cluster members reachable | No primary can be elected: logins and changes fail; connected apps and public traffic keep working | Bring members back; the dashboard shows "no majority" |
 | Newt tunnel drops | That node's health probe fails, so it drops out of DNS | The supervisor restarts Newt with backoff; failover covers the gap |
 | Certificate issuance fails on a node | That node cannot serve TLS for affected names | Push the wildcard via `certificates`, or fix ACME; the dashboard shows expiry |
 | A login blocker on a node (fail2ban, sshguard, CrowdSec) bans the orchestrator | SSH from the orchestrator times out or is cut before login; setup or provisioning for that node fails | Lift the ban from the provider's console or another network, then retry; the add-node wizard exempts the orchestrator's address from these blockers |
@@ -735,13 +794,18 @@ e2e/verify.sh     # checks passthrough, wildcard, terminate, raw TCP, health and
                   # node, and the cluster's client address
 ```
 
-With the cluster on, `e2e/compose.yml` also has a Pangolin client (`client`, profile `client`) for
-private access. Create a machine client (a role with access to `ssh.test.example.net`), then start
-it with that client's credentials; `CLIENT_NODE_IP` plays the part of DNS picking the nearest node:
+With the cluster on (as in `e2e/config.e2e.yml`), `e2e/verify-cluster.sh` checks the cluster
+itself:
+
+- the database is healthy, with the primary on the homelab;
+- a user created through the dashboard signs in at `pangolin.<domain>` through every node;
+- a Pangolin client (the `client` service) reaches a private service through whichever node it's
+  sent to (`CLIENT_NODE_IP` plays the part of DNS);
+- with the homelab cut off from the mesh, a node takes over and the homelab stops taking writes;
+  after healing, HomeGAP switches the primary (and Valkey) back.
 
 ```bash
-OLM_ID=… OLM_SECRET=… CLIENT_NODE_IP=172.30.0.10 docker compose -f e2e/compose.yml --profile client up -d client
-docker compose -f e2e/compose.yml exec client sh -c '(sleep 2) | nc -w 5 ssh.test.example.net 22'
+e2e/verify-cluster.sh   # about 5 minutes, most of it the switch-back hold
 ```
 
 ### Repository layout

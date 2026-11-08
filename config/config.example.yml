@@ -42,13 +42,6 @@ certificates:
   acme_json: /homelab/traefik/acme.json
   resolver: bunny
 
-# The hand-curated homelab Pangolin: read-only anchor; only private resources are written.
-primary_pangolin:
-  url: http://pangolin:3003/v1
-  api_key_env: PRIMARY_PANGOLIN_KEY
-  org: homegap
-  site: homelab
-
 # Optional: clustered Pangolin's private WireGuard mesh and its shared database (PostgreSQL and
 # Valkey on the homelab and every node). The orchestrator needs NET_ADMIN; see
 # deploy/homelab-compose.yml.

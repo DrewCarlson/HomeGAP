@@ -1,6 +1,6 @@
 # Build plan: clustered Pangolin with nearest-node client access
 
-Status: phases 1-6 built (mesh, cluster database, clustered Pangolin, reconciling one Pangolin, users and devices, and cluster status in the dashboard). Signing in with the mobile app is left to a real device. The design is proven in the `e2e/cluster` prototype (commits d2f94a0, b0c64db,
+Status: built (phases 1-8). `e2e/verify.sh` and `e2e/verify-cluster.sh` cover it end to end; signing in with the mobile app is left to a real device. The design is proven in the `e2e/cluster` prototype (commits d2f94a0, b0c64db,
 6123ef4). This plan turns it into HomeGAP.
 
 ## Goal
