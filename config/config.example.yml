@@ -49,12 +49,17 @@ primary_pangolin:
   org: homegap
   site: homelab
 
-# Optional: the private WireGuard mesh between the homelab and every node (the first part of
-# clustered Pangolin). The orchestrator needs NET_ADMIN; see deploy/homelab-compose.yml.
+# Optional: clustered Pangolin's private WireGuard mesh and its shared database (PostgreSQL and
+# Valkey on the homelab and every node). The orchestrator needs NET_ADMIN; see
+# deploy/homelab-compose.yml.
 # cluster:
 #   mesh:
 #     subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
 #     port: 51821            # udp, opened in each node's firewall
+#   image: ghcr.io/drewcarlson/homegap-cluster:latest
+#   primary:
+#     preferred: homelab     # where the database primary lives whenever it can
+#     switch_back_after: 10m # how long the homelab must be caught up before it takes over again
 
 nodes:
   - id: na1

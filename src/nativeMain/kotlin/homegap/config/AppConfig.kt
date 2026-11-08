@@ -134,7 +134,24 @@ data class PrimaryPangolinConfig(
 @Serializable
 data class ClusterConfig(
     val mesh: MeshConfig = MeshConfig(),
+    val primary: PrimaryConfig = PrimaryConfig(),
+    /** The cluster image every member runs (PostgreSQL with Patroni, etcd, Valkey, HAProxy). */
+    val image: String = "ghcr.io/drewcarlson/homegap-cluster:latest",
 )
+
+/**
+ * Where the database primary lives. It moves to a node automatically while the preferred member
+ * is unreachable, and HomeGAP switches it back once that member has been a caught-up replica for
+ * [switchBackAfter].
+ */
+@Serializable
+data class PrimaryConfig(
+    /** `homelab` (the only supported value for now). */
+    val preferred: String = "homelab",
+    @SerialName("switch_back_after") val switchBackAfter: String = "10m",
+) {
+    val switchBackDelay: Duration get() = parseDuration(switchBackAfter)
+}
 
 /**
  * The private WireGuard mesh between the homelab and every node. Cluster traffic (database,

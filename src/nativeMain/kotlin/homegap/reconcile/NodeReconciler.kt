@@ -616,7 +616,11 @@ class NodeReconciler(private val ctx: ReconcileContext) {
     suspend fun decommission(node: NodeConfig) {
         val ssh = ctx.ssh.session(node)
         ssh.runScriptOrThrow("decommission", "cd ${shQuote(dir)} 2>/dev/null && docker compose down --remove-orphans || true", 300)
-        if (ctx.config.cluster != null) ssh.runScript(homegap.provision.Mesh.TEARDOWN, 60)
+        if (ctx.config.cluster != null) {
+            val cluster = shQuote("$dir/cluster")
+            ssh.runScript("cd $cluster 2>/dev/null && docker compose down --remove-orphans || true; rm -rf $cluster", 300)
+            ssh.runScript(homegap.provision.Mesh.TEARDOWN, 60)
+        }
         ctx.ssh.drop(node.id)
     }
 

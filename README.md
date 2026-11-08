@@ -285,7 +285,7 @@ Key sections:
 | `primary_pangolin` | Integration API URL, key, org and site of the hand-curated homelab Pangolin. HomeGAP only writes private resources there. |
 | `nodes[]` | Per node: `id`, `host`, SSH user, port and key file, `location`, and optionally `license_key_env` (each node needs its own EE key), `public_ipv4` / `public_ipv6`, `management_host` (default `pangolin-<id>.<domain>`), `dashboard_public` (default `false`), `firewall` (default `true`), `ssh_allow_from` (sources allowed to reach SSH through the firewall, IPv4/IPv6 addresses or CIDRs; empty, the default, allows SSH from anywhere — see [Adding a node](#adding-a-node) before restricting it), `install_docker` (default `true`). |
 | `tunnels` | Shared state directory, `mtu` (WireGuard MTU for Newt and every Gerbil) and `native` (kernel WireGuard for Newt). See [Performance](#performance). |
-| `cluster` | Optional. `mesh.subnet` (default `10.77.0.0/24`) and `mesh.port` (default `51821/udp`) for the private WireGuard mesh between the homelab and every node. See [Cluster mesh](#cluster-mesh). |
+| `cluster` | Optional. `mesh.subnet` (default `10.77.0.0/24`) and `mesh.port` (default `51821/udp`) for the private WireGuard mesh between the homelab and every node. `image` (default `ghcr.io/drewcarlson/homegap-cluster:latest`) runs each member's database services. `primary.preferred` (default `homelab`) and `primary.switch_back_after` (default `10m`) decide where the database primary lives. See [Cluster mesh](#cluster-mesh) and [Cluster database](#cluster-database). |
 | `pangolin.tcp_tuning` | BBR, fq and larger TCP buffers on every node (default `true`). |
 | `speedtest` | `enabled`, `hostname` (default `speedtest`), `bind` (default `0.0.0.0:8089`), `link_ttl`, `phase_seconds`, `streams` (homelab ↔ node, default 4). |
 | `dashboard` | Bind address, optional bearer token, and whether config edits from the UI are allowed. |
@@ -399,8 +399,9 @@ homelab and every node. It is the first part of clustered Pangolin (see
   is never published. Nodes reach each other directly on their public addresses.
 - **The node firewall opens `mesh.port`/udp** to anywhere: WireGuard authenticates every packet,
   and the homelab's address can change.
-- **Nodes can't open connections to the homelab.** Inbound traffic on the homelab's end of the
-  mesh is dropped except replies and ping, so the dashboard stays private.
+- **Nodes reach only the homelab's cluster services.** Inbound traffic on the homelab's end of
+  the mesh is dropped except replies, ping and the [cluster database](#cluster-database) ports,
+  so the dashboard stays private.
 - **Each node's interface is managed by `wg-quick`** (enabled at boot). Peer changes apply in
   place without dropping existing sessions.
 
@@ -409,6 +410,36 @@ On the homelab, the mesh interface lives in the `homegap-mesh` container's netwo
 `NET_ADMIN`, so the interface outlives orchestrator restarts. The host kernel needs WireGuard
 (built into Linux 5.6 and later). The dashboard's **Nodes** page shows each member's last
 handshake with every other.
+
+### Cluster database
+
+With `cluster:` set, the homelab and every node also run one member of a shared database, the
+one clustered Pangolin will use. Each member runs five containers from the `homegap-cluster`
+image: etcd (the vote), PostgreSQL under Patroni, Valkey, Valkey Sentinel and HAProxy.
+
+- **The homelab is the primary.** It starts the cluster, and nodes join one at a time: first
+  the vote, then as streaming replicas.
+- **Nodes take over when the homelab is gone.** If the homelab drops off the mesh, the nodes that
+  can still reach a majority of the vote promote one of themselves, in about 30 seconds. A member
+  that loses the majority (the homelab, if it's the one cut off) demotes itself, so two
+  primaries never accept writes.
+- **The homelab takes it back.** When it returns, it rejoins as a replica (rewinding any writes
+  it took after losing the vote). After it has stayed caught up for `primary.switch_back_after`,
+  HomeGAP switches the PostgreSQL primary back to it, then Valkey.
+- **Services find the primary through HAProxy.** On each node, containers on the
+  `homegap-cluster` Docker network connect to `cluster-proxy:5433` (PostgreSQL) and
+  `cluster-proxy:6380` (Valkey). HAProxy follows the current primary and cuts connections to a
+  member that's demoted.
+- **The vote needs a majority.** With the homelab and one node, losing either stops writes.
+  Two or more nodes are needed for the cluster to keep working without the homelab.
+- **Passwords are generated once** and kept in `cluster/secrets.json` in the data directory.
+- **The homelab member keeps backups.** It writes a nightly `pg_dump` to `./backups` next to the
+  homelab compose file and keeps the newest seven.
+
+Each node's member is its own compose project in `/opt/homegap/cluster`, separate from the
+Pangolin stack, so stack updates never restart the database. Removing a node removes its member
+from the vote and deletes its data. The **Nodes** page shows each member's role, state and
+replication lag, and when a switch back is due.
 
 ### Node management host
 

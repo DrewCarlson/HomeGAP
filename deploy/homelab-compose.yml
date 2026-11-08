@@ -17,6 +17,11 @@ networks:
 
 volumes:
   homegap-data:
+  # The homelab's cluster member (only used when `cluster:` is configured).
+  homegap-etcd:
+  homegap-pgdata:
+  homegap-valkey:
+  homegap-sentinel:
 
 services:
   # Holds the orchestrator's network namespace, so the cluster mesh interface (hg-mesh, see
@@ -59,6 +64,54 @@ services:
       # - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
     # The dashboard must only be reachable privately: expose it as a *private* Pangolin
     # resource on the primary (alias e.g. homegap.<domain> -> orchestrator:8088), not publicly.
+
+  # ---------------------------------------------------------------------------------------
+  # The homelab's cluster member (only used when `cluster:` is configured; until then they wait).
+  # They share the mesh namespace and read the config the orchestrator writes under
+  # /data/cluster/config. The homelab holds the database primary by default; while it is down a
+  # node takes over, and the orchestrator switches it back once the homelab is caught up.
+  homegap-etcd:
+    image: ghcr.io/drewcarlson/homegap-cluster:latest
+    command: [etcd]
+    restart: unless-stopped
+    network_mode: service:homegap-mesh
+    depends_on: [homegap-mesh]
+    environment: { HG_CONFIG: /data/cluster/config }
+    volumes: [homegap-data:/data:ro, homegap-etcd:/var/lib/etcd]
+
+  homegap-db:
+    image: ghcr.io/drewcarlson/homegap-cluster:latest
+    command: [patroni]
+    restart: unless-stopped
+    network_mode: service:homegap-mesh
+    depends_on: [homegap-mesh]
+    shm_size: 256m
+    stop_grace_period: 60s
+    environment:
+      HG_CONFIG: /data/cluster/config
+      HG_BACKUP_DIR: /backups          # nightly pg_dump, newest seven kept
+    volumes:
+      - homegap-data:/data:ro
+      - homegap-pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+
+  homegap-valkey:
+    image: ghcr.io/drewcarlson/homegap-cluster:latest
+    command: [valkey]
+    restart: unless-stopped
+    network_mode: service:homegap-mesh
+    depends_on: [homegap-mesh]
+    environment: { HG_CONFIG: /data/cluster/config, HG_VALKEY_DIR: /var/lib/valkey }
+    volumes: [homegap-data:/data:ro, homegap-valkey:/var/lib/valkey]
+
+  homegap-sentinel:
+    image: ghcr.io/drewcarlson/homegap-cluster:latest
+    command: [sentinel]
+    restart: unless-stopped
+    network_mode: service:homegap-mesh
+    depends_on: [homegap-mesh]
+    environment: { HG_CONFIG: /data/cluster/config }
+    volumes: [homegap-data:/data:ro, homegap-sentinel:/var/lib/sentinel]
 
   # Keeps one Newt connector per regional node running. Independent of the orchestrator:
   # if the controller stops or restarts, tunnels stay up.

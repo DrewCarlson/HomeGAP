@@ -22,8 +22,9 @@ class NodesScreenPresenter(
     override fun model(props: NodesScreenProps): NodesScreenModel {
         val rows = remember(props.status.nodes, props.now) { props.status.nodes.map { it.toRowModel(props.now) } }
         val mesh = remember(props.status.mesh, props.now) { props.status.mesh?.toPanelModel(props.now) }
+        val database = remember(props.status.cluster) { props.status.cluster?.toPanelModel() }
         val events = remember { nodeEvents() }
-        return NodesScreenModel(rows, events, mesh)
+        return NodesScreenModel(rows, events, mesh, database)
     }
 
     private fun nodeEvents() = NodeEvents(

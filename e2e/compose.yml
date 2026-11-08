@@ -15,6 +15,11 @@ volumes:
   node-as1-docker:
   node-as1-opt:
   node-fr1-docker:
+  cluster-etcd:
+  cluster-pgdata:
+  cluster-valkey:
+  cluster-sentinel:
+  cluster-backups:
 
 services:
   node-na1:
@@ -135,6 +140,43 @@ services:
     networks:
       e2e:
         aliases: [orchestrator]
+
+  # The homelab's cluster member (etcd, PostgreSQL with Patroni, Valkey, Sentinel) in the mesh
+  # namespace, reading the config the orchestrator writes under /data/cluster/config.
+  cluster-etcd:
+    image: homegap-cluster:e2e
+    restart: unless-stopped
+    command: [etcd]
+    network_mode: service:mesh
+    depends_on: [mesh]
+    environment: { HG_CONFIG: /data/cluster/config }
+    volumes: ["./work/data:/data:ro", "cluster-etcd:/var/lib/etcd"]
+  cluster-db:
+    image: homegap-cluster:e2e
+    restart: unless-stopped
+    command: [patroni]
+    network_mode: service:mesh
+    depends_on: [mesh]
+    shm_size: 256m
+    stop_grace_period: 60s
+    environment: { HG_CONFIG: /data/cluster/config, HG_BACKUP_DIR: /backups }
+    volumes: ["./work/data:/data:ro", "cluster-pgdata:/var/lib/postgresql/data", "cluster-backups:/backups"]
+  cluster-valkey:
+    image: homegap-cluster:e2e
+    restart: unless-stopped
+    command: [valkey]
+    network_mode: service:mesh
+    depends_on: [mesh]
+    environment: { HG_CONFIG: /data/cluster/config, HG_VALKEY_DIR: /var/lib/valkey }
+    volumes: ["./work/data:/data:ro", "cluster-valkey:/var/lib/valkey"]
+  cluster-sentinel:
+    image: homegap-cluster:e2e
+    restart: unless-stopped
+    command: [sentinel]
+    network_mode: service:mesh
+    depends_on: [mesh]
+    environment: { HG_CONFIG: /data/cluster/config }
+    volumes: ["./work/data:/data:ro", "cluster-sentinel:/var/lib/sentinel"]
 
   orchestrator:
     image: homegap:e2e

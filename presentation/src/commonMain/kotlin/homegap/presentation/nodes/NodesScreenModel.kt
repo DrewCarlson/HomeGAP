@@ -9,6 +9,8 @@ data class NodesScreenModel(
     val events: NodeEvents,
     /** The cluster mesh; null when the cluster is not configured. */
     val mesh: MeshPanelModel? = null,
+    /** The cluster's database layer; null when the cluster is not configured. */
+    val database: DatabasePanelModel? = null,
 ) : ScreenModel
 
 /** Per-node actions; the view asks for confirmation where an action is destructive. */

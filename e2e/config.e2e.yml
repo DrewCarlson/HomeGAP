@@ -25,6 +25,10 @@ speedtest:
 # The cluster mesh between the homelab (the orchestrator) and every node.
 cluster:
   mesh: {}
+  # Built locally and loaded into the nodes by run.sh (load-cluster-image.sh).
+  image: homegap-cluster:e2e
+  primary:
+    switch_back_after: 1m
 
 nodes:
   - id: na1

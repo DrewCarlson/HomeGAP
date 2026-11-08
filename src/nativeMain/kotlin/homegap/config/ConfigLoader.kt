@@ -82,6 +82,11 @@ object ConfigLoader {
             if (m.port !in 1..65535) errors += "cluster.mesh.port must be 1-65535"
             if (m.port in setOf(51820, 21820)) errors += "cluster.mesh.port must differ from Gerbil's ports (51820, 21820)"
         }
+        c.cluster?.let { cl ->
+            if (cl.primary.preferred != "homelab") errors += "cluster.primary.preferred must be homelab"
+            try { cl.primary.switchBackDelay } catch (e: Exception) { errors += "cluster.primary.switch_back_after: ${e.message}" }
+            if (cl.image.isBlank()) errors += "cluster.image must not be empty"
+        }
         if (errors.isNotEmpty()) throw IllegalArgumentException("Invalid configuration:\n  - " + errors.joinToString("\n  - "))
     }
 

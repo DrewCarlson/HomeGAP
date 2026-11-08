@@ -22,7 +22,13 @@ object FirewallRules {
         add("allow 51820/udp")
         add("allow 21820/udp")
         // WireGuard authenticates every packet, and the homelab dials in from a changing address.
-        meshPort?.let { add("allow $it/udp") }
+        meshPort?.let {
+            add("allow $it/udp")
+            // Cluster services listen on the mesh address; only mesh members can reach it, and
+            // the node's own containers on the cluster network (HAProxy, Pangolin).
+            add("allow in on ${Mesh.INTERFACE}")
+            add("allow in on ${ClusterTemplates.BRIDGE}")
+        }
         rawPorts.forEach { add("allow ${it.port}/${it.protocol}") }
     }.distinct()
 

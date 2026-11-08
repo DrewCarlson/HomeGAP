@@ -53,13 +53,19 @@ class HomelabMesh(private val dir: String) {
      * come in. Services that must accept mesh connections are allowed explicitly ahead of the drop.
      */
     private suspend fun guardInbound() {
-        for (rule in INBOUND_RULES) {
-            val spec = listOf("-i", Mesh.INTERFACE) + rule
-            if (run("iptables", "-C", "INPUT", *spec.toTypedArray()).ok) continue
-            val r = run("iptables", "-A", "INPUT", *spec.toTypedArray())
+        val wanted = INBOUND_RULES.map { listOf("-A", "INPUT", "-i", Mesh.INTERFACE) + it }
+        val current = run("iptables", "-S", "INPUT").stdout.lines().filter { " -i ${Mesh.INTERFACE} " in "$it " }
+        // iptables prints rules in its own normalized form; compare by re-adding in order when the
+        // set or order differs (the DROP must stay last).
+        if (current.size == wanted.size && current.zip(wanted).all { (have, want) -> normalize(have) == normalize(want.joinToString(" ")) }) return
+        for (line in current) run("iptables", *line.replaceFirst("-A ", "-D ").split(' ').filter { it.isNotEmpty() }.toTypedArray())
+        for (spec in wanted) {
+            val r = run("iptables", *spec.toTypedArray())
             check(r.ok) { "could not set the mesh firewall (iptables ${spec.joinToString(" ")}): ${r.stderr.trim()}" }
         }
     }
+
+    private fun normalize(rule: String) = rule.replace("RELATED,ESTABLISHED", "ESTABLISHED,RELATED").split(' ').filter { it.isNotEmpty() }.joinToString(" ")
 
     /** Current peers, or null when the interface does not exist. */
     suspend fun peers(): List<Mesh.PeerStatus>? {
@@ -71,6 +77,8 @@ class HomelabMesh(private val dir: String) {
         val INBOUND_RULES = listOf(
             listOf("-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"),
             listOf("-p", "icmp", "-j", "ACCEPT"),
+            // The homelab's cluster member (etcd, PostgreSQL, Patroni, Valkey, Sentinel).
+            listOf("-p", "tcp", "-m", "multiport", "--dports", homegap.provision.ClusterTemplates.MESH_PORTS.joinToString(","), "-j", "ACCEPT"),
             listOf("-j", "DROP"),
         )
     }

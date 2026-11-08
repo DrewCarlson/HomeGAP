@@ -155,7 +155,9 @@ object Mesh {
     """.trimMargin()
 
     private const val OPEN_PORT =
-        "if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then ufw allow @PORT@/udp comment homegap >/dev/null; fi"
+        "if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then " +
+            "ufw allow @PORT@/udp comment homegap >/dev/null; ufw allow in on $INTERFACE comment homegap >/dev/null; " +
+            "ufw allow in on ${ClusterTemplates.BRIDGE} comment homegap >/dev/null; fi"
 
     /** One peer line of `wg show <iface> dump`. [latestHandshake] is epoch seconds (0 = never). */
     data class PeerStatus(val publicKey: String, val endpoint: String?, val latestHandshake: Long, val rxBytes: Long, val txBytes: Long)

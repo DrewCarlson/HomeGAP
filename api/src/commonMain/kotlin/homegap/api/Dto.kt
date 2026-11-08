@@ -28,6 +28,8 @@ data class StatusSnapshot(
     val pauses: PausesDto = PausesDto(),
     /** The cluster mesh; null when the cluster is not configured. */
     val mesh: MeshStatusDto? = null,
+    /** The cluster's database layer; null when the cluster is not configured. */
+    val cluster: ClusterStatusDto? = null,
 )
 
 @Serializable
@@ -302,4 +304,33 @@ data class MeshPeerDto(
     val lastHandshakeAt: Long? = null,
     val rxBytes: Long = 0,
     val txBytes: Long = 0,
+)
+
+/** The cluster's database layer: where the primaries are and each member's part. */
+@Serializable
+data class ClusterStatusDto(
+    /** The member holding the PostgreSQL primary (null while there is none). */
+    val primary: String? = null,
+    /** The member holding the Valkey primary. */
+    val valkeyPrimary: String? = null,
+    /** Where the primary belongs (`homelab`). */
+    val preferred: String = "homelab",
+    /** What the switch-back is waiting for, when the primary is away from [preferred]. */
+    val switchBack: String? = null,
+    val members: List<ClusterMemberDto> = emptyList(),
+)
+
+@Serializable
+data class ClusterMemberDto(
+    val id: String,
+    val address: String,
+    /** etcd: `voter`, `joining` (learner), `not joined` or `unknown`. */
+    val vote: String,
+    /** Patroni role: `leader`, `replica`, … (null when the member's database is not running). */
+    val role: String? = null,
+    /** Patroni state: `running`, `streaming`, … */
+    val state: String? = null,
+    /** Replication lag in bytes (replicas). */
+    val lagBytes: Long? = null,
+    val timeline: Int? = null,
 )
