@@ -1,0 +1,159 @@
+# Prototype: Pangolin EE clustering across two HomeGAP nodes. Each node runs Pangolin, Gerbil and
+# Traefik; the nodes share PostgreSQL (primary on c1) and Valkey. The homelab runs its own
+# Traefik (origin certificate, for passthrough checks) and one connector (Newt) per node.
+# Test-only credentials. Run ./setup.sh first.
+name: homegap-cluster
+
+x-pangolin: &pangolin
+  image: docker.io/fosrl/pangolin:ee-postgresql-1.26.0
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
+    interval: 5s
+    timeout: 5s
+    retries: 30
+  depends_on:
+    db-c1: { condition: service_healthy }
+    valkey: { condition: service_started }
+
+x-gerbil: &gerbil
+  image: docker.io/fosrl/gerbil:1.6.0
+  cap_add: [NET_ADMIN, SYS_MODULE]
+
+x-traefik: &traefik
+  image: docker.io/traefik:v3.7.16
+  command: ["--configFile=/etc/traefik/traefik_config.yml"]
+
+services:
+  db-c1:
+    image: docker.io/library/postgres:17
+    environment:
+      POSTGRES_PASSWORD: cluster-e2e
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 3s
+      retries: 30
+    networks: { cl: { ipv4_address: 172.31.0.5 } }
+
+  valkey:
+    image: docker.io/valkey/valkey:8.1
+    networks: { cl: { ipv4_address: 172.31.0.6 } }
+
+  # ------------------------------------------------------------------ node c1
+  c1-pangolin:
+    <<: *pangolin
+    environment:
+      PANGOLIN_SETUP_TOKEN: ${SETUP_TOKEN:-}
+    volumes:
+      - ./work/c1/config:/app/config
+      - ./work/c1/config/certificates:/var/certificates
+      - ./work/c1/config/dynamic:/var/dynamic
+    networks:
+      c1: { aliases: [pangolin] }
+      cl: { ipv4_address: 172.31.0.12 }
+  c1-gerbil:
+    <<: *gerbil
+    command:
+      - --reachableAt=http://172.31.0.11:3004
+      - --generateAndSaveKeyTo=/var/config/key
+      - --remoteConfig=http://pangolin:3001/api/v1/
+    volumes: [./work/c1/config:/var/config]
+    depends_on: { c1-pangolin: { condition: service_healthy } }
+    ports: ["127.0.0.1:18101:3000"]
+    networks:
+      c1: { aliases: [gerbil] }
+      cl: { ipv4_address: 172.31.0.11 }
+  c1-traefik:
+    <<: *traefik
+    network_mode: service:c1-gerbil
+    depends_on: { c1-pangolin: { condition: service_healthy } }
+    volumes:
+      - ./work/c1/config/traefik:/etc/traefik:ro
+      - ./work/c1/config/certificates:/var/certificates
+      - ./work/c1/config/dynamic:/var/dynamic:ro
+      - ./work/c1/certs:/certs:ro
+
+  # ------------------------------------------------------------------ node c2
+  c2-pangolin:
+    <<: *pangolin
+    environment:
+      PANGOLIN_SETUP_TOKEN: ${SETUP_TOKEN:-}
+    volumes:
+      - ./work/c2/config:/app/config
+      - ./work/c2/config/certificates:/var/certificates
+      - ./work/c2/config/dynamic:/var/dynamic
+    networks:
+      c2: { aliases: [pangolin] }
+      cl: { ipv4_address: 172.31.0.22 }
+  c2-gerbil:
+    <<: *gerbil
+    command:
+      - --reachableAt=http://172.31.0.21:3004
+      - --generateAndSaveKeyTo=/var/config/key
+      - --remoteConfig=http://pangolin:3001/api/v1/
+    volumes: [./work/c2/config:/var/config]
+    depends_on: { c2-pangolin: { condition: service_healthy } }
+    ports: ["127.0.0.1:18102:3000"]
+    networks:
+      c2: { aliases: [gerbil] }
+      cl: { ipv4_address: 172.31.0.21 }
+  c2-traefik:
+    <<: *traefik
+    network_mode: service:c2-gerbil
+    depends_on: { c2-pangolin: { condition: service_healthy } }
+    volumes:
+      - ./work/c2/config/traefik:/etc/traefik:ro
+      - ./work/c2/config/certificates:/var/certificates
+      - ./work/c2/config/dynamic:/var/dynamic:ro
+      - ./work/c2/certs:/certs:ro
+
+  # ------------------------------------------------------------------ homelab
+  whoami:
+    image: docker.io/traefik/whoami:v1.10
+    networks: { home: {} }
+  homelab-traefik:
+    image: docker.io/traefik:v3.7.16
+    command: ["--configFile=/etc/traefik/traefik.yml"]
+    volumes:
+      - ../homelab-traefik.yml:/etc/traefik/traefik.yml:ro
+      - ../homelab-dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ../work/homelab-certs:/certs:ro
+    networks: { home: {} }
+  # One connector per node, each connecting through its own node (pinned by region).
+  newt-c1:
+    image: docker.io/fosrl/newt:1.20.0
+    profiles: [sites]
+    environment:
+      PANGOLIN_ENDPOINT: http://pangolin-c1.test.example.net:3000
+      NEWT_ID: ${NEWT_C1_ID:-}
+      NEWT_SECRET: ${NEWT_C1_SECRET:-}
+    extra_hosts: ["pangolin-c1.test.example.net:172.31.0.11"]
+    networks: { home: {}, cl: { ipv4_address: 172.31.0.32 } }
+  newt-c2:
+    image: docker.io/fosrl/newt:1.20.0
+    profiles: [sites]
+    environment:
+      PANGOLIN_ENDPOINT: http://pangolin-c2.test.example.net:3000
+      NEWT_ID: ${NEWT_C2_ID:-}
+      NEWT_SECRET: ${NEWT_C2_SECRET:-}
+    extra_hosts: ["pangolin-c2.test.example.net:172.31.0.21"]
+    networks: { home: {}, cl: { ipv4_address: 172.31.0.33 } }
+
+  # A roaming client; CLIENT_NODE_IP picks which node "nearest" DNS sends it to.
+  client:
+    image: docker.io/fosrl/olm:1.10.1
+    profiles: [client]
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun"]
+    environment:
+      PANGOLIN_ENDPOINT: http://pangolin.test.example.net:3000
+      OLM_ID: ${OLM_ID:-}
+      OLM_SECRET: ${OLM_SECRET:-}
+    extra_hosts: ["pangolin.test.example.net:${CLIENT_NODE_IP:-172.31.0.11}"]
+    networks: { cl: { ipv4_address: 172.31.0.41 } }
+
+networks:
+  cl:
+    ipam: { config: [{ subnet: 172.31.0.0/24 }] }
+  c1: {}
+  c2: {}
+  home: {}
