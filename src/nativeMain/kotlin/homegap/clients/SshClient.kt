@@ -6,11 +6,8 @@ import homegap.platform.ProcessResult
 import homegap.platform.Subprocess
 import homegap.platform.nowMillis
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlin.io.encoding.Base64
 import kotlin.time.Duration.Companion.seconds
 
@@ -68,25 +65,15 @@ class SshSession(
         forwards.clear()
         // A socket left behind by a previous process (e.g. container restart) blocks a new master.
         Files.delete(controlPath)
-        // `ssh -f` backgrounds the master while keeping inherited fds, so it must not share our
-        // capture pipes: its output goes to a log file and we wait for the foreground ssh to exit.
-        val log = "$controlDir/${node.id}.log"
-        Files.writeAtomic(log, "", "600".toInt(8))
-        val child = Subprocess.start(
+        // `ssh -f` returns once logged in; the master it leaves behind detaches from our pipes.
+        val r = io(
             baseArgs() + listOf("-M", "-f", "-N", "-o", "ControlPersist=15m", "-o", "ExitOnForwardFailure=yes", target),
-            log,
+            timeout = 60,
         )
-        // Bounded: a master that never finishes logging in must not hold the pass.
-        val code = withContext(Dispatchers.IO) { child.process.waitFor(60.seconds) }
-        if (code == null) {
-            child.kill()
-            child.awaitExit()
-            throw SshException("ssh to ${node.id} (${node.host}) timed out")
-        }
-        if (code != 0 || !io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
-            val detail = Files.readTextOrNull(log)?.trim()?.takeLast(500)?.takeIf { it.isNotEmpty() }
+        if (!r.ok || !io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
+            val detail = r.stderr.trim().takeLast(500).takeIf { it.isNotEmpty() }
                 ?: "the connection was closed or dropped before login, with no message from ssh (a login blocker such as fail2ban may have banned this address)"
-            throw SshException("ssh to ${node.id} (${node.host}) failed (exit $code): $detail")
+            throw SshException("ssh to ${node.id} (${node.host}) failed (exit ${r.exitCode}): $detail")
         }
         masterVerifiedAt = nowMillis()
     }

@@ -5,9 +5,6 @@ import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.ProcessResult
 import homegap.platform.Subprocess
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.IO
-import kotlinx.coroutines.withContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -71,27 +68,13 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         Files.mkdirs(CONTROL_DIR)
         Files.chmodPath(CONTROL_DIR, "700".toInt(8))
         val controlPath = "$CONTROL_DIR/${Crypto.token(10)}.sock"
-        val logFile = "$controlPath.log"
-        Files.writeAtomic(logFile, "", "600".toInt(8))
         val (auth, env) = authFor(login)
         val argv = baseArgs(login) + auth +
             listOf("-M", "-f", "-N", "-o", "ControlPath=$controlPath", "-o", "ControlPersist=10m", target(login))
-        try {
-            val child = Subprocess.start(argv, logFile, env)
-            val code = withContext(Dispatchers.IO) { child.process.waitFor(60.seconds) }
-            if (code == null) {
-                child.kill()
-                child.awaitExit()
-                throw SetupConnectionException(NO_ANSWER)
-            }
-            if (code != 0) {
-                val log = Files.readTextOrNull(logFile).orEmpty()
-                throw SetupConnectionException(connectionError(ProcessResult(255, "", log)) ?: "SSH failed (exit $code).")
-            }
-            return Connection(login, controlPath)
-        } finally {
-            Files.delete(logFile)
-        }
+        // `ssh -f` returns once logged in; the master it leaves behind detaches from our pipes.
+        val r = Subprocess.run(argv, timeout = 60.seconds, env = env)
+        if (!r.ok) throw SetupConnectionException(connectionError(r) ?: "SSH failed (exit ${r.exitCode}).")
+        return Connection(login, controlPath)
     }
 
     /**
@@ -235,17 +218,18 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
 
         /** A readable reason for a failed SSH connection, from ssh's stderr (null if it connected). */
         fun connectionError(r: ProcessResult): String? {
-            if (r.exitCode != 255) return null
             val err = r.stderr
+            // Killed by our timeout: ssh may exit 255 (SIGTERM) or report the signal (SIGKILL).
+            if ("[homegap] process timed out" in err) return STALLED
+            if (r.exitCode != 255) return null
             return when {
                 "REMOTE HOST IDENTIFICATION HAS CHANGED" in err || "Host key verification failed" in err ->
                     HOST_KEY_CHANGED
                 "Permission denied" in err -> LOGIN_REJECTED
                 "Connection refused" in err -> "Nothing is listening for SSH on that port."
                 "Could not resolve hostname" in err -> "The host name does not resolve."
-                // Connected, then nothing more got through: ssh's own banner timeout, or ours
-                // (Subprocess marks a kill after the timeout; ssh exits 255 on SIGTERM).
-                "during banner exchange" in err || "[homegap] process timed out" in err -> STALLED
+                // Connected, then nothing more got through: ssh's own banner timeout.
+                "during banner exchange" in err -> STALLED
                 "timed out" in err || "No route to host" in err || "Network is unreachable" in err -> NO_ANSWER
                 "Connection closed" in err || "Connection reset" in err || "kex_exchange_identification" in err -> DROPPED
                 err.isBlank() -> DROPPED

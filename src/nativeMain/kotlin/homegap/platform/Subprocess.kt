@@ -14,8 +14,9 @@ data class ProcessResult(val exitCode: Int, val stdout: String, val stderr: Stri
 }
 
 /**
- * Child processes via ksubprocess. `waitFor()` blocks its thread on Native, so waits run on
- * [Dispatchers.IO]. Cancelling [run] kills the child (ksubprocess cleans it up).
+ * Child processes via ksubprocess. Waiting suspends (ksubprocess polls), and cancelling [run] kills
+ * the child. [run] still moves to [Dispatchers.IO]: starting a child and writing its stdin block,
+ * and a script larger than the pipe would otherwise hold up the controller's single event loop.
  */
 object Subprocess {
     /**
@@ -65,8 +66,8 @@ object Subprocess {
 
 /** A started child. Exactly one caller waits for it via [awaitExit]. */
     class Child(val process: Process) {
-        /** Suspends until the child exits (blocking an IO thread in `waitid`, no polling). */
-        suspend fun awaitExit(): Int = withContext(Dispatchers.IO) { process.waitFor() }
+        /** Suspends until the child exits. */
+        suspend fun awaitExit(): Int = process.waitFor()
         fun terminate() = runCatching { process.terminate() }
         fun kill() = runCatching { process.kill() }
     }

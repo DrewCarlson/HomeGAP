@@ -54,6 +54,8 @@ class NodeSetupTest {
         assertTrue(!SetupShell.isDropped(SetupShell.LOGIN_REJECTED))
         assertEquals(SetupShell.STALLED, error("Connection timed out during banner exchange\nConnection to 203.0.113.30 port 22 timed out"))
         assertEquals(SetupShell.STALLED, error("\n[homegap] process timed out after 30s"), "a login killed by our timeout connected first")
+        // ksubprocess reports a signal as 128 + signal: a SIGKILLed ssh still reads as our timeout.
+        assertEquals(SetupShell.STALLED, SetupShell.connectionError(ProcessResult(137, "", "\n[homegap] process timed out after 60s")))
         assertTrue(SetupShell.isDropped(SetupShell.STALLED))
     }
 
