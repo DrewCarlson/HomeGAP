@@ -650,6 +650,11 @@ needs the node's login pages to be public.
   switch-back delay. The tunnel connectors, which every node's traffic to the homelab goes
   through, are only restarted when their code or Newt changed (`--tunnels` forces it), so they
   may keep running the previous image. The mesh container is never touched.
+  Afterwards the nodes' cluster members follow the image the homelab now has (pinned to its
+  registry digest): one node per pass, only while every member is serving and no maintenance is
+  under way. Each node pulls the image first, moves any primary it holds to the homelab, then
+  restarts its services one at a time, each serving again before the next. The log says when and
+  why a node's update waits.
 - **Hold a manual change:** pause globally, per node or per service (dashboard or
   `homegap.pause`). Paused targets are observed but never modified.
 - **Re-provision a node:** click *Re-provision*. Destroying and recreating a VPS is safe: nodes

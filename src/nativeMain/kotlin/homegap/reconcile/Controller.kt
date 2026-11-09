@@ -425,7 +425,13 @@ class Controller(
             else runDomain("mesh", null) { meshRec.reconcile(ctx, cfg.nodes, state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap()) } ?: meshStatus
             // The cluster's database layer, over the mesh.
             clusterStatus = if (cfg.cluster == null || dryRun) null
-            else runDomain("cluster", null) { clusterRec.reconcile(ctx, cfg.nodes, state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap()) } ?: clusterStatus
+            else runDomain("cluster", null) {
+                // Nodes follow the cluster image the homelab has (pinned to its registry digest).
+                val image = cfg.cluster.image.let { ref ->
+                    runCatching { docker.image(ref) }.getOrNull()?.takeIf { it.created.isNotEmpty() }?.let { MemberImage(it.pinned(ref), it.created) }
+                }
+                clusterRec.reconcile(ctx, cfg.nodes, state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap(), image)
+            } ?: clusterStatus
             clusterStatus = clusterStatus?.let { cs ->
                 val shared = state.snapshot().clusterPangolin
                 val license = ClusterAlerts.License(

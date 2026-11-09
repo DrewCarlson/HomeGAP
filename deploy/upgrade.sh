@@ -45,6 +45,8 @@ CLUSTER=${HG_CLUSTER:-homegap-etcd:etcd homegap-sentinel:sentinel homegap-valkey
 TUNNELS_VERSION_FILE=/usr/share/homegap/tunnels-version
 
 dc() { docker compose ${ARGS[@]+"${ARGS[@]}"} "$@"; }
+# `exec` never reads this script's stdin (which may be the script itself, when piped into bash).
+dx() { dc exec -T "$@" </dev/null; }
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -76,7 +78,7 @@ fi
 
 say "Updating the orchestrator"
 dc up -d --no-deps "$ORCHESTRATOR"
-wait_until 120 dc exec -T "$ORCHESTRATOR" homegap version || die "the orchestrator did not start; see: docker compose logs $ORCHESTRATOR"
+wait_until 120 dx "$ORCHESTRATOR" homegap version || die "the orchestrator did not start; see: docker compose logs $ORCHESTRATOR"
 
 held=no
 if [ ${#cluster_services[@]} -gt 0 ]; then
@@ -84,7 +86,7 @@ if [ ${#cluster_services[@]} -gt 0 ]; then
   echo "(a planned switchover of the database and a Sentinel failover of Valkey; usually under a minute)"
   out=""
   for attempt in 1 2 3 4 5 6; do
-    if out=$(dc exec -T "$ORCHESTRATOR" homegap maintenance start --minutes 30 2>&1); then held=yes; break; fi
+    if out=$(dx "$ORCHESTRATOR" homegap maintenance start --minutes 30 2>&1); then held=yes; break; fi
     case "$out" in
       *"cluster is not enabled"*) break ;;
       # The dashboard API is not up yet right after the restart, or its first pass has not read
@@ -109,7 +111,7 @@ for pair in ${cluster_services[@]+"${cluster_services[@]}"}; do
   svc=${pair%%:*} role=${pair#*:}
   say "Updating $svc"
   dc up -d --no-deps "$svc"
-  if ! wait_until 300 dc exec -T "$svc" hg-member ready "$role"; then
+  if ! wait_until 300 dx "$svc" hg-member ready "$role"; then
     die "$svc is not serving after 5 minutes; the primaries stay on the nodes (for 30 minutes at most). See: docker compose logs $svc"
   fi
 done
@@ -118,7 +120,7 @@ if has "$TUNNELS"; then
   image=$(dc config --images "$TUNNELS" 2>/dev/null | head -n 1)
   [ -n "$image" ] || image=$(docker inspect -f '{{.Config.Image}}' "$(dc ps -q "$TUNNELS")")
   new=$(docker run --rm --entrypoint cat "$image" "$TUNNELS_VERSION_FILE" 2>/dev/null || echo unknown)
-  current=$(dc exec -T "$TUNNELS" cat "$TUNNELS_VERSION_FILE" 2>/dev/null || echo none)
+  current=$(dx "$TUNNELS" cat "$TUNNELS_VERSION_FILE" 2>/dev/null || echo none)
   if [ "$FORCE_TUNNELS" = yes ] || ! running "$TUNNELS" || [ "$new" != "$current" ] || [ "$new" = unknown ]; then
     say "Updating the tunnel connectors (every node reconnects to the homelab: a few seconds without access)"
     dc up -d --no-deps "$TUNNELS"
@@ -129,7 +131,7 @@ fi
 
 if [ "$held" = yes ]; then
   say "Ending maintenance"
-  dc exec -T "$ORCHESTRATOR" homegap maintenance end || warn "could not end maintenance; the hold expires on its own within 30 minutes"
+  dx "$ORCHESTRATOR" homegap maintenance end || warn "could not end maintenance; the hold expires on its own within 30 minutes"
 fi
 
 say "Done"

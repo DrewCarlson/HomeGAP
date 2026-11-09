@@ -94,4 +94,17 @@ class LabelsTest {
         }
         assertTrue(event("start", "homegap.pause" to "true").concernsHomegap())
     }
+
+    @Test
+    fun nodesPullTheExactImageTheHomelabRuns() {
+        val pulled = DockerImage("sha256:1", repoDigests = listOf("ghcr.io/example/homegap-cluster@sha256:abc"))
+        assertEquals("ghcr.io/example/homegap-cluster@sha256:abc", pulled.pinned("ghcr.io/example/homegap-cluster:latest"))
+        assertEquals("ghcr.io/example/homegap-cluster@sha256:abc", pulled.pinned("ghcr.io/example/homegap-cluster"))
+        // A registry with a port: the colon there is not a tag.
+        val local = DockerImage("sha256:2", repoDigests = listOf("registry.example:5000/cluster@sha256:def"))
+        assertEquals("registry.example:5000/cluster@sha256:def", local.pinned("registry.example:5000/cluster:7"))
+        // Built locally (never pulled): other hosts get the reference as it is.
+        assertEquals("homegap-cluster:e2e", DockerImage("sha256:3", null).pinned("homegap-cluster:e2e"))
+        assertEquals("other/repo:1", pulled.pinned("other/repo:1"))
+    }
 }

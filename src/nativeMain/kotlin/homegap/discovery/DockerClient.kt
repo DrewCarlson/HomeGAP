@@ -39,6 +39,14 @@ class DockerClient(
             json.decodeFromString<List<DockerContainerSummary>>(resp.bodyAsText())
         }
 
+    /** A local image by reference (`repo:tag`, `repo@digest` or id), or null when it isn't here. */
+    suspend fun image(ref: String): DockerImage? = withTimeout(requestTimeout) {
+        val resp = httpClient.get("$baseUrl/images/$ref/json")
+        if (resp.status.value == 404) return@withTimeout null
+        check(resp.status.value in 200..299) { "Docker API ${resp.status.value}: ${resp.bodyAsText().take(200)}" }
+        json.decodeFromString<DockerImage>(resp.bodyAsText())
+    }
+
     fun streamEvents(filters: Map<String, List<String>>): Flow<DockerEvent> = callbackFlow {
         httpClient.prepareGet("$baseUrl/events") {
             parameter("filters", json.encodeToString(filters))
@@ -89,6 +97,26 @@ data class DockerEvent(
     @SerialName("Action") val action: String = "",
     @SerialName("Actor") val actor: DockerEventActor = DockerEventActor(),
 )
+
+@Serializable
+data class DockerImage(
+    @SerialName("Id") val id: String = "",
+    @SerialName("RepoDigests") val repoDigests: List<String>? = null,
+    /**
+     * When the image was built. Unlike [id] (the config digest in Docker's classic store, the
+     * manifest digest in its containerd store) this is the same on every host.
+     */
+    @SerialName("Created") val created: String = "",
+) {
+    /**
+     * [ref] pinned to the registry digest this image was pulled by (`repo@sha256:…`), so another
+     * host pulls exactly this image; [ref] itself for an image that never came from a registry.
+     */
+    fun pinned(ref: String): String {
+        val repo = ref.substringBefore('@').let { r -> if (r.lastIndexOf(':') > r.lastIndexOf('/')) r.substringBeforeLast(':') else r }
+        return repoDigests.orEmpty().firstOrNull { it.substringBefore('@') == repo } ?: ref
+    }
+}
 
 /**
  * Whether a container event can change what HomeGAP exposes: only containers carrying `homegap.*`
