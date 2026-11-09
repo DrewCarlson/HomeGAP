@@ -195,6 +195,7 @@ class NodeReconciler(
                 )
             }
             if (update) log.change(domain, "update complete", node.id)
+            pruneImages(node, ssh)
             return true
         } catch (e: Exception) {
             if (e is CancellationException) {
@@ -229,6 +230,22 @@ class NodeReconciler(
             }
             return false
         }
+    }
+
+    /**
+     * Removes the images no container uses any more (the versions this update replaced), once
+     * the node runs its new stack. Images of stopped containers are kept. Best effort: a failure
+     * only leaves the disk as it was.
+     */
+    private suspend fun pruneImages(node: NodeConfig, ssh: SshSession) {
+        val out = try {
+            ssh.runScript("docker image prune --all --force 2>/dev/null | tail -n 1", 300).stdout.trim()
+        } catch (e: Exception) {
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
+            return
+        }
+        val reclaimed = out.substringAfter("Total reclaimed space:", "").trim()
+        if (reclaimed.isNotEmpty() && reclaimed != "0B") log.change(domain, "removed unused Docker images ($reclaimed)", node.id)
     }
 
     /** Waits for the node's Newt site to reconnect after an update. */
