@@ -223,6 +223,9 @@ table.data tr.empty:hover td { background: none; }
 .links { display: grid; gap: 8px; }
 .link-row { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
 .link-row a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A value with its buttons (Access page): the value takes the room and wraps, the buttons stay beside it. */
+.copy-row { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+.copy-row .mono { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
 .link-label { font-weight: 600; font-size: 13px; }
 
 /* ---------------------------------------------------------------- activity log */

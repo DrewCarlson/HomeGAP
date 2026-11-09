@@ -40,7 +40,7 @@ fun AccessScreen(model: AccessScreenModel) {
 @Composable
 private fun ClientAddress(address: String, via: String?) {
     Panel("Pangolin app address", via, flush = false) {
-        Div({ classes("link-row") }) {
+        Div({ classes("copy-row") }) {
             Span({ classes("mono") }) { Text(address) }
             ActionButton("Copy", small = true) { window.navigator.clipboard.writeText(address) }
         }
@@ -63,7 +63,7 @@ private fun NewUser(form: NewUserFormModel, inviteLink: String?, onDismiss: () -
         ActionButton(form.submitText, ButtonStyle.Primary, enabled = form.canSubmit, onClick = form.onSubmit)
         inviteLink?.let { link ->
             Div({ classes("links") }) {
-                Div({ classes("link-row") }) {
+                Div({ classes("copy-row") }) {
                     Span({ classes("link-label") }) { Text("Invite link") }
                     Span({ classes("mono") }) { Text(link.substringBefore("?") + "?…") }
                     ActionButton("Copy", small = true) { window.navigator.clipboard.writeText(link) }
