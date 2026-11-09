@@ -77,27 +77,38 @@ function style(withTiles) {
   return s;
 }
 
-/** Points along the great circle from a to b ([lng, lat]), unwrapped so lines don't jump the dateline. */
+/**
+ * A gentle curve from a to b ([lng, lat]) drawn on the flat map: a quadratic curve in Mercator
+ * space, bowed toward the pole by a fifth of its length. It starts and ends exactly on the two
+ * points (the markers), stays between them, and never crosses the dateline. (A true great circle
+ * looks like a huge loop over the pole on this projection.)
+ */
 function arc(a, b, n = 48) {
-  const rad = Math.PI / 180;
-  const [l1, p1] = [a[0] * rad, a[1] * rad];
-  const [l2, p2] = [b[0] * rad, b[1] * rad];
-  const d = 2 * Math.asin(Math.sqrt(Math.sin((p2 - p1) / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin((l2 - l1) / 2) ** 2));
-  if (d === 0) return [a, b];
+  const toXY = ([lng, lat]) => {
+    const c = Math.max(-85, Math.min(85, lat)) * (Math.PI / 180);
+    return [(lng + 180) / 360, (1 - Math.log(Math.tan(Math.PI / 4 + c / 2)) / Math.PI) / 2];
+  };
+  const toLngLat = ([x, y]) => [x * 360 - 180, (Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180) / Math.PI];
+  const p0 = toXY(a);
+  const p2 = toXY(b);
+  const dx = p2[0] - p0[0];
+  const dy = p2[1] - p0[1];
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return [a, b];
+  // Perpendicular, pointing north (smaller y) so lines arch over the map.
+  let nx = -dy / len;
+  let ny = dx / len;
+  if (ny > 0) { nx = -nx; ny = -ny; }
+  const bow = len * 0.2;
+  const c = [(p0[0] + p2[0]) / 2 + nx * bow, (p0[1] + p2[1]) / 2 + ny * bow];
   const out = [];
   for (let i = 0; i <= n; i++) {
-    const f = i / n;
-    const A = Math.sin((1 - f) * d) / Math.sin(d);
-    const B = Math.sin(f * d) / Math.sin(d);
-    const x = A * Math.cos(p1) * Math.cos(l1) + B * Math.cos(p2) * Math.cos(l2);
-    const y = A * Math.cos(p1) * Math.sin(l1) + B * Math.cos(p2) * Math.sin(l2);
-    const z = A * Math.sin(p1) + B * Math.sin(p2);
-    out.push([Math.atan2(y, x) / rad, Math.atan2(z, Math.sqrt(x * x + y * y)) / rad]);
+    const t = i / n;
+    const u = 1 - t;
+    out.push(toLngLat([u * u * p0[0] + 2 * u * t * c[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * c[1] + t * t * p2[1]]));
   }
-  for (let i = 1; i < out.length; i++) {
-    while (out[i][0] - out[i - 1][0] > 180) out[i][0] -= 360;
-    while (out[i][0] - out[i - 1][0] < -180) out[i][0] += 360;
-  }
+  out[0] = a;
+  out[n] = b;
   return out;
 }
 
@@ -151,6 +162,8 @@ export async function createMap(container, options = {}) {
     renderWorldCopies: true,
   });
   map.touchZoomRotate.disableRotation();
+  // For inspection (tests, debugging): the MapLibre map behind this container.
+  container.hgMap = map;
   map.addControl(new maplibregl.AttributionControl({ compact: true, customAttribution: withTiles ? undefined : ATTRIBUTION }), "bottom-right");
   if (options.interactive !== false) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
   if (!withTiles) {
@@ -240,7 +253,8 @@ export async function createMap(container, options = {}) {
       markers.forEach((m) => m.remove());
       markers = (list || []).map((m) => {
         const el = document.createElement("div");
-        el.className = `hg-mk hg-${m.kind === "homelab" ? "home" : "node"}`;
+        el.className = `hg-mk hg-${m.kind === "homelab" ? "home" : m.kind === "place" ? "place" : "node"}`;
+        el.dataset.id = m.id;
         const health = HEALTH.includes(m.health) ? m.health : "UNKNOWN";
         el.classList.add(`hg-h-${health}`);
         if (m.highlight) el.classList.add("hg-highlight");
@@ -306,6 +320,9 @@ export async function createMap(container, options = {}) {
       }
       const b = new maplibregl.LngLatBounds(points[0], points[0]);
       points.forEach((p) => b.extend(p));
+      // Keep each line's whole curve in view, not just its ends.
+      lines.forEach((l) => arc(l.from, l.to, 8).forEach((p) => b.extend(p)));
+      areas.forEach((a) => circle([a.lng, a.lat], a.radiusKm, 8).forEach((p) => b.extend(p)));
       map.fitBounds(b, { padding: 48, maxZoom, duration: 0 });
     },
     resize() { map.resize(); },

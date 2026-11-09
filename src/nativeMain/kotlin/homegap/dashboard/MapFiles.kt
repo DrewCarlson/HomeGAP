@@ -21,6 +21,8 @@ object MapFiles {
     /** The largest range one request may read: PMTiles asks for directories and single tiles. */
     private const val MAX_RANGE = 4 * 1024 * 1024
     private val RANGE = Regex("^bytes=(\\d+)-(\\d*)$")
+    /** Content fingerprints of the embedded map files, computed once each. */
+    private val etags = mutableMapOf<String, String>()
 
     /** Serves [TILES_PATH] from [file], honouring `Range: bytes=a-b`. */
     suspend fun RoutingContext.serveTiles(file: String) {
@@ -51,9 +53,15 @@ object MapFiles {
     /** Serves an embedded `/map/...` file, or 404. */
     suspend fun RoutingContext.serveMapAsset() {
         val asset = asset(call.request.path()) ?: return call.respond(HttpStatusCode.NotFound)
-        // Unversioned names: keep them briefly so an upgrade's map code reaches browsers soon.
-        call.response.header(HttpHeaders.CacheControl, "public, max-age=300")
+        // The names carry no version: browsers revalidate on each load (a 304 while unchanged), so
+        // an upgrade's map code is used at once.
+        val etag = etags.getOrPut(asset.path) { "\"${fingerprint(asset.bytes)}\"" }
+        call.response.header(HttpHeaders.CacheControl, "no-cache")
+        call.response.header(HttpHeaders.ETag, etag)
         call.response.header(HttpHeaders.Vary, HttpHeaders.AcceptEncoding)
+        if (call.request.header(HttpHeaders.IfNoneMatch)?.split(',')?.any { it.trim().removePrefix("W/") == etag } == true) {
+            return call.respond(HttpStatusCode.NotModified)
+        }
         val gzip = asset.gzip
         if (gzip != null && call.request.header(HttpHeaders.AcceptEncoding)?.contains("gzip") == true) {
             call.response.header(HttpHeaders.ContentEncoding, "gzip")
@@ -61,6 +69,13 @@ object MapFiles {
         } else {
             call.respondBytes(asset.bytes, ContentType.parse(asset.contentType))
         }
+    }
+
+    /** FNV-1a over the bytes (binary files too), as hex. */
+    private fun fingerprint(bytes: ByteArray): String {
+        var h = 0xcbf29ce484222325uL
+        for (x in bytes) { h = h xor (x.toULong() and 0xffuL); h *= 0x100000001b3uL }
+        return h.toString(16)
     }
 
     internal fun decode(path: String): String =

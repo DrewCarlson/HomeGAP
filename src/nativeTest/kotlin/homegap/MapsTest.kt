@@ -105,4 +105,16 @@ class MapsTest {
         assertFalse(Regex("""(src|href)=["']https?://""").containsMatchIn(html), "no external scripts or styles")
         assertTrue("import('/map/homegap-map.js')" in html, "the map comes from this origin")
     }
+
+    @Test
+    fun mapCodeIsRevalidatedNotKeptStale() = testApplication {
+        application { routing { get("/map/{path...}") { with(MapFiles) { serveMapAsset() } } } }
+        // The embedded files exist only when the dashboard is bundled.
+        val first = client.get("/map/homegap-map.js")
+        if (first.status == HttpStatusCode.NotFound) return@testApplication
+        assertEquals("no-cache", first.headers[HttpHeaders.CacheControl])
+        val etag = assertNotNull(first.headers[HttpHeaders.ETag])
+        assertEquals(HttpStatusCode.NotModified, client.get("/map/homegap-map.js") { header(HttpHeaders.IfNoneMatch, etag) }.status)
+        assertEquals(HttpStatusCode.OK, client.get("/map/homegap-map.js") { header(HttpHeaders.IfNoneMatch, "\"stale\"") }.status)
+    }
 }

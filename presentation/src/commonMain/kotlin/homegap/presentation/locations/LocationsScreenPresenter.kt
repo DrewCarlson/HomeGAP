@@ -107,7 +107,11 @@ class LocationsScreenPresenter(
     override fun model(props: LocationsScreenProps): LocationsScreenModel {
         var reload by remember { mutableIntStateOf(0) }
         val data by produceState<LocationsResponse?>(null, reload) {
-            runCatchingCancellable { api.locations() }.onSuccess { value = it }
+            // Keeps trying while the orchestrator is unreachable (e.g. restarting).
+            while (true) {
+                runCatchingCancellable { api.locations() }.onSuccess { value = it; return@produceState }
+                kotlinx.coroutines.delay(3_000)
+            }
         }
         var query by remember { mutableStateOf("") }
         var editor by remember { mutableStateOf<LocationEditorModel?>(null) }
@@ -187,7 +191,7 @@ class LocationsScreenPresenter(
             ),
             map = remember(all) {
                 MapModel(all.map { l ->
-                    MapMarker(l.id, l.latitude, l.longitude, Health.UNKNOWN, MarkerKind.Node, info = MapInfo(LocationSearch.label(l), l.providers.joinToString(", ").ifBlank { null }))
+                    MapMarker(l.id, l.latitude, l.longitude, Health.UNKNOWN, MarkerKind.Place, info = MapInfo(LocationSearch.label(l), l.providers.joinToString(", ").ifBlank { null }))
                 }, fitMaxZoom = 1.5)
             },
             onEvent = onEvent,

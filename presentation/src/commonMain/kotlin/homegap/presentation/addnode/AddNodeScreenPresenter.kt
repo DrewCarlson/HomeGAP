@@ -41,7 +41,10 @@ class AddNodeScreenPresenter(
         val latestProps by rememberUpdatedState(props)
         // The locations catalog, for the location search and naming a point picked on the map.
         val catalog by produceState(emptyList<LocationDto>()) {
-            runCatchingCancellable { api.locations().locations }.onSuccess { value = it }
+            while (true) {
+                runCatchingCancellable { api.locations().locations }.onSuccess { value = it; return@produceState }
+                delay(3.seconds)
+            }
         }
         val latestCatalog by rememberUpdatedState(catalog)
         var locationQuery by remember { mutableStateOf("") }

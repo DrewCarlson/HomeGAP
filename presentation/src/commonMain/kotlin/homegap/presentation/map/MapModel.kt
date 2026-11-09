@@ -19,7 +19,8 @@ data class MapModel(
     val isEmpty: Boolean get() = markers.isEmpty() && areas.isEmpty()
 }
 
-enum class MarkerKind(val wire: String) { Node("node"), Homelab("homelab") }
+/** [Place]: a known location, not something running (a small, still dot). */
+enum class MarkerKind(val wire: String) { Node("node"), Homelab("homelab"), Place("place") }
 
 @Immutable
 data class MapMarker(
