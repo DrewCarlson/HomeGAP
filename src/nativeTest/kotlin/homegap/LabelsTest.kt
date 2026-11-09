@@ -79,4 +79,19 @@ class LabelsTest {
         assertNotNull(r.spec)
         assertTrue(r.warnings.any { "homegap.typo" in it })
     }
+
+    @Test
+    fun onlyLabeledContainersTriggerAPass() {
+        fun event(action: String, vararg labels: Pair<String, String>) =
+            DockerEvent("container", action, DockerEventActor("c1", mapOf("name" to "app", "image" to "app:1") + labels))
+        // A crash-looping container without HomeGAP labels never triggers a pass.
+        for (action in listOf("start", "die", "stop", "destroy")) {
+            assertFalse(event(action, "com.docker.compose.service" to "app").concernsHomegap(), action)
+        }
+        // A labeled one does, including when it stops or is removed (its labels come with the event).
+        for (action in listOf("start", "die", "stop", "destroy")) {
+            assertTrue(event(action, "homegap.expose" to "app.test.example.net").concernsHomegap(), action)
+        }
+        assertTrue(event("start", "homegap.pause" to "true").concernsHomegap())
+    }
 }

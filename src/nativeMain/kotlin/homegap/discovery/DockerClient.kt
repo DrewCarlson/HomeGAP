@@ -90,6 +90,14 @@ data class DockerEvent(
     @SerialName("Actor") val actor: DockerEventActor = DockerEventActor(),
 )
 
+/**
+ * Whether a container event can change what HomeGAP exposes: only containers carrying `homegap.*`
+ * labels. Docker sends a container's labels with every event about it, its stop and removal
+ * included, so a labeled container going away is still seen. Unlabeled containers (a crash-looping
+ * app, HomeGAP's own cluster and tunnel containers) never trigger a pass.
+ */
+fun DockerEvent.concernsHomegap(): Boolean = actor.attributes.keys.any { it.startsWith(Labels.PREFIX) }
+
 @Serializable
 data class DockerEventActor(
     @SerialName("ID") val id: String = "",

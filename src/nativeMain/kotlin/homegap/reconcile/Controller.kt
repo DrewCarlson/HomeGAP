@@ -17,6 +17,7 @@ import homegap.config.NodeConfig
 import homegap.discovery.DockerClient
 import homegap.discovery.DockerContainerSummary
 import homegap.discovery.Labels
+import homegap.discovery.concernsHomegap
 import homegap.model.DesiredState
 import homegap.model.Planner
 import homegap.model.isHttpLike
@@ -209,7 +210,7 @@ class Controller(
         while (true) {
             try {
                 docker.streamEvents(filters)
-                    .filter { e -> e.actor.attributes.keys.any { it.startsWith(Labels.PREFIX) } || e.action in setOf("die", "destroy", "stop") }
+                    .filter { it.concernsHomegap() }
                     .debounce(config.reconcile.debounceDuration)
                     .collect { e -> trigger("docker:${e.action}") }
             } catch (e: Exception) {
