@@ -2,9 +2,12 @@ package homegap.presentation.nodes
 
 import androidx.compose.runtime.Immutable
 import homegap.api.Health
+import homegap.api.MeshProbeDto
 import homegap.api.MeshStatusDto
 import homegap.presentation.common.Badge
 import homegap.presentation.format.ago
+import homegap.presentation.format.oneDecimal
+import homegap.presentation.format.plural
 
 /** The cluster mesh: one row per member, with how recently it heard from each other member. */
 @Immutable
@@ -20,7 +23,36 @@ data class MeshMemberRow(
     val status: Badge,
     val error: String?,
     val peers: List<Badge>,
+    /** This member's probe of each other member (empty without a probe, e.g. the homelab). */
+    val probes: List<Badge> = emptyList(),
 )
+
+/** Over half a percent lost, or any outage in the window, needs a look; over 5 % is broken. */
+private const val LOSS_DEGRADED = 0.5
+private const val LOSS_DOWN = 5.0
+
+private fun probeBadge(peer: String, probe: MeshProbeDto, now: Long): Badge {
+    val ongoing = probe.outages.firstOrNull { it.endAt == null }
+    val past = probe.outages.filter { it.endAt != null }
+    val rtt = probe.rttMs?.let { if (it >= 100) "${it.toLong()} ms" else "${it.oneDecimal()} ms" } ?: "no reply"
+    val window = "${(probe.windowMs / 60_000).coerceAtLeast(1)} min"
+    val text = buildString {
+        append("$peer · $rtt")
+        if (probe.lossPercent > 0) append(" · ${probe.lossPercent.oneDecimal()}% lost")
+        if (past.isNotEmpty()) append(" · ${plural(past.size, "outage")}")
+    }
+    val tooltip = buildList {
+        add("${probe.sent} probes in the last $window")
+        ongoing?.let { add("Out since ${ago(it.startAt, now)}") }
+        past.take(5).forEach { o -> add("Outage ${ago(o.startAt, now)}, lasted ${((o.endAt!! - o.startAt) / 1000).coerceAtLeast(1)}s") }
+    }.joinToString("\n")
+    val health = when {
+        ongoing != null || probe.rttMs == null || probe.lossPercent >= LOSS_DOWN -> Health.DOWN
+        past.isNotEmpty() || probe.lossPercent >= LOSS_DEGRADED -> Health.DEGRADED
+        else -> Health.OK
+    }
+    return Badge(health, text, tooltip)
+}
 
 /** WireGuard re-handshakes about every two minutes while keepalives flow. */
 private const val FRESH_MS = 3 * 60_000L
@@ -48,7 +80,8 @@ fun MeshStatusDto.toPanelModel(now: Long): MeshPanelModel {
             peers.any { it.health == Health.OK } -> Badge(Health.DEGRADED, "partial")
             else -> Badge(Health.DOWN, "disconnected")
         }
-        MeshMemberRow(member.id, member.address, status, member.error, peers)
+        val probes = ids.filter { it != member.id }.mapNotNull { other -> byId[other]?.probe?.let { probeBadge(other, it, now) } }
+        MeshMemberRow(member.id, member.address, status, member.error, peers, probes)
     }
     return MeshPanelModel(subnet, rows)
 }

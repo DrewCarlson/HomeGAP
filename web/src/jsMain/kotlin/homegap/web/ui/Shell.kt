@@ -81,6 +81,7 @@ private fun Screen(screen: ScreenModel, onNavigate: (Route) -> Unit) {
         is AccessScreenModel -> AccessScreen(screen)
         is ActivityScreenModel -> ActivityScreen(screen)
         is ConfigScreenModel -> ConfigScreen(screen)
+        is homegap.presentation.diagnostics.DiagnosticsScreenModel -> DiagnosticsScreen(screen)
         is AddNodeScreenModel -> AddNodeScreen(screen)
     }
 }

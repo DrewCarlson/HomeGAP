@@ -304,7 +304,50 @@ data class MeshPeerDto(
     val lastHandshakeAt: Long? = null,
     val rxBytes: Long = 0,
     val txBytes: Long = 0,
+    /** The member's continuous probe of this peer's mesh address; null without one. */
+    val probe: MeshProbeDto? = null,
 )
+
+/**
+ * One member's view of a peer from its mesh probe (a ping every second over the mesh). Loss and
+ * outages cover [windowMs]; an outage is three or more probes in a row without a reply.
+ */
+@Serializable
+data class MeshProbeDto(
+    /** The latest reply's round trip, in milliseconds; null when the last probe was lost. */
+    val rttMs: Double? = null,
+    val lossPercent: Double = 0.0,
+    val sent: Long = 0,
+    val windowMs: Long = 0,
+    /** Outages in the window, newest first. */
+    val outages: List<MeshOutageDto> = emptyList(),
+    /** When the probe last reported (epoch ms). */
+    val at: Long = 0,
+)
+
+@Serializable
+data class MeshOutageDto(val startAt: Long, val endAt: Long? = null)
+
+/** A text report from a node: its logs or the diagnostics bundle. */
+@Serializable
+data class NodeTextDto(val node: String, val title: String, val text: String, val at: Long)
+
+/** The containers whose logs the dashboard can show, by the id the logs API takes. */
+object NodeLogServices {
+    /** Id to label, in display order. */
+    val ALL: List<Pair<String, String>> = listOf(
+        "pangolin" to "Pangolin",
+        "gerbil" to "Gerbil",
+        "traefik" to "Traefik",
+        "haproxy" to "Cluster proxy (HAProxy)",
+        "db" to "Database (Patroni)",
+        "valkey" to "Valkey",
+        "sentinel" to "Sentinel",
+        "etcd" to "etcd",
+        "probe" to "Mesh probe",
+        "newt" to "Exit connector (Newt)",
+    )
+}
 
 /** The cluster's database layer: where the primaries are and each member's part. */
 @Serializable

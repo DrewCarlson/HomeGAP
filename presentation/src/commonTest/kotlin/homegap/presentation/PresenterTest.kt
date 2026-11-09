@@ -58,7 +58,7 @@ class PresenterTest {
         val app = AppPresenter(
             session, actions, api, tokens, FixedClock, scope,
             OverviewScreenPresenter(), nodes, ServicesScreenPresenter(api, actions), DnsScreenPresenter(),
-            TunnelsScreenPresenter(), speedTest, access, activity, ConfigScreenPresenter(api), addNode,
+            TunnelsScreenPresenter(), speedTest, access, activity, ConfigScreenPresenter(api), homegap.presentation.diagnostics.DiagnosticsScreenPresenter(api), addNode,
         )
     }
 
@@ -211,6 +211,24 @@ class PresenterTest {
 
         log(LogEntryDto(3, "dns", LogLevel.INFO, "after restart", seq = 1))
         assertEquals(listOf("after restart"), g.session.log.value.map { it.message })
+    }
+
+    @Test
+    fun diagnosticsFetchesTheChosenNodesLogsAndBundle() = runTest {
+        val g = graph
+        val status = snapshot(nodes = listOf(node("a1"), node("b1")))
+        val models = present(homegap.presentation.diagnostics.DiagnosticsScreenPresenter(g.api), homegap.presentation.diagnostics.DiagnosticsScreenProps(status))
+        assertEquals("a1", models.value.node, "the first node until one is chosen")
+        models.value.onSelectNode("b1")
+        models.first { it.node == "b1" }.onSelectService("haproxy")
+        models.first { it.service == "haproxy" }.onSelectSince("6h")
+        models.first { it.since == "6h" }.onShowLogs()
+        val logs = models.first { it.output != null }
+        assertEquals("haproxy logs", logs.output?.title)
+        assertTrue("logs b1 haproxy 6h 2000" in g.api.calls)
+        logs.onRunDiagnostics()
+        models.first { it.output?.title == "Diagnostics" }
+        assertTrue("diagnostics b1" in g.api.calls)
     }
 
     @Test

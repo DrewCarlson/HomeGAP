@@ -152,14 +152,16 @@ object ClusterTemplates {
         appendLine()
         appendLine("defaults")
         appendLine("  mode tcp")
-        // Members can be a quarter second or more apart, and a check connects within the shorter
-        // of `timeout connect` and `inter`: both leave room for two lost SYNs (resent after 1s and
-        // 3s), and three misses in a row mark a member down, so a slow link never flaps.
+        // Members can be a quarter second or more apart: a check leaves room for two lost SYNs
+        // (resent after 1s and 3s), and three misses in a row mark a member down, so a slow link
+        // never flaps. HAProxy starts with every member up: after a miss the next checks come a
+        // second apart (`fastinter`), and a replica's checks fail at once (it answers "not
+        // primary" rather than timing out), so a fresh proxy rules replicas out in seconds.
         appendLine("  timeout connect 5s")
         appendLine("  timeout client 30m")
         appendLine("  timeout server 30m")
         appendLine("  timeout check 5s")
-        appendLine("  default-server inter 4s fall 3 rise 2 on-marked-down shutdown-sessions")
+        appendLine("  default-server inter 4s fastinter 1s fall 3 rise 2 on-marked-down shutdown-sessions")
         appendLine()
         appendLine("listen postgres-primary")
         appendLine("  bind :$PROXY_POSTGRES_PORT")
@@ -172,11 +174,14 @@ object ClusterTemplates {
         appendLine("  option tcp-check")
         appendLine("  tcp-check send AUTH\\ ${secrets.valkey}\\r\\n")
         appendLine("  tcp-check expect string +OK")
-        appendLine("  tcp-check send info\\ replication\\r\\n")
+        // QUIT goes with the query: Valkey answers and closes, so a replica's "role:slave" fails
+        // the check straight away instead of waiting out the timeout for "role:master".
+        appendLine("  tcp-check send info\\ replication\\r\\nQUIT\\r\\n")
         appendLine("  tcp-check expect string role:master")
-        appendLine("  tcp-check send QUIT\\r\\n")
-        appendLine("  tcp-check expect string +OK")
         members.forEach { appendLine("  server ${it.id} ${it.meshIp}:$VALKEY_PORT check") }
+        appendLine()
+        // Read by the orchestrator over SSH (published on the node's loopback only).
+        append(ClusterProxy.STATS_CONFIG)
     }
 
     /**
@@ -227,9 +232,17 @@ object ClusterTemplates {
             |    command: [haproxy]
             |    restart: unless-stopped${label("haproxy")}
             |    volumes: [./config:/config:ro]
+            |    ports: ["127.0.0.1:${ClusterProxy.STATS_PORT}:${ClusterProxy.STATS_PORT}"]
             |    networks:
             |      $NETWORK:
             |        aliases: [$PROXY_HOST]
+            |  ${MeshProbe.SERVICE}:
+            |    image: $image
+            |    entrypoint: [bash, /config/probe.sh]
+            |    network_mode: host
+            |    restart: unless-stopped
+            |    stop_grace_period: 2s${label(MeshProbe.SERVICE)}
+            |    volumes: [./config:/config:ro, ${MeshProbe.STATE_DIR}:/probe]
             |""".trimMargin()
     }
 }

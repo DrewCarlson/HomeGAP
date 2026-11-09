@@ -17,6 +17,7 @@ import homegap.provision.ClusterSecrets
 import homegap.provision.ClusterTemplates
 import homegap.provision.ClusterTemplates.Member
 import homegap.provision.Mesh
+import homegap.provision.MeshProbe
 import io.ktor.client.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
@@ -111,7 +112,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
                             if (promoted) ctx.log.change(domain, "joined the cluster vote", node.id)
                         }
                         else -> {
-                            val services = if (initialized) listOf("etcd", "db", "valkey", "sentinel", "haproxy") else listOf("etcd")
+                            val services = if (initialized) listOf("etcd", "db", "valkey", "sentinel", "haproxy", MeshProbe.SERVICE) else listOf("etcd")
                             syncNode(ctx, node, cluster, member, members, secrets, etcdInitial(etcdMembers, members), services)
                         }
                     }
@@ -178,6 +179,72 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         Files.writeAtomic(historyFile, historyJson.encodeToString(ListSerializer(PrimaryChangeDto.serializer()), next))
     }
 
+    // ------------------------------------------------------------------ departed nodes
+
+    private var exitPrunedAt = 0L
+
+    /**
+     * Removes what nodes no longer known to HomeGAP left in the cluster's Pangolin: their homelab
+     * and exit sites (through [ready]'s API) and the exit node their Gerbil registered (straight
+     * from the database through [ready]'s node, since Pangolin's API has no way to remove one).
+     * [known] is every configured node and every node still waiting for its decommission.
+     *
+     * Only what HomeGAP itself creates is touched: sites whose niceId and name both follow its
+     * patterns, and Gerbil exit nodes whose region (Pangolin's `app.region`, the node id) is set.
+     * The database is checked when a site was removed and otherwise every few hours.
+     */
+    suspend fun pruneDeparted(ctx: ReconcileContext, ready: ReadyNode, known: Set<String>) {
+        val org = ctx.config.pangolin.orgId
+        val siteName = ctx.config.pangolin.siteName
+        var removed = false
+        for (site in ready.api.listSites(org)) {
+            val departed = Departed.siteOwner(site.niceId, site.name, siteName) ?: continue
+            if (departed in known) continue
+            ready.api.deleteSite(site.siteId)
+            ctx.log.change(domain, "removed site '${site.niceId}' left by departed node $departed")
+            removed = true
+        }
+        if (!removed && nowMillis() - exitPrunedAt < EXIT_PRUNE_EVERY_MS) return
+        val sql = Departed.exitNodeSql(known)
+        val base = "${ctx.config.pangolin.installDir}/cluster"
+        val script = $$"""
+            |B=$${shQuote(base)}
+            |(umask 077; printf 'PGPASSWORD=%s\n' $${shQuote(secrets().postgres)} > "$B/pg.env")
+            |trap 'rm -f "$B/pg.env"' EXIT
+            |docker run --rm --network $${ClusterTemplates.NETWORK} --env-file "$B/pg.env" --entrypoint psql $${shQuote(ctx.config.cluster!!.image)} \
+            |  -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U postgres -At -F ' ' -c $${shQuote(sql)} postgres
+        """.trimMargin()
+        val out = ctx.ssh.session(ready.node).runScriptOrThrow("exit-nodes", script, 120)
+        exitPrunedAt = nowMillis()
+        Departed.parseDeleted(out).forEach { (id, region) ->
+            ctx.log.change(domain, "removed exit node $id left by departed node $region")
+        }
+    }
+
+    /** Pure helpers for [pruneDeparted]. */
+    object Departed {
+        private val ID = Regex("^[a-z0-9][a-z0-9-]*$")
+
+        /** The node a HomeGAP-made site belongs to, or null for any other site. */
+        fun siteOwner(niceId: String, name: String?, siteName: String): String? {
+            niceId.removePrefix("$siteName-").takeIf { it != niceId && name == "$siteName via $it" }?.let { return it }
+            niceId.removePrefix("exit-").takeIf { it != niceId && name == homegap.provision.ExitNodes.siteName(it) }?.let { return it }
+            return null
+        }
+
+        /** Deletes Gerbil exit nodes whose region isn't one of [known]; prints `id region` for each. */
+        fun exitNodeSql(known: Set<String>): String {
+            val keep = known.filter { ID.matches(it) }.joinToString(",") { "'$it'" }.ifEmpty { "''" }
+            return "DELETE FROM \"exitNodes\" WHERE type = 'gerbil' AND region IS NOT NULL AND region <> '' " +
+                "AND region NOT IN ($keep) RETURNING \"exitNodeId\", region"
+        }
+
+        fun parseDeleted(out: String): List<Pair<Int, String>> = out.lines().mapNotNull { line ->
+            val f = line.trim().split(' ')
+            if (f.size == 2) f[0].toIntOrNull()?.let { it to f[1] } else null
+        }
+    }
+
     // ------------------------------------------------------------------ secrets and files
 
     fun secrets(): ClusterSecrets {
@@ -234,6 +301,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val valkeyEnv = ClusterTemplates.valkeyEnv(member, secrets, NODE_PRIORITY, homelabIp, members.map { it.meshIp })
         val sentinelConf = ClusterTemplates.sentinel(member, homelabIp, secrets)
         val haproxyCfg = ClusterTemplates.haproxy(members, secrets)
+        val probeTargets = MeshProbe.targets(member.id, members)
         val compose = ClusterTemplates.nodeCompose(
             cluster.image,
             mapOf(
@@ -242,6 +310,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
                 "valkey" to hash(valkeyEnv.lines().filterNot { it.startsWith("HG_SENTINELS=") }.joinToString("\n")),
                 "sentinel" to hash(sentinelConf),
                 "haproxy" to hash(haproxyCfg),
+                MeshProbe.SERVICE to hash(MeshProbe.SCRIPT + probeTargets),
             ),
         )
         val base = "${ctx.config.pangolin.installDir}/cluster"
@@ -258,6 +327,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine(fileStep("$base/config/valkey.env", valkeyEnv))
             appendLine(fileStep("$base/config/sentinel.conf", sentinelConf))
             appendLine(fileStep("$base/config/haproxy.cfg", haproxyCfg))
+            appendLine(fileStep("$base/config/probe.sh", MeshProbe.SCRIPT))
+            appendLine(fileStep("$base/config/probe.targets", probeTargets))
             appendLine(fileStep("$base/compose.yml", compose, mode = "0644"))
             appendLine(SshSession.ownInstallDir(ctx.config.pangolin.installDir))
             appendLine("cd \"\$B\"")
@@ -432,6 +503,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         const val PREFERRED_PRIORITY = 1
         const val NODE_PRIORITY = 100
         const val HISTORY = 20
+        /** How often the database is checked for exit nodes left by departed nodes. */
+        const val EXIT_PRUNE_EVERY_MS = 6 * 3_600_000L
     }
 }
 

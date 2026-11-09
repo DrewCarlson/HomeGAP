@@ -443,11 +443,20 @@ On the homelab, the mesh interface lives in the `homegap-mesh` container's netwo
 (built into Linux 5.6 and later). The dashboard's **Nodes** page shows each member's last
 handshake with every other.
 
+**Each node probes the mesh.** A `probe` container in the node's cluster member opens a TCP
+connection to every other member's etcd port over the mesh once a second. The **Cluster mesh**
+panel shows, per node and peer, the latest round trip, the share of probes lost in the last hour,
+and each outage (three or more lost probes in a row) with when it happened and how long it lasted.
+A degraded pill means some loss or an outage in the hour; a red one means the peer isn't answering
+now. Readings are kept in `/run/homegap-probe` on the node, so they reset when it reboots. The
+homelab doesn't probe, but every node probes it.
+
 ### Cluster database
 
 With `cluster:` set, the homelab and every node also run one member of a shared database, the
 one clustered Pangolin will use. Each member runs five containers from the `homegap-cluster`
-image: etcd (the vote), PostgreSQL under Patroni, Valkey, Valkey Sentinel and HAProxy.
+image: etcd (the vote), PostgreSQL under Patroni, Valkey, Valkey Sentinel and HAProxy. Nodes
+also run the [mesh probe](#cluster-mesh).
 
 - **The homelab is the primary.** It starts the cluster, and nodes join one at a time: first
   the vote, then as streaming replicas.
@@ -461,7 +470,9 @@ image: etcd (the vote), PostgreSQL under Patroni, Valkey, Valkey Sentinel and HA
 - **Services find the primary through HAProxy.** On each node, containers on the
   `homegap-cluster` Docker network connect to `cluster-proxy:5433` (PostgreSQL) and
   `cluster-proxy:6380` (Valkey). HAProxy follows the current primary and cuts connections to a
-  member that's demoted.
+  member that's demoted. Each node's `cluster-proxy` check shows where HAProxy sends PostgreSQL
+  and Valkey, and turns degraded when it lost the primary in the last hour (red while it has
+  none). HAProxy's stats page listens on the node's `127.0.0.1:8404` only.
 - **The vote needs a majority.** With the homelab and one node, losing either stops writes.
   Two or more nodes are needed for the cluster to keep working without the homelab.
 - **Passwords are generated once** and kept in `cluster/secrets.json` in the data directory.
@@ -597,7 +608,17 @@ needs the node's login pages to be public.
 - **Add a region:** use the dashboard's [add-node wizard](#adding-a-node), or add a node to the
   config. It is provisioned and DNS is extended on the next pass.
 - **Remove a region:** remove it from the config. Its DNS records drain on the next pass, and the
-  stack keeps running until you confirm the decommission in the dashboard.
+  stack keeps running until you confirm the decommission in the dashboard. With the cluster on,
+  the decommission also clears what the node left in the cluster's Pangolin: its homelab and
+  exit sites, and the exit node its Gerbil registered (matched by region, the node id), on the
+  next pass. Leftovers of nodes removed earlier are cleared the same way. Only
+  records HomeGAP creates are removed.
+- **Debug a node:** the dashboard's **Diagnostics** page shows any container's logs (the Pangolin
+  stack, the cluster member, the mesh probe and the exit connector) and runs a read-only
+  diagnostics bundle: containers, the cluster proxy's backends, the mesh interface and probe,
+  addresses and routes, Docker networks, listening ports, the firewall, NAT and forwarding rules,
+  connection tracking, kernel messages and recent logs. Both can be downloaded as text. Nothing
+  on the node changes, and no secrets are printed.
 - **Hold a manual change:** pause globally, per node or per service (dashboard or
   `homegap.pause`). Paused targets are observed but never modified.
 - **Re-provision a node:** click *Re-provision*. Destroying and recreating a VPS is safe: nodes
@@ -721,6 +742,7 @@ It shows:
 - **Access** (cluster only): the cluster's users, invitations and devices; see
   [Users and devices](#users-and-devices).
 - **Reconcile log:** grouped by domain.
+- **Diagnostics:** a node's container logs and its read-only diagnostics bundle.
 - **Desired vs. actual:** the diff, plus every referenced secret with whether it is present.
   Secret values are never shown.
 
@@ -736,6 +758,8 @@ It shows:
 | `POST /api/nodes/{id}/provision` | Force a full re-provision |
 | `POST /api/nodes` / `DELETE /api/nodes/{id}` | Add / remove a node (rewrites the config file, with a backup) |
 | `POST /api/nodes/{id}/decommission?confirm={id}` | Stop the stack on a removed node and forget it |
+| `GET /api/nodes/{id}/logs?service=&since=&tail=` | A container's logs: `service` is `pangolin`, `gerbil`, `traefik`, `haproxy`, `db`, `valkey`, `sentinel`, `etcd`, `probe` or `newt`; `since` like `30m` (default), `tail` up to 5000 lines (default 300) |
+| `GET /api/nodes/{id}/diagnostics` | The node's read-only diagnostics bundle (`{node, title, text, at}`) |
 | `POST /api/cluster/switchover` | Make a caught-up replica the database primary now: `{to}` (cluster only) |
 | `GET /api/access` | The cluster's users, roles, open invitations and devices (cluster only) |
 | `POST /api/access/users` | Add a user: `{email, roleIds, password?}`; without a password, the response has the invite link |

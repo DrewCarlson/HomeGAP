@@ -2,10 +2,13 @@ package homegap.reconcile
 
 import homegap.api.MeshMemberDto
 import homegap.api.MeshPeerDto
+import homegap.api.MeshProbeDto
 import homegap.api.MeshStatusDto
 import homegap.config.MeshConfig
 import homegap.config.NodeConfig
+import homegap.platform.nowMillis
 import homegap.provision.Mesh
+import homegap.provision.MeshProbe
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -27,7 +30,9 @@ class MeshReconciler(private val homelab: HomelabMesh) {
     private val domain = "mesh"
     private val lastErrors = mutableMapOf<String, String>()
 
-    private class NodeResult(val peers: List<Mesh.PeerStatus>?, val error: String?)
+    private val probes = MeshProbe.History()
+
+    private class NodeResult(val peers: List<Mesh.PeerStatus>?, val error: String?, val probe: Map<String, MeshProbeDto> = emptyMap())
 
     suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>): MeshStatusDto? {
         val mesh = ctx.config.cluster?.mesh ?: return null
@@ -78,7 +83,8 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             homelabKey?.let { put(it, Mesh.HOMELAB) }
             members.forEach { n -> ctx.state.node(n.id).meshPublicKey?.let { put(it, n.id) } }
         }
-        fun view(id: String, address: String, peers: List<Mesh.PeerStatus>?, error: String?) = MeshMemberDto(
+        probes.retain(members.map { it.id }.toSet() + Mesh.HOMELAB)
+        fun view(id: String, address: String, peers: List<Mesh.PeerStatus>?, error: String?, probe: Map<String, MeshProbeDto> = emptyMap()) = MeshMemberDto(
             id = id,
             address = address,
             error = error,
@@ -89,13 +95,14 @@ class MeshReconciler(private val homelab: HomelabMesh) {
                     lastHandshakeAt = p.latestHandshake.takeIf { it > 0 }?.let { it * 1000 },
                     rxBytes = p.rxBytes,
                     txBytes = p.txBytes,
+                    probe = names[p.publicKey]?.let { probe[it] },
                 )
             }.sortedBy { it.id },
         )
         return MeshStatusDto(
             subnet = mesh.subnet,
             members = listOf(view(Mesh.HOMELAB, homelabAddress, homelabPeers, homelabError)) +
-                members.map { n -> results[n.id].let { r -> view(n.id, addresses.getValue(n.id), r?.peers, r?.error) } },
+                members.map { n -> results[n.id].let { r -> view(n.id, addresses.getValue(n.id), r?.peers, r?.error, r?.probe.orEmpty()) } },
         )
     }
 
@@ -103,7 +110,8 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         val paused = ctx.nodePaused(node.id)
         return try {
             val ssh = ctx.ssh.session(node)
-            val script = if (paused) READ_ONLY else Mesh.nodeScript(mesh, address, Mesh.nodeConfig(mesh, address, peers), node.firewall)
+            val script = (if (paused) READ_ONLY else Mesh.nodeScript(mesh, address, Mesh.nodeConfig(mesh, address, peers), node.firewall)) +
+                "\necho PROBE-BEGIN; ${MeshProbe.READ_CMD}; echo PROBE-END"
             val r = ssh.runScript(script, 300)
             if (!r.ok) throw IllegalStateException(r.stderr.trim().ifEmpty { r.stdout.trim() }.takeLast(400).ifEmpty { "exit ${r.exitCode}" })
             r.stdout.lines().filter { it.startsWith("CHANGED ") }.forEach { ctx.log.change(domain, it.removePrefix("CHANGED "), node.id) }
@@ -114,7 +122,8 @@ class MeshReconciler(private val homelab: HomelabMesh) {
                 }
             }
             report(ctx, node.id, null)
-            NodeResult(Mesh.parseDump(Mesh.dumpSection(r.stdout)), null)
+            val probeText = r.stdout.substringAfter("PROBE-BEGIN", "").substringBefore("PROBE-END")
+            NodeResult(Mesh.parseDump(Mesh.dumpSection(r.stdout)), null, probes.record(node.id, MeshProbe.parse(probeText), nowMillis()))
         } catch (e: Exception) {
             if (e is CancellationException) currentCoroutineContext().ensureActive()
             val message = e.message ?: e.toString()

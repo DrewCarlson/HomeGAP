@@ -12,6 +12,8 @@ import homegap.presentation.config.ConfigScreenPresenter
 import homegap.presentation.addnode.AddNodeScreenPresenter
 import homegap.presentation.addnode.AddNodeScreenProps
 import homegap.presentation.config.ConfigScreenProps
+import homegap.presentation.diagnostics.DiagnosticsScreenPresenter
+import homegap.presentation.diagnostics.DiagnosticsScreenProps
 import homegap.presentation.core.Presenter
 import homegap.presentation.core.ScreenModel
 import homegap.presentation.core.rememberEventTrigger
@@ -63,6 +65,7 @@ class AppPresenter(
     private val access: AccessScreenPresenter,
     private val activity: ActivityScreenPresenter,
     private val config: ConfigScreenPresenter,
+    private val diagnostics: DiagnosticsScreenPresenter,
     private val addNode: AddNodeScreenPresenter,
 ) : Presenter<AppProps, AppModel> {
     @Composable
@@ -103,6 +106,7 @@ class AppPresenter(
         Route.Access -> access.model(AccessScreenProps)
         Route.Activity -> activity.model(ActivityScreenProps)
         Route.Config -> config.model(ConfigScreenProps)
+        Route.Diagnostics -> diagnostics.model(DiagnosticsScreenProps(status))
         Route.AddNode -> {
             val currentRouter by rememberUpdatedState(router)
             addNode.model(

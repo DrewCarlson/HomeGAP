@@ -23,6 +23,8 @@ import homegap.model.isHttpLike
 import homegap.platform.nowMillis
 import homegap.provision.CertMaterial
 import homegap.provision.Certificates
+import homegap.provision.ClusterProxy
+import kotlin.io.encoding.Base64
 import homegap.state.StateStore
 import homegap.tunnels.TunnelFiles
 import io.ktor.client.*
@@ -92,6 +94,8 @@ class Controller(
     /** The cluster's reachable Pangolins as of the last pass, and which node each exit node is. */
     @kotlin.concurrent.Volatile private var clusterReady: Map<String, ReadyNode> = emptyMap()
     @kotlin.concurrent.Volatile private var exitNodes: Map<Int, String> = emptyMap()
+    /** Each node's recent cluster proxy readings, for counting lost primaries. */
+    private val proxyHistory = mutableMapOf<String, MutableList<Pair<Long, Map<String, Long>>>>()
 
     /**
      * A reachable Pangolin of the cluster (the first ready node in config order) and the exit node
@@ -389,6 +393,12 @@ class Controller(
                     health[id] = serviceHealthFor(effective, id, mine, site)
                 }
             }
+            // What departed nodes left in the cluster's Pangolin (their sites and exit nodes).
+            if (clustered && !dryRun && readyNodes.isNotEmpty()) {
+                val via = readyNodes.getValue(cfg.nodes.first { it.id in readyNodes }.id).first
+                val known = cfg.nodes.map { it.id }.toSet() + state.snapshot().nodes.keys
+                runDomain("cluster", null) { clusterRec.pruneDeparted(ctx, via, known) }
+            }
             if (!dryRun) runDomain("tunnels", null) { tunnelRec.prune(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.map { it.id }.toSet()) }
 
             // The cluster mesh (host-level, independent of each node's stack).
@@ -506,7 +516,7 @@ class Controller(
             |echo "T mgmt $(probe $${shQuote(mgmt)})"
             |echo "T root $(probe $${shQuote(root)})"
             |(ss -lun 2>/dev/null | grep -q ':51820 ') && echo "U ok" || echo "U missing"
-        """.trimMargin()
+        """.trimMargin() + if (ctx.config.cluster == null) "" else "\necho \"P \$(${ClusterProxy.CSV_CMD} | base64 -w0)\""
         val r = runCatching {
             ctx.ssh.session(node).runScript(script, 60)
         }.onFailure {
@@ -533,6 +543,10 @@ class Controller(
                     }
                     "D" -> checks += CheckDto("docker", if (parts.getOrNull(1) == "none") Health.DOWN else Health.OK, parts.getOrNull(1) ?: "")
                     "U" -> checks += CheckDto("gerbil-udp", if (parts.getOrNull(1) == "ok") Health.OK else Health.DOWN, "51820/udp")
+                    "P" -> {
+                        val csv = parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { runCatching { Base64.decode(it).decodeToString() }.getOrNull() }
+                        checks += ClusterProxy.check(csv, proxyHistory.getOrPut(node.id) { mutableListOf() }, nowMillis())
+                    }
                     "T" -> if (parts.size == 3) {
                         val which = parts[1]
                         val v = parts[2]

@@ -76,6 +76,14 @@ class FakeControllerApi(
         return CreateAccessUserResponse(true, "created", if (request.password == null) "https://pangolin.x/invite?token=a-b" else null)
     }
     override suspend fun switchPrimary(to: String) = ok("switch $to")
+    override suspend fun nodeLogs(node: String, service: String, since: String, tail: Int): NodeTextDto {
+        calls += "logs $node $service $since $tail"
+        return NodeTextDto(node, "$service logs", "line 1\nline 2", NOW)
+    }
+    override suspend fun nodeDiagnostics(node: String): NodeTextDto {
+        calls += "diagnostics $node"
+        return NodeTextDto(node, "Diagnostics", "=== System", NOW)
+    }
     override suspend fun removeUser(id: String) = ok("remove-user $id")
     override suspend fun setUserRoles(id: String, roleIds: List<Int>) = ok("roles $id $roleIds")
     override suspend fun removeInvitation(id: String) = ok("remove-invite $id")

@@ -10,6 +10,7 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     Access("access", "Access", "Who can sign in to the Pangolin apps, and their devices"),
     SpeedTest("speedtest", "Speed test", "Latency and throughput through the real traffic path"),
     Activity("log", "Activity", "Reconcile log, newest first"),
+    Diagnostics("diagnostics", "Diagnostics", "Container logs and a read-only snapshot of each node"),
     Config("config", "Config", "Desired vs. actual state, secrets and the config file"),
     AddNode("add-node", "Add node", "Set up a fresh server from its initial login and provision it"),
     ;

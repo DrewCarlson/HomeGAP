@@ -29,6 +29,11 @@ interface ControllerApi {
     suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto
     suspend fun setupJob(id: String): SetupJobDto
 
+    /** A container's logs on [node] ([service] from [NodeLogServices]). */
+    suspend fun nodeLogs(node: String, service: String, since: String, tail: Int): NodeTextDto
+    /** The node's read-only diagnostics bundle. */
+    suspend fun nodeDiagnostics(node: String): NodeTextDto
+
     /** Makes cluster member [to] the database primary now. */
     suspend fun switchPrimary(to: String): ActionResponse
 

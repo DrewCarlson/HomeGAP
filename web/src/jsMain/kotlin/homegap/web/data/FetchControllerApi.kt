@@ -67,6 +67,10 @@ class FetchControllerApi(private val tokens: TokenStore) : ControllerApi {
     override suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto = post("/setup/jobs", request)
     override suspend fun setupJob(id: String): SetupJobDto = get("/setup/jobs/$id")
 
+    override suspend fun nodeLogs(node: String, service: String, since: String, tail: Int): NodeTextDto =
+        get("/nodes/$node/logs?service=$service&since=$since&tail=$tail")
+    override suspend fun nodeDiagnostics(node: String): NodeTextDto = get("/nodes/$node/diagnostics")
+
     override suspend fun switchPrimary(to: String): ActionResponse = post("/cluster/switchover", SwitchoverRequest(to))
 
     override suspend fun access(): AccessOverviewDto = get("/access")
