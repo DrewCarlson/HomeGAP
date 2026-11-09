@@ -9,6 +9,10 @@ kaml = "0.104.0"
 compose = "1.12.2"
 kotlin-vite = "0.1.0"
 ksubprocess = "1.0.0-beta01"
+# The self-hosted map (web/build.gradle.kts): pinned, at least two weeks old when updated.
+maplibre = "6.16.0"
+pmtiles = "4.5.0"
+protomaps-basemaps = "5.7.2"
 metro = "1.5.2"
 molecule = "2.2.0"
 

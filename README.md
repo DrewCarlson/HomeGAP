@@ -772,9 +772,11 @@ markers, on a plain background.
   100 data-center cities ship with HomeGAP, with the providers there; add your own, edit or hide
   shipped ones. Your changes are kept in `<data_dir>/locations.yml`.
 
-`tools/build-map.sh` rebuilds the map assets: `tiles` extracts the world from a Protomaps build
-(set `MAP_MAXZOOM` for more detail, and point `map.tiles` at the bigger file), and `web` refreshes
-the pinned library, font and icon files. Map data © OpenStreetMap contributors (ODbL), via
+`tools/build-map.sh tiles` builds the tiles from a Protomaps build (set `MAP_MAXZOOM` for more
+detail, and point `map.tiles` at the bigger file). The map's scripts are npm packages pinned in
+`gradle/libs.versions.toml`, and its fonts and icons are downloaded from Protomaps'
+basemaps-assets at a pinned commit and checked against `web/map-assets.tsv`; the dashboard build
+copies both into the binary, so none of them live in this repository. Map data © OpenStreetMap contributors (ODbL), via
 Protomaps.
 
 ## Dashboard & API
@@ -946,7 +948,7 @@ deploy/         homelab compose; reference node stack
 blueprints/     example Pangolin base blueprint
 config/         example configuration
 locations/      the shipped data-center catalog (datacenters.yml)
-tools/          build-map.sh: the self-hosted map's tiles, libraries, fonts and icons
+tools/          build-map.sh: the self-hosted map's tiles
 e2e/            end-to-end harness
 ```
 

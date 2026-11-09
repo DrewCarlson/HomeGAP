@@ -86,7 +86,8 @@ markers on top of the vector map.
 Built as planned. The world to zoom 6 is 45 MB (zoom 7 was 190 MB), so the image ships zoom 6;
 MapLibre keeps zooming by enlarging those tiles. The libraries are maplibre-gl 6.16.0, pmtiles
 4.5.0 and @protomaps/basemaps 5.7.2, served from `/map/lib/` to both the dashboard and the
-status page. The catalog ships about 100 cities.
+status page. The catalog ships about 100 cities. Later the libraries moved to npm dependencies and the fonts and icons to a build-time download
+(checked against `web/map-assets.tsv`), so the repository holds none of them.
 
 ## Open points (at planning time)
 
