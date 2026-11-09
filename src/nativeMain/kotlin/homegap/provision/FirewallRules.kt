@@ -39,7 +39,8 @@ object FirewallRules {
      */
     fun script(specs: List<String>, enable: Boolean = true): String = $$"""
         |export DEBIAN_FRONTEND=noninteractive
-        |command -v ufw >/dev/null || { apt-get update -q >/dev/null && apt-get install -yq ufw >/dev/null; }
+        |$${Apt.FUNCTION}
+        |command -v ufw >/dev/null || { hg_apt update -q && hg_apt install -yq ufw; } || exit 1
         |ufw default deny incoming >/dev/null
         |ufw default allow outgoing >/dev/null
         |WANTED=$(cat <<'HOMEGAP_RULES'

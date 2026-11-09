@@ -115,8 +115,9 @@ object Mesh {
             |KEY=/etc/wireguard/$IFACE.key
             |ADDR=$${shQuote("$address/$prefix")}
             |export DEBIAN_FRONTEND=noninteractive
+            |$${Apt.FUNCTION}
             |# The node's first provisioning may be installing Docker at the same time: wait for apt.
-            |command -v wg >/dev/null 2>&1 || { apt-get -o DPkg::Lock::Timeout=300 update -q >/dev/null && apt-get -o DPkg::Lock::Timeout=300 install -yq --no-install-recommends wireguard-tools >/dev/null; }
+            |command -v wg >/dev/null 2>&1 || { hg_apt update -q && hg_apt install -yq --no-install-recommends wireguard-tools; } || exit 1
             |install -d -m 0700 /etc/wireguard
             |if [ ! -s "$KEY" ]; then (umask 077; wg genkey > "$KEY"); echo "CHANGED created the node's mesh key"; fi
             |cat > "$CONF.new" <<'HOMEGAP_MESH'

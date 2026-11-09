@@ -9,6 +9,7 @@ import homegap.config.NodeConfig
 import homegap.model.NodeDesired
 import homegap.platform.Crypto
 import homegap.platform.nowMillis
+import homegap.provision.Apt
 import homegap.provision.CertMaterial
 import homegap.provision.ClusterLink
 import homegap.provision.ClusterSecrets
@@ -1004,14 +1005,15 @@ class NodeReconciler(
             |echo "MEM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)"
             |echo "DOCKER=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo none)"
             |echo "SUDO=yes"
-            |command -v curl >/dev/null || { export DEBIAN_FRONTEND=noninteractive; apt-get update -q >/dev/null && apt-get install -yq curl ca-certificates >/dev/null; }
+            |$${Apt.FUNCTION}
+            |command -v curl >/dev/null || { hg_apt update -q && hg_apt install -yq curl ca-certificates; }
         """.trimMargin()
 
         val DOCKER_SCRIPT = $$"""
+            |$${Apt.FUNCTION}
             |if ! command -v docker >/dev/null 2>&1; then
-            |  export DEBIAN_FRONTEND=noninteractive
-            |  apt-get update -q
-            |  apt-get install -yq ca-certificates curl
+            |  hg_apt update -q || exit 1
+            |  hg_apt install -yq ca-certificates curl || exit 1
             |  install -m 0755 -d /etc/apt/keyrings
             |  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
             |  chmod a+r /etc/apt/keyrings/docker.asc
@@ -1024,12 +1026,12 @@ class NodeReconciler(
             |  [ -n "$REPO" ] || { echo "no Docker repository for $CODENAME" >&2; exit 1; }
             |  [ "$REPO" = "$CODENAME" ] || echo "Docker has no packages for $CODENAME yet; using $REPO"
             |  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $REPO stable" > /etc/apt/sources.list.d/docker.list
-            |  apt-get update -q
-            |  apt-get install -yq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+            |  hg_apt update -q || exit 1
+            |  hg_apt install -yq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || exit 1
             |  systemctl enable --now docker
             |  echo "CHANGED docker installed"
             |fi
-            |docker compose version >/dev/null 2>&1 || { DEBIAN_FRONTEND=noninteractive apt-get install -yq docker-compose-plugin; }
+            |docker compose version >/dev/null 2>&1 || hg_apt install -yq docker-compose-plugin
         """.trimMargin()
     }
 }
