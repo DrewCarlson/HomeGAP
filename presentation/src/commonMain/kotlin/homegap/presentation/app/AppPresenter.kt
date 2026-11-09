@@ -207,5 +207,17 @@ internal fun StatusSnapshot.tabsNeedingAttention(): Set<Route> = buildSet {
 
 internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
     if (dryRun) add(BannerModel(BannerKind.Warn, "Dry-run mode: discovery and planning only. Nothing is written to nodes, Pangolin or DNS."))
+    homelabIsolation?.let { iso ->
+        val minutes = { ms: Long -> (ms / 60_000).coerceAtLeast(1) }
+        val end = iso.endedAt
+        when {
+            end == null -> add(BannerModel(BannerKind.Error,
+                "The homelab can't reach any node (for ${minutes(generatedAt - iso.startedAt)} min). Check the homelab's internet connection; " +
+                    "the nodes keep serving, and fail the database over to one of them if this lasts."))
+            generatedAt - end < 3_600_000L -> add(BannerModel(BannerKind.Info,
+                "The homelab couldn't reach any node for ${minutes(end - iso.startedAt)} min, until ${minutes(generatedAt - end)} min ago. " +
+                    "Nodes reaching each other meanwhile (see the mesh probes) means it was the homelab's connection."))
+        }
+    }
     if (paused) add(BannerModel(BannerKind.Warn, "Reconciliation is paused globally. Manual changes on nodes, Pangolin and Bunny are left alone."))
 }

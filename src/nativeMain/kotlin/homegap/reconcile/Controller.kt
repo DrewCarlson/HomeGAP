@@ -437,6 +437,7 @@ class Controller(
             }
 
             nodeObs = obs
+            if (!dryRun) trackIsolation(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.mapNotNull { obs[it.id]?.reachable }, nowMillis())
             siteOnline = online
             serviceHealth = health
             lastDiff = diff.all()
@@ -472,6 +473,26 @@ class Controller(
             if (missing.isNotEmpty()) log.warn("dns", "not steering ${d.fqdn} to this node: ${missing.joinToString()} missing on it", d.nodeId)
             missing.isEmpty()
         }
+
+    /** When the homelab last lost contact with every node: (start, end or null while it lasts). */
+    @kotlin.concurrent.Volatile private var isolation: Pair<Long, Long?>? = null
+
+    /**
+     * With two or more nodes, none reachable over SSH in a pass means the homelab itself lost its
+     * way to them (two providers rarely fail at the same moment). Logged when it starts and ends,
+     * and shown on the dashboard.
+     */
+    private fun trackIsolation(reachable: List<Boolean>, now: Long) {
+        val current = isolation
+        val next = isolationAfter(current, reachable, now)
+        if (next == current) return
+        isolation = next
+        if (next?.second == null) {
+            log.error("controller", "the homelab can't reach any node: check the homelab's internet connection (the nodes keep serving, and fail the database over if this lasts)")
+        } else {
+            log.change("controller", "the homelab reaches the nodes again after ${((next.second!! - next.first) / 60_000).coerceAtLeast(1)} min without any")
+        }
+    }
 
     private fun <K, V> synchronizedPut(map: MutableMap<K, V>, k: K, v: V) {
         // async blocks run on the single runBlocking event loop; a plain put is safe there.
@@ -744,6 +765,7 @@ class Controller(
             mesh = meshStatus.takeIf { cfg.cluster != null },
             cluster = clusterStatus.takeIf { cfg.cluster != null },
             homelab = cfg.homelab.location?.let { homegap.api.PlaceDto(it.latitude, it.longitude, it.name) },
+            homelabIsolation = isolation?.let { (start, end) -> homegap.api.IsolationDto(start, end) },
         )
     }
 
@@ -929,3 +951,18 @@ private fun epochToIso(epochSeconds: Long): String =
     kotlin.time.Instant.fromEpochSeconds(epochSeconds).toString()
 
 private val PRETTY_JSON = Json { prettyPrint = true }
+
+/**
+ * The homelab's isolation after a pass that reached [reachable] nodes: it starts when two or more
+ * nodes were observed and none answered, and ends at the first pass that reaches one.
+ */
+internal fun isolationAfter(current: Pair<Long, Long?>?, reachable: List<Boolean>, now: Long): Pair<Long, Long?>? {
+    if (reachable.size < 2) return current
+    val cut = reachable.none { it }
+    val ongoing = current != null && current.second == null
+    return when {
+        cut && !ongoing -> now to null
+        !cut && ongoing -> current!!.first to now
+        else -> current
+    }
+}

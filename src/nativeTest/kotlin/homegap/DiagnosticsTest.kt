@@ -59,10 +59,18 @@ class DiagnosticsTest {
 
         val healthy = csv.replace("DOWN,1,1,0,3,2,3,30", "UP,1,1,0,3,2,3,30").replace("DOWN,1,1,0,,3,3,30", "UP,1,1,0,,3,3,30")
         assertEquals(Health.OK, ClusterProxy.check(healthy, mutableListOf(), 1_000_000).health)
-        // Later the backend's outage count went up: the check is degraded for the hour.
-        val again = ClusterProxy.check(healthy.replace("UP,1,1,0,,3,3,30", "UP,1,1,0,,5,3,30"), history, 1_060_000)
+        // Later the backend's outage count went up: yellow while recent, saying when.
+        val more = healthy.replace("UP,1,1,0,,3,3,30", "UP,1,1,0,,5,3,30")
+        val again = ClusterProxy.check(more, history, 1_060_000)
         assertEquals(Health.DEGRADED, again.health)
-        assertTrue("lost the primary 2 times" in again.detail, again.detail)
+        assertTrue("lost the primary 2 times in the last 60 min, last just now" in again.detail, again.detail)
+        // Twenty minutes on, nothing new: green again, still telling what happened.
+        val later = ClusterProxy.check(more, history, 1_060_000 + 20 * 60_000)
+        assertEquals(Health.OK, later.health)
+        assertTrue("last 20 min ago (recovered)" in later.detail, later.detail)
+        // HAProxy restarted (its counters went back to 1): not a loss.
+        val restarted = ClusterProxy.check(more.replace("UP,1,1,0,,5,3,30", "UP,1,1,0,,1,3,30"), history, 1_060_000 + 21 * 60_000)
+        assertEquals(Health.OK, restarted.health)
         assertEquals(Health.UNKNOWN, ClusterProxy.check(null, history, 1_060_000).health)
     }
 

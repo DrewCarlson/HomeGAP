@@ -54,24 +54,45 @@ object ClusterProxy {
      * (epoch ms to each proxy's outage count) and is trimmed to [windowMs]; outages counted in the
      * window make the check degraded, a primary with no reachable member makes it down.
      */
-    fun check(csv: String?, history: MutableList<Pair<Long, Map<String, Long>>>, now: Long, windowMs: Long = 3_600_000L): CheckDto {
+    /**
+     * [history] holds the readings of the last [windowMs] (epoch ms to each proxy's outage count).
+     * A loss is an increase between two readings (a restart's reset counts nothing); its time is
+     * the reading that saw it, so to within one pass. The check is red while a primary has no
+     * reachable member, yellow for [recentMs] after a loss, and green after that, still saying
+     * how many losses the window saw and when the last was.
+     */
+    fun check(
+        csv: String?,
+        history: MutableList<Pair<Long, Map<String, Long>>>,
+        now: Long,
+        windowMs: Long = 3_600_000L,
+        recentMs: Long = 15 * 60_000L,
+    ): CheckDto {
         val proxies = csv?.let { parse(it) }.orEmpty()
         if (proxies.isEmpty()) return CheckDto("cluster-proxy", Health.UNKNOWN, "stats not available")
         history.removeAll { it.first < now - windowMs }
-        val counts = proxies.associate { it.name to it.outages }
-        // Counters restart with HAProxy: only increases count.
-        val first = history.firstOrNull()?.second
-        history += now to counts
-        val drops = proxies.sumOf { p -> (p.outages - (first?.get(p.name) ?: p.outages)).coerceAtLeast(0) }
+        history += now to proxies.associate { it.name to it.outages }
+        var drops = 0L
+        var lastLossAt: Long? = null
+        history.zipWithNext { (_, before), (at, after) ->
+            val lost = after.entries.sumOf { (name, n) -> (n - (before[name] ?: n)).coerceAtLeast(0) }
+            if (lost > 0) { drops += lost; lastLossAt = at }
+        }
         val down = proxies.filter { it.upServers.isEmpty() }
         val label = PROXIES.toMap()
         val routes = proxies.joinToString(", ") { "${label[it.name]} → ${it.upServers.joinToString("/").ifEmpty { "none" }}" }
-        val dropText = if (drops > 0) "; lost the primary $drops time${if (drops == 1L) "" else "s"} in the last ${windowMs / 60_000} min" else ""
+        val last = lastLossAt
+        val dropText = if (drops > 0 && last != null) {
+            "; lost the primary $drops time${if (drops == 1L) "" else "s"} in the last ${windowMs / 60_000} min, last ${minutesAgo(now - last)}" +
+                if (now - last > recentMs && down.isEmpty()) " (recovered)" else ""
+        } else ""
         val health = when {
             down.isNotEmpty() -> Health.DOWN
-            drops > 0 -> Health.DEGRADED
+            last != null && now - last <= recentMs -> Health.DEGRADED
             else -> Health.OK
         }
         return CheckDto("cluster-proxy", health, routes + dropText)
     }
+
+    private fun minutesAgo(ms: Long): String = (ms / 60_000).let { if (it < 1) "just now" else "${it} min ago" }
 }

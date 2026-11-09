@@ -484,8 +484,8 @@ also run the [mesh probe](#cluster-mesh).
   `homegap-cluster` Docker network connect to `cluster-proxy:5433` (PostgreSQL) and
   `cluster-proxy:6380` (Valkey). HAProxy follows the current primary and cuts connections to a
   member that's demoted. Each node's `cluster-proxy` check shows where HAProxy sends PostgreSQL
-  and Valkey, and turns degraded when it lost the primary in the last hour (red while it has
-  none). HAProxy's stats page listens on the node's `127.0.0.1:8404` only.
+  and Valkey, how often it lost the primary in the last hour and when it last did. It's red while
+  a primary has no reachable member, yellow for 15 minutes after a loss, then green again. HAProxy's stats page listens on the node's `127.0.0.1:8404` only.
 - **The vote needs a majority.** With the homelab and one node, losing either stops writes.
   Two or more nodes are needed for the cluster to keep working without the homelab.
 - **PostgreSQL runs without JIT compilation.** Pangolin only makes small lookups, and a
@@ -632,6 +632,10 @@ needs the node's login pages to be public.
   exit sites, and the exit node its Gerbil registered (matched by region, the node id), on the
   next pass. Leftovers of nodes removed earlier are cleared the same way. Only
   records HomeGAP creates are removed.
+- **The homelab losing every node:** when two or more nodes are configured and none of them
+  answers over SSH, the dashboard shows a banner and the log records when it started and ended.
+  The nodes keep serving meanwhile (and fail the database over if it lasts). If the mesh probes
+  show the nodes reaching each other throughout, the trouble was the homelab's own connection.
 - **Debug a node:** the dashboard's **Diagnostics** page shows any container's logs (the Pangolin
   stack, the cluster member, the mesh probe and the exit connector) and runs a read-only
   diagnostics bundle: containers, the cluster proxy's backends, the mesh interface and probe,

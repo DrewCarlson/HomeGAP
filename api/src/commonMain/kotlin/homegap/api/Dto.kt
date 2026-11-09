@@ -32,7 +32,13 @@ data class StatusSnapshot(
     val cluster: ClusterStatusDto? = null,
     /** Where the homelab is (`homelab.location`); null when not set. */
     val homelab: PlaceDto? = null,
+    /** The last time the homelab could reach none of the nodes; null if it hasn't happened. */
+    val homelabIsolation: IsolationDto? = null,
 )
+
+/** The homelab lost contact with every node from [startedAt] until [endedAt] (null while it lasts). */
+@Serializable
+data class IsolationDto(val startedAt: Long, val endedAt: Long? = null)
 
 /** A point on the map, with the name shown for it (`Dallas, Texas`); [estimated] when only a region code placed it. */
 @Serializable
