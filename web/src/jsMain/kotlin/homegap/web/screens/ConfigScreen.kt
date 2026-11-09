@@ -8,6 +8,9 @@ import org.jetbrains.compose.web.dom.*
 
 @Composable
 fun ConfigScreen(model: ConfigScreenModel) {
+    Panel("Locations", "Data-center cities offered when adding a node, and where the homelab is", actions = {
+        A(href = homegap.web.routing.HashRouter.href(homegap.presentation.routing.Route.Locations), { classes("link") }) { Text("Manage locations →") }
+    }) {}
     Panel("Desired vs. actual", "From the last reconcile pass", actions = {
         Label(attrs = { classes("check") }) {
             CheckboxInput(model.onlyChanges) { onChange { model.onToggleOnlyChanges(it.value) } }

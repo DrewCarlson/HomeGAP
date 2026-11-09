@@ -13,6 +13,13 @@ import org.jetbrains.compose.web.dom.Tr
 @Composable
 fun OverviewScreen(model: OverviewScreenModel, onNavigate: (Route) -> Unit) {
     Div({ classes("stats") }) { model.stats.forEach { Stat(it) } }
+    if (!model.map.isEmpty) {
+        Panel("Map", if (model.homelabUnplaced) "Set the homelab's location on the Locations page to see its tunnels" else "Hover a marker for details; lines are the homelab's tunnels", actions = {
+            PanelLink("Locations →", Route.Locations, onNavigate)
+        }) {
+            WorldMap(model.map, heightPx = 380, onMarkerClick = { id -> if (id != "homelab") onNavigate(Route.Nodes) })
+        }
+    }
     if (model.labelErrors.isNotEmpty()) {
         Panel("Label errors", "Fix these labels; the affected containers are ignored until then") {
             DataTable(listOf("Container", "Problem")) {

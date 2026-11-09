@@ -71,5 +71,25 @@ object Files {
     fun chmodPath(path: String, mode: Int) {
         chmod(path, mode.convert())
     }
+
+    /** [length] bytes of [path] from [offset] (fewer at the end of the file), read in place. */
+    fun readRange(path: String, offset: Long, length: Int): ByteArray {
+        val fd = open(path, O_RDONLY)
+        check(fd >= 0) { "cannot open $path" }
+        try {
+            val out = ByteArray(length)
+            var done = 0
+            out.usePinned { pinned ->
+                while (done < length) {
+                    val n = pread(fd, pinned.addressOf(done), (length - done).convert(), (offset + done).convert())
+                    if (n <= 0) break
+                    done += n.toInt()
+                }
+            }
+            return if (done == length) out else out.copyOf(done)
+        } finally {
+            close(fd)
+        }
+    }
 }
 

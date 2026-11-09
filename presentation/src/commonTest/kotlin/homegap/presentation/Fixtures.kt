@@ -76,6 +76,15 @@ class FakeControllerApi(
         return CreateAccessUserResponse(true, "created", if (request.password == null) "https://pangolin.x/invite?token=a-b" else null)
     }
     override suspend fun switchPrimary(to: String) = ok("switch $to")
+    var locationsValue = LocationsResponse(listOf(
+        LocationDto("us-dallas", "Dallas, Texas", "United States", "US", "NA", 32.78, -96.8, listOf("Vultr", "AWS"), builtIn = true),
+        LocationDto("in-mumbai", "Mumbai", "India", "IN", "AS", 19.08, 72.88, listOf("AWS", "Vultr"), builtIn = true),
+        LocationDto("sg-singapore", "Singapore", "Singapore", "SG", "AS", 1.35, 103.82, listOf("Vultr"), builtIn = true),
+    ))
+    override suspend fun locations() = locationsValue
+    override suspend fun saveLocation(location: LocationDto) = ok("save-location ${location.id} ${location.name}")
+    override suspend fun deleteLocation(id: String, reset: Boolean) = ok("delete-location $id $reset")
+    override suspend fun setHomelabLocation(place: PlaceDto?) = ok("homelab-location ${place?.name}")
     override suspend fun nodeLogs(node: String, service: String, since: String, tail: Int): NodeTextDto {
         calls += "logs $node $service $since $tail"
         return NodeTextDto(node, "$service logs", "line 1\nline 2", NOW)

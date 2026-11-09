@@ -1,7 +1,8 @@
 package homegap.status
 
 /**
- * The public status page: self-contained (no external assets), light and dark. It reads
+ * The public status page: light and dark, with nothing loaded from anywhere but itself (the map's
+ * scripts, fonts and tiles come from this origin's `/map/`). It reads
  * `/status/nodes` from the node it came through, then times one request to each other online
  * node's `/status/ping` (each crosses that node and its tunnel to the homelab). The round trip is
  * read from Resource Timing (request sent to first byte), so connection setup isn't counted.
@@ -20,6 +21,8 @@ object StatusPage {
   --bg: #f4f6f8; --fg: #14181d; --muted: #5f6b78; --faint: #8a95a2; --card: #ffffff; --line: #e3e7ec;
   --ok: #12a150; --ok-soft: #e3f6eb; --warn: #d98a00; --warn-soft: #fdf1da; --off: #9aa3ad; --off-soft: #eef0f2;
   --bad: #d23f31; --bad-soft: #fbe6e3; --accent: #3b6ef5; --bar: #dfe5ec; --shadow: 0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.05);
+  /* The map's names for the same colors. */
+  --down: var(--bad); --unknown: var(--off); --surface: var(--card); --text: var(--fg); --border: var(--line); --text-2: var(--muted);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -74,6 +77,8 @@ button:disabled { opacity: .55; cursor: default; }
 .ms.na { color: var(--faint); font-weight: 500; }
 footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.6; }
 .error { padding: 18px 24px; color: var(--bad); }
+.mapcard { margin-bottom: 16px; overflow: hidden; }
+#map { height: 320px; }
 @media (max-width: 560px) {
   main { padding-top: 24px; }
   .hero { grid-template-columns: 1fr; }
@@ -103,6 +108,9 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       <div class="quality" id="myQuality">&nbsp;</div>
     </div>
   </section>
+  <section class="card mapcard" id="mapcard" aria-label="Map of the nodes">
+    <div id="map"></div>
+  </section>
   <section class="card list">
     <h2>Nodes</h2>
     <div id="rows"></div>
@@ -110,6 +118,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
   <footer>
     Each time is one request from your browser to the homelab through that node and back.
     Lower is better; the node you're connected through is the one DNS picked for your location.
+    The home area on the map marks only the region the service runs from.
   </footer>
 </main>
 <script>
@@ -149,7 +158,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       '<div class="ms na">' + (n.pingUrl ? '&hellip;' : '&ndash;') + '</div>';
     d.querySelector('.name').textContent = n.id;
     if (n.current) { var b = document.createElement('span'); b.className = 'badge'; b.textContent = 'You'; d.querySelector('.name').appendChild(b); }
-    d.querySelector('.where').textContent = region(n.region);
+    d.querySelector('.where').textContent = n.place || region(n.region);
     return d;
   }
 
@@ -186,11 +195,12 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       el('title').textContent = s.title;
       var me = s.nodes.filter(function (n) { return n.current; })[0];
       el('via').textContent = me ? me.id : 'Unknown node';
-      el('where').textContent = me ? region(me.region) : 'Open this page at its main address to see your node.';
+      el('where').textContent = me ? (me.place ? me.place + ' · ' : '') + region(me.region) : 'Open this page at its main address to see your node.';
       banner(s.nodes);
       var rows = el('rows');
       rows.textContent = '';
       var els = s.nodes.map(function (n) { var x = row(n); rows.appendChild(x); return x; });
+      window.dispatchEvent(new CustomEvent('hg-status', { detail: { s: s, results: null } }));
       if (performance.clearResourceTimings) performance.clearResourceTimings();
       var results = await Promise.all(s.nodes.map(function (n) {
         return n.pingUrl ? measure(n.pingUrl).catch(function () { return null; }) : Promise.resolve(undefined);
@@ -203,6 +213,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
         el('myQuality').textContent = mine != null ? quality(mine) : '';
         el('myQuality').style.color = mine != null ? color(mine) : '';
       }
+      window.dispatchEvent(new CustomEvent('hg-status', { detail: { s: s, results: results } }));
       el('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
     } catch (e) {
       el('rows').innerHTML = '<div class="error"></div>';
@@ -217,6 +228,42 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
   load();
   setInterval(function () { if (!document.hidden) load(); }, 60000);
 })();
+</script>
+<script type="module">
+// The map: the nodes in their status colors (yours highlighted, with your ping to each), and the
+// home region as a soft area. If the map can't load, its card is hidden.
+const box = document.getElementById('map');
+let map = null, last = null, fitted = false;
+const HEALTH = { online: 'OK', degraded: 'DEGRADED', offline: 'DOWN' };
+function draw(d) {
+  last = d;
+  if (!map) return;
+  const s = d.s, placed = s.nodes.filter((n) => n.lat != null && n.lon != null);
+  map.setMarkers(placed.map((n) => {
+    const i = s.nodes.indexOf(n), ms = d.results ? d.results[i] : null;
+    const ping = ms != null ? (ms < 10 ? ms.toFixed(1) : Math.round(ms)) + ' ms' : n.pingUrl ? (d.results ? 'no reply' : 'measuring…') : '–';
+    return {
+      id: n.id, lat: n.lat, lng: n.lon, health: HEALTH[n.state] || 'UNKNOWN', kind: 'node', label: n.id, highlight: n.current,
+      info: { title: n.id, subtitle: n.current ? 'You’re connected through this node' : (n.place || null),
+              rows: [['Status', n.state, HEALTH[n.state]], ['Your round trip', ping]].concat(n.current && n.place ? [['Place', n.place]] : []) },
+    };
+  }));
+  map.setAreas(s.home ? [{ id: 'home', lat: s.home.lat, lng: s.home.lon, radiusKm: 1300, label: s.home.label }] : []);
+  const me = placed.find((n) => n.current);
+  map.setLines(me && s.home ? [{ id: 'path', from: [me.lon, me.lat], to: [s.home.lon, s.home.lat], health: HEALTH[me.state] || 'UNKNOWN' }] : []);
+  if (!fitted) {
+    const pts = placed.map((n) => [n.lon, n.lat]).concat(s.home ? [[s.home.lon, s.home.lat]] : []);
+    if (pts.length) { map.fit(pts, 3); fitted = true; }
+  }
+}
+window.addEventListener('hg-status', (e) => draw(e.detail));
+try {
+  const m = await import('/map/homegap-map.js');
+  map = await m.createMap(box, { maxZoom: 4, minZoom: 0.4 });
+  if (last) draw(last);
+} catch (e) {
+  document.getElementById('mapcard').hidden = true;
+}
 </script>
 </body>
 </html>

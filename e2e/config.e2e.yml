@@ -57,3 +57,7 @@ nodes:
     location: { latitude: 19.1, longitude: 72.9 }
 dashboard:
   bind: 0.0.0.0:8088
+
+# Where the homelab is, for the maps (the status page shows only its region).
+homelab:
+  location: { latitude: 32.78, longitude: -96.8, name: "Dallas, Texas" }

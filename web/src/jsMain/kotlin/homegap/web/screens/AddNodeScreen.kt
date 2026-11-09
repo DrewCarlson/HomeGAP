@@ -75,13 +75,28 @@ private fun ServerStep(model: AddNodeScreenModel) {
             Field(model, WizardField.Port)
         }
     }
-    Panel("Location", "Used for geo DNS routing: a region code, coordinates, or both.", flush = false) {
+    Panel("Location", "Used for geo DNS routing and the maps. Search the known data-center cities, or click the map.", flush = false) {
+        LocationSearchBox(
+            query = model.locationQuery,
+            matches = model.locationMatches,
+            onQuery = { model.onEvent(WizardEvent.SearchLocation(it)) },
+            onPick = { model.onEvent(WizardEvent.PickLocation(it)) },
+        )
         Div({ classes("form-grid") }) {
+            Field(model, WizardField.LocationName)
             Field(model, WizardField.Region)
             Field(model, WizardField.Latitude)
             Field(model, WizardField.Longitude)
             Field(model, WizardField.Provider)
         }
+    }
+    Panel("Pick on the map", "Click where the server is; the nearest known city names it") {
+        WorldMap(
+            homegap.presentation.map.MapModel(),
+            heightPx = 300,
+            onPick = { lat, lon -> model.onEvent(WizardEvent.PickOnMap(lat, lon)) },
+            pick = model.pick,
+        )
     }
 }
 

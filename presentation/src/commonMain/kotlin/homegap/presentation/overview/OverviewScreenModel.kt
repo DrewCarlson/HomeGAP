@@ -13,6 +13,10 @@ data class OverviewScreenModel(
     val labelErrors: List<LabelErrorDto>,
     val nodes: List<NodeRowModel>,
     val services: List<ServiceRowModel>,
+    /** Nodes and the homelab on the map; empty when none has a location. */
+    val map: homegap.presentation.map.MapModel = homegap.presentation.map.MapModel(),
+    /** Whether the homelab's location is missing (the map then has no homelab or lines). */
+    val homelabUnplaced: Boolean = false,
 ) : ScreenModel
 
 /** A counter tile. */

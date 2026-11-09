@@ -108,6 +108,9 @@ class SpeedTestServer(
         routing {
             get("/") { if (status.serves(call.request.host())) statusPage() else page() }
             get("/index.html") { if (status.serves(call.request.host())) statusPage() else page() }
+            // The status page's map: the tiles and the map's scripts, fonts and icons only.
+            get(homegap.dashboard.MapFiles.TILES_PATH) { with(homegap.dashboard.MapFiles) { serveTiles(config().map.tiles) } }
+            get("/map/{path...}") { with(homegap.dashboard.MapFiles) { serveMapAsset() } }
             route("/status") {
                 install(NoStore)
                 get("/nodes") { statusNodes() }
@@ -177,7 +180,13 @@ class SpeedTestServer(
         call.response.header(HttpHeaders.CacheControl, "no-store")
         call.response.header("Referrer-Policy", "no-referrer")
         call.response.header("X-Content-Type-Options", "nosniff")
-        call.response.header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https:; base-uri 'none'; frame-ancestors 'none'")
+        // Everything the page loads is its own: the map's scripts, worker, fonts and tiles come from /map/.
+        call.response.header(
+            "Content-Security-Policy",
+            "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+                "img-src 'self' data: blob:; worker-src 'self' blob:; child-src blob:; connect-src 'self' https:; " +
+                "base-uri 'none'; frame-ancestors 'none'",
+        )
         call.respondText(StatusPage.HTML, ContentType.Text.Html)
     }
 

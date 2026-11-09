@@ -37,6 +37,7 @@ enum class WizardField(val label: String, val placeholder: String = "") {
     Provider("Provider", "optional"),
     Latitude("Latitude", "50.1"),
     Longitude("Longitude", "8.7"),
+    LocationName("Place name", "Frankfurt"),
     LoginUser("User", "root"),
     Password("Password"),
     LoginKeyFile("Private key on the orchestrator", "/secrets/ssh/provider"),

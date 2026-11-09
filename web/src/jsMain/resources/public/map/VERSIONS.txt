@@ -1,0 +1,5 @@
+maplibre-gl 6.16.0 (BSD-3-Clause)
+pmtiles 4.5.0 (BSD-3-Clause)
+@protomaps/basemaps 5.7.2 (BSD-3-Clause)
+protomaps/basemaps-assets 028c18f713baecad011301ff7a69acc39bcc2ae7 (fonts: SIL OFL 1.1; sprites)
+Map data: OpenStreetMap contributors (ODbL), via Protomaps

@@ -71,7 +71,7 @@ nodes:
     # Optional: allow SSH through the firewall only from these sources. Locks the orchestrator
     # out if its public IP leaves the list; see "Adding a node" in the README.
     # ssh_allow_from: [198.51.100.0/24]
-    location: { latitude: 45.5, longitude: -73.6 }
+    location: { latitude: 45.5, longitude: -73.6, name: "Montreal, Quebec" }
   - id: as1
     region: AS
     provider: vps-provider-b
@@ -80,7 +80,7 @@ nodes:
     ssh_user: deploy
     ssh_key_file: /secrets/ssh/as1
     license_key_env: PANGOLIN_LICENSE_KEY_AS1
-    location: { latitude: 19.1, longitude: 72.9 }
+    location: { latitude: 19.1, longitude: 72.9, name: Mumbai }
 
 # Tunnel tuning (see README "Performance").
 tunnels:
@@ -98,6 +98,11 @@ speedtest:
 
 # A public status page at status.<domain>: the visitor's node, every node's state and the visitor's
 # round trip through each. Shares speedtest.bind: also route status-*.<domain> to port 8089.
+# Where the homelab is, for the maps (also settable on the dashboard's Locations page).
+# The public status page only ever shows its region.
+# homelab:
+#   location: { latitude: 32.78, longitude: -96.8, name: "Dallas, Texas" }
+
 status_page:
   enabled: false
   # hostname: status

@@ -58,7 +58,8 @@ class PresenterTest {
         val app = AppPresenter(
             session, actions, api, tokens, FixedClock, scope,
             OverviewScreenPresenter(), nodes, ServicesScreenPresenter(api, actions), DnsScreenPresenter(),
-            TunnelsScreenPresenter(), speedTest, access, activity, ConfigScreenPresenter(api), homegap.presentation.diagnostics.DiagnosticsScreenPresenter(api), addNode,
+            TunnelsScreenPresenter(), speedTest, access, activity, ConfigScreenPresenter(api), homegap.presentation.diagnostics.DiagnosticsScreenPresenter(api),
+            homegap.presentation.locations.LocationsScreenPresenter(api, actions), addNode,
         )
     }
 

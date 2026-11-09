@@ -11,6 +11,7 @@ import homegap.presentation.core.runCatchingCancellable
 import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.AppCoroutineScope
 import homegap.presentation.data.ControllerApi
+import homegap.presentation.locations.LocationSearch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -38,6 +39,12 @@ class AddNodeScreenPresenter(
         var keyBusy by remember { mutableStateOf(false) }
         var starting by remember { mutableStateOf(false) }
         val latestProps by rememberUpdatedState(props)
+        // The locations catalog, for the location search and naming a point picked on the map.
+        val catalog by produceState(emptyList<LocationDto>()) {
+            runCatchingCancellable { api.locations().locations }.onSuccess { value = it }
+        }
+        val latestCatalog by rememberUpdatedState(catalog)
+        var locationQuery by remember { mutableStateOf("") }
 
         // Follow a running job until it finishes.
         val jobId = draft.job?.id
@@ -110,6 +117,20 @@ class AddNodeScreenPresenter(
                         latestProps.onFinished()
                     }
                     WizardEvent.Reset -> store.reset()
+                    is WizardEvent.SearchLocation -> locationQuery = event.query
+                    is WizardEvent.PickLocation -> {
+                        val l = latestCatalog.firstOrNull { it.id == event.id }
+                        if (l != null) {
+                            locationQuery = ""
+                            store.update { place(it, l.latitude, l.longitude, l.region, l.name) }
+                        }
+                    }
+                    is WizardEvent.PickOnMap -> {
+                        val lat = LocationSearch.round2(event.latitude)
+                        val lon = LocationSearch.round2(event.longitude)
+                        val near = LocationSearch.nearest(latestCatalog, lat, lon)
+                        store.update { place(it, lat, lon, near?.region ?: LocationSearch.regionFor(lat, lon), near?.name ?: "") }
+                    }
                 }
             }
         }
@@ -140,8 +161,23 @@ class AddNodeScreenPresenter(
             canGoBack = step != WizardStep.Server && draft.job == null,
             nextLabel = if (step == WizardStep.Review) null else "Continue",
             onEvent = onEvent,
+            locationQuery = locationQuery,
+            locationMatches = LocationSearch.search(catalog, locationQuery).map { l ->
+                LocationOptionModel(l.id, LocationSearch.label(l), listOf(l.region, l.providers.take(4).joinToString(", ")).filter { it.isNotBlank() }.joinToString(" · "))
+            },
+            pick = draft[WizardField.Latitude].trim().toDoubleOrNull()?.let { lat -> draft[WizardField.Longitude].trim().toDoubleOrNull()?.let { lat to it } },
         )
     }
+
+    /** Fills the location fields from a catalog entry or a point picked on the map. */
+    private fun place(d: AddNodeDraft, lat: Double, lon: Double, region: String, name: String) = d.copy(
+        values = d.values + mapOf(
+            WizardField.Latitude to lat.toString(),
+            WizardField.Longitude to lon.toString(),
+            WizardField.Region to region,
+            WizardField.LocationName to name,
+        ),
+    )
 
     // ------------------------------------------------------------------------ actions
 
@@ -214,6 +250,7 @@ class AddNodeScreenPresenter(
                 sshKeyFile = key.path,
                 latitude = draft[WizardField.Latitude].trim().toDoubleOrNull(),
                 longitude = draft[WizardField.Longitude].trim().toDoubleOrNull(),
+                locationName = draft[WizardField.LocationName].trim().ifBlank { null },
             ),
             login = AddNodeValidation.login(draft),
             keyFile = key.path,
@@ -285,6 +322,12 @@ class AddNodeScreenPresenter(
     private fun review(draft: AddNodeDraft): List<ReviewLine> = buildList {
         val target = AddNodeValidation.targetUser(draft)
         add(ReviewLine("Node", "${draft[WizardField.NodeId].trim()} at ${draft[WizardField.Host].trim()}:${AddNodeValidation.port(draft) ?: 22}"))
+        val place = listOfNotNull(
+            draft[WizardField.LocationName].trim().ifBlank { null },
+            draft[WizardField.Region].trim().uppercase().ifBlank { null },
+            draft[WizardField.Latitude].trim().ifBlank { null }?.let { "$it, ${draft[WizardField.Longitude].trim()}" },
+        )
+        if (place.isNotEmpty()) add(ReviewLine("Location", place.joinToString(" · ")))
         add(ReviewLine("Initial login", "${draft[WizardField.LoginUser].trim()} with ${if (draft.auth == AuthMethod.Password) "password" else "key"}"))
         add(ReviewLine("Managed as", if (draft.has(WizardToggle.CreateUser)) "$target (new: sudo${if (draft.has(WizardToggle.DockerGroup)) ", docker" else ""}, passwordless sudo)" else target))
         draft.key?.let { add(ReviewLine("SSH key", "${it.fingerprint} (${it.path})")) }

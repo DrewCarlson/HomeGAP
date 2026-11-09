@@ -66,6 +66,7 @@ class AppPresenter(
     private val activity: ActivityScreenPresenter,
     private val config: ConfigScreenPresenter,
     private val diagnostics: DiagnosticsScreenPresenter,
+    private val locations: homegap.presentation.locations.LocationsScreenPresenter,
     private val addNode: AddNodeScreenPresenter,
 ) : Presenter<AppProps, AppModel> {
     @Composable
@@ -102,11 +103,12 @@ class AppPresenter(
         Route.Services -> services.model(ServicesScreenProps(status))
         Route.Dns -> dns.model(DnsScreenProps(status))
         Route.Tunnels -> tunnels.model(TunnelsScreenProps(status))
-        Route.SpeedTest -> speedTest.model(SpeedTestScreenProps(now))
+        Route.SpeedTest -> speedTest.model(SpeedTestScreenProps(now, status))
         Route.Access -> access.model(AccessScreenProps)
         Route.Activity -> activity.model(ActivityScreenProps)
         Route.Config -> config.model(ConfigScreenProps)
         Route.Diagnostics -> diagnostics.model(DiagnosticsScreenProps(status))
+        Route.Locations -> locations.model(homegap.presentation.locations.LocationsScreenProps)
         Route.AddNode -> {
             val currentRouter by rememberUpdatedState(router)
             addNode.model(

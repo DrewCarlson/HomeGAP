@@ -13,12 +13,14 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     Diagnostics("diagnostics", "Diagnostics", "Container logs and a read-only snapshot of each node"),
     Config("config", "Config", "Desired vs. actual state, secrets and the config file"),
     AddNode("add-node", "Add node", "Set up a fresh server from its initial login and provision it"),
+    Locations("locations", "Locations", "Data-center cities for node locations, and where the homelab is"),
     ;
 
     /** Where this route sits in the navigation: itself, or (for sub-pages) its section. */
     val navSection: Route
         get() = when (this) {
             AddNode -> Nodes
+            Locations -> Config
             else -> this
         }
 

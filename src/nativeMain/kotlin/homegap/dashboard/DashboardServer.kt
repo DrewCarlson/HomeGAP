@@ -4,6 +4,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.ActionResponse
+import homegap.config.AppConfig
 import homegap.routes.RoutingControllers
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -34,7 +35,7 @@ import kotlinx.serialization.json.Json
  */
 @SingleIn(AppScope::class)
 @Inject
-class DashboardServer(private val routingControllers: RoutingControllers) {
+class DashboardServer(private val routingControllers: RoutingControllers, private val config: AppConfig) {
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
 
     fun start(host: String, port: Int) {
@@ -52,6 +53,8 @@ class DashboardServer(private val routingControllers: RoutingControllers) {
         routingControllers.init(this)
         routing {
             get("/healthz") { call.respondText("ok") }
+            get(MapFiles.TILES_PATH) { with(MapFiles) { serveTiles(config.map.tiles) } }
+            get("/map/{path...}") { with(MapFiles) { serveMapAsset() } }
             get("/{path...}") { serveAsset() }
         }
     }

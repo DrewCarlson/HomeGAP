@@ -31,6 +31,8 @@ data class AppConfig(
     val dashboard: DashboardConfig = DashboardConfig(),
     val speedtest: SpeedtestConfig = SpeedtestConfig(),
     @SerialName("status_page") val statusPage: StatusPageConfig = StatusPageConfig(),
+    val homelab: HomelabConfig = HomelabConfig(),
+    val map: MapConfig = MapConfig(),
 ) {
     /** The public listener (speed test and status page) runs when either is on. */
     val publicOriginEnabled: Boolean get() = speedtest.enabled || statusPage.enabled
@@ -259,7 +261,26 @@ data class StatusPageConfig(
 }
 
 @Serializable
-data class GeoLocation(val latitude: Double, val longitude: Double)
+data class GeoLocation(
+    val latitude: Double,
+    val longitude: Double,
+    /** Shown on maps and in the dashboard, e.g. `Dallas, Texas`. */
+    val name: String? = null,
+)
+
+/** The homelab itself (where the orchestrator runs). */
+@Serializable
+data class HomelabConfig(
+    /** Where the homelab is, for the maps. The public status page only shows its region. */
+    val location: GeoLocation? = null,
+)
+
+/** The self-hosted map (see `tools/build-map.sh`). */
+@Serializable
+data class MapConfig(
+    /** The PMTiles archive the maps draw from; without it they show markers on a plain background. */
+    val tiles: String = "/usr/share/homegap/map/world.pmtiles",
+)
 
 @Serializable
 data class NodeConfig(

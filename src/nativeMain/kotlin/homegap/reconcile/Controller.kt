@@ -662,6 +662,10 @@ class Controller(
                 job = jobs[id]?.takeIf { it.second.isActive }?.let { if (it.first == NodeReconciler.Kind.UPDATE) "updating" else "provisioning" },
                 updateWaiting = waiting[id],
                 update = ns?.update?.let { NodeUpdateDto(it.status, it.error, it.at, it.rolledBack) },
+                location = n?.let { node ->
+                    node.location?.let { homegap.api.PlaceDto(it.latitude, it.longitude, it.name) }
+                        ?: node.effectiveLocation()?.let { homegap.api.PlaceDto(it.latitude, it.longitude, null, estimated = true) }
+                },
             )
         }
         val services = plan?.services?.map { s ->
@@ -739,6 +743,7 @@ class Controller(
             pauses = PausesDto(st.pauses.global, st.pauses.nodes.sorted(), st.pauses.services.sorted()),
             mesh = meshStatus.takeIf { cfg.cluster != null },
             cluster = clusterStatus.takeIf { cfg.cluster != null },
+            homelab = cfg.homelab.location?.let { homegap.api.PlaceDto(it.latitude, it.longitude, it.name) },
         )
     }
 
@@ -861,6 +866,21 @@ class Controller(
         log.change("controller", "added node ${node.id} to config", node.id)
         trigger("config")
         return "Node ${node.id} added; provisioning will start on the next pass"
+    }
+
+    /** Sets (or with null, clears) where the homelab is, for the maps. Rewrites the config file. */
+    fun setHomelabLocation(place: homegap.api.PlaceDto?): String {
+        require(config.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
+        val location = place?.let {
+            require(it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0) { "coordinates are out of range" }
+            homegap.config.GeoLocation(it.latitude, it.longitude, it.name?.trim()?.ifBlank { null })
+        }
+        val next = config.copy(homelab = config.homelab.copy(location = location))
+        ConfigLoader.save(configPath, next)
+        config = next
+        revision.value++
+        log.change("controller", if (location == null) "cleared the homelab's location" else "set the homelab's location${location.name?.let { " to $it" } ?: ""}")
+        return if (location == null) "Homelab location cleared" else "Homelab location saved"
     }
 
     suspend fun removeNode(id: String): String {

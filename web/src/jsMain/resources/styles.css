@@ -226,6 +226,21 @@ table.data tr.empty:hover td { background: none; }
 /* A value with its buttons (Access page): the value takes the room and wraps, the buttons stay beside it. */
 .copy-row { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
 .copy-row .mono { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+/* Maps (see /map/homegap-map.js) */
+.map-box { position: relative; background: var(--surface-2); border-top: 1px solid var(--border); }
+.panel .map-box:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.location-search { position: relative; margin-bottom: 14px; }
+.location-search input { width: 100%; }
+.location-results { list-style: none; margin: 6px 0 0; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); max-height: 300px; overflow: auto; }
+.location-results li.muted { padding: 8px 10px; font-size: 13px; }
+.location-results button {
+  display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px; border: 0; border-radius: 6px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.location-results button:hover, .location-results button:focus-visible { background: var(--accent-soft); outline: none; }
+.location-results .location-name { font-weight: 600; }
+.location-results .muted { color: var(--muted); font-size: 12px; text-align: right; }
+.map-error { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
 .link-label { font-weight: 600; font-size: 13px; }
 
 /* ---------------------------------------------------------------- activity log */

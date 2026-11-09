@@ -17,6 +17,8 @@ internal class WebAsset(val path: String, private val base64: String, private va
             "json", "map" -> "application/json"
             "woff2" -> "font/woff2"
             "wasm" -> "application/wasm"
+            "pbf" -> "application/x-protobuf"
+            "txt" -> "text/plain; charset=utf-8"
             else -> "application/octet-stream"
         }
 }

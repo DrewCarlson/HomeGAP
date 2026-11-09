@@ -16,6 +16,7 @@ internal fun NodeConfig.toDto() = NodeConfigDto(
     sshKeyFile = sshKeyFile,
     latitude = location?.latitude,
     longitude = location?.longitude,
+    locationName = location?.name,
     managementHost = managementHost,
     sshAllowFrom = sshAllowFrom,
 )
@@ -34,7 +35,7 @@ internal fun NodeConfigDto.toConfig(): NodeConfig {
         sshUser = sshUser,
         sshPort = sshPort,
         sshKeyFile = sshKeyFile,
-        location = latitude?.let { lat -> longitude?.let { lon -> GeoLocation(lat, lon) } },
+        location = latitude?.let { lat -> longitude?.let { lon -> GeoLocation(lat, lon, locationName?.trim()?.ifBlank { null }) } },
         managementHost = managementHost?.takeIf { it.isNotBlank() },
         sshAllowFrom = sshAllowFrom.map { it.trim() }.filter { it.isNotEmpty() },
     )

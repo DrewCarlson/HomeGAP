@@ -19,6 +19,8 @@ sealed interface SpeedTestScreenModel : ScreenModel {
         val history: List<HistoryRowModel>,
         val onSelectStreams: (Int) -> Unit,
         val onRunTest: (nodeId: String) -> Unit,
+        /** The homelab and the nodes with their latest results; empty without locations. */
+        val map: homegap.presentation.map.MapModel = homegap.presentation.map.MapModel(),
     ) : SpeedTestScreenModel
 }
 

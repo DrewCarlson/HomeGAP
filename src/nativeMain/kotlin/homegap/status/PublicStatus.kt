@@ -16,7 +16,19 @@ data class PublicNode(
     val current: Boolean,
     /** Where the visitor's browser measures its round trip through this node; null while offline. */
     @SerialName("pingUrl") val pingUrl: String?,
+    /** The node's place name (`Dallas, Texas`), when configured. */
+    val place: String? = null,
+    /** The node's city, for the map; null when it has no location. */
+    val lat: Double? = null,
+    val lon: Double? = null,
 )
+
+/**
+ * The homelab on the public map: only its region (that region's centre and name), never where
+ * it actually is.
+ */
+@Serializable
+data class PublicHome(val region: String, val label: String, val lat: Double, val lon: Double)
 
 @Serializable
 data class PublicStatusDto(
@@ -25,6 +37,7 @@ data class PublicStatusDto(
     val via: String?,
     val nodes: List<PublicNode>,
     val at: Long,
+    val home: PublicHome? = null,
 )
 
 /**
@@ -60,18 +73,36 @@ class PublicStatus(
         val list = cfg.nodes.map { n ->
             val s = byId[n.id]
             val state = stateOf(s)
+            val loc = n.effectiveLocation()
             PublicNode(
                 id = n.id,
                 region = n.region.uppercase(),
                 state = state,
                 current = n.id == via,
                 pingUrl = if (state == OFFLINE) null else "https://${cfg.statusPage.nodeHost(cfg.domain, n.id)}/status/ping",
+                place = n.location?.name,
+                lat = loc?.latitude,
+                lon = loc?.longitude,
             )
         }.sortedWith(compareBy({ !it.current }, { it.region }, { it.id }))
-        return PublicStatusDto(cfg.statusPage.title, via, list, now)
+        return PublicStatusDto(cfg.statusPage.title, via, list, now, homeRegion(cfg))
     }
 
     companion object {
+        /** The homelab's region, from its location: the nearest region centre. */
+        fun homeRegion(cfg: AppConfig): PublicHome? {
+            val loc = cfg.homelab.location ?: return null
+            val (code, centre) = homegap.config.REGION_CENTROIDS.minBy { (_, c) ->
+                homegap.locations.LocationCatalog.distanceKm(loc.latitude, loc.longitude, c.latitude, c.longitude)
+            }
+            return PublicHome(code, "Home · ${REGION_NAMES[code] ?: code}", centre.latitude, centre.longitude)
+        }
+
+        private val REGION_NAMES = mapOf(
+            "NA" to "North America", "SA" to "South America", "EU" to "Europe", "AF" to "Africa",
+            "ME" to "Middle East", "AS" to "Asia", "OC" to "Oceania",
+        )
+
         const val ONLINE = "online"
         const val DEGRADED = "degraded"
         const val OFFLINE = "offline"

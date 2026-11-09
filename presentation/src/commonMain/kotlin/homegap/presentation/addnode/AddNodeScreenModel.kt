@@ -30,6 +30,11 @@ data class AddNodeScreenModel(
     val canGoBack: Boolean,
     val nextLabel: String?,
     val onEvent: (WizardEvent) -> Unit,
+    /** The location search: what's typed and the catalog entries it matches. */
+    val locationQuery: String = "",
+    val locationMatches: List<LocationOptionModel> = emptyList(),
+    /** The chosen coordinates (latitude, longitude), shown on the map. */
+    val pick: Pair<Double, Double>? = null,
 ) : ScreenModel {
     operator fun get(field: WizardField): String = values[field].orEmpty()
 
@@ -85,4 +90,11 @@ sealed interface WizardEvent {
     data object EditAfterFailure : WizardEvent
     data object Finish : WizardEvent
     data object Reset : WizardEvent
+    data class SearchLocation(val query: String) : WizardEvent
+    data class PickLocation(val id: String) : WizardEvent
+    data class PickOnMap(val latitude: Double, val longitude: Double) : WizardEvent
 }
+
+/** A location search result. */
+@Immutable
+data class LocationOptionModel(val id: String, val label: String, val detail: String)

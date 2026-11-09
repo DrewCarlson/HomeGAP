@@ -64,6 +64,8 @@ from Docker labels:
 - **One-label exposure** — Docker labels are the source of truth; the controller reconciles the rest.
 - **Hands-off node lifecycle** — bare VPS to working edge node over SSH, with drift repair.
 - **Built-in dashboard** for observability, pausing, re-provisioning and node management.
+- **Self-hosted maps** of the nodes and the homelab, on the dashboard and the public status page,
+  with no third-party map service ([Maps and locations](#maps-and-locations)).
 - **Controller is never in the traffic path** — if it stops, nodes keep serving, tunnels stay
   up and DNS keeps resolving. Everything remains manageable by hand: SSH into a node, use each
   node's Pangolin dashboard, or use the Bunny console.
@@ -311,6 +313,9 @@ Key sections:
 | `pangolin.tcp_tuning` | BBR, fq and larger TCP buffers on every node (default `true`). |
 | `speedtest` | `enabled`, `hostname` (default `speedtest`), `bind` (default `0.0.0.0:8089`), `link_ttl`, `phase_seconds`, `streams` (homelab ↔ node, default 4). |
 | `status_page` | `enabled`, `hostname` (default `status`), `title` (default `Status`). Shares `speedtest.bind`; see [Status page](#status-page). |
+| `homelab` | `location: { latitude, longitude, name }`: where the homelab is, for the maps. Set it from the dashboard's **Locations** page. The public status page only shows its region. |
+| `map` | `tiles` (default `/usr/share/homegap/map/world.pmtiles`, shipped in the image): the map tiles. See [Maps and locations](#maps-and-locations). |
+| `nodes[].location` | `{ latitude, longitude, name }`; `name` (e.g. `Dallas, Texas`) is shown on maps. Without a location, a node sits at its region's centre. |
 | `dashboard` | Bind address, optional bearer token, and whether config edits from the UI are allowed. |
 | `reconcile` | `resync_interval` (default `60s`; Docker events trigger passes immediately in between), `debounce`, `node_check_interval` (SSH drift check, default `5m`), `dns_check_interval` (how often the Bunny zone is re-read when the desired records are unchanged, default `5m`; changes sync at once), `dry_run`. |
 
@@ -738,6 +743,36 @@ from the orchestrator. It shares the speed test's listener (`speedtest.bind`), s
 It needs a front door (`homegap.expose`). Turning it on for the first time needs an
 orchestrator restart, like the speed test.
 
+The page also has a map of the nodes in their status colors, with the visitor's node highlighted
+and their round trip through each. The homelab appears only as a soft area at the centre of its
+region ("Home · North America"); its location is never sent to the page.
+
+### Maps and locations
+
+The dashboard's **Overview**, **Speed test**, **Locations** and add-node pages, and the public
+status page, have a draggable, zoomable world map. Nothing is fetched from a third party, ever:
+the map library (MapLibre GL), the styles (Protomaps), the fonts, the icons and the map data
+(OpenStreetMap, as one 45 MB PMTiles file down to zoom 6, enough for cities and regions) all come
+from the orchestrator. The release image includes the tiles; without them the maps still show
+markers, on a plain background.
+
+- **Overview:** every node and the homelab as pulsing markers in their health color (faster when
+  not healthy), with lines from the homelab to each node colored by its tunnel. Hovering a node
+  shows its health, tunnel, round trip to the homelab, provider and failing checks.
+- **Speed test:** each line is labeled with the latest homelab ↔ node result; clicking a node runs
+  its test.
+- **Add node:** search the known data-center cities ("dal", "mumbai", "hetzner") to fill in the
+  place name, region code and coordinates, or click the map: the nearest known city within 50 km
+  names the point.
+- **Locations** (under Config): where the homelab is, and the catalog of known locations. About
+  100 data-center cities ship with HomeGAP, with the providers there; add your own, edit or hide
+  shipped ones. Your changes are kept in `<data_dir>/locations.yml`.
+
+`tools/build-map.sh` rebuilds the map assets: `tiles` extracts the world from a Protomaps build
+(set `MAP_MAXZOOM` for more detail, and point `map.tiles` at the bigger file), and `web` refreshes
+the pinned library, font and icon files. Map data © OpenStreetMap contributors (ODbL), via
+Protomaps.
+
 ## Dashboard & API
 
 The dashboard is served by the orchestrator on `dashboard.bind`.
@@ -774,6 +809,10 @@ It shows:
 | `POST /api/nodes/{id}/decommission?confirm={id}` | Stop the stack on a removed node and forget it |
 | `GET /api/nodes/{id}/logs?service=&since=&tail=` | A container's logs: `service` is `pangolin`, `gerbil`, `traefik`, `haproxy`, `db`, `valkey`, `sentinel`, `etcd`, `probe` or `newt`; `since` like `30m` (default), `tail` up to 5000 lines (default 300) |
 | `GET /api/nodes/{id}/diagnostics` | The node's read-only diagnostics bundle (`{node, title, text, at}`) |
+| `GET /api/locations` | The known locations (shipped and local) and the homelab's location |
+| `PUT /api/locations/{id}` / `DELETE /api/locations/{id}?reset=` | Add or edit a location / remove it (a shipped one is hidden; `reset=true` restores an edited one) |
+| `PUT /api/homelab/location` | Set the homelab's location: `{location: {latitude, longitude, name}}`, or `null` to clear it |
+| `GET /map/...` | The map's tiles (range requests), scripts, fonts and icons; also served on the public listener for the status page |
 | `POST /api/cluster/switchover` | Make a caught-up replica the database primary now: `{to}` (cluster only) |
 | `GET /api/access` | The cluster's users, roles, open invitations and devices (cluster only) |
 | `POST /api/access/users` | Add a user: `{email, roleIds, password?}`; without a password, the response has the invite link |
@@ -850,6 +889,7 @@ automatically.
 docker buildx build --platform linux/amd64,linux/arm64 -t homegap .
 ./gradlew -Phomegap.skipWeb=true …             # skip bundling the dashboard for fast iteration
 ./gradlew :web:jsBrowserDevelopmentServe --continuous   # dashboard dev server (proxies /api to :8088)
+tools/build-map.sh tiles                       # map/world.pmtiles for local runs (the image builds its own)
 ```
 
 ### End-to-end tests
@@ -893,13 +933,16 @@ src/nativeMain/kotlin/homegap/
   clients/      Pangolin (integration + bootstrap), Bunny, SSH (OpenSSH ControlMaster)
   provision/    node stack templates, certificates, YAML emitter
   state/        local state cache
-  dashboard/    REST API + embedded SPA
+  dashboard/    REST API + embedded SPA, and the map's files
+  locations/    the locations catalog (shipped list + local edits)
   tunnels/      Newt connector supervisor
 api/            wire types shared by the API and the dashboard
 web/            Compose for HTML dashboard, bundled with Vite (kotlin-vite)
 deploy/         homelab compose; reference node stack
 blueprints/     example Pangolin base blueprint
 config/         example configuration
+locations/      the shipped data-center catalog (datacenters.yml)
+tools/          build-map.sh: the self-hosted map's tiles, libraries, fonts and icons
 e2e/            end-to-end harness
 ```
 

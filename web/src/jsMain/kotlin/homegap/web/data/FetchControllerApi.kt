@@ -71,6 +71,13 @@ class FetchControllerApi(private val tokens: TokenStore) : ControllerApi {
         get("/nodes/$node/logs?service=$service&since=$since&tail=$tail")
     override suspend fun nodeDiagnostics(node: String): NodeTextDto = get("/nodes/$node/diagnostics")
 
+    override suspend fun locations(): LocationsResponse = get("/locations")
+    override suspend fun saveLocation(location: LocationDto): ActionResponse =
+        json.decodeFromString(ActionResponse.serializer(), request("PUT", "/locations/${location.id}", json.encodeToString(LocationDto.serializer(), location)))
+    override suspend fun deleteLocation(id: String, reset: Boolean): ActionResponse = send("DELETE", "/locations/$id${if (reset) "?reset=true" else ""}")
+    override suspend fun setHomelabLocation(place: PlaceDto?): ActionResponse =
+        json.decodeFromString(ActionResponse.serializer(), request("PUT", "/homelab/location", json.encodeToString(SetHomelabLocationRequest.serializer(), SetHomelabLocationRequest(place))))
+
     override suspend fun switchPrimary(to: String): ActionResponse = post("/cluster/switchover", SwitchoverRequest(to))
 
     override suspend fun access(): AccessOverviewDto = get("/access")

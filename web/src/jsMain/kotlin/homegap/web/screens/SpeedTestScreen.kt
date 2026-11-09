@@ -27,6 +27,11 @@ fun SpeedTestScreen(model: SpeedTestScreenModel) {
         SpeedTestScreenModel.Loading -> Div({ classes("loading") }) { Text("Loading…") }
         SpeedTestScreenModel.Disabled -> Banner(DISABLED)
         is SpeedTestScreenModel.Ready -> {
+            if (!model.map.isEmpty) {
+                Panel("Map", "Latest homelab ↔ node results on each line; click a node to test it") {
+                    WorldMap(model.map, heightPx = 340, onMarkerClick = { id -> if (id != "homelab" && model.canStart) model.onRunTest(id) })
+                }
+            }
             Div({ classes("two-col") }) {
                 TunnelTests(model)
                 DeviceTests(model.device)

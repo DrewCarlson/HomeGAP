@@ -30,7 +30,40 @@ data class StatusSnapshot(
     val mesh: MeshStatusDto? = null,
     /** The cluster's database layer; null when the cluster is not configured. */
     val cluster: ClusterStatusDto? = null,
+    /** Where the homelab is (`homelab.location`); null when not set. */
+    val homelab: PlaceDto? = null,
 )
+
+/** A point on the map, with the name shown for it (`Dallas, Texas`); [estimated] when only a region code placed it. */
+@Serializable
+data class PlaceDto(val latitude: Double, val longitude: Double, val name: String? = null, val estimated: Boolean = false)
+
+/**
+ * A known location (a data-center city): shipped with HomeGAP ([builtIn]) or added in the
+ * dashboard. [edited] marks a shipped one changed locally.
+ */
+@Serializable
+data class LocationDto(
+    val id: String,
+    /** `Dallas, Texas` */
+    val name: String,
+    val country: String,
+    /** ISO 3166-1 alpha-2, e.g. `US`. */
+    val countryCode: String = "",
+    /** HomeGAP's region code (NA, SA, EU, AF, ME, AS, OC). */
+    val region: String = "",
+    val latitude: Double,
+    val longitude: Double,
+    val providers: List<String> = emptyList(),
+    val builtIn: Boolean = false,
+    val edited: Boolean = false,
+)
+
+@Serializable
+data class LocationsResponse(val locations: List<LocationDto>, val homelab: PlaceDto? = null)
+
+@Serializable
+data class SetHomelabLocationRequest(val location: PlaceDto?)
 
 @Serializable
 data class ReconcileSummaryDto(
@@ -69,6 +102,8 @@ data class NodeStatusDto(
     /** Why a pending stack update is waiting (rollout held, another node updating, retry backoff). */
     val updateWaiting: String? = null,
     val update: NodeUpdateDto? = null,
+    /** Where the node is: its configured location, or its region's centre ([PlaceDto.estimated]). */
+    val location: PlaceDto? = null,
 )
 
 /** A stack update that failed (and was rolled back) or that the user skipped on this node. */
@@ -210,6 +245,8 @@ data class NodeConfigDto(
     val sshKeyFile: String,
     val latitude: Double? = null,
     val longitude: Double? = null,
+    /** Shown on maps, e.g. `Dallas, Texas`. */
+    val locationName: String? = null,
     val managementHost: String? = null,
     /** Sources allowed to reach SSH through the node firewall; empty allows any source. */
     val sshAllowFrom: List<String> = emptyList(),

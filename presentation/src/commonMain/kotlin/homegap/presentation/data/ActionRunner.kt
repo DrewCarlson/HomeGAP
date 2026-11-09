@@ -32,13 +32,13 @@ class ActionRunner(
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
-    /** Runs [action], reports its message (or failure) and refreshes the status. */
-    fun run(label: String, action: suspend () -> ActionResponse) {
+    /** Runs [action], reports its message (or failure) and refreshes the status; then [onSuccess]. */
+    fun run(label: String, onSuccess: () -> Unit = {}, action: suspend () -> ActionResponse) {
         scope.launch {
             _busy.value = true
             try {
                 runCatchingCancellable { action() }
-                    .onSuccess { notify(it.message); session.refresh() }
+                    .onSuccess { notify(it.message); session.refresh(); onSuccess() }
                     .onFailure { notify("$label failed: ${it.message}", isError = true) }
             } finally {
                 _busy.value = false

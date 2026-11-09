@@ -19,7 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
-data class SpeedTestScreenProps(val now: Long)
+data class SpeedTestScreenProps(val now: Long, val status: homegap.api.StatusSnapshot? = null)
 
 @SingleIn(AppScope::class)
 @Inject
@@ -88,7 +88,52 @@ class SpeedTestScreenPresenter(
             history = remember(current.results, props.now) { current.results.map { it.toHistoryRow(props.now) } },
             onSelectStreams = remember { { chosenStreams = it } },
             onRunTest = onRunTest,
+            map = remember(current, props.status, running, props.now / 60_000) { testMap(current, props.status, running, props.now) },
         )
+    }
+
+    /**
+     * The homelab and the nodes, each line labeled with the latest homelab ↔ node result; a node's
+     * card also shows the latest device test through it.
+     */
+    private fun testMap(overview: SpeedTestOverview, status: homegap.api.StatusSnapshot?, running: String?, now: Long): homegap.presentation.map.MapModel {
+        if (status == null) return homegap.presentation.map.MapModel()
+        val home = status.homelab
+        val markers = status.nodes.filter { it.id in overview.nodes }.mapNotNull { n ->
+            val loc = n.location ?: return@mapNotNull null
+            val tunnel = overview.results.firstOrNull { it.kind == "tunnel" && it.nodeId == n.id }
+            val device = overview.results.firstOrNull { it.kind != "tunnel" && it.nodeId == n.id }
+            val rows = buildList {
+                if (running == n.id) add(homegap.presentation.map.MapInfoRow("Test", "running…"))
+                tunnel?.let {
+                    add(homegap.presentation.map.MapInfoRow("Homelab ↔ node", ago(it.at, now)))
+                    add(homegap.presentation.map.MapInfoRow("Ping", formatMillis(it.pingMs)))
+                    add(homegap.presentation.map.MapInfoRow("Down / up", "${formatMbps(it.downMbps)} / ${formatMbps(it.upMbps)}"))
+                    it.error?.let { e -> add(homegap.presentation.map.MapInfoRow("Error", e.take(48), homegap.api.Health.DOWN)) }
+                }
+                device?.let {
+                    add(homegap.presentation.map.MapInfoRow("Device test", ago(it.at, now)))
+                    add(homegap.presentation.map.MapInfoRow("Device down / up", "${formatMbps(it.downMbps)} / ${formatMbps(it.upMbps)}"))
+                }
+                if (tunnel == null && device == null) add(homegap.presentation.map.MapInfoRow("Results", "none yet"))
+            }
+            homegap.presentation.map.MapMarker(
+                n.id, loc.latitude, loc.longitude, n.health, label = n.id, highlight = running == n.id,
+                info = homegap.presentation.map.MapInfo(n.id, "Click to run a homelab ↔ node test", rows),
+            )
+        }
+        val lines = if (home == null) emptyList() else status.nodes.filter { it.id in overview.nodes }.mapNotNull { n ->
+            val loc = n.location ?: return@mapNotNull null
+            val tunnel = overview.results.firstOrNull { it.kind == "tunnel" && it.nodeId == n.id }
+            val health = when {
+                tunnel == null -> homegap.api.Health.UNKNOWN
+                tunnel.error != null -> homegap.api.Health.DOWN
+                else -> homegap.api.Health.OK
+            }
+            val label = tunnel?.takeIf { it.error == null }?.let { "${formatMillis(it.pingMs)} · ${formatMbps(it.downMbps)}" }
+            homegap.presentation.map.MapLine("st-${n.id}", homegap.presentation.map.MapPoint(home.latitude, home.longitude), homegap.presentation.map.MapPoint(loc.latitude, loc.longitude), health, label)
+        }
+        return homegap.presentation.map.MapModel(listOfNotNull(home?.let { homegap.presentation.map.homelabMarker(it) }) + markers, lines)
     }
 
     private fun nodeTests(overview: SpeedTestOverview, running: String?, now: Long): List<NodeTestModel> =

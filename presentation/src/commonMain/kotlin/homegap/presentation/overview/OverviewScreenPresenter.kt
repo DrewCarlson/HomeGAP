@@ -9,6 +9,7 @@ import homegap.api.Health
 import homegap.api.StatusSnapshot
 import homegap.presentation.core.Presenter
 import homegap.presentation.format.toHealth
+import homegap.presentation.map.overviewMap
 import homegap.presentation.nodes.toRowModel
 import homegap.presentation.services.toRowModel
 
@@ -23,7 +24,8 @@ class OverviewScreenPresenter : Presenter<OverviewScreenProps, OverviewScreenMod
         val stats = remember(status) { summaryStats(status) }
         val nodes = remember(status.nodes, props.now) { status.nodes.map { it.toRowModel(props.now) } }
         val services = remember(status.services) { status.services.map { it.toRowModel() } }
-        return OverviewScreenModel(stats, status.labelErrors, nodes, services)
+        val map = remember(status, props.now / 60_000) { status.overviewMap(props.now) }
+        return OverviewScreenModel(stats, status.labelErrors, nodes, services, map, status.homelab == null)
     }
 
     internal fun summaryStats(status: StatusSnapshot): List<StatModel> {

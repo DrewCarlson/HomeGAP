@@ -34,6 +34,13 @@ interface ControllerApi {
     /** The node's read-only diagnostics bundle. */
     suspend fun nodeDiagnostics(node: String): NodeTextDto
 
+    /** The locations catalog and the homelab's location. */
+    suspend fun locations(): LocationsResponse
+    suspend fun saveLocation(location: LocationDto): ActionResponse
+    /** Removes [id] (hides a shipped one); with [reset], restores an edited shipped one. */
+    suspend fun deleteLocation(id: String, reset: Boolean): ActionResponse
+    suspend fun setHomelabLocation(place: PlaceDto?): ActionResponse
+
     /** Makes cluster member [to] the database primary now. */
     suspend fun switchPrimary(to: String): ActionResponse
 

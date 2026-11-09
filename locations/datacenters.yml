@@ -1,0 +1,130 @@
+# Data-center cities HomeGAP knows by name, embedded in the binary.
+#
+# Compiled from the providers' published region and data-center lists (AWS, Google Cloud, Azure,
+# Oracle Cloud, DigitalOcean, Vultr, Akamai/Linode, Hetzner, OVHcloud, Scaleway, UpCloud).
+# Coordinates are city centres, rounded to two decimals; providers place regions around a city,
+# not at a street address. Additions and edits made in the dashboard are kept in
+# <data_dir>/locations.yml and take precedence; this file is only changed in the repository.
+#
+# region is HomeGAP's region code: NA, SA, EU, AF, ME, AS, OC.
+
+# ---------------------------------------------------------------- North America
+- { id: us-ashburn, name: "Ashburn, Virginia", country: United States, country_code: US, region: NA, latitude: 39.04, longitude: -77.49, providers: [AWS, Google Cloud, Azure, Oracle, Vultr, Hetzner, Akamai] }
+- { id: us-new-york, name: "New York, New York", country: United States, country_code: US, region: NA, latitude: 40.71, longitude: -74.01, providers: [DigitalOcean, Vultr, Akamai] }
+- { id: us-newark, name: "Newark, New Jersey", country: United States, country_code: US, region: NA, latitude: 40.74, longitude: -74.17, providers: [Akamai, Vultr] }
+- { id: us-columbus, name: "Columbus, Ohio", country: United States, country_code: US, region: NA, latitude: 39.96, longitude: -83.0, providers: [AWS, Google Cloud] }
+- { id: us-atlanta, name: "Atlanta, Georgia", country: United States, country_code: US, region: NA, latitude: 33.75, longitude: -84.39, providers: [Vultr, Akamai, DigitalOcean] }
+- { id: us-miami, name: "Miami, Florida", country: United States, country_code: US, region: NA, latitude: 25.76, longitude: -80.19, providers: [Vultr, Akamai] }
+- { id: us-chicago, name: "Chicago, Illinois", country: United States, country_code: US, region: NA, latitude: 41.88, longitude: -87.63, providers: [Vultr, Akamai, Azure, Oracle] }
+- { id: us-dallas, name: "Dallas, Texas", country: United States, country_code: US, region: NA, latitude: 32.78, longitude: -96.8, providers: [Vultr, Akamai, Google Cloud, Azure] }
+- { id: us-san-antonio, name: "San Antonio, Texas", country: United States, country_code: US, region: NA, latitude: 29.42, longitude: -98.49, providers: [Azure] }
+- { id: us-council-bluffs, name: "Council Bluffs, Iowa", country: United States, country_code: US, region: NA, latitude: 41.26, longitude: -95.86, providers: [Google Cloud] }
+- { id: us-des-moines, name: "Des Moines, Iowa", country: United States, country_code: US, region: NA, latitude: 41.59, longitude: -93.62, providers: [Azure] }
+- { id: us-denver, name: "Denver, Colorado", country: United States, country_code: US, region: NA, latitude: 39.74, longitude: -104.99, providers: [Akamai] }
+- { id: us-salt-lake-city, name: "Salt Lake City, Utah", country: United States, country_code: US, region: NA, latitude: 40.76, longitude: -111.89, providers: [Google Cloud] }
+- { id: us-phoenix, name: "Phoenix, Arizona", country: United States, country_code: US, region: NA, latitude: 33.45, longitude: -112.07, providers: [Azure, Oracle] }
+- { id: us-las-vegas, name: "Las Vegas, Nevada", country: United States, country_code: US, region: NA, latitude: 36.17, longitude: -115.14, providers: [Google Cloud] }
+- { id: us-los-angeles, name: "Los Angeles, California", country: United States, country_code: US, region: NA, latitude: 34.05, longitude: -118.24, providers: [Google Cloud, Vultr, Akamai] }
+- { id: us-san-jose, name: "San Jose, California", country: United States, country_code: US, region: NA, latitude: 37.34, longitude: -121.89, providers: [Oracle, Vultr] }
+- { id: us-san-francisco, name: "San Francisco, California", country: United States, country_code: US, region: NA, latitude: 37.77, longitude: -122.42, providers: [DigitalOcean] }
+- { id: us-fremont, name: "Fremont, California", country: United States, country_code: US, region: NA, latitude: 37.55, longitude: -121.99, providers: [Akamai] }
+- { id: us-hillsboro, name: "Hillsboro, Oregon", country: United States, country_code: US, region: NA, latitude: 45.52, longitude: -122.99, providers: [Hetzner] }
+- { id: us-portland, name: "Portland, Oregon", country: United States, country_code: US, region: NA, latitude: 45.52, longitude: -122.68, providers: [AWS, Google Cloud] }
+- { id: us-seattle, name: "Seattle, Washington", country: United States, country_code: US, region: NA, latitude: 47.61, longitude: -122.33, providers: [Vultr, Akamai] }
+- { id: us-quincy, name: "Quincy, Washington", country: United States, country_code: US, region: NA, latitude: 47.23, longitude: -119.85, providers: [Azure] }
+- { id: us-honolulu, name: "Honolulu, Hawaii", country: United States, country_code: US, region: NA, latitude: 21.31, longitude: -157.86, providers: [Vultr] }
+- { id: ca-montreal, name: "Montreal, Quebec", country: Canada, country_code: CA, region: NA, latitude: 45.5, longitude: -73.57, providers: [AWS, Google Cloud, Oracle, OVHcloud] }
+- { id: ca-beauharnois, name: "Beauharnois, Quebec", country: Canada, country_code: CA, region: NA, latitude: 45.31, longitude: -73.87, providers: [OVHcloud] }
+- { id: ca-toronto, name: "Toronto, Ontario", country: Canada, country_code: CA, region: NA, latitude: 43.65, longitude: -79.38, providers: [Google Cloud, Azure, Oracle, DigitalOcean, Vultr, Akamai] }
+- { id: ca-calgary, name: "Calgary, Alberta", country: Canada, country_code: CA, region: NA, latitude: 51.05, longitude: -114.07, providers: [AWS] }
+- { id: mx-queretaro, name: "Querétaro", country: Mexico, country_code: MX, region: NA, latitude: 20.59, longitude: -100.39, providers: [AWS, Google Cloud, Azure, Oracle] }
+- { id: mx-mexico-city, name: "Mexico City", country: Mexico, country_code: MX, region: NA, latitude: 19.43, longitude: -99.13, providers: [Vultr] }
+
+# ---------------------------------------------------------------- South America
+- { id: br-sao-paulo, name: "São Paulo", country: Brazil, country_code: BR, region: SA, latitude: -23.55, longitude: -46.63, providers: [AWS, Google Cloud, Azure, Oracle, Vultr, Akamai] }
+- { id: br-rio-de-janeiro, name: "Rio de Janeiro", country: Brazil, country_code: BR, region: SA, latitude: -22.91, longitude: -43.17, providers: [Azure] }
+- { id: br-vinhedo, name: "Vinhedo", country: Brazil, country_code: BR, region: SA, latitude: -23.03, longitude: -46.98, providers: [Oracle] }
+- { id: cl-santiago, name: "Santiago", country: Chile, country_code: CL, region: SA, latitude: -33.45, longitude: -70.67, providers: [Google Cloud, Oracle, Vultr] }
+- { id: co-bogota, name: "Bogotá", country: Colombia, country_code: CO, region: SA, latitude: 4.71, longitude: -74.07, providers: [Oracle] }
+- { id: ar-buenos-aires, name: "Buenos Aires", country: Argentina, country_code: AR, region: SA, latitude: -34.6, longitude: -58.38, providers: [] }
+
+# ---------------------------------------------------------------- Europe
+- { id: ie-dublin, name: "Dublin", country: Ireland, country_code: IE, region: EU, latitude: 53.35, longitude: -6.26, providers: [AWS, Azure] }
+- { id: gb-london, name: "London", country: United Kingdom, country_code: GB, region: EU, latitude: 51.51, longitude: -0.13, providers: [AWS, Google Cloud, Azure, Oracle, DigitalOcean, Vultr, Akamai, OVHcloud, UpCloud] }
+- { id: gb-cardiff, name: "Cardiff", country: United Kingdom, country_code: GB, region: EU, latitude: 51.48, longitude: -3.18, providers: [Azure] }
+- { id: gb-manchester, name: "Manchester", country: United Kingdom, country_code: GB, region: EU, latitude: 53.48, longitude: -2.24, providers: [Vultr] }
+- { id: nl-amsterdam, name: "Amsterdam", country: Netherlands, country_code: NL, region: EU, latitude: 52.37, longitude: 4.9, providers: [Azure, Oracle, DigitalOcean, Vultr, Akamai, Scaleway] }
+- { id: nl-eemshaven, name: "Eemshaven", country: Netherlands, country_code: NL, region: EU, latitude: 53.44, longitude: 6.83, providers: [Google Cloud] }
+- { id: be-st-ghislain, name: "Saint-Ghislain", country: Belgium, country_code: BE, region: EU, latitude: 50.47, longitude: 3.82, providers: [Google Cloud] }
+- { id: fr-paris, name: "Paris", country: France, country_code: FR, region: EU, latitude: 48.86, longitude: 2.35, providers: [AWS, Google Cloud, Azure, Oracle, Vultr, Akamai, Scaleway, OVHcloud] }
+- { id: fr-marseille, name: "Marseille", country: France, country_code: FR, region: EU, latitude: 43.3, longitude: 5.37, providers: [Azure, Oracle] }
+- { id: fr-roubaix, name: "Roubaix", country: France, country_code: FR, region: EU, latitude: 50.69, longitude: 3.18, providers: [OVHcloud] }
+- { id: fr-gravelines, name: "Gravelines", country: France, country_code: FR, region: EU, latitude: 50.99, longitude: 2.13, providers: [OVHcloud] }
+- { id: fr-strasbourg, name: "Strasbourg", country: France, country_code: FR, region: EU, latitude: 48.57, longitude: 7.75, providers: [OVHcloud] }
+- { id: de-frankfurt, name: "Frankfurt", country: Germany, country_code: DE, region: EU, latitude: 50.11, longitude: 8.68, providers: [AWS, Google Cloud, Azure, Oracle, DigitalOcean, Vultr, Akamai, UpCloud, OVHcloud] }
+- { id: de-falkenstein, name: "Falkenstein", country: Germany, country_code: DE, region: EU, latitude: 50.48, longitude: 12.37, providers: [Hetzner] }
+- { id: de-nuremberg, name: "Nuremberg", country: Germany, country_code: DE, region: EU, latitude: 49.45, longitude: 11.08, providers: [Hetzner] }
+- { id: de-berlin, name: "Berlin", country: Germany, country_code: DE, region: EU, latitude: 52.52, longitude: 13.4, providers: [Google Cloud, Azure] }
+- { id: ch-zurich, name: "Zurich", country: Switzerland, country_code: CH, region: EU, latitude: 47.38, longitude: 8.54, providers: [AWS, Google Cloud, Azure, Oracle] }
+- { id: ch-geneva, name: "Geneva", country: Switzerland, country_code: CH, region: EU, latitude: 46.2, longitude: 6.14, providers: [Azure] }
+- { id: it-milan, name: "Milan", country: Italy, country_code: IT, region: EU, latitude: 45.46, longitude: 9.19, providers: [AWS, Google Cloud, Azure, Oracle, Akamai] }
+- { id: it-turin, name: "Turin", country: Italy, country_code: IT, region: EU, latitude: 45.07, longitude: 7.69, providers: [Google Cloud] }
+- { id: es-madrid, name: "Madrid", country: Spain, country_code: ES, region: EU, latitude: 40.42, longitude: -3.7, providers: [Google Cloud, Azure, Oracle, Vultr, Akamai, UpCloud] }
+- { id: es-zaragoza, name: "Zaragoza", country: Spain, country_code: ES, region: EU, latitude: 41.65, longitude: -0.89, providers: [AWS] }
+- { id: pt-lisbon, name: "Lisbon", country: Portugal, country_code: PT, region: EU, latitude: 38.72, longitude: -9.14, providers: [] }
+- { id: se-stockholm, name: "Stockholm", country: Sweden, country_code: SE, region: EU, latitude: 59.33, longitude: 18.07, providers: [AWS, Google Cloud, Oracle, Vultr, Akamai, UpCloud] }
+- { id: se-gavle, name: "Gävle", country: Sweden, country_code: SE, region: EU, latitude: 60.67, longitude: 17.14, providers: [Azure] }
+- { id: fi-helsinki, name: "Helsinki", country: Finland, country_code: FI, region: EU, latitude: 60.17, longitude: 24.94, providers: [Hetzner, UpCloud] }
+- { id: fi-hamina, name: "Hamina", country: Finland, country_code: FI, region: EU, latitude: 60.57, longitude: 27.2, providers: [Google Cloud] }
+- { id: no-oslo, name: "Oslo", country: Norway, country_code: NO, region: EU, latitude: 59.91, longitude: 10.75, providers: [Azure] }
+- { id: dk-copenhagen, name: "Copenhagen", country: Denmark, country_code: DK, region: EU, latitude: 55.68, longitude: 12.57, providers: [Azure] }
+- { id: pl-warsaw, name: "Warsaw", country: Poland, country_code: PL, region: EU, latitude: 52.23, longitude: 21.01, providers: [Google Cloud, Azure, Vultr, UpCloud, OVHcloud] }
+- { id: at-vienna, name: "Vienna", country: Austria, country_code: AT, region: EU, latitude: 48.21, longitude: 16.37, providers: [Azure] }
+- { id: es-barcelona, name: "Barcelona", country: Spain, country_code: ES, region: EU, latitude: 41.39, longitude: 2.17, providers: [] }
+- { id: gr-athens, name: "Athens", country: Greece, country_code: GR, region: EU, latitude: 37.98, longitude: 23.73, providers: [] }
+
+# ---------------------------------------------------------------- Middle East
+- { id: ae-dubai, name: "Dubai", country: United Arab Emirates, country_code: AE, region: ME, latitude: 25.2, longitude: 55.27, providers: [Azure, Oracle] }
+- { id: ae-abu-dhabi, name: "Abu Dhabi", country: United Arab Emirates, country_code: AE, region: ME, latitude: 24.45, longitude: 54.38, providers: [Azure, Oracle] }
+- { id: bh-manama, name: "Manama", country: Bahrain, country_code: BH, region: ME, latitude: 26.23, longitude: 50.59, providers: [AWS] }
+- { id: qa-doha, name: "Doha", country: Qatar, country_code: QA, region: ME, latitude: 25.29, longitude: 51.53, providers: [Google Cloud, Azure] }
+- { id: sa-dammam, name: "Dammam", country: Saudi Arabia, country_code: SA, region: ME, latitude: 26.43, longitude: 50.1, providers: [Google Cloud] }
+- { id: sa-jeddah, name: "Jeddah", country: Saudi Arabia, country_code: SA, region: ME, latitude: 21.49, longitude: 39.19, providers: [Oracle] }
+- { id: il-tel-aviv, name: "Tel Aviv", country: Israel, country_code: IL, region: ME, latitude: 32.09, longitude: 34.78, providers: [AWS, Google Cloud, Vultr] }
+
+# ---------------------------------------------------------------- Africa
+- { id: za-johannesburg, name: "Johannesburg", country: South Africa, country_code: ZA, region: AF, latitude: -26.2, longitude: 28.05, providers: [Google Cloud, Azure, Oracle, Vultr] }
+- { id: za-cape-town, name: "Cape Town", country: South Africa, country_code: ZA, region: AF, latitude: -33.92, longitude: 18.42, providers: [AWS, Azure] }
+- { id: ng-lagos, name: "Lagos", country: Nigeria, country_code: NG, region: AF, latitude: 6.52, longitude: 3.38, providers: [] }
+- { id: ke-nairobi, name: "Nairobi", country: Kenya, country_code: KE, region: AF, latitude: -1.29, longitude: 36.82, providers: [Oracle] }
+- { id: eg-cairo, name: "Cairo", country: Egypt, country_code: EG, region: AF, latitude: 30.04, longitude: 31.24, providers: [] }
+- { id: ma-casablanca, name: "Casablanca", country: Morocco, country_code: MA, region: AF, latitude: 33.57, longitude: -7.59, providers: [Oracle] }
+
+# ---------------------------------------------------------------- Asia
+- { id: in-mumbai, name: "Mumbai", country: India, country_code: IN, region: AS, latitude: 19.08, longitude: 72.88, providers: [AWS, Google Cloud, Oracle, Vultr, Akamai] }
+- { id: in-pune, name: "Pune", country: India, country_code: IN, region: AS, latitude: 18.52, longitude: 73.86, providers: [Azure] }
+- { id: in-chennai, name: "Chennai", country: India, country_code: IN, region: AS, latitude: 13.08, longitude: 80.27, providers: [Azure, Akamai] }
+- { id: in-delhi, name: "Delhi", country: India, country_code: IN, region: AS, latitude: 28.61, longitude: 77.21, providers: [Google Cloud, Vultr] }
+- { id: in-bangalore, name: "Bangalore", country: India, country_code: IN, region: AS, latitude: 12.97, longitude: 77.59, providers: [DigitalOcean, Vultr] }
+- { id: in-hyderabad, name: "Hyderabad", country: India, country_code: IN, region: AS, latitude: 17.39, longitude: 78.49, providers: [AWS, Oracle] }
+- { id: sg-singapore, name: "Singapore", country: Singapore, country_code: SG, region: AS, latitude: 1.35, longitude: 103.82, providers: [AWS, Google Cloud, Azure, Oracle, DigitalOcean, Vultr, Akamai, Hetzner, OVHcloud, UpCloud] }
+- { id: id-jakarta, name: "Jakarta", country: Indonesia, country_code: ID, region: AS, latitude: -6.21, longitude: 106.85, providers: [AWS, Google Cloud, Akamai] }
+- { id: my-kuala-lumpur, name: "Kuala Lumpur", country: Malaysia, country_code: MY, region: AS, latitude: 3.14, longitude: 101.69, providers: [AWS, Azure] }
+- { id: th-bangkok, name: "Bangkok", country: Thailand, country_code: TH, region: AS, latitude: 13.76, longitude: 100.5, providers: [AWS, Google Cloud] }
+- { id: hk-hong-kong, name: "Hong Kong", country: Hong Kong, country_code: HK, region: AS, latitude: 22.32, longitude: 114.17, providers: [AWS, Google Cloud, Azure] }
+- { id: tw-changhua, name: "Changhua County", country: Taiwan, country_code: TW, region: AS, latitude: 24.08, longitude: 120.54, providers: [Google Cloud] }
+- { id: tw-taipei, name: "Taipei", country: Taiwan, country_code: TW, region: AS, latitude: 25.03, longitude: 121.57, providers: [AWS] }
+- { id: jp-tokyo, name: "Tokyo", country: Japan, country_code: JP, region: AS, latitude: 35.68, longitude: 139.69, providers: [AWS, Google Cloud, Azure, Oracle, Vultr, Akamai] }
+- { id: jp-osaka, name: "Osaka", country: Japan, country_code: JP, region: AS, latitude: 34.69, longitude: 135.5, providers: [AWS, Google Cloud, Azure, Oracle, Vultr, Akamai] }
+- { id: kr-seoul, name: "Seoul", country: South Korea, country_code: KR, region: AS, latitude: 37.57, longitude: 126.98, providers: [AWS, Google Cloud, Azure, Oracle, Vultr] }
+- { id: kr-chuncheon, name: "Chuncheon", country: South Korea, country_code: KR, region: AS, latitude: 37.88, longitude: 127.73, providers: [Oracle] }
+- { id: ph-manila, name: "Manila", country: Philippines, country_code: PH, region: AS, latitude: 14.6, longitude: 120.98, providers: [] }
+- { id: vn-ho-chi-minh-city, name: "Ho Chi Minh City", country: Vietnam, country_code: VN, region: AS, latitude: 10.82, longitude: 106.63, providers: [] }
+
+# ---------------------------------------------------------------- Oceania
+- { id: au-sydney, name: "Sydney, New South Wales", country: Australia, country_code: AU, region: OC, latitude: -33.87, longitude: 151.21, providers: [AWS, Google Cloud, Azure, Oracle, DigitalOcean, Vultr, Akamai, OVHcloud, UpCloud] }
+- { id: au-melbourne, name: "Melbourne, Victoria", country: Australia, country_code: AU, region: OC, latitude: -37.81, longitude: 144.96, providers: [AWS, Google Cloud, Azure, Oracle, Vultr, Akamai] }
+- { id: au-canberra, name: "Canberra", country: Australia, country_code: AU, region: OC, latitude: -35.28, longitude: 149.13, providers: [Azure] }
+- { id: au-perth, name: "Perth, Western Australia", country: Australia, country_code: AU, region: OC, latitude: -31.95, longitude: 115.86, providers: [] }
+- { id: au-brisbane, name: "Brisbane, Queensland", country: Australia, country_code: AU, region: OC, latitude: -27.47, longitude: 153.03, providers: [] }
+- { id: nz-auckland, name: "Auckland", country: New Zealand, country_code: NZ, region: OC, latitude: -36.85, longitude: 174.76, providers: [AWS, Azure] }
