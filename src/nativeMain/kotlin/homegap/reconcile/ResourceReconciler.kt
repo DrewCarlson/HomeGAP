@@ -271,6 +271,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
             |install -d -m 0755 "$(dirname $q)"
             |printf '%s' '$b64' | base64 -d > $q.homegap-new
             |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod 0644 $q.homegap-new; mv -f $q.homegap-new $q; echo CHANGED; else rm -f $q.homegap-new; fi
+            |hg_own $q
         """.trimMargin(), 60)
         if (out.contains("CHANGED")) {
             ctx.log.change(domain, "updated Traefik routes (${desired.sniRoutes.size} SNI passthrough, health=${desired.healthResourceNiceId != null})", ready.node.id)

@@ -5,6 +5,7 @@ import homegap.api.ClusterStatusDto
 import homegap.api.PrimaryChangeDto
 import homegap.clients.EtcdClient
 import homegap.clients.PatroniClient
+import homegap.clients.SshSession
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.clients.ValkeyCli
 import homegap.config.ClusterConfig
@@ -246,7 +247,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val base = "${ctx.config.pangolin.installDir}/cluster"
         val script = buildString {
             // Docker comes with the node's own provisioning.
-            appendLine("command -v docker >/dev/null 2>&1 || { echo WAITING-FOR-DOCKER; exit 0; }")
+            appendLine("type -P docker >/dev/null 2>&1 || { echo WAITING-FOR-DOCKER; exit 0; }")
             appendLine("set -e")
             appendLine("B=${shQuote(base)}")
             appendLine("install -d -m 0755 \"\$B\" \"\$B/etcd\" \"\$B/pgdata\" \"\$B/valkey\" \"\$B/sentinel\"")
@@ -258,6 +259,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine(fileStep("$base/config/sentinel.conf", sentinelConf))
             appendLine(fileStep("$base/config/haproxy.cfg", haproxyCfg))
             appendLine(fileStep("$base/compose.yml", compose, mode = "0644"))
+            appendLine(SshSession.ownInstallDir(ctx.config.pangolin.installDir))
             appendLine("cd \"\$B\"")
             // A cluster network created before its bridge had a fixed name must be recreated
             // (only HAProxy is attached to it here).
@@ -273,7 +275,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     }
 
     private suspend fun hasDocker(ctx: ReconcileContext, node: NodeConfig): Boolean =
-        ctx.ssh.session(node).runScript("command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && echo DOCKER-OK", 60).stdout.contains("DOCKER-OK")
+        ctx.ssh.session(node).runScript("type -P docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && echo DOCKER-OK", 60).stdout.contains("DOCKER-OK")
 
     private fun fileStep(path: String, content: String, mode: String = "0600", writeOnce: Boolean = false): String {
         val b64 = Base64.encode(content.encodeToByteArray())

@@ -378,7 +378,10 @@ leave the page while it works.
 3. **Access:** the user HomeGAP manages the node as (by default a new `homegap` user with
    passwordless sudo, optionally in the `docker` group) and its SSH key: generated (ed25519, kept in
    `<data dir>/ssh/`), pasted, or a key file already on the orchestrator. Optionally disable root
-   login and password login over SSH.
+   login and password login over SSH. HomeGAP uses sudo only for system changes (packages,
+   firewall, WireGuard, sysctls); the files under the install dir belong to this user, and in the
+   `docker` group it also runs Docker Compose, so `docker compose` works there without sudo. The
+   cluster member's data directories stay with their containers.
 4. **Firewall:** let HomeGAP manage `ufw`, and choose whether SSH is open to anywhere or only to
    listed sources (pre-filled with the address seen in the connection test).
 5. **Review & run.**

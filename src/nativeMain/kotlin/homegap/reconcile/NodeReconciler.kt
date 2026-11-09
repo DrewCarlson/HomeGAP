@@ -314,6 +314,7 @@ class NodeReconciler(
             |  rm -rf config/db && cp -a "$B/db" config/db
             |fi
             |$${clusterRestoreStep()}
+            |$${SshSession.ownInstallDir(dir)}
             |docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20
             |ok=0
             |for i in $(seq 1 120); do
@@ -523,6 +524,7 @@ class NodeReconciler(
             val q = shQuote("$dir/$path")
             appendLine("if [ -e $q ]; then rm -f $q; echo \"CHANGED removed $path\"; RESTART=\"\$RESTART $restarts\"; fi")
         }
+        appendLine(SshSession.ownInstallDir(dir))
         appendLine("cd $d")
         appendLine("docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20")
         appendLine($$"for s in $(echo $RESTART | tr ' ' '\\n' | sort -u); do docker compose restart \"$s\" >/dev/null 2>&1 || true; done")
@@ -1012,7 +1014,7 @@ class NodeReconciler(
 
         val DOCKER_SCRIPT = $$"""
             |$${Apt.FUNCTION}
-            |if ! command -v docker >/dev/null 2>&1; then
+            |if ! type -P docker >/dev/null 2>&1; then
             |  hg_apt update -q || exit 1
             |  hg_apt install -yq ca-certificates curl || exit 1
             |  install -m 0755 -d /etc/apt/keyrings

@@ -90,13 +90,14 @@ object ExitNodes {
     fun deployScript(installDir: String, image: String, newtId: String, newtSecret: String): String {
         val dir = "$installDir/$DIR"
         return listOf(
-            "command -v docker >/dev/null 2>&1 || { echo WAITING-FOR-DOCKER; exit 0; }",
+            "type -P docker >/dev/null 2>&1 || { echo WAITING-FOR-DOCKER; exit 0; }",
             "set -e",
             "install -d -m 0700 ${shQuote(dir)}",
             "OUT=$( {",
             SshSession.writeFileSnippet("$dir/compose.yml", compose(image)),
             SshSession.writeFileSnippet("$dir/.env", env(newtId, newtSecret), "0600"),
             "} )",
+            "hg_own ${shQuote(dir)}",
             "cd ${shQuote(dir)}",
             "if [ -n \"\$OUT\" ] || [ -z \"\$(docker compose ps --status running -q newt 2>/dev/null)\" ]; then",
             "  docker compose up -d --remove-orphans >/dev/null 2>&1 || docker compose up -d --remove-orphans",

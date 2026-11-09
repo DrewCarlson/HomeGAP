@@ -91,10 +91,14 @@ class SshSession(
         masterVerifiedAt = nowMillis()
     }
 
-    /** Runs a bash script on the node as root (via `sudo -n` unless already root). */
+    /**
+     * Runs a bash script on the node as root (via `sudo -n` unless already root). Scripts start
+     * with [ownerPreamble]: `hg_own` hands HomeGAP's files to the login user, and Docker then runs
+     * as that user.
+     */
     suspend fun runScript(script: String, timeoutSeconds: Int = 900): ProcessResult {
         ensureMaster()
-        val wrapped = "set -euo pipefail\n$script\n"
+        val wrapped = "set -euo pipefail\n${ownerPreamble(node.sshUser)}\n$script\n"
         val cmd = if (node.sshUser == "root") "bash -s" else "sudo -n bash -s"
         val r = io(baseArgs() + listOf(target, cmd), wrapped, timeoutSeconds)
         // 255 is ssh's own failure (connection lost): re-check the master next time.
@@ -149,6 +153,39 @@ class SshSession(
         }
 
         const val MASTER_TRUST_MS = 30_000L
+
+        /**
+         * Shell functions every node script starts with. For a login user other than root,
+         * `hg_own TOP [SKIP...]` gives the root-owned files under TOP (except the SKIP trees) to
+         * that user, and from then on `docker` runs as the user when it is in the docker group, so
+         * Compose reads the `.env` files the user now owns. Root logins get a no-op `hg_own`.
+         * Scripts look for the Docker binary with `type -P docker`, since `command -v` would also
+         * find the function.
+         */
+        fun ownerPreamble(user: String): String = if (user == "root") "hg_own() { :; }" else $$"""
+            |HG_OWNER=$${shQuote(user)}
+            |HG_GROUP=$(id -gn "$HG_OWNER" 2>/dev/null || echo "$HG_OWNER")
+            |HG_HOME=$(getent passwd "$HG_OWNER" | cut -d: -f6 || true)
+            |HG_AS_OWNER=
+            |hg_own() {
+            |  local top=$1 p; shift
+            |  if [ -e "$top" ]; then
+            |    local prune=()
+            |    for p in "$@"; do prune+=(-path "$p" -prune -o); done
+            |    find "$top" "${prune[@]}" -user 0 -exec chown -h "$HG_OWNER:$HG_GROUP" {} + || true
+            |  fi
+            |  if id -nG "$HG_OWNER" 2>/dev/null | tr ' ' '\n' | grep -qx docker; then HG_AS_OWNER=1; fi
+            |}
+            |docker() {
+            |  if [ -n "$HG_AS_OWNER" ]; then runuser -u "$HG_OWNER" -- env HOME="${HG_HOME:-/}" docker "$@"
+            |  else command docker "$@"; fi
+            |}
+        """.trimMargin()
+
+        /** `hg_own` for the install dir [dir], leaving the cluster member's data to its containers. */
+        fun ownInstallDir(dir: String): String =
+            (listOf(dir) + homegap.provision.ClusterTemplates.DATA_DIRS.map { "$dir/cluster/$it" })
+                .joinToString(" ", prefix = "hg_own ") { shQuote(it) }
 
         fun shQuote(s: String): String = "'" + s.replace("'", "'\"'\"'") + "'"
     }

@@ -37,6 +37,8 @@ object ClusterTemplates {
     const val PROXY_POSTGRES_PORT = 5433
     const val PROXY_VALKEY_PORT = 6380
     const val NETWORK = "homegap-cluster"
+    /** The member's data directories under `<install_dir>/cluster`, owned by their containers. */
+    val DATA_DIRS = listOf("etcd", "pgdata", "valkey", "sentinel")
     /** The cluster network's bridge interface, named so the node firewall can admit it. */
     const val BRIDGE = "hg-cluster"
     const val PROXY_HOST = "cluster-proxy"
