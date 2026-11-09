@@ -150,11 +150,14 @@ object ClusterTemplates {
         appendLine()
         appendLine("defaults")
         appendLine("  mode tcp")
-        appendLine("  timeout connect 3s")
+        // Members can be a quarter second or more apart, and a check connects within the shorter
+        // of `timeout connect` and `inter`: both leave room for two lost SYNs (resent after 1s and
+        // 3s), and three misses in a row mark a member down, so a slow link never flaps.
+        appendLine("  timeout connect 5s")
         appendLine("  timeout client 30m")
         appendLine("  timeout server 30m")
-        appendLine("  timeout check 2s")
-        appendLine("  default-server inter 2s fall 2 rise 2 on-marked-down shutdown-sessions")
+        appendLine("  timeout check 5s")
+        appendLine("  default-server inter 4s fall 3 rise 2 on-marked-down shutdown-sessions")
         appendLine()
         appendLine("listen postgres-primary")
         appendLine("  bind :$PROXY_POSTGRES_PORT")

@@ -68,6 +68,8 @@ class ClusterTest {
         assertTrue("option httpchk OPTIONS /primary" in cfg)
         assertTrue("expect string role:master" in cfg)
         assertTrue("on-marked-down shutdown-sessions" in cfg, "connections to a demoted member are cut")
+        // A 250 ms link needs about a second for the Valkey check and must survive a lost SYN.
+        assertTrue("timeout check 5s" in cfg && "inter 4s fall 3" in cfg, "checks tolerate distant members")
     }
 
     @Test
