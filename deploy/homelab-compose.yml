@@ -1,5 +1,5 @@
-# HomeGAP on the homelab: the orchestrator, the tunnel supervisor and (optionally) the
-# hand-curated primary Pangolin EE. Merge into your existing homelab compose project or run
+# HomeGAP on the homelab: the orchestrator, the tunnel supervisor and the homelab's cluster
+# database member. Merge into your existing homelab compose project or run
 # alongside it; the tunnel supervisor must share a Docker network with Traefik and with any
 # service that is exposed directly (raw TCP/UDP or dedicated subdomains).
 #
@@ -55,7 +55,6 @@ services:
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     environment:
       BUNNY_API_KEY: ${BUNNY_API_KEY:?set BUNNY_API_KEY}
-      PRIMARY_PANGOLIN_KEY: ${PRIMARY_PANGOLIN_KEY:-}
       PANGOLIN_LICENSE_KEY: ${PANGOLIN_LICENSE_KEY:-}
       # HOMEGAP_DRY_RUN: "true"     # discovery + logged desired state, no writes
     volumes:
@@ -65,8 +64,8 @@ services:
       - homegap-data:/data                              # state cache, known_hosts, tunnel specs
       # Optional: the homelab Traefik ACME store, so nodes get the same wildcard certificate.
       # - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
-    # The dashboard must only be reachable privately: expose it as a *private* Pangolin
-    # resource on the primary (alias e.g. homegap.<domain> -> orchestrator:8088), not publicly.
+    # The dashboard must only be reachable privately (an SSH tunnel, or a *private* Pangolin
+    # resource with alias e.g. homegap.<domain> -> orchestrator:8088), never publicly.
 
   # ---------------------------------------------------------------------------------------
   # The homelab's cluster member (only used when `cluster:` is configured; until then they wait).
@@ -142,23 +141,6 @@ services:
     volumes:
       - homegap-data:/data
     networks: [traefik]
-
-  # ---------------------------------------------------------------------------------------
-  # Primary Pangolin EE (manual anchor: private/client access, identity, escape hatch).
-  # Stand it up by hand once (see README "Bootstrap"), create an org, a site for the homelab
-  # and an Integration API key with private-resource permissions for the orchestrator.
-  # Remove this block if you already run one.
-  pangolin:
-    image: docker.io/fosrl/pangolin:ee-1.26.0
-    restart: unless-stopped
-    volumes:
-      - ./pangolin/config:/app/config
-    networks: [traefik]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/api/v1/"]
-      interval: 10s
-      timeout: 10s
-      retries: 15
 
   # Example front door claim: label your existing Traefik container like this instead.
   # traefik:
