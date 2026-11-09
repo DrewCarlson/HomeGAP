@@ -26,7 +26,6 @@ data class SecretRef(val name: String, val envVar: String?, val file: String?) {
 /** Every secret the configuration references, for the dashboard's "referenced secrets" view. */
 fun AppConfig.referencedSecrets(): List<Pair<SecretRef, String>> = buildList {
     add(bunny.apiKey to "Bunny DNS API")
-    primaryPangolin?.let { add(it.apiKey to "Primary Pangolin Integration API") }
     pangolin.licenseKey()?.let { add(it to "Pangolin EE license (all nodes)") }
     dashboard.authToken()?.let { add(it to "Dashboard bearer token") }
     for (n in nodes) {

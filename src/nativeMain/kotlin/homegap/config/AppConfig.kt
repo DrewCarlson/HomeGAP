@@ -24,7 +24,6 @@ data class AppConfig(
     val bunny: BunnyConfig,
     val pangolin: PangolinNodeDefaults = PangolinNodeDefaults(),
     val certificates: CertificatesConfig = CertificatesConfig(),
-    @SerialName("primary_pangolin") val primaryPangolin: PrimaryPangolinConfig? = null,
     val tunnels: TunnelsConfig = TunnelsConfig(),
     /** Clustered Pangolin across the nodes; null keeps one independent Pangolin per node. */
     val cluster: ClusterConfig? = null,
@@ -141,19 +140,6 @@ data class CertificatesConfig(
     /** Resolver name inside acme.json; when null every resolver is searched. */
     val resolver: String? = null,
 )
-
-@Serializable
-data class PrimaryPangolinConfig(
-    /** Base URL of the primary's Integration API, e.g. `http://pangolin:3003/v1`. */
-    val url: String,
-    @SerialName("api_key_env") val apiKeyEnv: String? = "PRIMARY_PANGOLIN_KEY",
-    @SerialName("api_key_file") val apiKeyFile: String? = null,
-    val org: String = "homegap",
-    /** niceId of the homelab site registered on the primary Pangolin. */
-    val site: String = "homelab",
-) {
-    val apiKey: SecretRef get() = SecretRef("primary_pangolin.api_key", apiKeyEnv, apiKeyFile)
-}
 
 /** The cluster: what the nodes and the homelab share. */
 @Serializable

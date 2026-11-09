@@ -12,7 +12,6 @@ data class DesiredState(
     val frontDoor: ServiceSpec?,
     val nodes: Map<String, NodeDesired>,
     val dns: List<DesiredDnsRecord>,
-    val primaryPrivate: List<PrivateResource>,
 )
 
 data class LabelIssue(val container: String, val message: String)
@@ -169,11 +168,7 @@ object Planner {
         val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, frontDoor) }
         val nodes = if (config.cluster != null) sharePassthroughPorts(config, planned) else planned
         val dns = planDns(config, activeNodes, services, frontDoor)
-        val primary = config.primaryPangolin?.let { p ->
-            services.filter { it.access == Access.PRIVATE }.map { privateResource(it, p.site) }
-        } ?: emptyList()
-
-        return DesiredState(services, errors, warnings, frontDoor, nodes, dns, primary)
+        return DesiredState(services, errors, warnings, frontDoor, nodes, dns)
     }
 
     private fun planNode(config: AppConfig, node: NodeConfig, services: List<ServiceSpec>, frontDoor: ServiceSpec?): NodeDesired {

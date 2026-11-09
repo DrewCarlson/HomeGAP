@@ -30,9 +30,9 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
             if (paused) return null
             val d = ready.api.pickSiteDefaults(org)
             site = ready.api.createNewtSite(org, if (ctx.config.cluster != null) "${ctx.config.pangolin.siteName} via ${node.id}" else ctx.config.pangolin.siteName, siteNice, d)
-            ctx.state.updateNode(node.id) { it.copy(siteId = site.siteId, newtId = d.newtId, newtSecret = d.newtSecret, facts = it.facts - NodeReconciler.NEW_SITE_FACT) }
+            ctx.state.updateNode(node.id) { it.copy(siteId = site.siteId, newtId = d.newtId, newtSecret = d.newtSecret) }
             ctx.log.change(domain, "created site '$siteNice' and Newt credentials", node.id)
-        } else if ((st.newtId == null || st.newtSecret == null) && site.online == true && st.facts[NodeReconciler.NEW_SITE_FACT] == null &&
+        } else if ((st.newtId == null || st.newtSecret == null) && site.online == true &&
             TunnelFiles.readSpecs(ctx.tunnelsDir).firstOrNull { it.nodeId == node.id } != null
         ) {
             // State cache lost but the running connector's spec survived: adopt it, no re-key.
@@ -46,7 +46,7 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
             val secret = Crypto.token(48, "abcdefghijklmnopqrstuvwxyz0123456789")
             val newtId = ready.api.regenerateNewtSecret(site.siteId, secret) ?: st.newtId
                 ?: error("Pangolin did not return the site's newtId")
-            ctx.state.updateNode(node.id) { it.copy(siteId = site.siteId, newtId = newtId, newtSecret = secret, facts = it.facts - NodeReconciler.NEW_SITE_FACT) }
+            ctx.state.updateNode(node.id) { it.copy(siteId = site.siteId, newtId = newtId, newtSecret = secret) }
             ctx.log.change(domain, "re-keyed Newt credentials for site '$siteNice'", node.id)
         } else {
             ctx.diff.add(domain, node.id, "site:$siteNice", "none")

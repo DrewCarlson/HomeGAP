@@ -261,9 +261,6 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine(fileStep("$base/compose.yml", compose, mode = "0644"))
             appendLine(SshSession.ownInstallDir(ctx.config.pangolin.installDir))
             appendLine("cd \"\$B\"")
-            // A cluster network created before its bridge had a fixed name must be recreated
-            // (only HAProxy is attached to it here).
-            appendLine("if docker network inspect ${ClusterTemplates.NETWORK} >/dev/null 2>&1 && [ \"\$(docker network inspect -f '{{index .Options \"com.docker.network.bridge.name\"}}' ${ClusterTemplates.NETWORK})\" != ${ClusterTemplates.BRIDGE} ]; then docker compose rm -sf haproxy >/dev/null 2>&1; docker network rm ${ClusterTemplates.NETWORK} >/dev/null; CHANGED=yes; fi")
             val wanted = services.joinToString(" ")
             appendLine("RUNNING=\$(docker compose ps --services --status running 2>/dev/null | sort | tr '\\n' ' ')")
             appendLine("WANT=\$(printf '%s\\n' $wanted | sort | tr '\\n' ' ')")

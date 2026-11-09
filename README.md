@@ -527,31 +527,9 @@ database. There is one org, one set of users and one license.
 - **Upgrades are rolled out one node at a time, as before.** The first node to start a new
   Pangolin version (the one that migrates the database) saves a dump of it first. If that update
   fails, rolling it back also restores the dump.
-
-#### Moving an existing deployment onto the cluster
-
-Nothing on a standalone node's Pangolin needs copying: its sites, resources and API key are
-all generated from labels and config. So adding `cluster:` to the config of a running
-deployment rebuilds each node instead:
-
-1. **The homelab member and the mesh come first.** Each node joins the mesh and the database
-   cluster next to its running stack. Live traffic isn't touched.
-2. **Then one node at a time**, through the usual rollout (a failed one rolls back and holds the
-   rest):
-   - **It leaves DNS.** Its records are dropped from every name another node also serves, and
-     the switch waits one TTL so resolvers stop sending viewers to it. A name only that node
-     serves stays put.
-   - **It switches to the cluster's Pangolin.** The first node sets up the cluster's admin, org,
-     API key and license. Each node gets a new homelab site, and its connector is re-keyed.
-   - **It returns to DNS** once its site is online and every resource it serves exists.
-3. **Standalone and cluster nodes coexist meanwhile.** Each keeps its own tunnel to the homelab,
-   so public traffic is unaffected.
-
-The old standalone database stays in `config/db` on each node (a failed switch rolls back to it).
-Removing `cluster:` again moves the nodes back to their standalone Pangolins the same way, one at
-a time and out of DNS while they switch. Their mesh and database members are left in place.
-Once every node has moved, the per-node `license_key_env` keys are no longer used: the cluster
-needs only `pangolin.license_key_env`, and the per-node keys can be released.
+- **Pick the mode when you deploy.** Adding or removing `cluster:` on a running deployment isn't
+  supported: nodes already provisioned in the other mode keep their old stack until they are
+  removed and added again.
 
 #### Users and devices
 
