@@ -107,9 +107,10 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
     if (!once) {
         graph.dashboard.start(config.dashboard.host, config.dashboard.port)
         logger.info { "dashboard listening on ${config.dashboard.bind}" }
-        if (config.speedtest.enabled) {
+        if (config.publicOriginEnabled) {
             graph.speedTestServer.start(config.speedtest.host, config.speedtest.port)
-            logger.info { "speed test origin listening on ${config.speedtest.bind}" }
+            val what = listOfNotNull("speed test".takeIf { config.speedtest.enabled }, "status page".takeIf { config.statusPage.enabled })
+            logger.info { "public origin (${what.joinToString(" and ")}) listening on ${config.speedtest.bind}" }
         }
     }
     controller.run(this, once)

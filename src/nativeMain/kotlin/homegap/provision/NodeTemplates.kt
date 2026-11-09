@@ -427,6 +427,15 @@ object NodeTemplates {
                             }
                         }
                     }
+                    desired.statusRedirect?.let { (_, to) ->
+                        putJsonObject("homegap-status-which") {
+                            putJsonObject("redirectRegex") {
+                                put("regex", "^.*$")
+                                put("replacement", "https://$to/")
+                                put("permanent", false)
+                            }
+                        }
+                    }
                 }
                 putJsonObject("routers") {
                     putJsonObject("homegap-mgmt-api") {
@@ -466,6 +475,26 @@ object NodeTemplates {
                             put("rule", "Host(`$client`)")
                             putJsonArray("entryPoints") { add("web") }
                             putJsonArray("middlewares") { add("homegap-redirect-https") }
+                            put("service", "noop@internal")
+                            put("priority", 10000)
+                        }
+                    }
+                    desired.statusRedirect?.let { (from, _) ->
+                        // The status page's shared name: whichever node DNS picked answers with its
+                        // own name (over HTTPS with the node's certificate, so passthrough never
+                        // carries it), and the page then knows which node the visitor came through.
+                        putJsonObject("homegap-status-which") {
+                            put("rule", "Host(`$from`)")
+                            putJsonArray("entryPoints") { add("websecure") }
+                            putJsonArray("middlewares") { add("homegap-status-which") }
+                            put("service", "noop@internal")
+                            put("priority", 10000)
+                            putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                        }
+                        putJsonObject("homegap-status-which-http") {
+                            put("rule", "Host(`$from`)")
+                            putJsonArray("entryPoints") { add("web") }
+                            putJsonArray("middlewares") { add("homegap-status-which") }
                             put("service", "noop@internal")
                             put("priority", 10000)
                         }

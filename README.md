@@ -310,6 +310,7 @@ Key sections:
 | `cluster` | Optional. `mesh.subnet` (default `10.77.0.0/24`) and `mesh.port` (default `51821/udp`) for the private WireGuard mesh between the homelab and every node. `image` (default `ghcr.io/drewcarlson/homegap-cluster:latest`) runs each member's database services. `primary.preferred` (default `homelab`) and `primary.switch_back_after` (default `10m`) decide where the database primary lives. `client_hostname` (default `pangolin`) names the geo-routed address clients and the login pages use. See [Cluster mesh](#cluster-mesh), [Cluster database](#cluster-database) and [Clustered Pangolin](#clustered-pangolin). |
 | `pangolin.tcp_tuning` | BBR, fq and larger TCP buffers on every node (default `true`). |
 | `speedtest` | `enabled`, `hostname` (default `speedtest`), `bind` (default `0.0.0.0:8089`), `link_ttl`, `phase_seconds`, `streams` (homelab ↔ node, default 4). |
+| `status_page` | `enabled`, `hostname` (default `status`), `title` (default `Status`). Shares `speedtest.bind`; see [Status page](#status-page). |
 | `dashboard` | Bind address, optional bearer token, and whether config edits from the UI are allowed. |
 | `reconcile` | `resync_interval` (default `60s`; Docker events trigger passes immediately in between), `debounce`, `node_check_interval` (SSH drift check, default `5m`), `dns_check_interval` (how often the Bunny zone is re-read when the desired records are unchanged, default `5m`; changes sync at once), `dry_run`. |
 
@@ -665,6 +666,34 @@ The dashboard's *Speed test* tab offers two measurements: ping, jitter, download
 
 Results are kept in `<data_dir>/speedtests.json`. Changing `speedtest.enabled` or `bind` needs an
 orchestrator restart.
+
+### Status page
+
+With `status_page.enabled: true`, anyone can open `https://status.<domain>/`. It shows:
+
+- **the node they came through** (the one DNS picked for their location), with their round trip to
+  the homelab through it;
+- **every node's state**: online, degraded (carrying traffic with a failing check) or offline
+  (down, paused, being removed, or its tunnel to the homelab is down);
+- **their round trip through each other online node**: one request from their browser to
+  `status-<node>.<domain>`, through that node and its tunnel to the homelab and back. The time is
+  read from the browser's Resource Timing (request sent to first byte), so DNS and connection
+  setup aren't counted.
+
+It never shows addresses or hostnames. It refreshes every minute while open.
+
+How it works: each node answers `status.<domain>` itself (with its certificate, over HTTP and
+HTTPS, never passed through) and redirects to its own `status-<node>.<domain>`. That name rides
+the front door through the tunnel to the homelab, so the page, the node list and every ping come
+from the orchestrator. It shares the speed test's listener (`speedtest.bind`), so route
+`status-<node>.<domain>` there too. With both features on, one label covers both:
+
+```yaml
+  traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.example\\.net$`)"
+```
+
+It needs a front door (`homegap.expose`). Turning it on for the first time needs an
+orchestrator restart, like the speed test.
 
 ## Dashboard & API
 

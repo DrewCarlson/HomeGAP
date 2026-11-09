@@ -33,6 +33,8 @@ data class NodeDesired(
     val healthPath: String,
     /** Speed test entry redirect on :80 (auto hostname -> this node's hostname), when enabled. */
     val speedtestRedirect: Pair<String, String>? = null,
+    /** Status page entry (shared name -> this node's name), answered by the node on :80 and :443. */
+    val statusRedirect: Pair<String, String>? = null,
     /** The cluster's client address, served by this node's Pangolin (login pages and API). */
     val clientHost: String? = null,
 ) {
@@ -121,6 +123,7 @@ object Planner {
     const val HEALTH = "hg-health"
     const val SPEEDTEST = "hg-speedtest"
     const val SPEEDTEST_AUTO = "hg-speedtest-auto"
+    const val STATUS = "hg-status"
 
     /**
      * A resource only one node serves (its health check, its speed test host). In a cluster all
@@ -188,6 +191,11 @@ object Planner {
 
         val st = config.speedtest.takeIf { it.enabled && fd != null }
         val stHosts = st?.let { listOf(it.autoHost(config.domain), it.nodeHost(config.domain, node.id)) }.orEmpty()
+        // The status page: the shared name is answered by the node itself (a redirect to its own
+        // name, so the page knows the node), the per-node name rides the front door to the homelab.
+        val sp = config.statusPage.takeIf { it.enabled && fd != null }
+        val spAuto = sp?.autoHost(config.domain)
+        val spNode = sp?.nodeHost(config.domain, node.id)
 
         if (fd != null) {
             val method = if (fd.protocol == Protocol.HTTPS) "https" else "http"
@@ -202,9 +210,9 @@ object Planner {
                     name = "homegap-frontdoor",
                     resourceNiceId = FRONTDOOR_TCP,
                     // The speed test hostnames ride the front door to the homelab proxy.
-                    exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts,
+                    exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts + listOfNotNull(spNode),
                     wildcardOf = if (fd.wildcard) fd.hostname else null,
-                    excludeHosts = (listOfNotNull(mgmt, config.clientHost) + terminateDedicated).distinct().sorted(),
+                    excludeHosts = (listOfNotNull(mgmt, config.clientHost, spAuto) + terminateDedicated).distinct().sorted(),
                     priority = 100,
                 )
                 redirects += fd.hostname
@@ -215,6 +223,9 @@ object Planner {
                 if (st != null) {
                     publicRes += httpResource(SPEEDTEST_AUTO, fd, stHosts[0], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
                     publicRes += httpResource(perNode(config, SPEEDTEST, node.id), fd, stHosts[1], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
+                }
+                if (spNode != null) {
+                    publicRes += httpResource(perNode(config, STATUS, node.id), fd, spNode, method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
                 }
             }
         }
@@ -283,6 +294,7 @@ object Planner {
             healthResourceNiceId = healthNice,
             healthPath = healthPath,
             speedtestRedirect = st?.let { stHosts[0] to stHosts[1] },
+            statusRedirect = if (spAuto != null && spNode != null) spAuto to spNode else null,
             clientHost = config.clientHost,
         )
     }
@@ -340,6 +352,17 @@ object Planner {
                 val h = st.nodeHost(config.domain, n.id)
                 n.ipv4()?.let { out += DesiredDnsRecord(rel(h), h, "A", it, n.id, false, null, null, null, "none", config.bunny.ttl, "speedtest") }
                 n.publicIpv6?.let { out += DesiredDnsRecord(rel(h), h, "AAAA", it, n.id, false, null, null, null, "none", config.bunny.ttl, "speedtest") }
+            }
+        }
+        if (frontDoor != null && config.statusPage.enabled) {
+            val eligible = nodes.filter { frontDoor.servesNode(it.id) }
+            val sp = config.statusPage
+            // The shared name gets its own set even under a wildcard: every node answers it itself.
+            geoSet(sp.autoHost(config.domain), "status", eligible)
+            for (n in eligible) {
+                val h = sp.nodeHost(config.domain, n.id)
+                n.ipv4()?.let { out += DesiredDnsRecord(rel(h), h, "A", it, n.id, false, null, null, null, "none", config.bunny.ttl, "status") }
+                n.publicIpv6?.let { out += DesiredDnsRecord(rel(h), h, "AAAA", it, n.id, false, null, null, null, "none", config.bunny.ttl, "status") }
             }
         }
         // Every node serves the cluster's login pages and client API.

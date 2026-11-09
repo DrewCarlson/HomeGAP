@@ -10,6 +10,7 @@ import homegap.reconcile.Controller
 import homegap.reconcile.ReconcileLog
 import homegap.clients.SshPool
 import homegap.speedtest.SpeedTestServer
+import homegap.status.PublicStatus
 import homegap.speedtest.SpeedTestStore
 import homegap.speedtest.SpeedTestTokens
 import homegap.state.StateStore
@@ -80,7 +81,7 @@ interface ControllerGraph {
 
     @Provides @SingleIn(AppScope::class)
     fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer =
-        SpeedTestServer({ controller.config }, tokens, store)
+        SpeedTestServer({ controller.config }, tokens, store, PublicStatus({ controller.config }, { controller.snapshot().nodes }))
 
     @DependencyGraph.Factory
     fun interface Factory {

@@ -63,6 +63,13 @@ object ConfigLoader {
         }
         try { c.reconcile.resync; c.reconcile.debounceDuration; c.reconcile.nodeCheck } catch (e: Exception) { errors += e.message ?: "bad duration" }
         c.tunnels.mtu?.let { if (it !in 1280..1500) errors += "tunnels.mtu must be between 1280 and 1500" }
+        if (c.statusPage.enabled) {
+            if (!Regex("^[a-z][a-z0-9]{0,20}$").matches(c.statusPage.hostname)) errors += "status_page.hostname must be a single lowercase label"
+            if (c.speedtest.enabled && c.statusPage.hostname == c.speedtest.hostname) errors += "status_page.hostname must differ from speedtest.hostname"
+            if (c.statusPage.title.length > 60) errors += "status_page.title must be at most 60 characters"
+            try { c.speedtest.port } catch (_: Exception) { errors += "speedtest.bind is not host:port (the status page uses it)" }
+            if (c.speedtest.bind == c.dashboard.bind) errors += "speedtest.bind must differ from dashboard.bind (the status page uses it)"
+        }
         if (c.speedtest.enabled) {
             if (!Regex("^[a-z][a-z0-9]{0,20}$").matches(c.speedtest.hostname)) errors += "speedtest.hostname must be a single lowercase label"
             if (c.speedtest.phaseSeconds !in 2..30) errors += "speedtest.phase_seconds must be 2..30"

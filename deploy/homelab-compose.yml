@@ -37,10 +37,11 @@ services:
     networks:
       traefik:
         aliases: [orchestrator]
-    # Speed tests (speedtest.enabled: true): route speedtest*.<domain> here on port 8089.
+    # Speed tests and the status page (speedtest.enabled, status_page.enabled): route their names
+    # here on port 8089.
     # labels:
     #   traefik.enable: "true"
-    #   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"
+    #   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.example\\.net$`)"
     #   traefik.http.routers.homegap-speedtest.entrypoints: websecure
     #   traefik.http.routers.homegap-speedtest.tls: "true"
     #   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"

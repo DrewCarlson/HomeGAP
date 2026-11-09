@@ -6,9 +6,9 @@ tls:
         keyFile: /certs/origin.key
 http:
   routers:
-    # Speed test hostnames go to the orchestrator's speed test origin.
+    # Speed test and status page hostnames go to the orchestrator's public origin.
     homegap-speedtest:
-      rule: "Host(`speedtest.test.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.test\\.example\\.net$`)"
+      rule: "Host(`speedtest.test.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.test\\.example\\.net$`)"
       entryPoints: [websecure]
       service: homegap-speedtest
       priority: 1000

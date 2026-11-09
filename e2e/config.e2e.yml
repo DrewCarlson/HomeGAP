@@ -22,6 +22,9 @@ tunnels:
   native: true
 speedtest:
   enabled: true
+status_page:
+  enabled: true
+  title: HomeGAP e2e status
 # The cluster mesh between the homelab (the orchestrator) and every node.
 cluster:
   mesh: {}

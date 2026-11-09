@@ -31,7 +31,10 @@ data class AppConfig(
     val nodes: List<NodeConfig> = emptyList(),
     val dashboard: DashboardConfig = DashboardConfig(),
     val speedtest: SpeedtestConfig = SpeedtestConfig(),
+    @SerialName("status_page") val statusPage: StatusPageConfig = StatusPageConfig(),
 ) {
+    /** The public listener (speed test and status page) runs when either is on. */
+    val publicOriginEnabled: Boolean get() = speedtest.enabled || statusPage.enabled
     /**
      * The homelab's site on a node. A cluster has one org shared by every node, so each node gets
      * its own site there (created through that node, which pins it to the node's exit node).
@@ -229,6 +232,23 @@ data class SpeedtestConfig(
 ) {
     val host: String get() = bind.substringBeforeLast(":")
     val port: Int get() = bind.substringAfterLast(":").toInt()
+    fun autoHost(domain: String) = "$hostname.$domain"
+    fun nodeHost(domain: String, nodeId: String) = "$hostname-$nodeId.$domain"
+}
+
+/**
+ * A public status page: which node a visitor came through, every node's state, and the
+ * visitor's round trip to the homelab through each node. Served by the same listener as the
+ * speed test (`speedtest.bind`), so the homelab proxy must route `<hostname>*.<domain>` there.
+ */
+@Serializable
+data class StatusPageConfig(
+    val enabled: Boolean = false,
+    /** Host label: `<hostname>.<domain>` (answered by the nearest node) and `<hostname>-<node>.<domain>`. */
+    val hostname: String = "status",
+    /** Heading shown on the page. */
+    val title: String = "Status",
+) {
     fun autoHost(domain: String) = "$hostname.$domain"
     fun nodeHost(domain: String, nodeId: String) = "$hostname-$nodeId.$domain"
 }

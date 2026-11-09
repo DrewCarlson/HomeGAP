@@ -6,6 +6,8 @@ import homegap.config.AppConfig
 import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.nowMillis
+import homegap.status.PublicStatus
+import homegap.status.StatusPage
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -63,13 +65,15 @@ class SpeedTestStore(private val path: String, private val keep: Int = 300) {
 fun newResultId(): String = Crypto.token(12, "abcdefghijklmnopqrstuvwxyz0123456789")
 
 /**
- * The speed test origin. Reached only through the homelab reverse proxy (which routes the
- * `speedtest*` hostnames here), so every measurement crosses node -> tunnel -> homelab.
+ * The public origin: the speed test and the status page. Reached only through the homelab reverse
+ * proxy (which routes the `speedtest*` and `status*` hostnames here), so every measurement crosses
+ * node -> tunnel -> homelab.
  */
 class SpeedTestServer(
     private val config: () -> AppConfig,
     private val tokens: SpeedTestTokens,
     private val store: SpeedTestStore,
+    private val status: PublicStatus,
 ) {
     private val payload = Crypto.randomBytes(256 * 1024)
 
@@ -102,8 +106,13 @@ class SpeedTestServer(
             }
         }
         routing {
-            get("/") { page() }
-            get("/index.html") { page() }
+            get("/") { if (status.serves(call.request.host())) statusPage() else page() }
+            get("/index.html") { if (status.serves(call.request.host())) statusPage() else page() }
+            route("/status") {
+                install(NoStore)
+                get("/nodes") { statusNodes() }
+                get("/ping") { statusPing() }
+            }
             route("/speedtest") {
                 install(NoStore)
                 authenticate(LINK_AUTH) { measurementRoutes() }
@@ -162,6 +171,28 @@ class SpeedTestServer(
         call.response.header(HttpHeaders.CacheControl, "no-store")
         call.response.header("Referrer-Policy", "no-referrer")
         call.respondText(SpeedTestPage.HTML, ContentType.Text.Html)
+    }
+
+    private suspend fun RoutingContext.statusPage() {
+        call.response.header(HttpHeaders.CacheControl, "no-store")
+        call.response.header("Referrer-Policy", "no-referrer")
+        call.response.header("X-Content-Type-Options", "nosniff")
+        call.response.header("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src https:; base-uri 'none'; frame-ancestors 'none'")
+        call.respondText(StatusPage.HTML, ContentType.Text.Html)
+    }
+
+    private suspend fun RoutingContext.statusNodes() {
+        val host = call.request.host()
+        if (!status.serves(host)) return call.respond(HttpStatusCode.NotFound)
+        call.respond(status.build(host))
+    }
+
+    /** One round trip, timed by the visitor's browser from another node's status page (CORS). */
+    private suspend fun RoutingContext.statusPing() {
+        if (!status.serves(call.request.host())) return call.respond(HttpStatusCode.NotFound)
+        call.response.header(HttpHeaders.AccessControlAllowOrigin, "*")
+        call.response.header("Timing-Allow-Origin", "*")
+        call.respond(HttpStatusCode.NoContent)
     }
 
     private suspend fun RoutingContext.receiveUpload() {

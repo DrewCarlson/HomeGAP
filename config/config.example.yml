@@ -92,6 +92,13 @@ speedtest:
   link_ttl: 2h
   streams: 4                # parallel streams for homelab <-> node tests
 
+# A public status page at status.<domain>: the visitor's node, every node's state and the visitor's
+# round trip through each. Shares speedtest.bind: also route status-*.<domain> to port 8089.
+status_page:
+  enabled: false
+  # hostname: status
+  # title: Status
+
 dashboard:
   bind: 0.0.0.0:8088
   # auth_token_env: HOMEGAP_DASHBOARD_TOKEN
