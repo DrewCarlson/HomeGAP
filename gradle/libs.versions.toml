@@ -8,7 +8,7 @@ kotlin-logging = "8.0.6"
 kaml = "0.104.0"
 compose = "1.12.2"
 kotlin-vite = "0.1.0"
-ksubprocess = "0.9.0"
+ksubprocess = "1.0.0-beta01"
 metro = "1.5.2"
 molecule = "2.2.0"
 

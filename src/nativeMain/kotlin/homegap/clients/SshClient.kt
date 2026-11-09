@@ -76,7 +76,7 @@ class SshSession(
             baseArgs() + listOf("-M", "-f", "-N", "-o", "ControlPersist=15m", "-o", "ExitOnForwardFailure=yes", target),
             log,
         )
-        // Bounded wait (ksubprocess polls every 50 ms here); the unbounded wait would block.
+        // Bounded: a master that never finishes logging in must not hold the pass.
         val code = withContext(Dispatchers.IO) { child.process.waitFor(60.seconds) }
         if (code == null) {
             child.kill()

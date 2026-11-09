@@ -23,7 +23,7 @@ class SubprocessTest {
         assertEquals("err\n", r.stderr)
     }
 
-    /** Every run must release its pipes (ksubprocess' communicate() leaves them open). */
+    /** Every run releases its pipes. */
     @Test
     fun runsDoNotLeakDescriptors() = runBlocking {
         Subprocess.run(listOf("true")) // warm up lazily opened descriptors
@@ -31,5 +31,19 @@ class SubprocessTest {
         repeat(50) { Subprocess.run(listOf("sh", "-c", "echo x; echo y >&2")) }
         val after = openDescriptors()
         assertTrue(after - before < 5, "descriptors grew from $before to $after over 50 runs")
+    }
+
+    @Test
+    fun aMissingExecutableThrowsInsteadOfCrashing() = runBlocking {
+        assertTrue(runCatching { Subprocess.run(listOf("homegap-no-such-binary")) }.isFailure)
+        assertTrue(runCatching { Subprocess.run(listOf("/nonexistent/bin/tool")) }.isFailure)
+    }
+
+    @Test
+    fun startedChildrenWriteBothStreamsToTheirLog() = runBlocking {
+        val log = tmpPath("child-log")
+        val child = Subprocess.start(listOf("sh", "-c", "echo out; echo err >&2; exit 4"), log)
+        assertEquals(4, child.awaitExit())
+        assertEquals(setOf("out", "err"), Files.readText(log).lines().filter { it.isNotBlank() }.toSet())
     }
 }
