@@ -81,13 +81,18 @@ wait_until 120 dc exec -T "$ORCHESTRATOR" homegap version || die "the orchestrat
 held=no
 if [ ${#cluster_services[@]} -gt 0 ]; then
   say "Moving the cluster primaries off the homelab"
+  echo "(a planned switchover of the database and a Sentinel failover of Valkey; usually under a minute)"
   out=""
   for attempt in 1 2 3 4 5 6; do
     if out=$(dc exec -T "$ORCHESTRATOR" homegap maintenance start --minutes 30 2>&1); then held=yes; break; fi
     case "$out" in
       *"cluster is not enabled"*) break ;;
-      # The dashboard API is not up yet right after the restart.
-      *"Connection refused"*|*"ConnectException"*|*"not been read yet"*) sleep 10 ;;
+      # The dashboard API is not up yet right after the restart, or its first pass has not read
+      # the cluster yet.
+      *"Connection refused"*|*"ConnectException"*|*"not been read yet"*)
+        echo "  not ready yet (attempt $attempt of 6): $(printf '%s' "$out" | tail -n 1)"
+        echo "  the orchestrator's log shows what it is doing: docker compose logs -f $ORCHESTRATOR"
+        sleep 10 ;;
       *) break ;;
     esac
   done

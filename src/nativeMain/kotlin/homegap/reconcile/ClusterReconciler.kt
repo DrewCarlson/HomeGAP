@@ -86,6 +86,9 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         report(ctx, "etcd", if (etcdMembers == null) "the homelab's etcd is not reachable yet" else null)
         val pg = databaseView(patroni, members)
         if (pg != null) ready = pg.filter { (it.role == "leader" && it.state == "running") || it.state == "streaming" }.map { it.name }.toSet()
+        // Recorded now, not after the node syncs below (which can take minutes, e.g. while a node
+        // pulls an image): planned maintenance needs only this view.
+        if (pg != null) lastView = members to pg
         val initialized = Files.exists(initializedFile) ||
             (pg?.any { it.role == "leader" } == true).also { if (it) Files.writeAtomic(initializedFile, "") }
 
@@ -125,10 +128,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             }
         }
 
-        if (pg != null) {
-            lastView = members to pg
-            recordPrimary(pg)
-        }
+        if (pg != null) recordPrimary(pg)
         val switchBack = switchBack(ctx, cluster, patroni, pg, homelab, members, secrets)
         return status(cluster, members, etcdMembers, pg, secrets, switchBack)
     }
@@ -418,8 +418,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine("if [ \"\$CHANGED\" = yes ] || [ \"\$RUNNING\" != \"\$WANT\" ]; then docker compose up -d --remove-orphans $wanted >/dev/null 2>&1 || docker compose up -d --remove-orphans $wanted; echo \"CHANGED cluster member running: $wanted\"; fi")
             // The member's image copies patroni.yml in at start (and, in newer images, on change):
             // copy it now and have Patroni re-read it.
-            // Images from before in-place reloads have no `haproxy-reload`: restart those instead.
-            appendLine("if [ \"\$HAPROXY\" = yes ] && [ -n \"\$(docker compose ps -q --status running haproxy 2>/dev/null)\" ]; then { docker compose exec -T haproxy ${ClusterTemplates.HAPROXY_RELOAD} >/dev/null 2>&1 || docker compose restart haproxy >/dev/null; } && echo 'CHANGED reloaded the cluster proxy'; fi")
+            // Bounded, so nothing in the container can hold up the pass; a failure is the node's error.
+            appendLine("if [ \"\$HAPROXY\" = yes ] && [ -n \"\$(docker compose ps -q --status running haproxy 2>/dev/null)\" ]; then timeout 30 docker compose exec -T haproxy ${ClusterTemplates.HAPROXY_RELOAD} >/dev/null; echo 'CHANGED reloaded the cluster proxy'; fi")
             appendLine("if [ \"\$PATRONI\" = yes ] && [ -n \"\$(docker compose ps -q --status running db 2>/dev/null)\" ]; then docker compose exec -T db sh -c ${shQuote(ClusterTemplates.PATRONI_RELOAD)} && echo 'CHANGED reloaded Patroni settings'; fi")
         }
         val ssh = ctx.ssh.session(node)
