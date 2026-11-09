@@ -27,6 +27,11 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
 
@@ -87,6 +92,11 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         if (pg != null) ready = pg.filter { (it.role == "leader" && it.state == "running") || it.state == "streaming" }.map { it.name }.toSet()
         val initialized = Files.exists(initializedFile) ||
             (pg?.any { it.role == "leader" } == true).also { if (it) Files.writeAtomic(initializedFile, "") }
+        if (pg?.any { it.role == "leader" } == true && !ctx.dryRun) {
+            runCatching { ensureParameters(ctx, patroni, restUrl(homelab)) }
+                .onFailure { if (it is CancellationException) throw it; report(ctx, "parameters", "PostgreSQL settings: ${it.message}") }
+                .onSuccess { report(ctx, "parameters", null) }
+        }
 
         if (etcdMembers != null) {
             removeDeparted(ctx, etcd, etcdMembers, nodeMembers.map { it.second })
@@ -177,6 +187,21 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         pendingCause = null
         val next = (listOf(PrimaryChangeDto(nowMillis(), last, leader, cause)) + past).take(HISTORY)
         Files.writeAtomic(historyFile, historyJson.encodeToString(ListSerializer(PrimaryChangeDto.serializer()), next))
+    }
+
+    /**
+     * Brings Patroni's dynamic configuration in line with [ClusterTemplates.DYNAMIC_PARAMETERS]
+     * (new clusters start with them; existing ones get them here). Members apply it by reload.
+     * Connections opened before the change keep what they loaded until Pangolin's pool replaces them.
+     */
+    private suspend fun ensureParameters(ctx: ReconcileContext, patroni: PatroniClient, url: String) {
+        val current = patroni.dynamicConfig(url)["postgresql"]?.jsonObject?.get("parameters")?.jsonObject
+        val missing = ClusterTemplates.DYNAMIC_PARAMETERS.filter { (k, v) -> current?.get(k)?.jsonPrimitive?.content != v }
+        if (missing.isEmpty()) return
+        patroni.patchConfig(url, buildJsonObject {
+            putJsonObject("postgresql") { putJsonObject("parameters") { missing.forEach { (k, v) -> put(k, v) } } }
+        })
+        ctx.log.change(domain, "set PostgreSQL ${missing.entries.joinToString { "${it.key}=${it.value}" }} on every member")
     }
 
     // ------------------------------------------------------------------ departed nodes
@@ -485,11 +510,11 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         when {
             error != null && error != previous -> {
                 lastErrors[id] = error
-                ctx.log.error(domain, error, id.takeIf { it != "etcd" })
+                ctx.log.error(domain, error, id.takeIf { it != "etcd" && it != "parameters" })
             }
             error == null && previous != null -> {
                 lastErrors.remove(id)
-                ctx.log.info(domain, "recovered", id.takeIf { it != "etcd" })
+                ctx.log.info(domain, "recovered", id.takeIf { it != "etcd" && it != "parameters" })
             }
         }
     }

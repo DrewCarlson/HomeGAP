@@ -475,6 +475,9 @@ also run the [mesh probe](#cluster-mesh).
   none). HAProxy's stats page listens on the node's `127.0.0.1:8404` only.
 - **The vote needs a majority.** With the homelab and one node, losing either stops writes.
   Two or more nodes are needed for the cluster to keep working without the homelab.
+- **PostgreSQL runs without JIT compilation.** Pangolin only makes small lookups, and a
+  connection that JIT-compiles one keeps about 40 MB. HomeGAP sets this in Patroni's shared
+  configuration, which every member applies by reload, without a restart.
 - **Passwords are generated once** and kept in `cluster/secrets.json` in the data directory.
 - **The homelab member keeps backups.** It writes a nightly `pg_dump` to `./backups` next to the
   homelab compose file and keeps the newest seven.

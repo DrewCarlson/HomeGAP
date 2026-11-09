@@ -74,6 +74,15 @@ object ClusterTemplates {
         appendLine("ETCD_INITIAL_CLUSTER_TOKEN=$SCOPE")
     }
 
+    /**
+     * PostgreSQL settings every member runs with, kept in Patroni's dynamic configuration (applied
+     * by reload, no restart) and set by the orchestrator once the cluster has a primary, rather
+     * than in patroni.yml, where a change would restart every member. JIT compilation is off: Pangolin's queries are small lookups, and a
+     * connection that JIT-compiles one loads LLVM and keeps about 40 MB for the rest of its life,
+     * with up to 30 pooled connections per node.
+     */
+    val DYNAMIC_PARAMETERS = mapOf("jit" to "off")
+
     fun patroni(member: Member, mesh: MeshConfig, secrets: ClusterSecrets): String = """
         |# Managed by HomeGAP: this member's PostgreSQL, run by Patroni.
         |scope: $SCOPE
