@@ -4,6 +4,7 @@ import homegap.provision.ExitNodes
 import com.charleskorn.kaml.*
 import homegap.clients.PangolinClient
 import homegap.clients.PangolinResource
+import homegap.clients.SshSession
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.SecretRef
 import homegap.discovery.AuthMode
@@ -11,6 +12,7 @@ import homegap.discovery.HealthCheck
 import homegap.model.*
 import homegap.platform.Crypto
 import homegap.platform.Files
+import homegap.provision.MaintenancePage
 import homegap.provision.NodeTemplates
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -259,7 +261,9 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
     suspend fun writeRoutes(ready: ReadyNode, desired: NodeDesired, actual: List<PangolinResource>) {
         val ids = actual.associate { it.niceId to it.resourceId }
         val content = NodeTemplates.dynamicRoutes(desired, ids, ctx.config.cluster != null)
-        val hash = Crypto.fnv64(content)
+        val maintenance = MaintenancePage.routes(desired, ids)
+        val probes = MaintenancePage.probes(desired, ids)
+        val hash = Crypto.fnv64(content + maintenance + probes)
         val st = ctx.state.node(ready.node.id)
         val dueCheck = st.facts["routesHash"] != hash || st.drift.isNotEmpty() || (st.lastCheckAt ?: 0) > (st.facts["routesCheckedAt"]?.toLongOrNull() ?: 0)
         if (!dueCheck) return
@@ -272,6 +276,9 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
             |printf '%s' '$b64' | base64 -d > $q.homegap-new
             |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod 0644 $q.homegap-new; mv -f $q.homegap-new $q; echo CHANGED; else rm -f $q.homegap-new; fi
             |hg_own $q
+            |${SshSession.writeFileSnippet("${ctx.config.pangolin.installDir}/${MaintenancePage.ROUTES}", maintenance)}
+            |${SshSession.writeFileSnippet("${ctx.config.pangolin.installDir}/${MaintenancePage.PROBES}", probes)}
+            |hg_own ${shQuote("${ctx.config.pangolin.installDir}/${MaintenancePage.DIR}")}
         """.trimMargin(), 60)
         if (out.contains("CHANGED")) {
             ctx.log.change(domain, "updated Traefik routes (${desired.sniRoutes.size} SNI passthrough, health=${desired.healthResourceNiceId != null})", ready.node.id)

@@ -5,6 +5,10 @@
 #
 #   docker compose -f deploy/homelab-compose.yml up -d
 #
+# To upgrade, run deploy/upgrade.sh (same arguments) instead of `pull` + `up -d`: it moves the
+# database and Valkey primaries to a node first, restarts the cluster containers one at a time,
+# and only restarts the tunnel connectors when they changed, so access stays up throughout.
+#
 # Secrets come from the environment (.env next to this file) or Docker secrets; nothing secret
 # lives in the image, the config or git.
 

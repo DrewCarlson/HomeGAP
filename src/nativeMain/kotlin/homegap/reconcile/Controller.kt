@@ -110,6 +110,24 @@ class Controller(
         return message
     }
 
+    /** Moves the primaries off the homelab and holds them there (see [ClusterReconciler.beginMaintenance]). */
+    suspend fun beginMaintenance(holdMinutes: Int): String {
+        val cluster = config.cluster
+        check(cluster != null && !dryRun) { "the cluster is not enabled" }
+        // No pass right away: Pangolin's connections are still moving to the new primary.
+        val message = clusterRec.beginMaintenance(cluster, holdMinutes.coerceIn(5, 240) * 60_000L)
+        log.change("cluster", message)
+        return message
+    }
+
+    fun endMaintenance(): String {
+        check(config.cluster != null) { "the cluster is not enabled" }
+        val message = clusterRec.endMaintenance()
+        log.change("cluster", message)
+        trigger("maintenance")
+        return message
+    }
+
     fun clusterPangolin(): Pair<ReadyNode, Map<Int, String>>? {
         if (config.cluster == null) return null
         val ready = clusterReady

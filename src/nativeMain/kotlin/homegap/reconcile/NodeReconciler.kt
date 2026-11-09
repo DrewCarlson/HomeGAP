@@ -10,6 +10,7 @@ import homegap.model.NodeDesired
 import homegap.platform.Crypto
 import homegap.platform.nowMillis
 import homegap.provision.Apt
+import homegap.provision.MaintenancePage
 import homegap.provision.CertMaterial
 import homegap.provision.ClusterLink
 import homegap.provision.ClusterSecrets
@@ -487,8 +488,13 @@ class NodeReconciler(
 
     private fun stackScript(files: List<RenderedFile>): String = buildString {
         val d = shQuote(dir)
-        appendLine("install -d -m 0755 $d $d/config $d/config/traefik $d/config/traefik/dynamic $d/config/letsencrypt $d/config/traefik/logs $d/config/certificates")
+        appendLine("install -d -m 0755 $d $d/config $d/config/traefik $d/config/traefik/dynamic $d/config/letsencrypt $d/config/traefik/logs $d/config/certificates $d/${MaintenancePage.DIR}")
         appendLine("install -d -m 0700 $d/secrets $d/config/traefik/certs")
+        // Traefik leaves its ACME store empty until it issues a certificate (nodes use the
+        // wildcard instead), and Pangolin's certificate sync warns about an empty file every few
+        // seconds. An empty JSON object is valid for both.
+        val acme = shQuote("$dir/config/letsencrypt/acme.json")
+        appendLine("[ -s $acme ] || { printf '{}\\n' > $acme; chmod 600 $acme; }")
         appendLine("RESTART=\"\"")
         for (f in files) {
             val path = "$dir/${f.path}"

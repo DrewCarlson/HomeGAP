@@ -24,6 +24,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -159,6 +160,82 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         pendingCause = "manual"
         preferredCaughtUpSince = null
         return "Switched the database primary from ${leader.name} to $to"
+    }
+
+    private val maintenanceFile = "$dir/maintenance"
+
+    /**
+     * Until when the primaries are kept off the homelab for planned maintenance (epoch ms), or null.
+     * Kept in a file: the orchestrator itself is restarted during an upgrade.
+     */
+    fun maintenanceUntil(now: Long = nowMillis()): Long? =
+        Files.readTextOrNull(maintenanceFile)?.trim()?.toLongOrNull()?.takeIf { it > now }
+
+    /**
+     * Prepares the homelab's member to be restarted without an outage: moves the PostgreSQL
+     * primary (a planned switchover, no writes lost) and the Valkey primary (a Sentinel failover)
+     * to the nodes and waits until both have moved, then holds them there (no switch-back) until
+     * [endMaintenance] or for [holdMs] at most, so a script that never finishes cannot keep them
+     * away for good. Afterwards the usual switch-back applies, once the homelab has been caught
+     * up for the configured delay.
+     */
+    suspend fun beginMaintenance(cluster: ClusterConfig, holdMs: Long): String {
+        val start = nowMillis()
+        Files.writeAtomic(maintenanceFile, (start + holdMs).toString(), "644".toInt(8))
+        preferredCaughtUpSince = null
+        val notes = mutableListOf<String>()
+        val homelabId = Mesh.HOMELAB
+        // The view comes from the last pass; right after the orchestrator starts there may be none yet.
+        var view = lastView
+        while (view == null && nowMillis() - start < 90_000) { delay(2_000); view = lastView }
+        val (members, _) = view ?: throw IllegalStateException("the cluster has not been read yet; try again in a minute")
+        val patroni = PatroniClient(http, ClusterTemplates.REST_USER, secrets().rest)
+
+        val pg = databaseView(patroni, members) ?: throw IllegalStateException("no database member answers")
+        val leader = pg.firstOrNull { it.role == "leader" }
+        if (leader?.name == homelabId) {
+            val target = pg.filter { it.name != homelabId && it.state == "streaming" }.minByOrNull { it.lagBytes ?: Long.MAX_VALUE }
+                ?: throw IllegalStateException("no node has a caught-up replica to take over the database")
+            patroni.switchover(restUrl(members.first { it.id == homelabId }), homelabId, target.name)
+            pendingCause = "maintenance"
+            val moved = waitFor(60_000) { databaseView(patroni, members)?.firstOrNull { it.role == "leader" }?.name.let { it != null && it != homelabId } }
+            check(moved) { "the database primary did not move to ${target.name} within a minute" }
+            notes += "database primary moved to ${target.name}"
+        } else {
+            notes += "database primary already on ${leader?.name ?: "no member"}"
+        }
+
+        val valkey = ValkeyCli(secrets().valkey)
+        val homelabIp = members.first { it.id == homelabId }.meshIp
+        val master = sentinelMaster(valkey, members)
+        if (master == homelabIp) {
+            check(valkey.sentinelFailover("127.0.0.1", ClusterTemplates.SCOPE)) { "Sentinel refused the Valkey failover" }
+            val moved = waitFor(60_000) { sentinelMaster(valkey, members).let { it != null && it != homelabIp } }
+            check(moved) { "the Valkey primary did not move off the homelab within a minute" }
+            val now = sentinelMaster(valkey, members)
+            notes += "Valkey primary moved to ${members.firstOrNull { it.meshIp == now }?.id ?: now}"
+        } else {
+            notes += "Valkey primary already on ${members.firstOrNull { it.meshIp == master }?.id ?: master ?: "no member"}"
+        }
+        lastView = null
+        return "Maintenance: ${notes.joinToString("; ")}. Switch-back held for up to ${holdMs / 60_000} min."
+    }
+
+    /** Ends planned maintenance: the switch-back resumes (after the usual caught-up delay). */
+    fun endMaintenance(): String {
+        val was = maintenanceUntil() != null
+        Files.delete(maintenanceFile)
+        preferredCaughtUpSince = null
+        return if (was) "Maintenance ended; the primaries return to the homelab once it has been caught up for the switch-back delay" else "No maintenance was in progress"
+    }
+
+    private suspend fun waitFor(timeoutMs: Long, check: suspend () -> Boolean): Boolean {
+        val start = nowMillis()
+        while (nowMillis() - start < timeoutMs) {
+            if (check()) return true
+            delay(1_000)
+        }
+        return check()
     }
 
     private val historyJson = Json { ignoreUnknownKeys = true }
@@ -308,7 +385,6 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
                 // The Sentinel list only matters at start; growing it must not restart Valkey.
                 "valkey" to hash(valkeyEnv.lines().filterNot { it.startsWith("HG_SENTINELS=") }.joinToString("\n")),
                 "sentinel" to hash(sentinelConf),
-                "haproxy" to hash(haproxyCfg),
                 MeshProbe.SERVICE to hash(MeshProbe.SCRIPT + probeTargets),
             ),
         )
@@ -327,7 +403,9 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine(fileStep("$base/config/patroni.yml", patroniYml).replace("CHANGED=yes", "CHANGED=yes; PATRONI=yes"))
             appendLine(fileStep("$base/config/valkey.env", valkeyEnv))
             appendLine(fileStep("$base/config/sentinel.conf", sentinelConf))
-            appendLine(fileStep("$base/config/haproxy.cfg", haproxyCfg))
+            // HAProxy reloads its config in place (no refused connections), never restarts for it.
+            appendLine("HAPROXY=no")
+            appendLine(fileStep("$base/config/haproxy.cfg", haproxyCfg).replace("CHANGED=yes", "HAPROXY=yes"))
             appendLine(fileStep("$base/config/probe.py", MeshProbe.SCRIPT))
             appendLine("rm -f \"\$B/config/probe.sh\"")
             appendLine(fileStep("$base/config/probe.targets", probeTargets))
@@ -340,6 +418,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine("if [ \"\$CHANGED\" = yes ] || [ \"\$RUNNING\" != \"\$WANT\" ]; then docker compose up -d --remove-orphans $wanted >/dev/null 2>&1 || docker compose up -d --remove-orphans $wanted; echo \"CHANGED cluster member running: $wanted\"; fi")
             // The member's image copies patroni.yml in at start (and, in newer images, on change):
             // copy it now and have Patroni re-read it.
+            // Images from before in-place reloads have no `haproxy-reload`: restart those instead.
+            appendLine("if [ \"\$HAPROXY\" = yes ] && [ -n \"\$(docker compose ps -q --status running haproxy 2>/dev/null)\" ]; then { docker compose exec -T haproxy ${ClusterTemplates.HAPROXY_RELOAD} >/dev/null 2>&1 || docker compose restart haproxy >/dev/null; } && echo 'CHANGED reloaded the cluster proxy'; fi")
             appendLine("if [ \"\$PATRONI\" = yes ] && [ -n \"\$(docker compose ps -q --status running db 2>/dev/null)\" ]; then docker compose exec -T db sh -c ${shQuote(ClusterTemplates.PATRONI_RELOAD)} && echo 'CHANGED reloaded Patroni settings'; fi")
         }
         val ssh = ctx.ssh.session(node)
@@ -392,6 +472,11 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     ): String? {
         if (pg == null) return null
         val now = nowMillis()
+        maintenanceUntil(now)?.let { until ->
+            preferredCaughtUpSince = null
+            switchBackDue = null
+            return "held off the homelab for maintenance (at most ${(until - now + 59_999) / 60_000} more min)"
+        }
         val hold = cluster.primary.switchBackDelay.inWholeMilliseconds
         val decision = SwitchBack.evaluate(pg, cluster.primary.preferred, preferredCaughtUpSince, now, hold)
         preferredCaughtUpSince = decision.caughtUpSince

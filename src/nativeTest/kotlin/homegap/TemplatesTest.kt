@@ -4,6 +4,7 @@ import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlMap
 import homegap.model.Planner
 import homegap.provision.Certificates
+import homegap.provision.MaintenancePage
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.provision.YamlEmitter
@@ -69,6 +70,46 @@ class TemplatesTest {
         // Without resource ids yet, passthrough routers are omitted rather than pointing nowhere.
         val empty = ResourceReconciler.yamlToJson(NodeTemplates.dynamicRoutes(nd, emptyMap())).jsonObject
         assertNull(empty["tcp"])
+    }
+
+    @Test
+    fun maintenanceRoutesOverridePassthroughOnlyWhileActive() {
+        val plan = Planner.plan(cfg, listOf(TRAEFIK))
+        val nd = plan.nodes.getValue("na1")
+        val ids = mapOf(Planner.FRONTDOOR_TCP to 7, Planner.HEALTH to 9)
+        val live = ResourceReconciler.yamlToJson(NodeTemplates.dynamicRoutes(nd, ids)).jsonObject["tcp"]!!.jsonObject["routers"]!!.jsonObject["homegap-frontdoor"]!!.jsonObject
+        val tree = ResourceReconciler.yamlToJson(MaintenancePage.routes(nd, ids)).jsonObject
+        val router = tree["tcp"]!!.jsonObject["routers"]!!.jsonObject["homegap-frontdoor-maintenance"]!!.jsonObject
+        assertEquals(live["rule"], router["rule"], "the page covers exactly the passthrough hosts")
+        assertTrue(router["priority"]!!.jsonPrimitive.int > live["priority"]!!.jsonPrimitive.int)
+        assertEquals("homegap-maintenance", router["service"]!!.jsonPrimitive.content)
+        assertNull(router["tls"]!!.jsonObject["passthrough"], "the node ends TLS for the page")
+        assertEquals("homegap-maintenance", router["tls"]!!.jsonObject["options"]!!.jsonPrimitive.content)
+        val alpn = tree["tls"]!!.jsonObject["options"]!!.jsonObject["homegap-maintenance"]!!.jsonObject["alpnProtocols"]!!.jsonArray
+        assertEquals(listOf("http/1.1"), alpn.map { it.jsonPrimitive.content }, "the page server speaks HTTP/1.1 only")
+        val server = tree["tcp"]!!.jsonObject["services"]!!.jsonObject["homegap-maintenance"]!!.jsonObject["loadBalancer"]!!.jsonObject["servers"]!!.jsonArray[0]
+        assertEquals("127.0.0.1:8090", server.jsonObject["address"]!!.jsonPrimitive.content)
+        // The service checks the front door's own tunnel service, found by niceId (ids change).
+        val probe = Json.parseToJsonElement(MaintenancePage.probes(nd, ids)).jsonObject["targets"]!!.jsonArray.single().jsonObject
+        assertEquals("-${Planner.FRONTDOOR_TCP}-service", probe["service_suffix"]!!.jsonPrimitive.content)
+        assertEquals(cfg.domain, probe["sni"]!!.jsonPrimitive.content)
+        // Before Pangolin has the resource there is nothing to cover.
+        assertFalse("tcp" in MaintenancePage.routes(nd, emptyMap()))
+        assertTrue(Json.parseToJsonElement(MaintenancePage.probes(nd, emptyMap())).jsonObject["targets"]!!.jsonArray.isEmpty())
+    }
+
+    @Test
+    fun nodesRunTheMaintenancePageWithoutScripts() {
+        val nd = Planner.plan(cfg, listOf(TRAEFIK)).nodes.getValue("na1")
+        val node = cfg.node("na1")!!
+        val files = NodeTemplates.staticFiles(cfg, node, secrets, nd.rawPorts, 0)
+        val compose = files.single { it.path == "compose.yml" }.content
+        assertTrue("docker.io/library/python:3.13-alpine" in compose)
+        assertTrue("./config/maintenance:/maintenance:ro" in compose && "./config/traefik/dynamic:/dynamic" in compose)
+        val page = files.single { it.path == "config/maintenance/index.html" }.content
+        assertFalse("<script" in page.lowercase(), "the page is static HTML and CSS")
+        assertTrue("Back shortly" in page && cfg.domain in page)
+        assertEquals("maintenance", files.single { it.path == "config/maintenance/server.py" }.restarts)
     }
 
     @Test

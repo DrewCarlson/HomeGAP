@@ -19,6 +19,17 @@ RUN apk add --no-cache bash curl
 COPY tools/build-map.sh /src/tools/build-map.sh
 RUN cd /src && PROTOMAPS_BUILD="$PROTOMAPS_BUILD" bash tools/build-map.sh tiles
 
+# What the tunnel supervisor's behaviour depends on: its own code, the platform layer under it,
+# the dependency versions and Newt. deploy/upgrade.sh recreates the tunnels container (dropping
+# every connector for a moment) only when this changes between the running and the new image.
+FROM --platform=$BUILDPLATFORM docker.io/library/alpine:3.20 AS tunnels-version
+ARG NEWT_VERSION
+COPY src/nativeMain/kotlin/homegap/tunnels /v/tunnels
+COPY src/nativeMain/kotlin/homegap/platform /v/platform
+COPY gradle/libs.versions.toml /v/
+RUN echo "newt ${NEWT_VERSION}" > /v/newt \
+    && cd /v && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16 > /tunnels-version
+
 FROM docker.io/library/ubuntu:24.04
 ARG TARGETARCH
 
@@ -30,6 +41,7 @@ RUN apt-get update \
 
 COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
 COPY --from=map /src/map/world.pmtiles /usr/share/homegap/map/world.pmtiles
+COPY --from=tunnels-version /tunnels-version /usr/share/homegap/tunnels-version
 COPY build/bin/linuxX64/releaseExecutable/homegap.kexe /tmp/homegap-amd64
 COPY build/bin/linuxArm64/releaseExecutable/homegap.kexe /tmp/homegap-arm64
 RUN if [ "${TARGETARCH:-$(dpkg --print-architecture)}" = "amd64" ]; then mv /tmp/homegap-amd64 /usr/local/bin/homegap; else mv /tmp/homegap-arm64 /usr/local/bin/homegap; fi \

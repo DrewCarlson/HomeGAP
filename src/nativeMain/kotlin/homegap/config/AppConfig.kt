@@ -88,6 +88,8 @@ data class PangolinNodeDefaults(
     @SerialName("pangolin_image") val pangolinImage: String = "docker.io/fosrl/pangolin:ee-1.26.0",
     @SerialName("gerbil_image") val gerbilImage: String = "docker.io/fosrl/gerbil:1.6.0",
     @SerialName("traefik_image") val traefikImage: String = "docker.io/traefik:v3.7.16",
+    /** Runs the page a node shows while the homelab is unreachable (Python's standard library only). */
+    @SerialName("maintenance_image") val maintenanceImage: String = "docker.io/library/python:3.13-alpine",
     @SerialName("crowdsec_image") val crowdsecImage: String = "docker.io/crowdsecurity/crowdsec:latest",
     @SerialName("badger_version") val badgerVersion: String = "v1.8.0",
     @SerialName("crowdsec_bouncer_version") val crowdsecBouncerVersion: String = "v1.4.6",

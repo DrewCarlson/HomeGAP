@@ -70,6 +70,9 @@ class ClusterTest {
         // A 250 ms link needs about a second for the Valkey check and must survive a lost SYN.
         assertTrue("timeout check 5s" in cfg && "inter 4s fastinter 1s fall 3" in cfg, "checks tolerate distant members")
         assertTrue("send info\\ replication\\r\\nQUIT\\r\\n" in cfg, "a replica fails its check at once")
+        // Reloaded in place: the new workers start from the old ones' view of each server.
+        assertTrue("stats socket /tmp/haproxy.sock mode 600 level admin" in cfg)
+        assertTrue("server-state-file /tmp/haproxy.state" in cfg && "load-server-state-from-file global" in cfg)
     }
 
     @Test

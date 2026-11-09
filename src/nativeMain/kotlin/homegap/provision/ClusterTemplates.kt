@@ -83,6 +83,9 @@ object ClusterTemplates {
      * keeps about 40 MB for the rest of its life, with up to 30 pooled connections per node.
      */
     /** Run in a member's `db` container: copies in its patroni.yml and has Patroni (PID 1) re-read it. */
+    /** Reloads HAProxy in the running haproxy container with the config just written. */
+    const val HAPROXY_RELOAD = "hg-member haproxy-reload"
+
     const val PATRONI_RELOAD =
         "install -o postgres -g postgres -m 0600 \"\${HG_CONFIG:-/config}/patroni.yml\" /tmp/patroni.yml && kill -HUP 1"
 
@@ -163,9 +166,14 @@ object ClusterTemplates {
         appendLine("# Managed by HomeGAP: the current PostgreSQL and Valkey primaries, wherever they are.")
         appendLine("global")
         appendLine("  maxconn 2000")
+        // Config changes are reloaded in place (`hg-member haproxy-reload`), carrying each
+        // server's up/down state over through this file.
+        appendLine("  stats socket /tmp/haproxy.sock mode 600 level admin")
+        appendLine("  server-state-file /tmp/haproxy.state")
         appendLine()
         appendLine("defaults")
         appendLine("  mode tcp")
+        appendLine("  load-server-state-from-file global")
         // Members can be a quarter second or more apart: a check leaves room for two lost SYNs
         // (resent after 1s and 3s), and three misses in a row mark a member down, so a slow link
         // never flaps. HAProxy starts with every member up: after a miss the next checks come a

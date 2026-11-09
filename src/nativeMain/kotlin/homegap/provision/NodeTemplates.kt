@@ -68,6 +68,8 @@ object NodeTemplates {
             RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts, cluster != null)).apply { restarts = "traefik" },
             RenderedFile(SECRETS, PRETTY_JSON.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
         )
+        files += RenderedFile("${MaintenancePage.DIR}/server.py", MaintenancePage.SCRIPT).apply { restarts = MaintenancePage.SERVICE }
+        files += RenderedFile("${MaintenancePage.DIR}/index.html", MaintenancePage.page(config.domain, node.id))
         if (cluster != null) {
             files += RenderedFile("config/privateConfig.yml", pangolinPrivateConfig(node, cluster), "0600").apply { restarts = "pangolin" }
         }
@@ -149,6 +151,21 @@ object NodeTemplates {
                         add("./config/letsencrypt:/letsencrypt")
                         add("./config/traefik/logs:/var/log/traefik")
                         if (cluster != null) add("./config/certificates:/var/certificates:ro")
+                    }
+                }
+                putJsonObject(MaintenancePage.SERVICE) {
+                    put("image", p.maintenanceImage)
+                    put("container_name", "homegap-maintenance")
+                    put("restart", "unless-stopped")
+                    put("stop_grace_period", "2s")
+                    // Gerbil's namespace: the tunnel addresses it checks only route there, and
+                    // Traefik (also in it) reaches the page on loopback.
+                    put("network_mode", "service:gerbil")
+                    putJsonObject("depends_on") { putJsonObject("gerbil") { put("condition", "service_started") } }
+                    putJsonArray("command") { add("python3"); add("-u"); add("/maintenance/server.py") }
+                    putJsonArray("volumes") {
+                        add("./${MaintenancePage.DIR}:/maintenance:ro")
+                        add("./config/traefik/dynamic:/dynamic")
                     }
                 }
                 if (p.crowdsec) {

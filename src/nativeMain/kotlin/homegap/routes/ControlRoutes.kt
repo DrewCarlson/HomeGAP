@@ -22,6 +22,14 @@ class ControlRoutes(private val controller: Controller) : RoutingController {
     override fun init(parent: Route) {
         parent.post("/resync") { resync() }
         parent.post("/pause") { setPause() }
+        // Planned maintenance of the homelab's member (deploy/upgrade.sh, via `homegap maintenance`).
+        parent.post("/cluster/maintenance/start") {
+            val minutes = call.request.queryParameters["minutes"]?.toIntOrNull() ?: 30
+            call.respond(homegap.api.ActionResponse(true, controller.beginMaintenance(minutes)))
+        }
+        parent.post("/cluster/maintenance/end") {
+            call.respond(homegap.api.ActionResponse(true, controller.endMaintenance()))
+        }
         parent.post("/cluster/switchover") {
             val to = call.receive<homegap.api.SwitchoverRequest>().to
             call.respond(homegap.api.ActionResponse(true, controller.switchPrimary(to)))

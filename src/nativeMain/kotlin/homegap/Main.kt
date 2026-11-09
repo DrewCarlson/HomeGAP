@@ -12,6 +12,10 @@ import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
+import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.isSuccess
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlin.system.exitProcess
@@ -28,6 +32,7 @@ Usage:
   homegap validate [--config PATH]                     Validate the config file
   homegap plan [--config PATH] [--labels FILE]         Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
+  homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
   homegap version
 
 Environment: HOMEGAP_CONFIG (default /config/config.yml), HOMEGAP_DRY_RUN, DOCKER_SOCKET."""
@@ -78,6 +83,7 @@ fun main(args: Array<String>) {
                 println("=== ${NodeTemplates.DYNAMIC_ROUTES}")
                 println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
             }
+            "maintenance" -> maintenance(configPath, rest.firstOrNull { it == "start" || it == "end" } ?: error("maintenance start|end"), opt("--minutes")?.toIntOrNull() ?: 30)
             "tunnels" -> runTunnels(opt("--dir") ?: env("HOMEGAP_TUNNELS_DIR") ?: "/data/tunnels", opt("--newt") ?: env("HOMEGAP_NEWT") ?: "/usr/local/bin/newt")
             "run" -> runController(configPath, flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in setOf("1", "true", "yes"), flag("--once"))
             else -> {
@@ -118,4 +124,25 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
 
 private fun runTunnels(dir: String, newt: String) = runBlocking {
     createGraphFactory<TunnelsGraph.Factory>().create(TunnelOptions(dir, newt)).supervisor.run()
+}
+
+/** Asks the running orchestrator (same container, its dashboard API) to begin or end maintenance. */
+private fun maintenance(configPath: String, action: String, minutes: Int) = runBlocking {
+    val config = ConfigLoader.load(configPath)
+    val token = config.dashboard.authToken()?.resolve()
+    val host = config.dashboard.host.let { if (it == "0.0.0.0" || it.isEmpty()) "127.0.0.1" else it }
+    io.ktor.client.HttpClient(io.ktor.client.engine.cio.CIO) {
+        install(io.ktor.client.plugins.HttpTimeout) { requestTimeoutMillis = 5 * 60_000L }
+    }.use { http ->
+        val r = http.post("http://$host:${config.dashboard.port}/api/cluster/maintenance/$action?minutes=$minutes") {
+            token?.let { header(io.ktor.http.HttpHeaders.Authorization, "Bearer $it") }
+        }
+        val body = r.bodyAsText()
+        val message = runCatching { Json.decodeFromString(homegap.api.ActionResponse.serializer(), body).message }.getOrDefault(body)
+        if (!r.status.isSuccess()) {
+            eprintln("homegap maintenance $action: $message")
+            exitProcess(1)
+        }
+        println(message)
+    }
 }

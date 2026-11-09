@@ -642,6 +642,14 @@ needs the node's login pages to be public.
   addresses and routes, Docker networks, listening ports, the firewall, NAT and forwarding rules,
   connection tracking, kernel messages and recent logs. Both can be downloaded as text. Nothing
   on the node changes, and no secrets are printed.
+- **Upgrade the homelab:** run `deploy/upgrade.sh` (with your compose arguments, e.g.
+  `-f homelab-compose.yml`) instead of `docker compose pull && docker compose up -d`. It updates
+  the orchestrator, moves the database and Valkey primaries to a node
+  (`homegap maintenance start`), restarts the homelab's cluster containers one at a time and
+  waits for each to serve again, then ends the hold; the primaries come back after the usual
+  switch-back delay. The tunnel connectors, which every node's traffic to the homelab goes
+  through, are only restarted when their code or Newt changed (`--tunnels` forces it), so they
+  may keep running the previous image. The mesh container is never touched.
 - **Hold a manual change:** pause globally, per node or per service (dashboard or
   `homegap.pause`). Paused targets are observed but never modified.
 - **Re-provision a node:** click *Re-provision*. Destroying and recreating a VPS is safe: nodes
@@ -869,7 +877,7 @@ a public issue.
 | Regional node down | Bunny drops it; its viewers resolve to the next-nearest node | The orchestrator repairs or re-provisions it; DNS recovers automatically |
 | Node update fails | That node is rolled back to its previous stack; the rollout to other nodes stops | Retry or skip it from the dashboard, or change the config (see [Node updates and rollback](#node-updates-and-rollback)) |
 | Orchestrator down | None on live traffic; only new label or config changes wait | Restart it; it reconciles to the desired state |
-| Homelab origin down | Public services are down (single origin, by design). With the cluster, Pangolin apps stay connected and new sign-ins work after ~30 s, once the nodes elect a database primary; only homelab services are unreachable | Restore the origin; tunnels reconnect, and the primary moves back after the hold |
+| Homelab origin down | Passthrough sites show a "back shortly" page from the nodes (503, about 15 s after the nodes lose the homelab; raw ports and node-terminated resources just fail). Public services are down (single origin, by design). With the cluster, Pangolin apps stay connected and new sign-ins work after ~30 s, once the nodes elect a database primary; only homelab services are unreachable | Restore the origin; tunnels reconnect, and the primary moves back after the hold |
 | Node holding the database primary down (cluster) | Sign-ins and changes pause ~30 s while the others elect a new primary; public traffic fails over through DNS as for any node | Automatic; the primary returns to the homelab after the hold |
 | Homelab cut off from the nodes, but up (cluster) | The homelab loses the vote and stops taking writes; the nodes elect a primary and keep serving | Heal the link: the homelab rejoins as a replica (rewinding any writes it couldn't keep) and the primary moves back after the hold |
 | Mesh link between two nodes broken (cluster) | Nothing visible while a majority of members still reach each other; the dashboard flags the isolated member | Fix the network; WireGuard reconnects on its own |

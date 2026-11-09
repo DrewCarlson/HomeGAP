@@ -4,7 +4,7 @@
 # until it exists, the role waits, so the containers can be started before the orchestrator has
 # rendered anything. Passwords stay in files, never in process arguments.
 set -eu
-ROLE=${1:?usage: hg-member etcd|patroni|valkey|sentinel|haproxy}
+ROLE=${1:?usage: hg-member etcd|patroni|valkey|sentinel|haproxy|haproxy-reload|ready ROLE}
 CONFIG=${HG_CONFIG:-/config}
 
 wait_for() {
@@ -30,16 +30,42 @@ backup_loop() {
   done
 }
 
+# Reloads HAProxy (PID 1 of the haproxy container) with the current config. Each server's up/down
+# state is saved first and loaded by the new workers (server-state-file), so a reload never
+# briefly sends traffic to a replica the old workers knew was down.
+haproxy_reload() {
+  haproxy -c -q -f "$CONFIG/haproxy.cfg" || { echo "hg-member haproxy: new config is invalid; keeping the running one" >&2; return 1; }
+  python3 - <<'PY' || true
+import socket
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(3)
+s.connect("/tmp/haproxy.sock")
+s.sendall(b"show servers state\n")
+data = b""
+while True:
+    chunk = s.recv(65536)
+    if not chunk:
+        break
+    data += chunk
+open("/tmp/haproxy.state.new", "wb").write(data)
+PY
+  [ -s /tmp/haproxy.state.new ] && mv -f /tmp/haproxy.state.new /tmp/haproxy.state
+  cp "$CONFIG/haproxy.cfg" /tmp/haproxy.cfg.loaded
+  kill -USR2 1
+  echo "hg-member haproxy: reloaded $CONFIG/haproxy.cfg"
+}
+
 # Services bind the member's mesh address, which exists only once the mesh interface is up (the
 # homelab's after the orchestrator configures it, a node's after wg-quick at boot).
-if [ "$ROLE" != haproxy ]; then
+case "$ROLE" in haproxy|haproxy-reload|ready) ;; *)
   wait_for "$CONFIG/mesh.env"
   . "$CONFIG/mesh.env"
   until python3 -c "import socket,sys; socket.socket().bind((sys.argv[1], 0))" "$HG_MESH_IP" 2>/dev/null; do
     echo "hg-member $ROLE: waiting for the mesh address $HG_MESH_IP"
     sleep 3
   done
-fi
+  ;;
+esac
 
 case "$ROLE" in
   etcd)
@@ -98,7 +124,38 @@ case "$ROLE" in
     ;;
   haproxy)
     wait_for "$CONFIG/haproxy.cfg"
+    cp "$CONFIG/haproxy.cfg" /tmp/haproxy.cfg.loaded
+    # Config changes are reloaded in place, never a restart: the master (PID 1 below) starts new
+    # workers on the listening sockets it already holds, so no connection is refused.
+    (
+      while sleep 5; do
+        if [ -s "$CONFIG/haproxy.cfg" ] && ! cmp -s "$CONFIG/haproxy.cfg" /tmp/haproxy.cfg.loaded; then
+          haproxy_reload || true
+        fi
+      done
+    ) &
     exec haproxy -W -db -f "$CONFIG/haproxy.cfg"
+    ;;
+  ready)
+    # Exits 0 once this container's role is serving: used by deploy/upgrade.sh between restarts.
+    # A database or Valkey member must be the primary or a replica that is linked to it.
+    [ -s "$CONFIG/mesh.env" ] && . "$CONFIG/mesh.env"
+    case "${2:-}" in
+      etcd) etcdctl --endpoints=http://127.0.0.1:2379 --command-timeout=3s endpoint health >/dev/null 2>&1 ;;
+      patroni)
+        curl -fsS -m 3 "http://$HG_MESH_IP:8008/primary" >/dev/null 2>&1 ||
+          curl -fsS -m 3 "http://$HG_MESH_IP:8008/replica?lag=16MB" >/dev/null 2>&1 ;;
+      valkey)
+        . "$CONFIG/valkey.env"
+        info=$(REDISCLI_AUTH=$HG_PASSWORD valkey-cli -h 127.0.0.1 info replication 2>/dev/null) || exit 1
+        echo "$info" | grep -q '^role:master' || echo "$info" | grep -q '^master_link_status:up' ;;
+      sentinel) [ -n "$(valkey-cli -h 127.0.0.1 -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1)" ] ;;
+      *) echo "usage: hg-member ready etcd|patroni|valkey|sentinel" >&2; exit 64 ;;
+    esac
+    ;;
+  haproxy-reload)
+    # Run by the orchestrator (docker compose exec) right after it writes a new config.
+    haproxy_reload
     ;;
   *)
     echo "hg-member: unknown role '$ROLE'" >&2

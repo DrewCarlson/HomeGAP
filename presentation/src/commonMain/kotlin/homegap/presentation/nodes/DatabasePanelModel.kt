@@ -65,6 +65,7 @@ fun ClusterStatusDto.toPanelModel(now: Long = 0): DatabasePanelModel {
                     "failover" -> Badge(Health.DEGRADED, "failover", "Elected by the cluster when the primary was lost")
                     "switch-back" -> Badge(Health.OK, "switch-back", "Moved back by HomeGAP after the hold")
                     "manual" -> Badge(Health.UNKNOWN, "manual", "Switched from the dashboard")
+                    "maintenance" -> Badge(Health.UNKNOWN, "maintenance", "Moved off the homelab before an upgrade")
                     "initial" -> Badge(Health.OK, "first seen", "The primary when HomeGAP started recording")
                     else -> Badge(Health.UNKNOWN, h.cause)
                 },
