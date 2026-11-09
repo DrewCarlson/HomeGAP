@@ -32,6 +32,11 @@ cluster:
   image: homegap-cluster:e2e
   primary:
     switch_back_after: 1m
+  # Internet exits for the Pangolin apps: one per node, and one at the homelab.
+  exit_nodes:
+    nodes: true
+    homelab: true
+    roles: [Member]
 
 nodes:
   - id: na1

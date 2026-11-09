@@ -81,6 +81,8 @@ data class PrivateResource(
     val udpPorts: String,
     val roles: List<String>,
     val paused: Boolean,
+    /** `host` (a service by alias) or `exit-node` (all traffic, leaving for the internet at the site). */
+    val mode: String = "host",
 )
 
 data class SniRoute(

@@ -22,6 +22,10 @@ data class NodeState(
     val siteId: Int? = null,
     val newtId: String? = null,
     val newtSecret: String? = null,
+    /** The node's exit site (cluster.exit_nodes.nodes) and its connector's credentials. */
+    val exitSiteId: Int? = null,
+    val exitNewtId: String? = null,
+    val exitNewtSecret: String? = null,
     val licenseActivated: Boolean = false,
     val lastProvisionAt: Long? = null,
     val lastProvisionOk: Boolean? = null,

@@ -54,6 +54,10 @@ certificates:
 #     preferred: homelab     # where the database primary lives whenever it can
 #     switch_back_after: 10m # how long the homelab must be caught up before it takes over again
 #   client_hostname: pangolin  # pangolin.<domain>: what the Pangolin apps connect to (nearest node)
+#   exit_nodes:              # internet exits the Pangolin apps can pick (all traffic, like a VPN)
+#     nodes: true            # "Exit via <node>": leaves with that node's address
+#     homelab: true          # "Exit via homelab": relayed by the nearest node, leaves from home
+#     roles: [Member]        # who may use them (Admin always can)
 
 nodes:
   - id: na1

@@ -1,5 +1,6 @@
 package homegap.reconcile
 
+import homegap.provision.ExitNodes
 import com.charleskorn.kaml.*
 import homegap.clients.PangolinClient
 import homegap.clients.PangolinResource
@@ -130,6 +131,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         plan: Map<String, NodeDesired>,
         sites: Map<String, String>,
         pausedServiceKeys: Set<String>,
+        exits: Map<PrivateResource, List<String>> = emptyMap(),
     ): List<PangolinResource> {
         val org = ctx.config.pangolin.orgId
         val api = via.api
@@ -169,18 +171,18 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
             if (it is CancellationException) currentCoroutineContext().ensureActive()
         }
         val privateActual = siteResources.getOrNull()?.map { it.niceId }?.toSet()
-        for ((p, onSites) in private) {
+        for ((p, onSites) in private + exits) {
             if (p.paused) continue
             val bp = buildBlueprint(emptyMap(), mapOf(p to onSites))
             val h = Crypto.fnv64(bp.toString())
             val key = "private:${p.niceId}"
             if (known[key] == h && (privateActual == null || p.niceId in privateActual)) continue
-            ctx.diff.add(domain, CLUSTER_SCOPE, key, "ensure", "${p.alias} -> ${p.destination} on ${onSites.joinToString()}")
+            ctx.diff.add(domain, CLUSTER_SCOPE, key, "ensure", "${p.label()} on ${onSites.joinToString()}")
             if (paused) continue
             try {
                 api.applyBlueprint(org, bp)
                 hashes[key] = h
-                ctx.log.change(domain, "ensured private resource ${p.niceId} (${p.alias}) on ${onSites.joinToString()}")
+                ctx.log.change(domain, "ensured private resource ${p.niceId} (${p.label()}) on ${onSites.joinToString()}")
             } catch (e: Exception) {
                 if (e is CancellationException) currentCoroutineContext().ensureActive()
                 ctx.log.error(domain, "private ${p.niceId}: ${e.message}")
@@ -201,7 +203,8 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         }
         if (!paused) actual = actual.filter { it.niceId in keep || !it.niceId.startsWith(Planner.NICE_PREFIX) || pausedServiceKeys.any { k -> it.niceId.startsWith(Planner.NICE_PREFIX + k) } }
 
-        val keepPrivate = plan.values.flatMap { n -> n.privateResources.map { it.niceId } }.toSet()
+        // Exits the config wants are kept even while their site is missing.
+        val keepPrivate = plan.values.flatMap { n -> n.privateResources.map { it.niceId } }.toSet() + ExitNodes.wanted(ctx.config)
         siteResources.getOrNull()?.forEach { a ->
             if (!a.niceId.startsWith(Planner.NICE_PREFIX) || a.niceId in keepPrivate) return@forEach
             if (pausedServiceKeys.any { a.niceId.startsWith(Planner.NICE_PREFIX + it) }) return@forEach
@@ -291,6 +294,8 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         return true
     }
 
+    private fun PrivateResource.label() = if (mode == "exit-node") name else "$alias -> $destination"
+
     private fun describe(d: PublicResource) = "${d.mode.wire} ${d.fullDomain ?: ":${d.proxyPort}"} -> ${d.target.host}:${d.target.port}"
     private fun describe(a: PangolinResource) = "${a.mode} ${a.fullDomain ?: ":${a.proxyPort}"} -> ${a.targets.joinToString { "${it.ip}:${it.port}" }}"
 
@@ -307,13 +312,17 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
                 putJsonObject("private-resources") {
                     for ((r, sites) in privateRes) putJsonObject(r.niceId) {
                         put("name", r.name)
-                        put("mode", "host")
+                        put("mode", r.mode)
                         putJsonArray("sites") { sites.forEach { add(it) } }
-                        put("destination", r.destination)
-                        put("alias", r.alias)
-                        if (r.tcpPorts.isNotEmpty()) put("tcp-ports", r.tcpPorts)
-                        if (r.udpPorts.isNotEmpty()) put("udp-ports", r.udpPorts)
-                        putJsonArray("roles") { r.roles.forEach { add(it) } }
+                        if (r.mode != "exit-node") {
+                            // An exit node has no destination or ports: all traffic, all ports.
+                            put("destination", r.destination)
+                            put("alias", r.alias)
+                            if (r.tcpPorts.isNotEmpty()) put("tcp-ports", r.tcpPorts)
+                            if (r.udpPorts.isNotEmpty()) put("udp-ports", r.udpPorts)
+                        }
+                        // Pangolin refuses Admin here (it can reach everything anyway).
+                        putJsonArray("roles") { r.roles.filter { it != "Admin" }.forEach { add(it) } }
                     }
                 }
             }

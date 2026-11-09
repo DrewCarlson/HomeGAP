@@ -307,7 +307,7 @@ Key sections:
 | `certificates` | How the wildcard + root certificate reaches the nodes: `none` (nodes use their own ACME HTTP-01), `files` (PEM chain and key), or `acme_json` (read the homelab Traefik's ACME store, mounted read-only; the certificate must be issued with DNS-01, for example Traefik's `bunny` provider). |
 | `nodes[]` | Per node: `id`, `host`, SSH user, port and key file, `location`, and optionally `license_key_env` (each node needs its own EE key), `public_ipv4` / `public_ipv6`, `management_host` (default `pangolin-<id>.<domain>`), `dashboard_public` (default `false`), `firewall` (default `true`), `ssh_allow_from` (sources allowed to reach SSH through the firewall, IPv4/IPv6 addresses or CIDRs; empty, the default, allows SSH from anywhere — see [Adding a node](#adding-a-node) before restricting it), `install_docker` (default `true`). |
 | `tunnels` | Shared state directory, `mtu` (WireGuard MTU for Newt and every Gerbil) and `native` (kernel WireGuard for Newt). See [Performance](#performance). |
-| `cluster` | Optional. `mesh.subnet` (default `10.77.0.0/24`) and `mesh.port` (default `51821/udp`) for the private WireGuard mesh between the homelab and every node. `image` (default `ghcr.io/drewcarlson/homegap-cluster:latest`) runs each member's database services. `primary.preferred` (default `homelab`) and `primary.switch_back_after` (default `10m`) decide where the database primary lives. `client_hostname` (default `pangolin`) names the geo-routed address clients and the login pages use. See [Cluster mesh](#cluster-mesh), [Cluster database](#cluster-database) and [Clustered Pangolin](#clustered-pangolin). |
+| `cluster` | Optional. `mesh.subnet` (default `10.77.0.0/24`) and `mesh.port` (default `51821/udp`) for the private WireGuard mesh between the homelab and every node. `image` (default `ghcr.io/drewcarlson/homegap-cluster:latest`) runs each member's database services. `primary.preferred` (default `homelab`) and `primary.switch_back_after` (default `10m`) decide where the database primary lives. `client_hostname` (default `pangolin`) names the geo-routed address clients and the login pages use. `exit_nodes` (`nodes`, `homelab`, `roles`, `newt_image`) offers internet exits to the Pangolin apps; see [Exit nodes](#exit-nodes). See [Cluster mesh](#cluster-mesh), [Cluster database](#cluster-database) and [Clustered Pangolin](#clustered-pangolin). |
 | `pangolin.tcp_tuning` | BBR, fq and larger TCP buffers on every node (default `true`). |
 | `speedtest` | `enabled`, `hostname` (default `speedtest`), `bind` (default `0.0.0.0:8089`), `link_ttl`, `phase_seconds`, `streams` (homelab ↔ node, default 4). |
 | `status_page` | `enabled`, `hostname` (default `status`), `title` (default `Status`). Shares `speedtest.bind`; see [Status page](#status-page). |
@@ -568,6 +568,33 @@ apps, without logging in to Pangolin as the admin:
 Changes go through whichever node's Pangolin is reachable (they all share one database) and are
 written to the reconcile log. HomeGAP grants its API key the permissions this needs the first
 time it runs (one admin login).
+
+#### Exit nodes
+
+With `cluster.exit_nodes`, the Pangolin apps can send **all** of a device's traffic through
+HomeGAP, like a VPN, and the person picks where it leaves for the internet:
+
+```yaml
+cluster:
+  exit_nodes:
+    nodes: true        # "Exit via <node>" for each node: leaves with that node's address
+    homelab: true      # "Exit via homelab": relayed by the nearest node, leaves from home
+    roles: [Member]    # who may use them (Admin always can)
+```
+
+- **Exit via a node:** each node gets a second Pangolin site, `exit-<node>`, whose Newt connector
+  runs on the node itself (`<install_dir>/exit`, on the host network, talking to the node's own
+  Pangolin on loopback). The connector makes the person's connections from the node. It keeps
+  working while the homelab is down.
+- **Exit via homelab:** one exit on every node's homelab site. The device relays through the
+  nearest node, and the homelab's connector makes the connections, so traffic leaves with your
+  home address. It needs the homelab up.
+- **Picking one** is up to the Pangolin client (Pangolin calls these "exit nodes"). While one is
+  picked, the device's default route goes through it.
+- **Turning either off** removes the exits, and for nodes also the connector and its site.
+
+These are Pangolin `exit-node` private resources (`hg-exit-<node>`, `hg-exit-homelab`). They open
+no new ports: the node's connector dials out like any other.
 
 ### Node management host
 

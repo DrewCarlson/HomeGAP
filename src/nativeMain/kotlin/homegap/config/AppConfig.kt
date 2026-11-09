@@ -167,6 +167,25 @@ data class ClusterConfig(
      * by every node and geo-routed to the nearest healthy one.
      */
     @SerialName("client_hostname") val clientHostname: String = "pangolin",
+    /** Internet exits the Pangolin apps can pick: each node, and/or the homelab. */
+    @SerialName("exit_nodes") val exitNodes: ExitNodesConfig = ExitNodesConfig(),
+)
+
+/**
+ * Exit nodes ("Exit via <node>", "Exit via homelab"): a Pangolin client that picks one sends all its
+ * traffic through it, and it leaves for the internet there. A node's exit is a second Newt connector
+ * on the node itself; the homelab's uses the existing homelab sites.
+ */
+@Serializable
+data class ExitNodesConfig(
+    /** Each node offers "Exit via <node>". */
+    val nodes: Boolean = false,
+    /** "Exit via homelab": traffic relayed by the nearest node, leaving from the homelab. */
+    val homelab: Boolean = false,
+    /** Roles that may use the exits (Admin always can). */
+    val roles: List<String> = emptyList(),
+    /** The connector image a node's exit runs. */
+    @SerialName("newt_image") val newtImage: String = "docker.io/fosrl/newt:1.20.0",
 )
 
 /**

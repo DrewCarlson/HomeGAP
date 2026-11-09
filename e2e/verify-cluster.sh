@@ -4,12 +4,16 @@
 #   2. a user created through the dashboard signs in at pangolin.<domain> through every node;
 #   3. a Pangolin client reaches a private service through whichever node DNS sends it to;
 #   4. cutting the homelab off: a node becomes primary and takes writes, the homelab stops; after
-#      healing, HomeGAP switches the primary back (cluster.primary.switch_back_after).
+#      healing, HomeGAP switches the primary back (cluster.primary.switch_back_after);
+#   5. exit nodes (cluster.exit_nodes): a client that picks "Exit via <node>" or "Exit via homelab"
+#      reaches the internet with no route of its own, through that exit (needs internet access).
+# ONLY="3 5" runs just those sections.
 # Test credentials come from the e2e data directory and are never printed.
 set -uo pipefail
 cd "$(dirname "$0")"
 DASH=http://127.0.0.1:18088/api
 FAILS=0
+want() { [ -z "${ONLY:-}" ] || [[ " $ONLY " == *" $1 "* ]]; }
 pass() { echo "PASS  $*"; }
 fail() { echo "FAIL  $*"; FAILS=$((FAILS + 1)); }
 state() { python3 -c "import json,sys; s=json.load(open('work/data/state.json')); print(eval(sys.argv[1]))" "$1"; }
@@ -22,13 +26,16 @@ ADMIN_EMAIL=$(state "s['clusterPangolin']['adminEmail']")
 ADMIN_PW=$(state "s['clusterPangolin']['adminPassword']")
 PGPW=$(python3 -c "import json; print(json.load(open('work/data/cluster/secrets.json'))['postgres'])")
 
+if want 1; then
 echo "--- 1. database"
 if until_cluster "c['primary'] == c['preferred'] and c.get('quorum') and all(m.get('role') == 'leader' or m.get('state') == 'streaming' for m in c['members'])" 120; then
   pass "primary on $(cluster "c['primary']"), every member streaming, the vote has a majority"
 else
   fail "database not healthy: $(cluster "[(m['id'], m.get('role'), m.get('state')) for m in c['members']]")"
 fi
+fi
 
+if want 2; then
 echo "--- 2. a user from the dashboard signs in through every node"
 EMAIL="verify-$(date +%s)@test.example.net"
 UPW="Hg$(python3 -c 'import secrets; print(secrets.token_urlsafe(12))')9!"
@@ -44,7 +51,9 @@ for n in $NODES; do
 done
 uid=$(curl -s "$DASH/access" | python3 -c "import json,sys; print(next(u['id'] for u in json.load(sys.stdin)['users'] if u['email'] == sys.argv[1]))" "$EMAIL")
 curl -s -X DELETE "$DASH/access/users/$uid" >/dev/null
+fi
 
+if want 3; then
 echo "--- 3. private access through the nearest node"
 # A machine client with the Admin role (which reaches every private resource), created as the
 # cluster's admin: HomeGAP's own API key is deliberately not allowed to create clients.
@@ -74,7 +83,9 @@ if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
   docker compose --profile client rm -sf client >/dev/null 2>&1
   curl -s -X POST "$DASH/access/devices/$CID/delete" >/dev/null
 fi
+fi
 
+if want 4; then
 echo "--- 4. the homelab cut off, then back"
 docker compose exec -T orchestrator sh -c 'iptables -I INPUT -i hg-mesh -j DROP; iptables -I OUTPUT -o hg-mesh -j DROP'
 write_via() {
@@ -96,6 +107,59 @@ else
   fail "no switch-back: primary $(cluster "c['primary']"), $(cluster "c.get('switchBack')")"
 fi
 until_cluster "c['valkeyPrimary'] == c['preferred']" 180 && pass "Valkey followed" || fail "Valkey primary is $(cluster "c['valkeyPrimary']")"
+fi
+
+if want 5; then
+echo "--- 5. exit nodes"
+KEY=$(state "s['clusterPangolin']['apiKeyId'] + '.' + s['clusterPangolin']['apiKey']")
+# The exit resources and their sites, through na1's Integration API.
+EXITS=$(docker compose exec -T -e K="$KEY" node-na1 sh -c 'curl -s -H "Authorization: Bearer $K" http://127.0.0.1:3003/v1/org/homegap/site-resources' \
+  | python3 -c "import json,sys; [print(r['niceId'], r['siteResourceId'], ','.join(map(str, r['siteIds']))) for r in json.load(sys.stdin)['data']['siteResources'] if r['mode'] == 'gateway']")
+for want_exit in hg-exit-na1 hg-exit-as1 hg-exit-homelab; do
+  echo "$EXITS" | grep -q "^$want_exit " && pass "$want_exit exists" || fail "$want_exit missing (exits: $(echo $EXITS))"
+done
+read -r OLM_ID OLM_SECRET CID < <(docker compose exec -T -e EMAIL="$ADMIN_EMAIL" -e PW="$ADMIN_PW" node-na1 sh -c '
+  B=http://127.0.0.1:3000/api/v1; H="X-CSRF-Token: x-csrf-protection"; J="Content-Type: application/json"; C=/tmp/verify-exit-cookies
+  printf "{\"email\":\"%s\",\"password\":\"%s\"}" "$EMAIL" "$PW" | curl -s -c $C -H "$H" -H "$J" --data @- $B/auth/login >/dev/null
+  D=$(curl -s -b $C -H "$H" $B/org/homegap/pick-client-defaults)
+  OID=$(echo "$D" | sed -E "s/.*\"olmId\":\"([^\"]+)\".*/\1/"); OS=$(echo "$D" | sed -E "s/.*\"olmSecret\":\"([^\"]+)\".*/\1/"); SUB=$(echo "$D" | sed -E "s/.*\"subnet\":\"([^\"]+)\".*/\1/")
+  R=$(curl -s -b $C -X PUT -H "$H" -H "$J" -d "{\"name\":\"verify-exit\",\"olmId\":\"$OID\",\"secret\":\"$OS\",\"subnet\":\"$SUB\",\"type\":\"olm\"}" $B/org/homegap/client)
+  CID=$(echo "$R" | sed -nE "s/.*\"clientId\":([0-9]+).*/\1/p")
+  curl -s -b $C -X POST -H "$H" $B/client/$CID/add-role/1 >/dev/null
+  rm -f $C
+  echo "$OID $OS $CID"')
+if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
+  NET=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$(docker compose ps -q viewer)")
+  docker rm -f hg-verify-exit >/dev/null 2>&1
+  docker run -d --name hg-verify-exit --network "$NET" --cap-add NET_ADMIN --device /dev/net/tun -e SSL_CERT_FILE=/certs/ca.pem \
+    -v "$PWD/work/certs:/certs:ro" --add-host pangolin.test.example.net:172.30.0.10 docker.io/fosrl/olm:1.10.1 \
+    --id "$OLM_ID" --secret "$OLM_SECRET" --endpoint https://pangolin.test.example.net --enable-api --http-addr 127.0.0.1:9452 >/dev/null
+  olm() { docker run --rm --network container:hg-verify-exit --entrypoint curl homegap:e2e -s -H 'Content-Type: application/json' "$@"; }
+  for _ in $(seq 1 24); do
+    [ "$(olm http://127.0.0.1:9452/status | python3 -c "import json,sys; d=json.load(sys.stdin); print(sum(1 for p in d.get('peers', {}).values() if p.get('connected')))" 2>/dev/null)" -ge 4 ] 2>/dev/null && break; sleep 5
+  done
+  # No direct way out: only the tunnel (and the path to the node it uses) is left.
+  docker exec hg-verify-exit ip route del default
+  forwarded() { docker compose exec -T "node-$1" sh -c 'docker logs homegap-exit-newt-1 2>&1 | grep -c "dst=1.1.1.1:80"'; }
+  while read -r nice rid sites <&3; do
+    [ -n "$nice" ] || continue
+    before_na1=$(forwarded na1); before_as1=$(forwarded as1)
+    olm --data "{\"siteResourceId\":$rid,\"siteIds\":[$sites]}" http://127.0.0.1:9452/gateway/select >/dev/null
+    sleep 4
+    out=$(docker exec hg-verify-exit wget -qO- -T 10 http://1.1.1.1/cdn-cgi/trace 2>&1 | grep -c '^ip=')
+    d_na1=$(( $(forwarded na1) - before_na1 )); d_as1=$(( $(forwarded as1) - before_as1 ))
+    case "$nice" in
+      hg-exit-na1) via=$([ "$d_na1" -gt 0 ] && [ "$d_as1" = 0 ] && echo ok) ;;
+      hg-exit-as1) via=$([ "$d_as1" -gt 0 ] && [ "$d_na1" = 0 ] && echo ok) ;;
+      *) via=$([ "$d_na1" = 0 ] && [ "$d_as1" = 0 ] && echo ok) ;;
+    esac
+    [ "$out" = 1 ] && [ "$via" = ok ] && pass "through $nice: internet reached, leaving from the right place" \
+      || fail "through $nice: reached=$out, forwarded by na1=$d_na1 as1=$d_as1"
+  done 3<<< "$EXITS"
+  docker rm -f hg-verify-exit >/dev/null 2>&1
+  docker compose exec -T -e K="$KEY" node-na1 sh -c "curl -s -o /dev/null -X DELETE -H \"Authorization: Bearer \$K\" http://127.0.0.1:3003/v1/client/$CID"
+fi
+fi
 
 echo
 [ "$FAILS" = 0 ] && echo "all cluster checks passed" || echo "$FAILS check(s) failed"

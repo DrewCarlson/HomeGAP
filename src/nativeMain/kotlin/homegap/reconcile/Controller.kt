@@ -1,5 +1,6 @@
 package homegap.reconcile
 
+import homegap.provision.ExitNodes
 import homegap.VERSION
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -264,6 +265,8 @@ class Controller(
             // 2-4. Node lifecycle, tunnels and resources, per node in parallel.
             val nodeRec = NodeReconciler(ctx, if (cfg.cluster != null) clusterRec else null) { trigger(it) }
             val tunnelRec = TunnelReconciler(ctx)
+            val exitRec = ExitReconciler(ctx)
+            val exitSites = mutableMapOf<String, String>()
             val resourceRec = ResourceReconciler(ctx)
             val health = mutableMapOf<String, Map<String, ServiceNodeHealthDto>>()
             // niceIds observed present on each node this pass (absent key = node not observed).
@@ -349,6 +352,7 @@ class Controller(
                             site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, slot) }
                             if (clustered) {
                                 if (site != null) synchronizedPut(readyNodes, node.id, ready to site)
+                                runDomain("exits", node.id) { exitRec.reconcile(ready) }?.let { synchronizedPut(exitSites, node.id, it) }
                             } else if (discoveryOk && site != null) {
                                 resources = runDomain("resources", node.id) { resourceRec.reconcile(ready, nd, pausedKeys) } ?: emptyList()
                                 if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()
@@ -375,7 +379,7 @@ class Controller(
                 val sites = readyNodes.mapValues { (_, v) -> v.second.niceId }
                 val via = cfg.nodes.first { it.id in readyNodes }.id
                 val actual = runDomain("resources", ResourceReconciler.CLUSTER_SCOPE) {
-                    resourceRec.reconcileCluster(readyNodes.getValue(via).first, effective.nodes, sites, pausedKeys)
+                    resourceRec.reconcileCluster(readyNodes.getValue(via).first, effective.nodes, sites, pausedKeys, ExitNodes.resources(cfg, exitSites, sites))
                 }
                 if (actual != null) for ((id, rs) in readyNodes) {
                     val (ready, site) = rs

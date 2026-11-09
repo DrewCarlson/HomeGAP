@@ -221,6 +221,10 @@ open class PangolinClient(
         return lenient.decodeFromJsonElement(arr)
     }
 
+    open suspend fun deleteSite(siteId: Int) {
+        send(HttpMethod.Delete, "/site/$siteId", null)
+    }
+
     open suspend fun deleteSiteResource(siteResourceId: Int) {
         send(HttpMethod.Delete, "/site-resource/$siteResourceId", null)
     }
