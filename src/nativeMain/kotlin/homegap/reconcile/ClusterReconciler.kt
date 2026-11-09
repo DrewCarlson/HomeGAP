@@ -27,11 +27,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
 
@@ -92,11 +87,6 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         if (pg != null) ready = pg.filter { (it.role == "leader" && it.state == "running") || it.state == "streaming" }.map { it.name }.toSet()
         val initialized = Files.exists(initializedFile) ||
             (pg?.any { it.role == "leader" } == true).also { if (it) Files.writeAtomic(initializedFile, "") }
-        if (pg?.any { it.role == "leader" } == true && !ctx.dryRun) {
-            runCatching { ensureParameters(ctx, patroni, restUrl(homelab)) }
-                .onFailure { if (it is CancellationException) throw it; report(ctx, "parameters", "PostgreSQL settings: ${it.message}") }
-                .onSuccess { report(ctx, "parameters", null) }
-        }
 
         if (etcdMembers != null) {
             removeDeparted(ctx, etcd, etcdMembers, nodeMembers.map { it.second })
@@ -189,21 +179,6 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         Files.writeAtomic(historyFile, historyJson.encodeToString(ListSerializer(PrimaryChangeDto.serializer()), next))
     }
 
-    /**
-     * Brings Patroni's dynamic configuration in line with [ClusterTemplates.DYNAMIC_PARAMETERS]
-     * (new clusters start with them; existing ones get them here). Members apply it by reload.
-     * Connections opened before the change keep what they loaded until Pangolin's pool replaces them.
-     */
-    private suspend fun ensureParameters(ctx: ReconcileContext, patroni: PatroniClient, url: String) {
-        val current = patroni.dynamicConfig(url)["postgresql"]?.jsonObject?.get("parameters")?.jsonObject
-        val missing = ClusterTemplates.DYNAMIC_PARAMETERS.filter { (k, v) -> current?.get(k)?.jsonPrimitive?.content != v }
-        if (missing.isEmpty()) return
-        patroni.patchConfig(url, buildJsonObject {
-            putJsonObject("postgresql") { putJsonObject("parameters") { missing.forEach { (k, v) -> put(k, v) } } }
-        })
-        ctx.log.change(domain, "set PostgreSQL ${missing.entries.joinToString { "${it.key}=${it.value}" }} on every member")
-    }
-
     // ------------------------------------------------------------------ departed nodes
 
     private var exitPrunedAt = 0L
@@ -290,12 +265,12 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             write("$configDir/etcd.env", ClusterTemplates.etcdEnv(homelab, listOf(homelab), "new"))
             ctx.log.change(domain, "started the cluster vote (first etcd member)", Mesh.HOMELAB)
         }
-        val patroniChanged = write("$configDir/patroni.yml", ClusterTemplates.patroni(homelab, cluster.mesh, secrets))
+        // The homelab's db container notices a changed patroni.yml itself and has Patroni re-read it.
+        if (write("$configDir/patroni.yml", ClusterTemplates.patroni(homelab, cluster.mesh, secrets))) {
+            ctx.log.change(domain, "updated Patroni settings (applied by reload within seconds)", Mesh.HOMELAB)
+        }
         write("$configDir/valkey.env", ClusterTemplates.valkeyEnv(homelab, secrets, PREFERRED_PRIORITY, homelab.meshIp, members.map { it.meshIp }))
         write("$configDir/sentinel.conf", ClusterTemplates.sentinel(homelab, homelab.meshIp, secrets))
-        if (patroniChanged) {
-            runCatching { PatroniClient(http, ClusterTemplates.REST_USER, secrets.rest).reload(restUrl(homelab)) }
-        }
     }
 
     /** Writes [content] to [path] when it differs; returns whether it changed. */
@@ -325,12 +300,11 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val patroniYml = ClusterTemplates.patroni(member, cluster.mesh, secrets)
         val valkeyEnv = ClusterTemplates.valkeyEnv(member, secrets, NODE_PRIORITY, homelabIp, members.map { it.meshIp })
         val sentinelConf = ClusterTemplates.sentinel(member, homelabIp, secrets)
-        val haproxyCfg = ClusterTemplates.haproxy(members, secrets)
+        val haproxyCfg = ClusterTemplates.haproxy(members, secrets, member.id)
         val probeTargets = MeshProbe.targets(member.id, members)
         val compose = ClusterTemplates.nodeCompose(
             cluster.image,
             mapOf(
-                "db" to hash(patroniYml),
                 // The Sentinel list only matters at start; growing it must not restart Valkey.
                 "valkey" to hash(valkeyEnv.lines().filterNot { it.startsWith("HG_SENTINELS=") }.joinToString("\n")),
                 "sentinel" to hash(sentinelConf),
@@ -348,11 +322,14 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine("install -d -m 0700 \"\$B/config\"")
             appendLine(fileStep("$base/config/mesh.env", ClusterTemplates.meshEnv(member)))
             appendLine(fileStep("$base/config/etcd.env", ClusterTemplates.etcdEnv(member, initial, "existing"), writeOnce = true))
-            appendLine(fileStep("$base/config/patroni.yml", patroniYml))
+            // Patroni settings are reloaded, never a reason to restart the database.
+            appendLine("PATRONI=no")
+            appendLine(fileStep("$base/config/patroni.yml", patroniYml).replace("CHANGED=yes", "CHANGED=yes; PATRONI=yes"))
             appendLine(fileStep("$base/config/valkey.env", valkeyEnv))
             appendLine(fileStep("$base/config/sentinel.conf", sentinelConf))
             appendLine(fileStep("$base/config/haproxy.cfg", haproxyCfg))
-            appendLine(fileStep("$base/config/probe.sh", MeshProbe.SCRIPT))
+            appendLine(fileStep("$base/config/probe.py", MeshProbe.SCRIPT))
+            appendLine("rm -f \"\$B/config/probe.sh\"")
             appendLine(fileStep("$base/config/probe.targets", probeTargets))
             appendLine(fileStep("$base/compose.yml", compose, mode = "0644"))
             appendLine(SshSession.ownInstallDir(ctx.config.pangolin.installDir))
@@ -361,6 +338,9 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             appendLine("RUNNING=\$(docker compose ps --services --status running 2>/dev/null | sort | tr '\\n' ' ')")
             appendLine("WANT=\$(printf '%s\\n' $wanted | sort | tr '\\n' ' ')")
             appendLine("if [ \"\$CHANGED\" = yes ] || [ \"\$RUNNING\" != \"\$WANT\" ]; then docker compose up -d --remove-orphans $wanted >/dev/null 2>&1 || docker compose up -d --remove-orphans $wanted; echo \"CHANGED cluster member running: $wanted\"; fi")
+            // The member's image copies patroni.yml in at start (and, in newer images, on change):
+            // copy it now and have Patroni re-read it.
+            appendLine("if [ \"\$PATRONI\" = yes ] && [ -n \"\$(docker compose ps -q --status running db 2>/dev/null)\" ]; then docker compose exec -T db sh -c ${shQuote(ClusterTemplates.PATRONI_RELOAD)} && echo 'CHANGED reloaded Patroni settings'; fi")
         }
         val ssh = ctx.ssh.session(node)
         val out = ssh.runScriptOrThrow("cluster", "CHANGED=no\n$script", 900)
@@ -510,11 +490,11 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         when {
             error != null && error != previous -> {
                 lastErrors[id] = error
-                ctx.log.error(domain, error, id.takeIf { it != "etcd" && it != "parameters" })
+                ctx.log.error(domain, error, id.takeIf { it != "etcd" })
             }
             error == null && previous != null -> {
                 lastErrors.remove(id)
-                ctx.log.info(domain, "recovered", id.takeIf { it != "etcd" && it != "parameters" })
+                ctx.log.info(domain, "recovered", id.takeIf { it != "etcd" })
             }
         }
     }

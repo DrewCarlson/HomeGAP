@@ -23,8 +23,10 @@ data class MeshMemberRow(
     val status: Badge,
     val error: String?,
     val peers: List<Badge>,
-    /** This member's probe of each other member (empty without a probe, e.g. the homelab). */
+    /** This member's probe of each other member from the host (empty without a probe, e.g. the homelab). */
     val probes: List<Badge> = emptyList(),
+    /** The same from inside its Docker network, where Pangolin's database traffic starts. */
+    val containerProbes: List<Badge> = emptyList(),
 )
 
 /** Over half a percent lost, or any outage in the window, needs a look; over 5 % is broken. */
@@ -80,8 +82,10 @@ fun MeshStatusDto.toPanelModel(now: Long): MeshPanelModel {
             peers.any { it.health == Health.OK } -> Badge(Health.DEGRADED, "partial")
             else -> Badge(Health.DOWN, "disconnected")
         }
-        val probes = ids.filter { it != member.id }.mapNotNull { other -> byId[other]?.probe?.let { probeBadge(other, it, now) } }
-        MeshMemberRow(member.id, member.address, status, member.error, peers, probes)
+        val others = ids.filter { it != member.id }
+        val probes = others.mapNotNull { other -> byId[other]?.probe?.let { probeBadge(other, it, now) } }
+        val containerProbes = others.mapNotNull { other -> byId[other]?.containerProbe?.let { probeBadge(other, it, now) } }
+        MeshMemberRow(member.id, member.address, status, member.error, peers, probes, containerProbes)
     }
     return MeshPanelModel(subnet, rows)
 }

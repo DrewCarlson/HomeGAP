@@ -54,6 +54,14 @@ case "$ROLE" in
     install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/data
     install -o postgres -g postgres -m 0600 "$CONFIG/patroni.yml" /tmp/patroni.yml
     if [ -n "${HG_BACKUP_DIR:-}" ]; then backup_loop & fi
+    # Settings changes apply without a restart: Patroni (PID 1 below) re-reads its copy on SIGHUP.
+    (
+      while sleep 10; do
+        if [ -s "$CONFIG/patroni.yml" ] && ! cmp -s "$CONFIG/patroni.yml" /tmp/patroni.yml; then
+          install -o postgres -g postgres -m 0600 "$CONFIG/patroni.yml" /tmp/patroni.yml && kill -HUP 1
+        fi
+      done
+    ) &
     exec gosu postgres patroni /tmp/patroni.yml
     ;;
   valkey)

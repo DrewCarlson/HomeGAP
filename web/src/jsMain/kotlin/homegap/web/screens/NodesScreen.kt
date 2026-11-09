@@ -84,7 +84,7 @@ private const val SWITCH_CONFIRM = "Make @ID@ the database primary now? Writes p
 @Composable
 private fun MeshPanel(mesh: MeshPanelModel) {
     Panel("Cluster mesh", "Private WireGuard links between the homelab and every node (${mesh.subnet})") {
-        DataTable(listOf("Member", "Address", "Status", "Last handshake with", "Probe (last hour)"), "No members yet.", mesh.members.isEmpty()) {
+        DataTable(listOf("Member", "Address", "Status", "Last handshake with", "Host probe (last hour)", "Container probe (last hour)"), "No members yet.", mesh.members.isEmpty()) {
             mesh.members.forEach { member ->
                 key(member.id) {
                     Tr {
@@ -97,13 +97,17 @@ private fun MeshPanel(mesh: MeshPanelModel) {
                         Cell("Last handshake with") {
                             Div({ classes("inline-row") }) { member.peers.forEach { Pill(it, small = true) } }
                         }
-                        Cell("Probe (last hour)") {
-                            if (member.probes.isEmpty()) Muted("—")
-                            else Div({ classes("inline-row") }) { member.probes.forEach { Pill(it, small = true) } }
-                        }
+                        Cell("Host probe (last hour)") { ProbePills(member.probes) }
+                        Cell("Container probe (last hour)") { ProbePills(member.containerProbes) }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ProbePills(probes: List<homegap.presentation.common.Badge>) {
+    if (probes.isEmpty()) Muted("—")
+    else Div({ classes("inline-row") }) { probes.forEach { Pill(it, small = true) } }
 }

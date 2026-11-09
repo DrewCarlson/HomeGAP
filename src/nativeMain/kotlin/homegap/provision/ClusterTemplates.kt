@@ -75,13 +75,16 @@ object ClusterTemplates {
     }
 
     /**
-     * PostgreSQL settings every member runs with, kept in Patroni's dynamic configuration (applied
-     * by reload, no restart) and set by the orchestrator once the cluster has a primary, rather
-     * than in patroni.yml, where a change would restart every member. JIT compilation is off: Pangolin's queries are small lookups, and a
-     * connection that JIT-compiles one loads LLVM and keeps about 40 MB for the rest of its life,
-     * with up to 30 pooled connections per node.
+     * A member's Patroni settings. A change is applied by asking Patroni to reload the file (it
+     * restarts nothing; a setting that needs a PostgreSQL restart shows as pending).
+     *
+     * `postgresql.parameters` are this member's PostgreSQL settings. JIT compilation is off:
+     * Pangolin's queries are small lookups, and a connection that JIT-compiles one loads LLVM and
+     * keeps about 40 MB for the rest of its life, with up to 30 pooled connections per node.
      */
-    val DYNAMIC_PARAMETERS = mapOf("jit" to "off")
+    /** Run in a member's `db` container: copies in its patroni.yml and has Patroni (PID 1) re-read it. */
+    const val PATRONI_RELOAD =
+        "install -o postgres -g postgres -m 0600 \"\${HG_CONFIG:-/config}/patroni.yml\" /tmp/patroni.yml && kill -HUP 1"
 
     fun patroni(member: Member, mesh: MeshConfig, secrets: ClusterSecrets): String = """
         |# Managed by HomeGAP: this member's PostgreSQL, run by Patroni.
@@ -115,6 +118,8 @@ object ClusterTemplates {
         |  data_dir: /var/lib/postgresql/data/pgdata
         |  bin_dir: /usr/lib/postgresql/17/bin
         |  pgpass: /tmp/pgpass
+        |  parameters:
+        |    jit: "off"
         |  authentication:
         |    superuser: { username: postgres, password: "${secrets.postgres}" }
         |    replication: { username: replicator, password: "${secrets.replication}" }
@@ -154,7 +159,7 @@ object ClusterTemplates {
         |""".trimMargin()
 
     /** Stable addresses for the current primaries; connections to a demoted member are cut. */
-    fun haproxy(members: List<Member>, secrets: ClusterSecrets): String = buildString {
+    fun haproxy(members: List<Member>, secrets: ClusterSecrets, self: String? = null): String = buildString {
         appendLine("# Managed by HomeGAP: the current PostgreSQL and Valkey primaries, wherever they are.")
         appendLine("global")
         appendLine("  maxconn 2000")
@@ -191,6 +196,8 @@ object ClusterTemplates {
         appendLine()
         // Read by the orchestrator over SSH (published on the node's loopback only).
         append(ClusterProxy.STATS_CONFIG)
+        appendLine()
+        append(MeshProbe.containerBackend(members.filter { it.id != self }))
     }
 
     /**
@@ -247,7 +254,7 @@ object ClusterTemplates {
             |        aliases: [$PROXY_HOST]
             |  ${MeshProbe.SERVICE}:
             |    image: $image
-            |    entrypoint: [bash, /config/probe.sh]
+            |    entrypoint: [python3, -u, /config/probe.py]
             |    network_mode: host
             |    restart: unless-stopped
             |    stop_grace_period: 2s${label(MeshProbe.SERVICE)}

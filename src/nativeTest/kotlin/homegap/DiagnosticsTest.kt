@@ -75,7 +75,10 @@ class DiagnosticsTest {
 
     @Test
     fun theProbeScriptParsesAndItsReadingsBecomeLossAndOutages() {
-        bashSyntax(MeshProbe.SCRIPT)
+        runBlocking {
+            val r = Subprocess.run(listOf("python3", "-c", "import ast,sys; ast.parse(sys.stdin.read())"), stdin = MeshProbe.SCRIPT)
+            assertEquals(0, r.exitCode, r.stderr)
+        }
         val members = listOf(ClusterTemplates.Member("homelab", "10.77.0.1"), ClusterTemplates.Member("na1", "10.77.0.10"), ClusterTemplates.Member("as1", "10.77.0.11"))
         assertEquals("homelab 10.77.0.1\nas1 10.77.0.11\n", MeshProbe.targets("na1", members))
 
@@ -113,5 +116,63 @@ class DiagnosticsTest {
         assertTrue("region NOT IN ('na1','as1')" in sql, sql)
         assertTrue("type = 'gerbil'" in sql && "region IS NOT NULL" in sql)
         assertEquals(listOf(7 to "old1"), ClusterReconciler.Departed.parseDeleted("7 old1\n\nDELETE 1\n"))
+    }
+
+    @Test
+    fun theContainerProbeChecksEveryOtherMemberFromHaproxy() {
+        val members = listOf(ClusterTemplates.Member("homelab", "10.77.0.1"), ClusterTemplates.Member("na1", "10.77.0.10"), ClusterTemplates.Member("as1", "10.77.0.11"))
+        val cfg = ClusterTemplates.haproxy(members, homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest"), self = "na1")
+        val probe = cfg.substringAfter("backend mesh-probe")
+        assertTrue("server homelab 10.77.0.1:2379 check" in probe && "server as1 10.77.0.11:2379 check" in probe, probe)
+        assertFalse("server na1" in probe, "not itself")
+        assertTrue("inter 1s fall 3" in probe)
+    }
+
+    @Test
+    fun haproxyStatsAndLogBecomeProbeReadings() {
+        val now = 1_794_225_000_000L
+        val text = """
+            |C # pxname,svname,qcur,status,chkfail,chkdown,lastchg,downtime,check_duration
+            |C mesh-probe,homelab,0,UP,4,1,600,15,237
+            |C mesh-probe,as1,0,DOWN,0,1,20,20,
+            |C mesh-probe,BACKEND,0,UP,,1,600,0,
+            |L haproxy-1  | 2026-11-09T11:00:00.500000000Z [WARNING]  (8) : Server mesh-probe/homelab is DOWN, reason: Layer4 timeout
+            |L haproxy-1  | 2026-11-09T11:00:15.000000000Z [WARNING]  (8) : Server mesh-probe/homelab is UP, reason: Layer4 check passed
+            |""".trimMargin()
+        val out = MeshProbe.parseContainer(text, now)
+        val homelab = out.readings.getValue("homelab")
+        assertEquals(237_000, homelab.rttMicros)
+        assertEquals(19, homelab.lost, "failed checks plus seconds spent down")
+        assertNull(homelab.ongoingSince)
+        val as1 = out.readings.getValue("as1")
+        assertNull(as1.rttMicros)
+        assertEquals(now - 20_000 - 3_000, as1.ongoingSince, "down since its first missed check")
+        val start = kotlin.time.Instant.parse("2026-11-09T11:00:00.500Z").toEpochMilliseconds() - 3_000
+        val end = kotlin.time.Instant.parse("2026-11-09T11:00:15Z").toEpochMilliseconds()
+        assertEquals(listOf(Triple("homelab", start, end)), out.outages)
+
+        // Loss over the window comes from the counters' growth between passes.
+        val history = MeshProbe.History()
+        history.record("na1", out, now)
+        val later = MeshProbe.parseContainer(text.replace("UP,4,1,600,15,237", "UP,10,1,660,15,240"), now + 60_000)
+        assertEquals(10.0, history.record("na1", later, now + 60_000).getValue("homelab").lossPercent)
+    }
+
+    @Test
+    fun patroniRunsWithoutJit() {
+        val yml = ClusterTemplates.patroni(ClusterTemplates.Member("na1", "10.77.0.10"), homegap.config.MeshConfig(), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest"))
+        assertTrue("  parameters:\n    jit: \"off\"" in yml, yml)
+        assertFalse("org.homegap.config" in ClusterTemplates.nodeCompose("img", mapOf("valkey" to "x")).substringAfter("  db:").substringBefore("  valkey:"),
+            "a settings change reloads Patroni instead of recreating the database")
+        assertTrue("kill -HUP 1" in ClusterTemplates.PATRONI_RELOAD)
+    }
+
+    @Test
+    fun readingTheProbesNeverFailsTheMeshScript() = runBlocking {
+        // No HAProxy and no cluster directory here: both reads find nothing, under the node scripts' settings.
+        val script = "set -euo pipefail\n${MeshProbe.containerReadCmd("/nonexistent")}\n${MeshProbe.READ_CMD}\necho DONE"
+        val r = Subprocess.run(listOf("bash", "-s"), stdin = script)
+        assertEquals(0, r.exitCode, r.stderr)
+        assertTrue("DONE" in r.stdout)
     }
 }

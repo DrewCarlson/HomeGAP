@@ -88,22 +88,8 @@ class PatroniClient(private val http: HttpClient, user: String, password: String
     suspend fun switchover(baseUrl: String, leader: String, candidate: String) =
         post("$baseUrl/switchover", buildJsonObject { put("leader", leader); put("candidate", candidate) })
 
-    /** Re-reads the member's config file. */
-    suspend fun reload(baseUrl: String) = post("$baseUrl/reload", null)
-
-    /** The cluster's dynamic configuration (kept in etcd; every member applies it). */
-    suspend fun dynamicConfig(baseUrl: String): JsonObject {
-        val r = http.get("$baseUrl/config") { header(HttpHeaders.Authorization, auth); timeout { requestTimeoutMillis = 5_000 } }
-        check(r.status.isSuccess()) { "Patroni config: HTTP ${r.status.value}" }
-        return lenient.parseToJsonElement(r.bodyAsText()).jsonObject
-    }
-
-    /** Merges [patch] into the dynamic configuration; members reload it themselves. */
-    suspend fun patchConfig(baseUrl: String, patch: JsonObject) = post(baseUrl + "/config", patch, HttpMethod.Patch)
-
-    private suspend fun post(url: String, body: JsonObject?, method: HttpMethod = HttpMethod.Post) {
-        val r = http.request(url) {
-            this.method = method
+    private suspend fun post(url: String, body: JsonObject?) {
+        val r = http.post(url) {
             header(HttpHeaders.Authorization, auth)
             body?.let { contentType(ContentType.Application.Json); setBody(it.toString()) }
             timeout { requestTimeoutMillis = 60_000 }

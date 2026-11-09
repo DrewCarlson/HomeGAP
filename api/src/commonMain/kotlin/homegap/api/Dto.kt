@@ -304,8 +304,13 @@ data class MeshPeerDto(
     val lastHandshakeAt: Long? = null,
     val rxBytes: Long = 0,
     val txBytes: Long = 0,
-    /** The member's continuous probe of this peer's mesh address; null without one. */
+    /** The member's continuous probe of this peer's mesh address from the host; null without one. */
     val probe: MeshProbeDto? = null,
+    /**
+     * The same probe from inside the member's Docker network (HAProxy's checks), the path Pangolin's
+     * database traffic takes; null without one.
+     */
+    val containerProbe: MeshProbeDto? = null,
 )
 
 /**

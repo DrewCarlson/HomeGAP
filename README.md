@@ -443,13 +443,21 @@ On the homelab, the mesh interface lives in the `homegap-mesh` container's netwo
 (built into Linux 5.6 and later). The dashboard's **Nodes** page shows each member's last
 handshake with every other.
 
-**Each node probes the mesh.** A `probe` container in the node's cluster member opens a TCP
-connection to every other member's etcd port over the mesh once a second. The **Cluster mesh**
-panel shows, per node and peer, the latest round trip, the share of probes lost in the last hour,
-and each outage (three or more lost probes in a row) with when it happened and how long it lasted.
-A degraded pill means some loss or an outage in the hour; a red one means the peer isn't answering
-now. Readings are kept in `/run/homegap-probe` on the node, so they reset when it reboots. The
-homelab doesn't probe, but every node probes it.
+**Each node probes the mesh, two ways.** Once a second it opens a TCP connection to every other
+member's etcd port:
+
+- **From the host**, like etcd, Patroni and replication: a small `probe` container in the node's
+  cluster member, on the host's network. Readings are kept in `/run/homegap-probe` on the node,
+  so they reset when it reboots.
+- **From inside Docker's network**, like Pangolin's database and Valkey traffic, which also
+  crosses the `homegap-cluster` bridge and its address translation: HAProxy's checks.
+
+The **Cluster mesh** panel shows both per node and peer: the latest round trip, the share of
+probes lost in the last hour, and each outage (three or more lost probes in a row) with when it
+happened and how long it lasted. A degraded pill means some loss or an outage in the hour; a red
+one means the peer isn't answering now. If only the container column shows trouble, the link is
+fine and the problem is on that node's Docker side. The homelab doesn't probe, but every node
+probes it.
 
 ### Cluster database
 
@@ -476,8 +484,11 @@ also run the [mesh probe](#cluster-mesh).
 - **The vote needs a majority.** With the homelab and one node, losing either stops writes.
   Two or more nodes are needed for the cluster to keep working without the homelab.
 - **PostgreSQL runs without JIT compilation.** Pangolin only makes small lookups, and a
-  connection that JIT-compiles one keeps about 40 MB. HomeGAP sets this in Patroni's shared
-  configuration, which every member applies by reload, without a restart.
+  connection that JIT-compiles one keeps about 40 MB.
+- **Settings changes don't restart the database.** When HomeGAP changes a member's
+  `patroni.yml`, Patroni re-reads it; settings that need a PostgreSQL restart show as pending.
+  The homelab's `db` container picks up a changed file within ten seconds (with the current
+  `homegap-cluster` image).
 - **Passwords are generated once** and kept in `cluster/secrets.json` in the data directory.
 - **The homelab member keeps backups.** It writes a nightly `pg_dump` to `./backups` next to the
   homelab compose file and keeps the newest seven.

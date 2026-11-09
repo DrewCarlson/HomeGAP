@@ -31,8 +31,9 @@ class MeshReconciler(private val homelab: HomelabMesh) {
     private val lastErrors = mutableMapOf<String, String>()
 
     private val probes = MeshProbe.History()
+    private val containerProbes = MeshProbe.History()
 
-    private class NodeResult(val peers: List<Mesh.PeerStatus>?, val error: String?, val probe: Map<String, MeshProbeDto> = emptyMap())
+    private class NodeResult(val peers: List<Mesh.PeerStatus>?, val error: String?, val probe: Map<String, MeshProbeDto> = emptyMap(), val containerProbe: Map<String, MeshProbeDto> = emptyMap())
 
     suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>): MeshStatusDto? {
         val mesh = ctx.config.cluster?.mesh ?: return null
@@ -84,7 +85,8 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             members.forEach { n -> ctx.state.node(n.id).meshPublicKey?.let { put(it, n.id) } }
         }
         probes.retain(members.map { it.id }.toSet() + Mesh.HOMELAB)
-        fun view(id: String, address: String, peers: List<Mesh.PeerStatus>?, error: String?, probe: Map<String, MeshProbeDto> = emptyMap()) = MeshMemberDto(
+        containerProbes.retain(members.map { it.id }.toSet() + Mesh.HOMELAB)
+        fun view(id: String, address: String, peers: List<Mesh.PeerStatus>?, error: String?, probe: Map<String, MeshProbeDto> = emptyMap(), containerProbe: Map<String, MeshProbeDto> = emptyMap()) = MeshMemberDto(
             id = id,
             address = address,
             error = error,
@@ -96,13 +98,14 @@ class MeshReconciler(private val homelab: HomelabMesh) {
                     rxBytes = p.rxBytes,
                     txBytes = p.txBytes,
                     probe = names[p.publicKey]?.let { probe[it] },
+                    containerProbe = names[p.publicKey]?.let { containerProbe[it] },
                 )
             }.sortedBy { it.id },
         )
         return MeshStatusDto(
             subnet = mesh.subnet,
             members = listOf(view(Mesh.HOMELAB, homelabAddress, homelabPeers, homelabError)) +
-                members.map { n -> results[n.id].let { r -> view(n.id, addresses.getValue(n.id), r?.peers, r?.error, r?.probe.orEmpty()) } },
+                members.map { n -> results[n.id].let { r -> view(n.id, addresses.getValue(n.id), r?.peers, r?.error, r?.probe.orEmpty(), r?.containerProbe.orEmpty()) } },
         )
     }
 
@@ -111,7 +114,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         return try {
             val ssh = ctx.ssh.session(node)
             val script = (if (paused) READ_ONLY else Mesh.nodeScript(mesh, address, Mesh.nodeConfig(mesh, address, peers), node.firewall)) +
-                "\necho PROBE-BEGIN; ${MeshProbe.READ_CMD}; echo PROBE-END"
+                "\necho PROBE-BEGIN; ${MeshProbe.READ_CMD}; echo PROBE-END; echo CPROBE-BEGIN; ${MeshProbe.containerReadCmd(ctx.config.pangolin.installDir)}; echo CPROBE-END"
             val r = ssh.runScript(script, 300)
             if (!r.ok) throw IllegalStateException(r.stderr.trim().ifEmpty { r.stdout.trim() }.takeLast(400).ifEmpty { "exit ${r.exitCode}" })
             r.stdout.lines().filter { it.startsWith("CHANGED ") }.forEach { ctx.log.change(domain, it.removePrefix("CHANGED "), node.id) }
@@ -123,7 +126,13 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             }
             report(ctx, node.id, null)
             val probeText = r.stdout.substringAfter("PROBE-BEGIN", "").substringBefore("PROBE-END")
-            NodeResult(Mesh.parseDump(Mesh.dumpSection(r.stdout)), null, probes.record(node.id, MeshProbe.parse(probeText), nowMillis()))
+            val containerText = r.stdout.substringAfter("CPROBE-BEGIN", "").substringBefore("CPROBE-END")
+            val now = nowMillis()
+            NodeResult(
+                Mesh.parseDump(Mesh.dumpSection(r.stdout)), null,
+                probes.record(node.id, MeshProbe.parse(probeText), now),
+                containerProbes.record(node.id, MeshProbe.parseContainer(containerText, now), now),
+            )
         } catch (e: Exception) {
             if (e is CancellationException) currentCoroutineContext().ensureActive()
             val message = e.message ?: e.toString()
