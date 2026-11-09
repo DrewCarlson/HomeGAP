@@ -104,7 +104,9 @@ class TemplatesTest {
         val node = cfg.node("na1")!!
         val files = NodeTemplates.staticFiles(cfg, node, secrets, nd.rawPorts, 0)
         val compose = files.single { it.path == "compose.yml" }.content
+        // Standalone nodes have no cluster image, so they pull one just for the page.
         assertTrue("docker.io/library/python:3.13-alpine" in compose)
+        assertTrue("network_mode: \"service:gerbil\"" in compose.substringAfter("  maintenance:"))
         assertTrue("./config/maintenance:/maintenance:ro" in compose && "./config/traefik/dynamic:/dynamic" in compose)
         val page = files.single { it.path == "config/maintenance/index.html" }.content
         assertFalse("<script" in page.lowercase(), "the page is static HTML and CSS")

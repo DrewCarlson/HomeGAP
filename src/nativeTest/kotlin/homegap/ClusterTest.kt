@@ -126,6 +126,17 @@ class ClusterTest {
     }
 
     @Test
+    fun clusteredNodesRunTheMaintenancePageFromTheClusterImage() {
+        val cfg = testConfig().copy(cluster = ClusterConfig(image = "example/cluster:7"))
+        val nodeSecrets = NodeSecrets("t".repeat(32), "server", "admin@test.example.net", "pw", "bk", cluster = true)
+        val files = NodeTemplates.staticFiles(cfg, cfg.node("na1")!!, nodeSecrets, emptyList(), 0, ClusterLink("10.77.0.10", secrets))
+        val page = files.single { it.path == "compose.yml" }.content.substringAfter("  maintenance:").substringBefore("\n  traefik:")
+        assertTrue("image: \"example/cluster:7\"" in page, "no extra image on a clustered node")
+        assertFalse("python:3.13-alpine" in page)
+        assertTrue("entrypoint:" in page && "\"/maintenance/server.py\"" in page, "replaces the cluster image's hg-member entrypoint")
+    }
+
+    @Test
     fun clusterStackSharesTheDatabaseAndKeepsGerbilOffThePublicInternet() {
         val cfg = testConfig()
         val node = cfg.node("na1")!!

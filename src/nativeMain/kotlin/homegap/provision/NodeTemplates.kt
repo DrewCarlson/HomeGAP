@@ -154,7 +154,9 @@ object NodeTemplates {
                     }
                 }
                 putJsonObject(MaintenancePage.SERVICE) {
-                    put("image", p.maintenanceImage)
+                    // A clustered node already has the cluster image (with Python); only a
+                    // standalone node pulls an image just for the page.
+                    put("image", config.cluster?.takeIf { cluster != null }?.image ?: p.maintenanceImage)
                     put("container_name", "homegap-maintenance")
                     put("restart", "unless-stopped")
                     put("stop_grace_period", "2s")
@@ -162,7 +164,7 @@ object NodeTemplates {
                     // Traefik (also in it) reaches the page on loopback.
                     put("network_mode", "service:gerbil")
                     putJsonObject("depends_on") { putJsonObject("gerbil") { put("condition", "service_started") } }
-                    putJsonArray("command") { add("python3"); add("-u"); add("/maintenance/server.py") }
+                    putJsonArray("entrypoint") { add("python3"); add("-u"); add("/maintenance/server.py") }
                     putJsonArray("volumes") {
                         add("./${MaintenancePage.DIR}:/maintenance:ro")
                         add("./config/traefik/dynamic:/dynamic")
