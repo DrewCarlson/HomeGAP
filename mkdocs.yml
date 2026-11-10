@@ -10,11 +10,8 @@ copyright: 'Copyright &copy; 2026 HomeGAP Maintainers'
 # Built with Zensical, which reads this file (zensical build).
 strict: true
 
-# Design notes kept beside the docs, not part of the site.
 exclude_docs: |
   requirements.txt
-  clustered-pangolin-plan.md
-  map-plan.md
 
 theme:
   name: material

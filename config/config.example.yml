@@ -28,9 +28,12 @@ pangolin:
   org_id: homegap
   # Pangolin EE license (free below the commercial threshold). Required for wildcard
   # resources in `terminate` mode; passthrough works without it.
-  # Keys are bound to ONE Pangolin instance on first activation: every node (and the primary)
-  # needs its own key. Set one per node with nodes[].license_key_env; this default only suits
-  # a single-node setup.
+  # A key is bound to ONE Pangolin instance when it is first activated.
+  # - With `cluster:`, every node is one Pangolin: this one key covers them all, and per-node
+  #   keys are ignored.
+  # - Without it, each node needs its own key (nodes[].license_key_env); this default only
+  #   suits a single node.
+  # See https://drewcarlson.github.io/HomeGAP/latest/configuration/licenses/
   # license_key_env: PANGOLIN_LICENSE_KEY
   crowdsec: false
   # base_blueprint: /config/blueprints/base.yml
@@ -69,7 +72,8 @@ nodes:
     ssh_key_file: /secrets/ssh/na1
     license_key_env: PANGOLIN_LICENSE_KEY_NA1
     # Optional: allow SSH through the firewall only from these sources. Locks the orchestrator
-    # out if its public IP leaves the list; see "Adding a node" in the README.
+    # out if its public IP leaves the list; see
+    # https://drewcarlson.github.io/HomeGAP/latest/getting-started/add-node/#4-firewall
     # ssh_allow_from: [198.51.100.0/24]
     location: { latitude: 45.5, longitude: -73.6, name: "Montreal, Quebec" }
   - id: as1
@@ -82,7 +86,7 @@ nodes:
     license_key_env: PANGOLIN_LICENSE_KEY_AS1
     location: { latitude: 19.1, longitude: 72.9, name: Mumbai }
 
-# Tunnel tuning (see README "Performance").
+# Tunnel tuning; see https://drewcarlson.github.io/HomeGAP/latest/operations/performance/
 tunnels:
   mtu: 1420
   # Kernel WireGuard for Newt; the tunnels container needs NET_ADMIN and /dev/net/tun.
