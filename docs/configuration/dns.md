@@ -41,7 +41,7 @@ In practice, failover takes approximately 1 to 5 minutes: the health interval, p
 | --- | --- | --- |
 | `<domain>` | `root` | A geo record set. |
 | `*.<domain>` | `wildcard` | A geo record set, only with `homegap.wildcard`. |
-| Each public dedicated hostname | `service:<key>` | A geo record set. |
+| Each public dedicated hostname | `service:<key>` | One geo record set for each hostname, also when several raw services share it. The key is the key of the first service. |
 | `pangolin.<domain>` | `client` | In cluster mode, a geo record set with all nodes. |
 | `speedtest.<domain>` | `speedtest` | A geo record set, only without a wildcard. |
 | `speedtest-<node>.<domain>` | `speedtest` | A plain record for each node. |
@@ -51,7 +51,7 @@ In practice, failover takes approximately 1 to 5 minutes: the health interval, p
 
 HomeGAP creates A records, and AAAA records for nodes with `public_ipv6`.
 
-A record set includes only the nodes that serve the service (`homegap.regions`). If a node refuses the wildcard (`terminate` without EE), HomeGAP leaves it out of the wildcard set. When you remove a node, HomeGAP first removes it from DNS.
+A record set includes only the nodes that serve the service (`homegap.regions`). For a shared hostname, it includes every node that serves any of its services. If a node refuses the wildcard (`terminate` without EE), HomeGAP leaves it out of the wildcard set. When you remove a node, HomeGAP first removes it from DNS.
 
 ## Ownership of records
 

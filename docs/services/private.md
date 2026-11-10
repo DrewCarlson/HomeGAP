@@ -8,7 +8,7 @@ With `homegap.access: private`, the service becomes a Pangolin private resource 
 
 - The alias is the value of `homegap.expose`.
 - The destination is the value of `homegap.host`. The default is the container name.
-- The port is `homegap.port`, as `tcp-ports` or `udp-ports`.
+- The ports are the container ports from `homegap.port`, by protocol, as `tcp-ports` and `udp-ports`. For a raw service with a port list, a `public:` part has no effect here.
 
 A private service has no public DNS record and no public port.
 

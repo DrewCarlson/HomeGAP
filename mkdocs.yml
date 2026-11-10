@@ -96,6 +96,8 @@ nav:
       - Private services: services/private.md
       - Pangolin sign-in: services/authentication.md
       - Client addresses and private-only services: services/client-addresses.md
+      - Examples:
+          - Fluxer (chat and voice): services/examples/fluxer.md
   - Cluster mode:
       - cluster/index.md
       - Cluster mesh: cluster/mesh.md

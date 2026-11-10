@@ -1,6 +1,6 @@
 # Label reference
 
-This page lists every `homegap.*` label, with its values, its default and its rules.
+This page lists every `homegap.*` label, with its values, its default and its rules. It also tells you how to declare several services on one container.
 
 ## Values
 
@@ -12,10 +12,10 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 
 | Label | Values | Default | What it does |
 | --- | --- | --- | --- |
-| `homegap.expose` | A hostname. | None. This label is necessary. | Sets the hostname to expose, for example `app.example.net`, or the root `example.net`. HomeGAP changes it to lowercase. |
+| `homegap.expose` | A hostname. | None. Each service needs it. | Sets the hostname to expose, for example `app.example.net`, or the root `example.net`. HomeGAP changes it to lowercase. |
 | `homegap.wildcard` | Boolean. | `false` | On the root entry, also claims `*.<domain>`. |
-| `homegap.protocol` | `http`, `https`, `tcp`, `udp` | `http` | Sets the protocol of the service. |
-| `homegap.port` | 1 to 65535. | `443` for `https`, `80` for `http`. | Sets the port of the container. It is necessary for `tcp` and `udp`. |
+| `homegap.protocol` | `http`, `https`, `tcp`, `udp`, `tcp+udp` | `http`, or raw if the port list has protocols. | Sets the protocol of the service. For a raw service, it is the default protocol of the ports. |
+| `homegap.port` | A port from 1 to 65535. For raw services, a port list. | `443` for `https`, `80` for `http`. | Sets the port of the container. Raw services need it. See [Port lists](#port-lists). |
 | `homegap.tls` | `passthrough`, `terminate` | `passthrough` | With `passthrough`, the node sees only the SNI. With `terminate`, the node ends TLS, and Pangolin sign-in is possible. |
 | `homegap.regions` | Node ids, separated by commas. | `all` | Limits the service to these nodes, for example `na1,as1`. The value `all` or an empty value selects every node. |
 | `homegap.access` | `public`, `private` | `public` | With `private`, only the Pangolin client can reach the service. |
@@ -25,20 +25,20 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 ### Rules for the core labels
 
 - `homegap.expose` must be a valid hostname. It must be inside `domain`, or you get the error "... is outside the managed domain ...".
-- `homegap.wildcard` is valid only when `homegap.expose` is the root domain. It is an error on `tcp` and `udp` services.
+- `homegap.wildcard` is valid only when `homegap.expose` is the root domain. It is an error on raw services.
 - The node always terminates plain `http`. If you set `homegap.tls: passthrough` on an `http` service, you get the warning `plain-http services cannot be passed through; the node terminates TLS (tls=terminate)`.
-- On `tcp` and `udp` services, `homegap.tls` has no effect. HomeGAP gives a warning.
+- On raw services, `homegap.tls` has no effect. HomeGAP gives a warning.
 - An unknown node id in `homegap.regions` gives the warning "regions reference unknown node(s): ...".
 - `homegap.auth` needs `homegap.tls: terminate`. Without it, you get the error "...requires homegap.tls=terminate (the node cannot authenticate encrypted traffic)".
 - `homegap.auth: pin` needs `homegap.pin_env`.
-- Without `homegap.healthcheck`, Bunny still probes `/` through the front door. Raw UDP services ignore this label.
+- Without `homegap.healthcheck`, Bunny still probes `/` through the front door. On raw services, the label applies only to the TCP ports.
 
 ## Extension labels
 
 | Label | Default | What it does |
 | --- | --- | --- |
 | `homegap.host` | The container name. | Sets the host that the tunnel connects to. The container name must resolve on a network that the container shares with `tunnels`. |
-| `homegap.public_port` | The value of `homegap.port`. | Sets the public port on the nodes, for `tcp` and `udp` only. |
+| `homegap.public_port` | The value of `homegap.port`. | Sets the public port on the nodes, for a raw service with a single port. |
 | `homegap.roles` | None. | Lists the Pangolin roles, separated by commas, that can use `auth=sso`, a private resource or a private path. |
 | `homegap.pin_env` | None. | Names an environment variable on the orchestrator that holds the 6-digit PIN for `auth=pin`. |
 | `homegap.pause` | `false` | With `true`, HomeGAP keeps the Pangolin resources and DNS records of this service as they are. It observes them, but it never changes them. |
@@ -51,14 +51,65 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 ### Rules for the extension labels
 
 - `homegap.public_port` on an `http` or `https` service gives the warning "... only applies to tcp/udp".
-- The node uses these ports itself: `22`, `80`, `443`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `8080`, `21820` and `51820`. A public `tcp` or `udp` service cannot use them. The error is `public port N is reserved on nodes; set homegap.public_port`.
+- With more than one port, `homegap.public_port` is an error. Write `public:port` in `homegap.port` instead.
+- The node uses these ports itself: `22`, `80`, `443`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `8080`, `21820` and `51820`. A public raw service cannot use them as public ports. The error is `public port N is reserved on nodes; publish it on another port (public:port in homegap.port, or homegap.public_port)`. HomeGAP does not check private services, because they publish nothing on the nodes.
 - HomeGAP removes `Admin` from the roles that it sends to Pangolin, because Pangolin refuses it there. The `Admin` role can reach everything.
 - The PIN must be a number from 100000 to 999999. If there is no PIN, or the PIN is not valid, HomeGAP writes an error to the log.
-- `homegap.proxy_protocol` works only on `https` services in `passthrough` mode and on `tcp` services, and only on public services. See [Client addresses and private-only services](client-addresses.md).
+- `homegap.proxy_protocol` works only on `https` services in `passthrough` mode and on raw services with TCP ports, and only on public services. On a raw service, it applies only to the TCP ports. See [Client addresses and private-only services](client-addresses.md).
 - `homegap.private_network` works only on public `http` and `https` services.
 - `homegap.private_hosts` and `homegap.private_middleware` need `homegap.private_network`.
 - A name in `homegap.private_hosts` can be relative to the hostname of the service (`jellyfin`, `*.home`) or a full name. You can use `*` and `?`.
 - `homegap.private_middleware` compares the middleware without its `@provider` part. HomeGAP reads the routers from the Traefik API.
+
+## Port lists
+
+For a raw service, `homegap.port` takes a list of entries, separated by commas. Each entry has this form:
+
+```text
+[public:]port[/tcp|/udp|/tcp+udp]
+```
+
+| Entry | Meaning |
+| --- | --- |
+| `7881` | Port 7881, with the protocol from `homegap.protocol`. |
+| `7881/tcp` | Port 7881 on TCP. |
+| `3478/tcp+udp` | Port 3478 on TCP and on UDP. HomeGAP also reads `udp+tcp` as `tcp+udp`. |
+| `2222:22/tcp` | Public port 2222 on the nodes, to port 22 of the container, on TCP. |
+
+These rules apply:
+
+- A list with a protocol on an entry is a raw service, also without `homegap.protocol`. For example, `homegap.port: "7881/tcp, 7882/udp"` is enough.
+- `homegap.protocol` gives the protocol of the entries without their own protocol. With `tcp+udp`, each such port is on TCP and UDP. The protocol of an entry has priority.
+- Without `homegap.protocol`, each entry needs a protocol if one entry has one. Otherwise, you get the error `'<entry>' needs a protocol (/tcp, /udp or /tcp+udp), or set homegap.protocol`.
+- An `http` or `https` service takes only one port number. A list gives the error `must be one port number for http services`.
+- An entry that is not a port from 1 to 65535 gives an error with examples of valid entries.
+- The same public port and protocol twice in one service gives the error `is listed twice`.
+
+The protocol of the service is the sum of its ports: `tcp`, `udp` or `tcp+udp`. The **Services** page shows the port list in the protocol column, for example `7881/tcp, 7882/udp`. See [Raw TCP and UDP](raw-ports.md).
+
+## Named services
+
+One container can declare several services. Put the labels of each service under `homegap.services.<name>.`, for example `homegap.services.alt.expose` and `homegap.services.alt.port`. Every label works under this prefix, for example `tls`, `access`, `auth`, `healthcheck`, `proxy_protocol` and `private_network`.
+
+These rules apply:
+
+- The name has lowercase letters, digits and dashes. It starts and ends with a letter or a digit, and it has 31 characters or fewer (`^[a-z0-9]([a-z0-9-]{0,29}[a-z0-9])?$`).
+- Each named service needs its own `expose`. Without it, you get the error `services.<name>: homegap.expose is required`.
+- The top-level labels of the container are still a service of their own, when `homegap.expose` is set.
+- A named service takes these top-level labels as its defaults: `homegap.host`, `homegap.regions`, `homegap.access`, `homegap.roles` and `homegap.pause`. It can set its own values.
+- The errors and warnings of a named service start with `services.<name>:`. An error drops only that service. The other services of the container still publish.
+- An unknown label under a named service gives a warning with the full name of the label.
+- The key of a named service is `<host slug>--<name>`. HomeGAP uses this key for pause, on the dashboard and in the DNS purpose. The **Services** page shows the container as `<container> · <name>`.
+
+## Shared hostnames and ports
+
+When two services claim the same thing, the first container in the order of names wins. HomeGAP refuses the later one with an error:
+
+- Only one `http` or `https` service can use a hostname.
+- Raw services can share a hostname with each other, and with one `http` or `https` service. DNS has one record set for the hostname, on every node that serves any of these services.
+- Two top-level services on one hostname have the same key. HomeGAP refuses the second one with the error `...already claimed by <container>; give this service a name under homegap.services.`. Give the second service a name.
+- On the nodes that two public services share (by `homegap.regions`), only one service can use a public port and protocol. The error is `public port 7882/udp is already used by <container> (<name>)`. On different nodes, the same port is valid.
+- A raw service on the root domain is never the front door.
 
 ## Examples
 
@@ -94,4 +145,15 @@ game:
     homegap.protocol: "udp"
     homegap.port: "27015"
     homegap.regions: "eu1"
+```
+
+A voice server with a port list, and a named service on the same hostname with a different public port:
+
+```yaml
+rtc:
+  labels:
+    homegap.expose: "rtc.example.net"
+    homegap.port: "7881/tcp, 7882/udp, 3478/tcp+udp"
+    homegap.services.alt.expose: "rtc.example.net"
+    homegap.services.alt.port: "17000:7000/udp"
 ```

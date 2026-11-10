@@ -44,6 +44,9 @@ This page defines the terms that the HomeGAP docs use.
 **Mesh**
 : The private WireGuard network `hg-mesh` between the homelab and every node, in cluster mode. See [Cluster mesh](../cluster/mesh.md).
 
+**Named service**
+: A service under `homegap.services.<name>.` on a container that can also have other services. Its key is `<host slug>--<name>`. See [Named services](../services/labels.md#named-services).
+
 **Newt**
 : The tunnel client of Pangolin. HomeGAP runs it on the homelab as connectors.
 
@@ -67,6 +70,9 @@ This page defines the terms that the HomeGAP docs use.
 
 **Passthrough**
 : The TLS mode where the node reads only the SNI and forwards the encrypted stream to the homelab. See [Traffic paths](../services/traffic-paths.md).
+
+**Port list**
+: A list of raw ports in `homegap.port`, with entries like `7881/tcp`, `3478/tcp+udp` or `2222:22/tcp`. See [Port lists](../services/labels.md#port-lists).
 
 **Primary and replica**
 : The primary is the database member that accepts writes. A replica follows the primary. See [Cluster database](../cluster/database.md).
