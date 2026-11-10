@@ -3,6 +3,7 @@ package homegap
 import homegap.config.ClusterConfig
 import homegap.discovery.ContainerNetworkSettings
 import homegap.discovery.NetworkEndpoint
+import homegap.discovery.TraefikRouter
 import homegap.discovery.aliasCovers
 import homegap.discovery.parseLabels
 import homegap.model.Planner
@@ -95,6 +96,37 @@ class PrivatePathTest {
         assertEquals(listOf("jellyfin.test.example.net"), plan.nodes.getValue("na1").privateResources.map { it.alias })
         val noNetwork = Planner.plan(cfg, listOf(frontDoor("homegap.private_network" to "elsewhere")))
         assertTrue(noNetwork.labelErrors.any { "no address on a network named 'elsewhere'" in it.message })
+    }
+
+    @Test
+    fun routersUsingThePrivateMiddlewareNameTheirHosts() {
+        val cfg = testConfig().copy(cluster = ClusterConfig())
+        // From the front door's API: a subfolder service on the root, a subdomain one (from the
+        // file provider), one with HostRegexp, a public one and a disabled one.
+        val routers = listOf(
+            TraefikRouter("grafana@docker", "Host(`test.example.net`) && PathPrefix(`/grafana`)", listOf("auth@file", "private-only@file")),
+            TraefikRouter("jf@file", "Host(`jellyfin.test.example.net`) || Host(`media.test.example.net`)", listOf("private-only@file")),
+            TraefikRouter("misc@docker", "HostRegexp(`^.+\\.lab\\.test\\.example\\.net$`)", listOf("private-only@docker")),
+            TraefikRouter("blog@docker", "Host(`blog.test.example.net`)"),
+            TraefikRouter("old@docker", "Host(`old.test.example.net`)", listOf("private-only@file"), status = "disabled"),
+        )
+        val api = "http://traefik:8080"
+        val plan = Planner.plan(
+            cfg, listOf(frontDoor("homegap.private_middleware" to "private-only@file", "homegap.private_hosts" to "*.home")),
+            traefikRouters = mapOf(api to routers),
+        )
+        assertTrue(plan.labelErrors.isEmpty(), plan.labelErrors.toString())
+        val aliases = plan.nodes.getValue("na1").privateResources.map { it.alias }.toSet()
+        // Both: the listed names, and every name a router using the middleware serves.
+        assertEquals(setOf("*.home.test.example.net", "test.example.net", "jellyfin.test.example.net", "media.test.example.net"), aliases)
+        assertTrue(plan.labelWarnings.any { "misc@docker" in it.message && "list them in homegap.private_hosts" in it.message }, plan.labelWarnings.toString())
+
+        // Only the middleware: just the discovered names, not the front door's own.
+        val only = Planner.plan(cfg, listOf(frontDoor("homegap.private_middleware" to "private-only")), traefikRouters = mapOf(api to routers.take(2)))
+        assertEquals(setOf("test.example.net", "jellyfin.test.example.net", "media.test.example.net"), only.nodes.getValue("na1").privateResources.map { it.alias }.toSet())
+        // Another Traefik's API, or none read yet: nothing discovered, and it says so.
+        val elsewhere = Planner.plan(cfg, listOf(frontDoor("homegap.private_middleware" to "private-only", "homegap.traefik_api" to "http://other:9000/")), traefikRouters = mapOf(api to routers))
+        assertTrue(elsewhere.labelErrors.any { "http://other:9000 has not answered" in it.message }, elsewhere.labelErrors.toString())
     }
 
     @Test

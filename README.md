@@ -261,7 +261,9 @@ Extensions:
 | `homegap.pause` | `true` holds this service's Pangolin resources and DNS records as they are. |
 | `homegap.proxy_protocol` | `true` sends each viewer's address to the service with PROXY protocol v2, so it sees real client IPs instead of the `tunnels` container. Https passthrough and tcp services only, and the service must accept the header first. See [Client addresses and private-only services](#client-addresses-and-private-only-services). |
 | `homegap.private_network` | A Docker network only the `tunnels` container and this service share. Pangolin clients reach the service at its address there, so their traffic is told apart from public traffic. Public http/https services only. |
-| `homegap.private_hosts` | With `private_network`: the names Pangolin clients reach that way, relative to the service's hostname (`jellyfin`, `*.home`) or in full. Defaults to the service's hostname. A name covering the client address or a node's management host is refused. |
+| `homegap.private_hosts` | With `private_network`: the names Pangolin clients reach that way, relative to the service's hostname (`jellyfin`, `*.home`) or in full. Defaults to the service's hostname (unless `private_middleware` is set). A name covering the client address or a node's management host is refused. |
+| `homegap.private_middleware` | With `private_network`: also give a private path to every name this Traefik routes through this middleware (e.g. `private-only@file`), read from its API. Works with both `private_hosts` and on its own. |
+| `homegap.traefik_api` | This Traefik's API, for `private_middleware`. Defaults to `http://<container name>:8080` (`api.insecure`). |
 
 ### Examples
 
@@ -306,7 +308,8 @@ services:
       homegap.protocol: "https"
       homegap.proxy_protocol: "true"            # real client IPs
       homegap.private_network: "homegap-private" # Pangolin clients arrive from here
-      homegap.private_hosts: "jellyfin,*.home"   # the names they reach this way
+      homegap.private_middleware: "private-only@file" # ...for every router using this
+      homegap.private_hosts: "*.home"            # and these names too (optional)
     networks: [traefik, homegap-private]
   tunnels:
     networks:
@@ -346,8 +349,19 @@ networks:
           sourceRange: ["172.33.0.0/24", "192.168.1.0/24"]
   ```
 
-  Put the middleware on the routers of private-only services. Which Pangolin users get the
-  private path is set by `homegap.roles`. `*.example.net` itself is refused: it would also cover
+  Put the middleware on the routers of private-only services, in labels or in Traefik's files.
+  With `homegap.private_middleware`, HomeGAP reads this Traefik's routers from its API (only
+  this one: another Traefik on the host is never read) and gives a private path to every name a
+  router using the middleware serves. A service in a subfolder of the root,
+  ``Host(`example.net`) && PathPrefix(`/grafana`)``, gives the root its private path: Pangolin
+  clients then reach the whole root over the private network, and its public routers still
+  answer them as before. Routers matched by `HostRegexp` can't be read; list their names in
+  `homegap.private_hosts`. The API must be reachable from the orchestrator (it shares the
+  `traefik` network); with `api.insecure: true` it answers on port 8080, which needs no
+  published port. Until it first answers, HomeGAP leaves services as they are; after that, a
+  failed read keeps the routers it last reported.
+
+  Which Pangolin users get the private path is set by `homegap.roles`. `*.example.net` itself is refused: it would also cover
   the address the Pangolin apps connect to, which they would then try to reach through
   themselves. A sub-zone such as `*.home` is fine.
 

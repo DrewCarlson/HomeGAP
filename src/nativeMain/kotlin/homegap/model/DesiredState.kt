@@ -142,6 +142,8 @@ object Planner {
         containers: List<DockerContainerSummary>,
         pausedServices: Set<String> = emptySet(),
         excludedNodes: Set<String> = emptySet(),
+        /** The routers each front door's Traefik API reported, by API address. */
+        traefikRouters: Map<String, List<TraefikRouter>> = emptyMap(),
     ): DesiredState {
         val errors = mutableListOf<LabelIssue>()
         val warnings = mutableListOf<LabelIssue>()
@@ -153,6 +155,21 @@ object Planner {
             r.errors.forEach { errors += LabelIssue(c.name, it) }
             r.warnings.forEach { warnings += LabelIssue(c.name, it) }
             var spec = r.spec ?: continue
+            spec.privateMiddleware?.let { mw ->
+                // Names from the routers of this Traefik that use the middleware (its API).
+                val routers = traefikRouters[spec.traefikApi]
+                if (routers == null) {
+                    errors += LabelIssue(c.name, "${Labels.PRIVATE_MIDDLEWARE}: the Traefik API at ${spec.traefikApi} has not answered; set ${Labels.TRAEFIK_API} if it is elsewhere")
+                    return@let
+                }
+                val (hosts, unreadable) = routerHosts(routers, mw)
+                val (inside, outside) = hosts.partition { it == spec.hostname || it.endsWith(".${spec.hostname}") }
+                outside.forEach { warnings += LabelIssue(c.name, "$it uses $mw but is outside ${spec.hostname}: not given a private path") }
+                unreadable.forEach {
+                    warnings += LabelIssue(c.name, "router $it uses $mw but its names can't be read from its rule (HostRegexp or no Host); list them in ${Labels.PRIVATE_HOSTS}")
+                }
+                spec = spec.copy(privateHosts = (spec.privateHosts + inside).distinct())
+            }
             spec.privateNetwork?.let { net ->
                 // Compose prefixes a project's networks with the project name.
                 val ip = c.networkSettings.networks.entries

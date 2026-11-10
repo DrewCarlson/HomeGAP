@@ -17,6 +17,9 @@ import homegap.config.NodeConfig
 import homegap.discovery.DockerClient
 import homegap.discovery.DockerContainerSummary
 import homegap.discovery.Labels
+import homegap.discovery.TraefikApi
+import homegap.discovery.TraefikRouter
+import homegap.discovery.traefikApiUrl
 import homegap.discovery.concernsHomegap
 import homegap.model.DesiredState
 import homegap.model.Planner
@@ -97,6 +100,35 @@ class Controller(
     @kotlin.concurrent.Volatile private var exitNodes: Map<Int, String> = emptyMap()
     /** Each node's recent cluster proxy readings, for counting lost primaries. */
     private val proxyHistory = mutableMapOf<String, MutableList<Pair<Long, Map<String, Long>>>>()
+
+    /** The last routers each front door's Traefik API reported (kept while it doesn't answer). */
+    private val routerCache = mutableMapOf<String, List<TraefikRouter>>()
+    private val routerFailing = mutableSetOf<String>()
+    private val traefikApi by lazy { TraefikApi(localHttp) }
+
+    /**
+     * Reads the routers of every Traefik API a front door names (`homegap.private_middleware`).
+     * Null when one has never answered: its private paths are unknown, so discovery counts as
+     * failed rather than deleting them.
+     */
+    private suspend fun traefikRouters(containers: List<DockerContainerSummary>): Map<String, List<TraefikRouter>>? {
+        val urls = containers.filter { !it.labels[Labels.PRIVATE_MIDDLEWARE].isNullOrBlank() }.map { traefikApiUrl(it.name, it.labels) }.distinct()
+        var complete = true
+        for (url in urls) {
+            try {
+                routerCache[url] = traefikApi.routers(url)
+                if (routerFailing.remove(url)) log.info("discovery", "the Traefik API at $url answers again")
+            } catch (e: Exception) {
+                if (e is CancellationException) currentCoroutineContext().ensureActive()
+                if (routerFailing.add(url)) {
+                    log.warn("discovery", "cannot read the Traefik API at $url: ${e.message}" +
+                        if (url in routerCache) " (keeping the routers it last reported)" else " (services and private paths are left as they are until it answers)")
+                }
+                if (url !in routerCache) complete = false
+            }
+        }
+        return if (complete) routerCache.filterKeys { it in urls } else null
+    }
 
     /**
      * A reachable Pangolin of the cluster (the first ready node in config order) and the exit node
@@ -267,16 +299,17 @@ class Controller(
                 log.error("discovery", "cannot list containers: ${e.message}")
                 null
             }
-            val plan = Planner.plan(cfg, containers ?: emptyList(), pauses.services)
-            if (containers != null) {
+            val routers = containers?.let { traefikRouters(it) }
+            val plan = Planner.plan(cfg, containers ?: emptyList(), pauses.services, traefikRouters = routers.orEmpty())
+            if (containers != null && routers != null) {
                 desired = plan
                 plan.labelErrors.forEach { log.error("discovery", it.message, it.container) }
                 plan.labelWarnings.forEach { log.warn("discovery", it.message, it.container) }
                 if (dryRun) logDesired(plan)
             }
-            val effective = if (containers != null) plan else desired ?: plan
+            val effective = if (containers != null && routers != null) plan else desired ?: plan
             val pausedKeys = effective.services.filter { it.paused }.map { it.key }.toSet() + pauses.services
-            val discoveryOk = containers != null
+            val discoveryOk = containers != null && routers != null
 
             val certs: CertMaterial? = try {
                 Certificates.load(cfg.certificates, cfg.domain)

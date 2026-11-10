@@ -20,6 +20,13 @@ http:
       service: whoami
       middlewares: [private-only]
       tls: {}
+    # A private-only service in a subfolder of the root, found through the API.
+    grafana:
+      rule: "Host(`test.example.net`) && PathPrefix(`/grafana`)"
+      entryPoints: [websecure]
+      service: whoami
+      middlewares: [private-only]
+      tls: {}
     everything:
       rule: "HostRegexp(`.+`)"
       entryPoints: [websecure]

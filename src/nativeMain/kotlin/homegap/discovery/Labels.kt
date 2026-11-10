@@ -9,7 +9,9 @@ package homegap.discovery
  * pause (hold manual overrides on this service's resources), proxy_protocol (send the viewer's
  * address to the service with PROXY protocol v2), private_network (Pangolin clients reach the
  * service at its address on this Docker network, which only their traffic uses) and
- * private_hosts (the names they reach it by that way; the service's own hostname by default).
+ * private_hosts (the names they reach it by that way; the service's own hostname by default) and
+ * private_middleware (also every name a router of this Traefik serves through this middleware, read
+ * from its API at traefik_api).
  */
 object Labels {
     const val PREFIX = "homegap."
@@ -30,11 +32,13 @@ object Labels {
     const val PROXY_PROTOCOL = "homegap.proxy_protocol"
     const val PRIVATE_NETWORK = "homegap.private_network"
     const val PRIVATE_HOSTS = "homegap.private_hosts"
+    const val PRIVATE_MIDDLEWARE = "homegap.private_middleware"
+    const val TRAEFIK_API = "homegap.traefik_api"
 
     const val COMPOSE_SERVICE = "com.docker.compose.service"
     const val COMPOSE_PROJECT = "com.docker.compose.project"
 
-    val KNOWN = setOf(EXPOSE, WILDCARD, PORT, PROTOCOL, TLS, REGIONS, ACCESS, AUTH, HEALTHCHECK, HOST, PUBLIC_PORT, ROLES, PIN_ENV, PAUSE, PROXY_PROTOCOL, PRIVATE_NETWORK, PRIVATE_HOSTS)
+    val KNOWN = setOf(EXPOSE, WILDCARD, PORT, PROTOCOL, TLS, REGIONS, ACCESS, AUTH, HEALTHCHECK, HOST, PUBLIC_PORT, ROLES, PIN_ENV, PAUSE, PROXY_PROTOCOL, PRIVATE_NETWORK, PRIVATE_HOSTS, PRIVATE_MIDDLEWARE, TRAEFIK_API)
 }
 
 enum class Protocol(val label: String) { HTTP("http"), HTTPS("https"), TCP("tcp"), UDP("udp") }
@@ -76,6 +80,10 @@ data class ServiceSpec(
     val privateHost: String? = null,
     /** The names Pangolin clients reach it by over [privateNetwork] (full names, `*`/`?` allowed). */
     val privateHosts: List<String> = emptyList(),
+    /** Routers using this Traefik middleware (name without `@provider`) add their names to [privateHosts]. */
+    val privateMiddleware: String? = null,
+    /** Where this container's Traefik API answers (with [privateMiddleware]). */
+    val traefikApi: String? = null,
 ) {
     /** Stable identifier used to key every derived Pangolin/Bunny object. */
     val key: String get() = slug(hostname)
@@ -86,6 +94,29 @@ data class ServiceSpec(
 data class LabelParseResult(val spec: ServiceSpec?, val errors: List<String>, val warnings: List<String> = emptyList())
 
 private val HOSTNAME = Regex("^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
+
+/**
+ * The names served by the Traefik routers that use [middleware] (compared without `@provider`),
+ * and the routers whose names cannot be read (a `HostRegexp` rule, or no `Host` at all).
+ */
+fun routerHosts(routers: List<TraefikRouter>, middleware: String): Pair<List<String>, List<String>> {
+    val hosts = mutableListOf<String>()
+    val unreadable = mutableListOf<String>()
+    for (r in routers) {
+        if (r.status == "disabled" || r.middlewares.none { it.substringBefore('@') == middleware }) continue
+        val found = HOST_RULE.findAll(r.rule).flatMap { m -> RULE_STRING.findAll(m.groupValues[1]).map { it.groupValues[1].lowercase() } }.toList()
+        if (found.isEmpty() || "HostRegexp" in r.rule) unreadable += r.name
+        hosts += found
+    }
+    return hosts.distinct() to unreadable
+}
+
+/** The Traefik API of a front door container: `homegap.traefik_api`, or its name on port 8080. */
+fun traefikApiUrl(containerName: String, labels: Map<String, String>): String =
+    labels[Labels.TRAEFIK_API]?.trim()?.takeIf { it.isNotEmpty() }?.trimEnd('/') ?: "http://$containerName:8080"
+
+private val HOST_RULE = Regex("""\bHost\(([^)]*)\)""")
+private val RULE_STRING = Regex("""[`"']([^`"']+)[`"']""")
 
 /** A Pangolin alias: a full name whose labels may use `*` and `?`. */
 private val PRIVATE_ALIAS = Regex("^(?:[a-z0-9*?](?:[a-z0-9*?-]{0,61}[a-z0-9*?])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -203,6 +234,8 @@ fun parseLabels(
         if (privateNetwork == null) errors += "${Labels.PRIVATE_HOSTS} needs ${Labels.PRIVATE_NETWORK}"
         privateHosts.filter { !PRIVATE_ALIAS.matches(it) }.forEach { errors += "${Labels.PRIVATE_HOSTS}: '$it' is not a valid name" }
     }
+    val privateMiddleware = labels[Labels.PRIVATE_MIDDLEWARE]?.trim()?.substringBefore('@')?.takeIf { it.isNotEmpty() }
+    if (privateMiddleware != null && privateNetwork == null) errors += "${Labels.PRIVATE_MIDDLEWARE} needs ${Labels.PRIVATE_NETWORK}"
 
     val host = labels[Labels.HOST]?.trim()?.takeIf { it.isNotEmpty() } ?: containerName
     val roles = labels[Labels.ROLES]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
@@ -228,7 +261,10 @@ fun parseLabels(
             paused = paused,
             proxyProtocol = proxyProtocol,
             privateNetwork = privateNetwork,
-            privateHosts = if (privateNetwork == null) emptyList() else privateHosts ?: listOf(expose),
+            // Without a list, the hostname itself, unless the middleware's routers name them.
+            privateHosts = if (privateNetwork == null) emptyList() else privateHosts ?: if (privateMiddleware != null) emptyList() else listOf(expose),
+            privateMiddleware = privateMiddleware,
+            traefikApi = privateMiddleware?.let { traefikApiUrl(containerName, labels) },
         ),
         emptyList(),
         warnings,

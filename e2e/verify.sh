@@ -14,6 +14,8 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
   v sh -c "curl -sS --cacert /certs/ca.pem --resolve test.example.net:443:$ip https://test.example.net/ | grep -E 'X-Real-Ip'"
   echo "--- a private-only name is refused to the public (expect 403)"
   v sh -c "curl -sS --cacert /certs/ca.pem --resolve private.test.example.net:443:$ip -o /dev/null -w '%{http_code}\n' https://private.test.example.net/"
+  echo "--- a private-only subfolder of the root is refused to the public, the rest of the root is not (expect 403 200)"
+  v sh -c "curl -sS --cacert /certs/ca.pem --resolve test.example.net:443:$ip -o /dev/null -w '%{http_code} ' https://test.example.net/grafana; curl -sS --cacert /certs/ca.pem --resolve test.example.net:443:$ip -o /dev/null -w '%{http_code}\n' https://test.example.net/"
   echo "--- passthrough wildcard"
   v sh -c "curl -sS --cacert /certs/ca.pem --resolve media.test.example.net:443:$ip https://media.test.example.net/ | grep -E 'Host:|Hostname'"
   echo "--- management API is served by the node itself (CN=test.example.net wildcard)"

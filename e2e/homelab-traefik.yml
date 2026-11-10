@@ -8,6 +8,10 @@ entryPoints:
     address: ":80"
     forwardedHeaders:
       trustedIPs: ["172.30.0.0/24"]
+# HomeGAP reads the routers that use the private-only middleware (homegap.private_middleware)
+# from the API, at http://homelab-traefik:8080.
+api:
+  insecure: true
 providers:
   file:
     filename: /etc/traefik/dynamic.yml

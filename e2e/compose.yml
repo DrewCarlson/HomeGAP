@@ -89,6 +89,7 @@ services:
       homegap.proxy_protocol: "true"
       homegap.private_network: "e2e-private"
       homegap.private_hosts: "private"
+      homegap.private_middleware: "private-only@file"
     networks: [e2e, e2e-private]
 
   # Dedicated subdomain, end-to-end TLS (SNI passthrough to the service itself).

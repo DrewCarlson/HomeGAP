@@ -82,6 +82,9 @@ if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
     # homegap.private_hosts: the name goes over the private network, which the allowlist admits.
     real=$(docker compose exec -T client sh -c 'wget -q -O - --no-check-certificate https://private.test.example.net/' 2>/dev/null | tr -d '\r' | sed -n 's/^X-Real-Ip: //p')
     case "$real" in 172.29.0.*) pass "private.test.example.net via $id arrives from the private network ($real)" ;; *) fail "private.test.example.net via $id: X-Real-Ip '$real'" ;; esac
+    # homegap.private_middleware: a subfolder of the root, found from its router's labels.
+    real=$(docker compose exec -T client sh -c 'wget -q -O - --no-check-certificate https://test.example.net/grafana' 2>/dev/null | tr -d '\r' | sed -n 's/^X-Real-Ip: //p')
+    case "$real" in 172.29.0.*) pass "test.example.net/grafana via $id arrives from the private network ($real)" ;; *) fail "test.example.net/grafana via $id: X-Real-Ip '$real'" ;; esac
   done
   docker compose --profile client rm -sf client >/dev/null 2>&1
   curl -s -X POST "$DASH/access/devices/$CID/delete" >/dev/null
