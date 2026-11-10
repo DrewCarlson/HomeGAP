@@ -75,16 +75,16 @@ nodes:
     # out if its public IP leaves the list; see
     # https://drewcarlson.github.io/HomeGAP/latest/getting-started/add-node/#4-firewall
     # ssh_allow_from: [198.51.100.0/24]
-    location: { latitude: 45.5, longitude: -73.6, name: "Montreal, Quebec" }
-  - id: as1
-    region: AS
+    location: { latitude: 40.71, longitude: -74.01, name: "New York" }
+  - id: na2
+    region: NA
     provider: vps-provider-b
     host: 198.51.100.20
     os: ubuntu-22.04
     ssh_user: deploy
-    ssh_key_file: /secrets/ssh/as1
-    license_key_env: PANGOLIN_LICENSE_KEY_AS1
-    location: { latitude: 19.1, longitude: 72.9, name: Mumbai }
+    ssh_key_file: /secrets/ssh/na2
+    license_key_env: PANGOLIN_LICENSE_KEY_NA2
+    location: { latitude: 47.61, longitude: -122.33, name: Seattle }
 
 # Tunnel tuning; see https://drewcarlson.github.io/HomeGAP/latest/operations/performance/
 tunnels:

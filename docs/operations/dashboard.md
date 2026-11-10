@@ -18,7 +18,7 @@ The header shows the state of the pass, and two controls:
 - **Resync** queues a pass now.
 - **Pause** stops all changes everywhere. HomeGAP then only observes. **Resume** starts the changes again.
 
-<!-- SCREENSHOT: docs/img/dashboard/header.png | the header with the pass state, Resync and Pause -->
+<img src="../img/dashboard/header.png" alt="The header with the pass state, Resync and Pause">
 
 ## The pages
 
@@ -26,7 +26,7 @@ The header shows the state of the pass, and two controls:
 
 "Health of nodes, tunnels, services and DNS at a glance". The page has a world map with the nodes and the homelab. See [Maps and locations](maps.md).
 
-<!-- SCREENSHOT: docs/img/dashboard/overview.png | the Overview page with the world map -->
+<img src="../img/dashboard/overview.png" alt="The Overview page with the world map">
 
 ### Nodes
 
@@ -43,25 +43,25 @@ The actions on a node are **Re-provision**, **Pause** or **Resume**, and **Remov
 
 The **Add node** button opens the wizard. See [Add a node](../getting-started/add-node.md). In cluster mode, the page also has the **Cluster mesh** and **Cluster database** panels. See [Cluster mesh](../cluster/mesh.md) and [Cluster database](../cluster/database.md).
 
-<!-- SCREENSHOT: docs/img/dashboard/nodes.png | the Nodes page with the node table and its checks -->
+<img src="../img/dashboard/nodes.png" alt="The Nodes page with the node table and its checks">
 
 ### Services
 
 "Containers published through homegap.* labels". The page shows the health of each service in each region, and the label errors and warnings. Each service has **Pause** or **Resume**.
 
-<!-- SCREENSHOT: docs/img/dashboard/services.png | the Services page with the health in each region -->
+<img src="../img/dashboard/services.png" alt="The Services page with the health in each region">
 
 ### DNS
 
 "Bunny DNS records managed by HomeGAP". The page shows the records, the state of their monitors and if they match the desired state.
 
-<!-- SCREENSHOT: docs/img/dashboard/dns.png | the DNS page with the records and the monitor state -->
+<img src="../img/dashboard/dns.png" alt="The DNS page with the records and the monitor state">
 
 ### Tunnels
 
 "Newt connectors from the homelab to each node". The page shows the state of each process, its restarts and its throughput.
 
-<!-- SCREENSHOT: docs/img/dashboard/tunnels.png | the Tunnels page with one connector for each node -->
+<img src="../img/dashboard/tunnels.png" alt="The Tunnels page with one connector for each node">
 
 ### Access
 
@@ -71,19 +71,19 @@ The **Add node** button opens the wizard. See [Add a node](../getting-started/ad
 
 "Latency and throughput through the real traffic path". See [Speed tests](speed-tests.md).
 
-<!-- SCREENSHOT: docs/img/dashboard/speedtest.png | the Speed test page with the map and the results -->
+<img src="../img/dashboard/speedtest.png" alt="The Speed test page with the map and the results">
 
 ### Activity
 
 "Reconcile log, newest first". The log is grouped by domain.
 
-<!-- SCREENSHOT: docs/img/dashboard/activity.png | the Activity page with the reconcile log -->
+<img src="../img/dashboard/activity.png" alt="The Activity page with the reconcile log">
 
 ### Diagnostics
 
 "Container logs and a read-only snapshot of each node". See [Diagnostics and troubleshooting](troubleshooting.md).
 
-<!-- SCREENSHOT: docs/img/dashboard/diagnostics.png | the Diagnostics page with the logs of a container -->
+<img src="../img/dashboard/diagnostics.png" alt="The Diagnostics page with the logs of a container">
 
 ### Config
 
@@ -96,7 +96,7 @@ The **Add node** button opens the wizard. See [Add a node](../getting-started/ad
 
 The **Locations** page is under **Config**. See [Maps and locations](maps.md).
 
-<!-- SCREENSHOT: docs/img/dashboard/config.png | the Config page with the diff and the secrets -->
+<img src="../img/dashboard/config.png" alt="The Config page with the diff and the secrets">
 
 ## Node checks
 

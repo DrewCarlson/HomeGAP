@@ -20,7 +20,7 @@ You can download the logs and the bundle as text. Nothing on the node changes, a
 4. Click **Show logs**, or click **Run diagnostics**.
 5. Optional: click **Download**.
 
-<!-- SCREENSHOT: docs/img/dashboard/diagnostics-bundle.png | the Diagnostics page with a diagnostics bundle and the Download button -->
+<img src="../img/dashboard/diagnostics-bundle.png" alt="The Diagnostics page with a diagnostics bundle and the Download button">
 
 ### Log services
 

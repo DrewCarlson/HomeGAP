@@ -53,4 +53,4 @@ The **Last handshake with** column shows a pill for each peer, with the peer and
 | Red, `never` | "No handshake yet" | The member has never had a handshake with the peer. |
 | Red, `not configured` | "Not in this member's peer list yet" | The member does not have this peer in its configuration yet. |
 
-<!-- SCREENSHOT: docs/img/cluster/01-mesh-panel.png | the Cluster mesh panel on the Nodes page with the probe columns -->
+<img src="../img/cluster/01-mesh-panel.png" alt="The Cluster mesh panel on the Nodes page with the probe columns">

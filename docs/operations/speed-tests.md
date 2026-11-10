@@ -54,7 +54,7 @@ This test uses a short-lived link that you open on any device. The link is valid
 
 The token is in the fragment of the URL. The browser never sends the fragment to a server, so no log contains the token.
 
-<!-- SCREENSHOT: docs/img/dashboard/speedtest-results.png | the Speed test page with a homelab to node result and a device link -->
+<img src="../img/dashboard/speedtest-results.png" alt="The Speed test page with a homelab to node result and a device link">
 
 ## Results
 

@@ -38,15 +38,15 @@ services:
   orchestrator:
     environment:
       PANGOLIN_LICENSE_KEY_NA1: ${PANGOLIN_LICENSE_KEY_NA1}
-      PANGOLIN_LICENSE_KEY_AS1: ${PANGOLIN_LICENSE_KEY_AS1}
+      PANGOLIN_LICENSE_KEY_NA2: ${PANGOLIN_LICENSE_KEY_NA2}
 ```
 
 ```yaml
 nodes:
   - id: na1
     license_key_env: PANGOLIN_LICENSE_KEY_NA1
-  - id: as1
-    license_key_env: PANGOLIN_LICENSE_KEY_AS1
+  - id: na2
+    license_key_env: PANGOLIN_LICENSE_KEY_NA2
 ```
 
 The node entries above show only the license key. A real node entry also needs `host` and `ssh_key_file`. See [Secrets](secrets.md).

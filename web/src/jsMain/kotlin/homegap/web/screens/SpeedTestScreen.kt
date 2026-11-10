@@ -18,8 +18,8 @@ private val DISABLED = BannerModel(
 )
 
 private const val DEVICE_HELP = "The auto link lets DNS pick the node for the device's location; that node " +
-    "redirects to its own hostname so the result is attributed to it. Anyone holding a link can run tests until " +
-    "it expires."
+    "answers it and tells the page which node it is, so the result is attributed to it. Anyone holding a link " +
+    "can run tests until it expires."
 
 @Composable
 fun SpeedTestScreen(model: SpeedTestScreenModel) {

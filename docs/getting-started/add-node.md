@@ -30,21 +30,21 @@ The password is for the setup job only. HomeGAP never writes it to disk or to th
 
 1. On the dashboard, open **Nodes**.
 2. Click **Add node**. The page shows "Set up a fresh server from its initial login and provision it".
-<!-- SCREENSHOT: docs/img/add-node/01-open-wizard.png | the Nodes page with the Add node button -->
+<img src="../img/add-node/01-open-wizard.png" alt="The Nodes page with the Add node button">
 
 ### 1. Server
 
 1. In **Node id**, type the id of the node, for example `eu1`. Use lowercase letters, digits and dashes. Start with a letter.
 2. In **Public IP or host name**, type the address of the server.
 3. In **SSH port**, type the SSH port. The default is `22`.
-4. Set the location. Search the known data-center cities (for example "dallas", "mumbai" or "hetzner"), or click a point in **Pick on the map**.
+4. Set the location. Search the known data-center cities (for example "dallas", "london" or "hetzner"), or click a point in **Pick on the map**.
 5. Optional: correct **Region code**, **Latitude**, **Longitude** or **Place name**.
 6. Optional: type the **Provider**.
 7. Click **Continue**.
 
 When you pick a point on the map, the nearest known city within 50 km gives the point its name.
 
-<!-- SCREENSHOT: docs/img/add-node/02-server.png | the Server step with the node id, the address and a location from the search -->
+<img src="../img/add-node/02-server.png" alt="The Server step with the node id, the address and a location from the search">
 
 ### 2. Initial login
 
@@ -66,7 +66,7 @@ You must test the connection before you can continue. The test checks the login 
 
 If the host key is different from the last connection, the test reports it. Make sure that the server has a new install. Then click **Forget the old host key and retry**.
 
-<!-- SCREENSHOT: docs/img/add-node/03-initial-login.png | the Initial login step after a successful connection test -->
+<img src="../img/add-node/03-initial-login.png" alt="The Initial login step after a successful connection test">
 
 ### 3. Access
 
@@ -84,7 +84,7 @@ A generated key is an ed25519 key. HomeGAP keeps it in `<data dir>/ssh/` on the 
 
 HomeGAP uses sudo only for system changes: packages, the firewall, WireGuard and sysctls. The files under the install directory (`/opt/homegap` by default) belong to the management user. If the user is in the `docker` group, HomeGAP also runs Docker Compose as this user, so `docker compose` works there without sudo. The data directories of the cluster member stay with their containers.
 
-<!-- SCREENSHOT: docs/img/add-node/04-access.png | the Access step with a dedicated user, a generated key and both options under SSH hardening -->
+<img src="../img/add-node/04-access.png" alt="The Access step with a dedicated user, a generated key and both options under SSH hardening">
 
 ### 4. Firewall
 
@@ -107,7 +107,7 @@ The page shows the rules:
 
     To recover, log in through the web console of your provider. Run `ufw allow <ssh port>/tcp`. Then update `ssh_allow_from` in the config. The next pass replaces the rules.
 
-<!-- SCREENSHOT: docs/img/add-node/05-firewall.png | the Firewall step with the list of rules -->
+<img src="../img/add-node/05-firewall.png" alt="The Firewall step with the list of rules">
 
 ### 5. Review & run
 
@@ -115,8 +115,8 @@ The page shows the rules:
 2. Click **Set up and add node**. The page shows the progress of each setup step.
 3. When the page shows "Done. Provisioning starts on the next reconcile pass.", click **Go to nodes**.
 
-<!-- SCREENSHOT: docs/img/add-node/06-review.png | the Review & run step with the summary -->
-<!-- SCREENSHOT: docs/img/add-node/07-done.png | the finished setup job with the Go to nodes button -->
+<img src="../img/add-node/06-review.png" alt="The Review & run step with the summary">
+<img src="../img/add-node/07-done.png" alt="The finished setup job with the Go to nodes button">
 
 ## If setup fails
 
@@ -130,7 +130,7 @@ Provisioning runs in the background. The first install takes a few minutes for D
 
 If the first provisioning fails, HomeGAP tries again after five minutes. To try again at once, click **Re-provision**.
 
-<!-- SCREENSHOT: docs/img/add-node/08-provisioning.png | the Nodes page with the new node in the provisioning… state -->
+<img src="../img/add-node/08-provisioning.png" alt="The Nodes page with the new node in the provisioning… state">
 
 ## Add a node by hand
 

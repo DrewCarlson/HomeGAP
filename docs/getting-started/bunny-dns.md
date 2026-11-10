@@ -14,26 +14,17 @@ HomeGAP sends the key in the `AccessKey` header to `https://api.bunny.net`. It f
 ## Prepare the zone and the key
 
 1. Choose a test domain. Use a spare domain, or a subdomain of your real domain, for example `gap.example.net`.
-2. Sign in to Bunny (bunny.net). Open the DNS section.
-    <!-- SCREENSHOT: docs/img/bunny/01-dns-section.png | the Bunny dashboard with the DNS section in the menu -->
-    <!-- FACT-CHECK: exact Bunny label of the DNS section -->
+2. Sign in to Bunny (bunny.net). Open the DNS section https://dash.bunny.net/dns/zones
 3. Add a DNS zone for the domain or the subdomain.
-    <!-- SCREENSHOT: docs/img/bunny/02-add-zone.png | the form to add a DNS zone, with gap.example.net as the domain -->
-    <!-- FACT-CHECK: exact Bunny label of the option to add a zone -->
 4. Point the domain at the nameservers of Bunny. Do the step that matches your domain:
     - For a whole domain, go to your registrar. Replace the nameservers with the nameservers that Bunny shows for the zone.
     - For a subdomain, go to the current DNS provider of the parent zone. Add NS records for the subdomain there.
-    <!-- SCREENSHOT: docs/img/bunny/03-nameservers.png | the zone page in Bunny with the nameservers to use -->
 5. Wait until Bunny shows the zone as active. To check the delegation, run this command:
     ```bash
     dig NS gap.example.net +short
     ```
     The command shows the nameservers of Bunny.
-    <!-- SCREENSHOT: docs/img/bunny/04-zone-active.png | the zone in Bunny with its active status -->
-    <!-- FACT-CHECK: exact Bunny label for an active zone -->
-6. Copy the API key of your account from the Bunny account settings.
-    <!-- SCREENSHOT: docs/img/bunny/05-api-key.png | the account settings page with the API key field -->
-    <!-- FACT-CHECK: exact Bunny label of the account API key page -->
+6. Copy the API key of your account from the Bunny account settings: https://dash.bunny.net/account/api-key
 7. Keep the key for the install. You put it in `.env` as `BUNNY_API_KEY`. See [Install on the homelab](install.md).
 
 ## Records at the names that HomeGAP manages

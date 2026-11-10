@@ -27,13 +27,13 @@ When you move the pointer over a node, the map shows details of the node. These 
 
 When you zoom out, markers that cover each other move apart into a column, with a short line to their real position. When you zoom in, they go back to their exact locations. The known locations of the catalog never move.
 
-<!-- SCREENSHOT: docs/img/maps/01-overview.png | the Overview map with nodes, the homelab and the tunnel lines -->
+<img src="../img/maps/01-overview.png" alt="The Overview map with nodes, the homelab and the tunnel lines">
 
 ## The other maps
 
 On the **Speed test** map, each line has the latest result between the homelab and the node. Click a node to run its test.
 
-In the add-node wizard, search the known data-center cities, for example "dallas", "mumbai" or "hetzner". The search fills in the place name, the region code and the coordinates. Or click the map: the nearest known city within 50 km gives the point its name.
+In the add-node wizard, search the known data-center cities, for example "dallas", "london" or "hetzner". The search fills in the place name, the region code and the coordinates. Or click the map: the nearest known city within 50 km gives the point its name.
 
 ## The Locations page
 
@@ -43,7 +43,7 @@ The homelab location tells the maps where the homelab is. Set it on this page, o
 
 The catalog lists the known locations. Approximately 100 data-center cities come with HomeGAP, with the providers in each city. You can add your own locations, and edit or hide the locations that come with HomeGAP. HomeGAP keeps your changes in `<data_dir>/locations.yml`.
 
-<!-- SCREENSHOT: docs/img/maps/02-locations.png | the Locations page with the homelab location and the catalog -->
+<img src="../img/maps/02-locations.png" alt="The Locations page with the homelab location and the catalog">
 
 ## Custom tiles
 

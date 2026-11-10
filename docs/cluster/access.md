@@ -4,7 +4,7 @@ The **Access** page manages the people who can sign in to the Pangolin apps, and
 
 The page is available only in cluster mode. Its subtitle is "Who can sign in to the Pangolin apps, and their devices". You do not sign in to Pangolin as the admin.
 
-<!-- SCREENSHOT: docs/img/access/01-page.png | the Access page with the app address, the Add a user form, the users and the devices -->
+<img src="../img/access/01-page.png" alt="The Access page with the app address, the Add a user form, the users and the devices">
 
 ## How changes reach Pangolin
 
@@ -38,8 +38,8 @@ The page shows "Pick at least one role" if you do not select a role.
 3. Click **Copy**.
 4. Send the link to the person. The link is valid for 7 days. The person opens it and chooses a password.
 
-<!-- SCREENSHOT: docs/img/access/02-add-user.png | the Add a user form with an email, a role and Set a password now selected -->
-<!-- SCREENSHOT: docs/img/access/03-invite-link.png | the Add a user form with a new invite link and the Copy button -->
+<img src="../img/access/02-add-user.png" alt="The Add a user form with an email, a role and Set a password now selected" width="566px">
+<img src="../img/access/03-invite-link.png" alt="The Add a user form with a new invite link and the Copy button" width="566px">
 
 ## Users
 
@@ -67,7 +67,7 @@ You can do these actions on a device:
 - **Archive** or **Restore**.
 - **Delete**. The page asks you to confirm.
 
-<!-- SCREENSHOT: docs/img/access/04-devices.png | the Devices panel with an online device and the node it relays through -->
+<img src="../img/access/04-devices.png" alt="The Devices panel with an online device and the node it relays through">
 
 ## Roles
 

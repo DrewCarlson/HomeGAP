@@ -119,7 +119,7 @@ The panel shows the **PostgreSQL primary**, the **Valkey primary** and the state
 - **Valkey**: the Valkey role.
 - **Replication lag**: how far the replica is behind the primary.
 
-<!-- SCREENSHOT: docs/img/cluster/02-database-panel.png | the Cluster database panel with the members and the Make primary button -->
+<img src="../img/cluster/02-database-panel.png" alt="The Cluster database panel with the members and the Make primary button">
 
 ### Alerts
 

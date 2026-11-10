@@ -73,7 +73,7 @@ HomeGAP installs Docker on the node if Docker is not there (`install_docker`, de
             host: 203.0.113.10
             ssh_user: deploy
             ssh_key_file: /secrets/ssh/na1
-            location: { latitude: 45.5, longitude: -73.6, name: "Montreal, Quebec" }
+            location: { latitude: 40.71, longitude: -74.01, name: "New York" }
         ```
 
     The `ssh_key_file` path is the path inside the orchestrator container. The compose file mounts `./secrets/ssh` at `/secrets/ssh`.

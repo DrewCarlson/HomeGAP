@@ -53,4 +53,4 @@ labels:
 
 To put the homelab on the map, set its location on the **Locations** page. See [Maps and locations](maps.md).
 
-<!-- SCREENSHOT: docs/img/status-page/01-page.png | the public status page with the node list and the map -->
+<img src="../img/status-page/01-page.png" alt="The public status page with the node list and the map">
