@@ -485,7 +485,7 @@ also run the [mesh probe](#cluster-mesh).
   `cluster-proxy:6380` (Valkey). HAProxy follows the current primary and cuts connections to a
   member that's demoted. Each node's `cluster-proxy` check shows where HAProxy sends PostgreSQL
   and Valkey, how often it lost the primary in the last hour and when it last did. It's red while
-  a primary has no reachable member, yellow for 15 minutes after a loss, then green again. HAProxy's stats page listens on the node's `127.0.0.1:8404` only.
+  a primary has no reachable member, yellow for 5 minutes after an unplanned loss, then green again. A switch HomeGAP makes on purpose (a switch-back, maintenance, a node update, the dashboard) briefly leaves HAProxy without a primary too; that is noted but stays green. HAProxy's stats page listens on the node's `127.0.0.1:8404` only.
 - **The vote needs a majority.** With the homelab and one node, losing either stops writes.
   Two or more nodes are needed for the cluster to keep working without the homelab.
 - **PostgreSQL runs without JIT compilation.** Pangolin only makes small lookups, and a

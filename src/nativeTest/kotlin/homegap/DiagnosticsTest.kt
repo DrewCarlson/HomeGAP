@@ -75,6 +75,24 @@ class DiagnosticsTest {
     }
 
     @Test
+    fun aPlannedSwitchDoesNotMakeTheProxyCheckYellow() {
+        val up = csv.replace("DOWN,1,1,0,3,2,3,30", "UP,1,1,0,3,2,3,30").replace("DOWN,1,1,0,,3,3,30", "UP,1,1,0,,3,3,30")
+        val lost = up.replace("UP,1,1,0,,3,3,30", "UP,1,1,0,,4,3,30")
+        val history = mutableListOf<Pair<Long, Map<String, Long>>>()
+        ClusterProxy.check(up, history, 1_000_000)
+        // HomeGAP switched the primary back between the two readings.
+        val planned = ClusterProxy.check(lost, history, 1_060_000, planned = listOf(1_020_000))
+        assertEquals(Health.OK, planned.health, planned.detail)
+        assertTrue("planned switch just now" in planned.detail, planned.detail)
+        assertFalse("lost the primary" in planned.detail, planned.detail)
+        // An unplanned loss still shows, then clears after five minutes.
+        val failover = ClusterProxy.check(lost.replace("UP,1,1,0,,4,3,30", "UP,1,1,0,,5,3,30"), history, 1_120_000, planned = listOf(1_020_000))
+        assertEquals(Health.DEGRADED, failover.health, failover.detail)
+        val later = ClusterProxy.check(lost.replace("UP,1,1,0,,4,3,30", "UP,1,1,0,,5,3,30"), history, 1_120_000 + 6 * 60_000, planned = listOf(1_020_000))
+        assertEquals(Health.OK, later.health, later.detail)
+    }
+
+    @Test
     fun theProxyPublishesStatsOnLoopbackOnly() {
         val m = ClusterTemplates.Member("na1", "10.77.0.10")
         assertTrue("stats uri /stats" in ClusterTemplates.haproxy(listOf(m), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest")))

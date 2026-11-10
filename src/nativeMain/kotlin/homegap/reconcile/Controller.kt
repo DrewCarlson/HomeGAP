@@ -591,7 +591,7 @@ class Controller(
                     "U" -> checks += CheckDto("gerbil-udp", if (parts.getOrNull(1) == "ok") Health.OK else Health.DOWN, "51820/udp")
                     "P" -> {
                         val csv = parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { runCatching { Base64.decode(it).decodeToString() }.getOrNull() }
-                        checks += ClusterProxy.check(csv, proxyHistory.getOrPut(node.id) { mutableListOf() }, nowMillis())
+                        checks += ClusterProxy.check(csv, proxyHistory.getOrPut(node.id) { mutableListOf() }, nowMillis(), clusterRec.plannedMoves)
                     }
                     "T" -> if (parts.size == 3) {
                         val which = parts[1]

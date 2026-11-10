@@ -50,23 +50,23 @@ object ClusterProxy {
     }
 
     /**
-     * Turns the stats into the node's `cluster-proxy` check. [history] holds earlier readings
-     * (epoch ms to each proxy's outage count) and is trimmed to [windowMs]; outages counted in the
-     * window make the check degraded, a primary with no reachable member makes it down.
-     */
-    /**
-     * [history] holds the readings of the last [windowMs] (epoch ms to each proxy's outage count).
-     * A loss is an increase between two readings (a restart's reset counts nothing); its time is
-     * the reading that saw it, so to within one pass. The check is red while a primary has no
-     * reachable member, yellow for [recentMs] after a loss, and green after that, still saying
-     * how many losses the window saw and when the last was.
+     * Turns the stats into the node's `cluster-proxy` check. [history] holds the readings of the
+     * last [windowMs] (epoch ms to each proxy's outage count). A loss is an increase between two
+     * readings (a restart's reset counts nothing); its time is the reading that saw it, so to within
+     * one pass. [planned] holds when HomeGAP moved a primary on purpose (a switch-back, maintenance,
+     * a node update, the dashboard): the proxy briefly has no primary then, which is expected, so a
+     * loss seen within [PLANNED_SLACK_MS] of one does not count against the node.
+     *
+     * The check is red while a primary has no reachable member, yellow for [recentMs] after an
+     * unplanned loss, and green otherwise, still saying when the last loss was.
      */
     fun check(
         csv: String?,
         history: MutableList<Pair<Long, Map<String, Long>>>,
         now: Long,
+        planned: List<Long> = emptyList(),
         windowMs: Long = 3_600_000L,
-        recentMs: Long = 15 * 60_000L,
+        recentMs: Long = 5 * 60_000L,
     ): CheckDto {
         val proxies = csv?.let { parse(it) }.orEmpty()
         if (proxies.isEmpty()) return CheckDto("cluster-proxy", Health.UNKNOWN, "stats not available")
@@ -74,25 +74,39 @@ object ClusterProxy {
         history += now to proxies.associate { it.name to it.outages }
         var drops = 0L
         var lastLossAt: Long? = null
-        history.zipWithNext { (_, before), (at, after) ->
-            val lost = after.entries.sumOf { (name, n) -> (n - (before[name] ?: n)).coerceAtLeast(0) }
-            if (lost > 0) { drops += lost; lastLossAt = at }
+        var lastPlannedAt: Long? = null
+        history.zipWithNext { (before, old), (at, new) ->
+            val lost = new.entries.sumOf { (name, n) -> (n - (old[name] ?: n)).coerceAtLeast(0) }
+            if (lost == 0L) return@zipWithNext
+            if (planned.any { it in (before - PLANNED_SLACK_MS)..at }) {
+                lastPlannedAt = at
+            } else {
+                drops += lost
+                lastLossAt = at
+            }
         }
         val down = proxies.filter { it.upServers.isEmpty() }
         val label = PROXIES.toMap()
         val routes = proxies.joinToString(", ") { "${label[it.name]} → ${it.upServers.joinToString("/").ifEmpty { "none" }}" }
         val last = lastLossAt
-        val dropText = if (drops > 0 && last != null) {
-            "; lost the primary $drops time${if (drops == 1L) "" else "s"} in the last ${windowMs / 60_000} min, last ${minutesAgo(now - last)}" +
-                if (now - last > recentMs && down.isEmpty()) " (recovered)" else ""
-        } else ""
+        val recent = last != null && now - last <= recentMs
+        val notes = buildList {
+            if (last != null) {
+                add("lost the primary $drops time${if (drops == 1L) "" else "s"} in the last ${windowMs / 60_000} min, last ${minutesAgo(now - last)}" +
+                    if (!recent && down.isEmpty()) " (recovered)" else "")
+            }
+            lastPlannedAt?.let { add("planned switch ${minutesAgo(now - it)}") }
+        }
         val health = when {
             down.isNotEmpty() -> Health.DOWN
-            last != null && now - last <= recentMs -> Health.DEGRADED
+            recent -> Health.DEGRADED
             else -> Health.OK
         }
-        return CheckDto("cluster-proxy", health, routes + dropText)
+        return CheckDto("cluster-proxy", health, (listOf(routes) + notes).joinToString("; "))
     }
+
+    /** A planned move this long before a reading interval still explains a loss seen at its end (HAProxy notices within seconds). */
+    const val PLANNED_SLACK_MS = 30_000L
 
     private fun minutesAgo(ms: Long): String = (ms / 60_000).let { if (it < 1) "just now" else "${it} min ago" }
 }

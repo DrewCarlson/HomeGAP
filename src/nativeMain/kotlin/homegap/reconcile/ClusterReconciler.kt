@@ -63,6 +63,15 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     /** Why the next primary change happens, when HomeGAP asked for it (otherwise a failover). */
     private var pendingCause: String? = null
     private var switchBackDue: Long? = null
+
+    /** When HomeGAP last moved a primary on purpose (epoch ms, the last hour), for the proxy check. */
+    @Volatile var plannedMoves: List<Long> = emptyList()
+        private set
+
+    private fun notePlannedMove() {
+        val now = nowMillis()
+        plannedMoves = plannedMoves.filter { it > now - 3_600_000L } + now
+    }
     /** The members and database view of the last pass, for a switchover from the dashboard. */
     @Volatile private var lastView: Pair<List<Member>, List<PatroniClient.Member>>? = null
 
@@ -167,6 +176,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val target = pg.firstOrNull { it.name == to } ?: throw IllegalArgumentException("$to is not a database member")
         check(target.state == "streaming" && target.lagBytes == 0L) { "$to is not a caught-up replica (${target.state})" }
         val leaderMember = members.first { it.id == leader.name }
+        notePlannedMove()
         try {
             PatroniClient(http, ClusterTemplates.REST_USER, secrets().rest).switchover(restUrl(leaderMember), leader.name, to)
         } catch (e: Exception) {
@@ -243,6 +253,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             val replicas = pg.filter { it.name != off && it.name != updatingNode && it.state == "streaming" }
             val target = replicas.firstOrNull { it.name == prefer && it.lagBytes == 0L } ?: replicas.minByOrNull { it.lagBytes ?: Long.MAX_VALUE }
                 ?: throw IllegalStateException("no caught-up replica can take over the database from $off")
+            notePlannedMove()
             patroni.switchover(restUrl(members.first { it.id == off }), off, target.name)
             pendingCause = cause
             val moved = waitFor(60_000) { databaseView(patroni, members)?.firstOrNull { it.role == "leader" }?.name.let { it != null && it != off } }
@@ -255,6 +266,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val offIp = members.first { it.id == off }.meshIp
         val master = sentinelMaster(valkey, members)
         if (master == offIp) {
+            notePlannedMove()
             check(valkey.sentinelFailover("127.0.0.1", ClusterTemplates.SCOPE)) { "Sentinel refused the Valkey failover" }
             val moved = waitFor(60_000) { sentinelMaster(valkey, members).let { it != null && it != offIp } }
             check(moved) { "the Valkey primary did not move off $off within a minute" }
@@ -607,6 +619,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         decision.switchFrom?.let { leader ->
             val leaderMember = members.firstOrNull { it.id == leader } ?: return decision.note
             try {
+                notePlannedMove()
                 patroni.switchover(restUrl(leaderMember), leader, cluster.primary.preferred)
                 pendingCause = "switch-back"
                 switchBackDue = null
@@ -624,6 +637,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             val master = sentinelMaster(valkey, members)
             val homelabLinked = valkey.replication(homelab.meshIp)?.get("master_link_status") == "up"
             if (master != null && master != homelab.meshIp && homelabLinked) {
+                notePlannedMove()
                 if (valkey.sentinelFailover("127.0.0.1", ClusterTemplates.SCOPE)) {
                     ctx.log.change(domain, "switched the Valkey primary back to ${cluster.primary.preferred}")
                 }
