@@ -2637,13 +2637,11 @@
 <li><strong>Resync</strong> queues a pass now.</li>
 <li><strong>Pause</strong> stops all changes everywhere. HomeGAP then only observes. <strong>Resume</strong> starts the changes again.</li>
 </ul>
-<!-- SCREENSHOT: docs/img/dashboard/header.png | the header with the pass state, Resync and Pause -->
-
+<p><img src="../../img/dashboard/header.png" alt="The header with the pass state, Resync and Pause"></p>
 <h2 id="the-pages">The pages<a class="headerlink" href="#the-pages" title="Permanent link">&para;</a></h2>
 <h3 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h3>
 <p>"Health of nodes, tunnels, services and DNS at a glance". The page has a world map with the nodes and the homelab. See <a href="../maps/">Maps and locations</a>.</p>
-<!-- SCREENSHOT: docs/img/dashboard/overview.png | the Overview page with the world map -->
-
+<p><img src="../../img/dashboard/overview.png" alt="The Overview page with the world map"></p>
 <h3 id="nodes">Nodes<a class="headerlink" href="#nodes" title="Permanent link">&para;</a></h3>
 <p>"Regional edge nodes provisioned over SSH". For each node, the page shows:</p>
 <ul>
@@ -2656,34 +2654,27 @@
 </ul>
 <p>The actions on a node are <strong>Re-provision</strong>, <strong>Pause</strong> or <strong>Resume</strong>, and <strong>Remove</strong>. After a removal, the action is <strong>Confirm decommission</strong>. During a held rollout, the node also has <strong>Retry update</strong> and <strong>Skip update</strong>. See <a href="../nodes/">Manage nodes</a> and <a href="../node-updates/">Node updates and rollback</a>.</p>
 <p>The <strong>Add node</strong> button opens the wizard. See <a href="../../getting-started/add-node/">Add a node</a>. In cluster mode, the page also has the <strong>Cluster mesh</strong> and <strong>Cluster database</strong> panels. See <a href="../../cluster/mesh/">Cluster mesh</a> and <a href="../../cluster/database/">Cluster database</a>.</p>
-<!-- SCREENSHOT: docs/img/dashboard/nodes.png | the Nodes page with the node table and its checks -->
-
+<p><img src="../../img/dashboard/nodes.png" alt="The Nodes page with the node table and its checks"></p>
 <h3 id="services">Services<a class="headerlink" href="#services" title="Permanent link">&para;</a></h3>
 <p>"Containers published through homegap.* labels". The page shows the health of each service in each region, and the label errors and warnings. Each service has <strong>Pause</strong> or <strong>Resume</strong>.</p>
-<!-- SCREENSHOT: docs/img/dashboard/services.png | the Services page with the health in each region -->
-
+<p><img src="../../img/dashboard/services.png" alt="The Services page with the health in each region"></p>
 <h3 id="dns">DNS<a class="headerlink" href="#dns" title="Permanent link">&para;</a></h3>
-<p>"Bunny DNS records managed by HomeGAP". The page shows the records, the state of their monitors and if they match the desired state.</p>
-<!-- SCREENSHOT: docs/img/dashboard/dns.png | the DNS page with the records and the monitor state -->
-
+<p>"Bunny DNS records managed by HomeGAP". The page shows the records, the state of their monitors and if they match the desired state. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them.</p>
+<p><img src="../../img/dashboard/dns.png" alt="The DNS page with the records and the monitor state"></p>
 <h3 id="tunnels">Tunnels<a class="headerlink" href="#tunnels" title="Permanent link">&para;</a></h3>
 <p>"Newt connectors from the homelab to each node". The page shows the state of each process, its restarts and its throughput.</p>
-<!-- SCREENSHOT: docs/img/dashboard/tunnels.png | the Tunnels page with one connector for each node -->
-
+<p><img src="../../img/dashboard/tunnels.png" alt="The Tunnels page with one connector for each node"></p>
 <h3 id="access_1">Access<a class="headerlink" href="#access_1" title="Permanent link">&para;</a></h3>
 <p>"Who can sign in to the Pangolin apps, and their devices". This page is available only in cluster mode. See <a href="../../cluster/access/">Users and devices</a>.</p>
 <h3 id="speed-test">Speed test<a class="headerlink" href="#speed-test" title="Permanent link">&para;</a></h3>
 <p>"Latency and throughput through the real traffic path". See <a href="../speed-tests/">Speed tests</a>.</p>
-<!-- SCREENSHOT: docs/img/dashboard/speedtest.png | the Speed test page with the map and the results -->
-
+<p><img src="../../img/dashboard/speedtest.png" alt="The Speed test page with the map and the results"></p>
 <h3 id="activity">Activity<a class="headerlink" href="#activity" title="Permanent link">&para;</a></h3>
 <p>"Reconcile log, newest first". The log is grouped by domain.</p>
-<!-- SCREENSHOT: docs/img/dashboard/activity.png | the Activity page with the reconcile log -->
-
+<p><img src="../../img/dashboard/activity.png" alt="The Activity page with the reconcile log"></p>
 <h3 id="diagnostics">Diagnostics<a class="headerlink" href="#diagnostics" title="Permanent link">&para;</a></h3>
 <p>"Container logs and a read-only snapshot of each node". See <a href="../troubleshooting/">Diagnostics and troubleshooting</a>.</p>
-<!-- SCREENSHOT: docs/img/dashboard/diagnostics.png | the Diagnostics page with the logs of a container -->
-
+<p><img src="../../img/dashboard/diagnostics.png" alt="The Diagnostics page with the logs of a container"></p>
 <h3 id="config">Config<a class="headerlink" href="#config" title="Permanent link">&para;</a></h3>
 <p>"Desired vs. actual state, secrets and the config file". The page shows:</p>
 <ul>
@@ -2693,8 +2684,7 @@
 <li>The config file.</li>
 </ul>
 <p>The <strong>Locations</strong> page is under <strong>Config</strong>. See <a href="../maps/">Maps and locations</a>.</p>
-<!-- SCREENSHOT: docs/img/dashboard/config.png | the Config page with the diff and the secrets -->
-
+<p><img src="../../img/dashboard/config.png" alt="The Config page with the diff and the secrets"></p>
 <h2 id="node-checks">Node checks<a class="headerlink" href="#node-checks" title="Permanent link">&para;</a></h2>
 <p>The Nodes page shows these checks:</p>
 <table>

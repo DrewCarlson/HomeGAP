@@ -2442,6 +2442,7 @@
 <ul>
 <li>The public status page never shows addresses or hostnames. It shows the homelab only as its region. See <a href="../../operations/status-page/">Status page</a>.</li>
 <li>The token of a speed test link for a device is in the fragment of the URL. The browser never sends it to a server, so no log contains it. See <a href="../../operations/speed-tests/">Speed tests</a>.</li>
+<li>The nodes end TLS for the shared names <code>status.&lt;domain&gt;</code> and <code>speedtest.&lt;domain&gt;</code>, which serve only these HomeGAP pages. A node then sends each request back into its own port 443 under its own name, and the front door carries it home still encrypted. On that inner connection the node does not check the certificate, because the connection does not leave the node before it enters the tunnel.</li>
 </ul>
 <h2 id="report-a-security-issue">Report a security issue<a class="headerlink" href="#report-a-security-issue" title="Permanent link">&para;</a></h2>
 <p>To report a security issue, open a private security advisory on GitHub at <code>https://github.com/DrewCarlson/HomeGAP/security/advisories/new</code>. Do not open a public issue.</p>

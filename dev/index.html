@@ -279,17 +279,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-parts" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        The parts
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#features" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2274,17 +2263,6 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#the-parts" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        The parts
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#features" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2342,35 +2320,43 @@
   
 
 
+<div align="center">
 <h1 id="homegap">HomeGAP<a class="headerlink" href="#homegap" title="Permanent link">&para;</a></h1>
-<p>HomeGAP (Homelab Global Access Platform) publishes the services of your homelab to the world through regional edge nodes that you own. This page tells you what HomeGAP does and where to start.</p>
-<p>HomeGAP is a self-hosted alternative to Cloudflare Tunnels and WARP. Your home network has no inbound ports, and no third-party tunnel carries your traffic.</p>
-<p>The homelab is the single origin, and HomeGAP never exposes it. Regional nodes accept the connections near each audience. Each node then sends the traffic back home through a WireGuard tunnel that the homelab dials outbound.</p>
+<p><strong>Homelab Global Access Platform</strong></p>
+<p>Publish homelab services worldwide through your own regional edge nodes. No inbound ports, no third-party tunnel.</p>
+<p><a href="https://github.com/DrewCarlson/HomeGAP/actions/workflows/build.yml"><img alt="Build" src="https://github.com/DrewCarlson/HomeGAP/actions/workflows/build.yml/badge.svg" /></a>
+<a href="https://github.com/DrewCarlson/HomeGAP/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+<a href="https://github.com/DrewCarlson/HomeGAP/pkgs/container/homegap"><img alt="Container image" src="https://img.shields.io/badge/ghcr.io-drewcarlson%2Fhomegap-2496ED?logo=docker&amp;logoColor=white" /></a></p>
+<p><strong><a href="getting-started/">Getting started</a></strong> ·
+<strong><a href="getting-started/how-it-works/">How it works</a></strong> ·
+<strong><a href="services/labels/">Label reference</a></strong></p>
+</div>
+<hr />
+<p>HomeGAP is a self-hosted alternative to Cloudflare Tunnels and WARP. Your homelab is the only origin, and nothing at home accepts inbound connections. Regional VPS nodes take each viewer's connection near the viewer and send it home through a WireGuard tunnel that the homelab dials out.</p>
+<p>One orchestrator container on the homelab controls the system from Docker labels:</p>
+<ul>
+<li><strong>Regional nodes</strong> are Ubuntu VPS servers from any provider, in any location. Each node runs Pangolin EE with Gerbil and Traefik.</li>
+<li><strong>Bunny DNS</strong> sends each viewer to the nearest healthy node. Health checks remove a node that fails.</li>
+<li><strong>The orchestrator</strong> reads the labels and creates the Pangolin resources on every node, the tunnels that connect the nodes to the homelab, and the DNS records. It also installs and maintains the nodes over SSH.</li>
+</ul>
 <div class="admonition warning">
 <p class="admonition-title">Caution</p>
-<p>HomeGAP is early-stage software. Before you send production traffic through it, test it on a domain that nothing depends on. Use a spare domain, or a subdomain that you delegate to Bunny DNS.</p>
+<p>HomeGAP is early-stage software. Test it on a domain that nothing depends on, for example a spare domain or a subdomain delegated to Bunny DNS. Then move production traffic to it.</p>
 </div>
-<h2 id="the-parts">The parts<a class="headerlink" href="#the-parts" title="Permanent link">&para;</a></h2>
-<p>HomeGAP has three parts:</p>
-<ul>
-<li><strong>Regional nodes.</strong> A node is an Ubuntu VPS from any provider, in any location. It runs Pangolin EE, Gerbil and Traefik.</li>
-<li><strong>Bunny DNS.</strong> Bunny sends each viewer to the nearest node. Health checks remove a failed node from the answers.</li>
-<li><strong>The orchestrator.</strong> One container on the homelab reads your Docker labels. From the labels, it creates the Pangolin resources on every node, the Newt tunnels that feed them and the Bunny DNS records that steer viewers. It also provisions and maintains the nodes over SSH.</li>
-</ul>
 <h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
 <ul>
-<li>The origin stays hidden. Every tunnel is outbound from the homelab.</li>
-<li>TLS is end-to-end by default. The nodes route by SNI and never see plaintext. One label changes a service to TLS termination on the node.</li>
-<li>HomeGAP publishes HTTP(S), raw TCP and UDP services. Private services are available only through the Pangolin client.</li>
-<li>Geo routing sends each viewer to the nearest healthy node, with failover by health check.</li>
-<li>In cluster mode, the VPN continues to work while the homelab is down. The Pangolin apps connect through the nearest node, and sign-in continues to work.</li>
-<li>One label publishes a service.</li>
-<li>HomeGAP changes a bare VPS into a node over SSH, and it repairs drift.</li>
-<li>The orchestrator has a built-in dashboard.</li>
-<li>The maps are self-hosted. They use no third-party map service.</li>
-<li>The orchestrator is never in the traffic path. If it stops, the nodes, the tunnels and DNS continue to work.</li>
+<li><strong>The origin stays hidden.</strong> The homelab has no open ports. Every tunnel starts at home.</li>
+<li><strong>End-to-end TLS by default.</strong> Nodes route by the TLS server name and never see plaintext. One label moves TLS termination to the nodes. See <a href="services/traffic-paths/">Traffic paths</a>.</li>
+<li><strong>HTTP(S), raw TCP and UDP</strong>, and private services that only the Pangolin client can reach. See <a href="services/">Services</a>.</li>
+<li><strong>Geo routing with failover.</strong> Each viewer reaches the nearest healthy node. See <a href="configuration/dns/">DNS routing and health checks</a>.</li>
+<li><strong>A VPN that keeps working when the homelab is down.</strong> In cluster mode, all nodes are one Pangolin with shared users and devices. The Pangolin apps connect through the nearest node, and sign-in continues to work while the homelab is offline. See <a href="cluster/">Cluster mode</a>.</li>
+<li><strong>Real client addresses and private-only services.</strong> The homelab sees each viewer's address, and a Traefik allowlist can admit only Pangolin clients. See <a href="services/client-addresses/">Client addresses</a>.</li>
+<li><strong>One label publishes a service.</strong> Docker labels are the source of truth. The orchestrator makes the rest match them.</li>
+<li><strong>Node lifecycle from a bare VPS.</strong> A dashboard wizard turns a fresh server into a node over SSH. Updates roll out one node at a time, with automatic rollback. See <a href="getting-started/add-node/">Add a node</a>.</li>
+<li><strong>A built-in dashboard</strong> for health, pausing, re-provisioning, speed tests, diagnostics and node management. It also serves this documentation for its own version. See <a href="operations/dashboard/">The dashboard</a>.</li>
+<li><strong>Self-hosted maps</strong> of the nodes and the homelab, on the dashboard and on an optional public status page. No third-party map service. See <a href="operations/maps/">Maps and locations</a>.</li>
+<li><strong>The orchestrator is never in the traffic path.</strong> If it stops, the nodes continue to serve, the tunnels stay up and DNS continues to resolve. You can manage each part by hand: SSH, each node's Pangolin dashboard, or the Bunny console.</li>
 </ul>
-<p>You can manage each part by hand at all times: SSH to a node, the Pangolin dashboard of each node, or the Bunny console.</p>
 <h2 id="next-steps">Next steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <p>Start with <a href="getting-started/">Getting started</a>. For the model behind the system, read <a href="getting-started/how-it-works/">How HomeGAP works</a>.</p>
 <p>These pages are the documentation for HomeGAP version dev.</p>

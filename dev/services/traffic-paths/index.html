@@ -2404,7 +2404,7 @@
 <ul>
 <li>The management host of each node, <code>pangolin-&lt;id&gt;.&lt;domain&gt;</code>.</li>
 <li>In cluster mode, the client address <code>pangolin.&lt;domain&gt;</code>.</li>
-<li>The status page, <code>status.&lt;domain&gt;</code>.</li>
+<li>The shared names of the status page and the speed test, <code>status.&lt;domain&gt;</code> and <code>speedtest.&lt;domain&gt;</code>. The node sends their requests on to the homelab under its own names, <code>status-&lt;node&gt;.&lt;domain&gt;</code> and <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>.</li>
 <li>Dedicated hostnames that use <code>terminate</code>.</li>
 </ul>
 <p>On port 80, the node sends a permanent redirect to HTTPS for the passthrough names.</p>

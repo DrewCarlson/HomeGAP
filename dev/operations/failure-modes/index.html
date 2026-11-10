@@ -2270,6 +2270,16 @@
 <td>The tunnel supervisor restarts Newt with a backoff. Failover covers the gap.</td>
 </tr>
 <tr>
+<td>A new record is not on every Bunny nameserver yet.</td>
+<td>Lookups that go to that nameserver get the answer of the wildcard, which is any node. For a new node, its management host and its status and speed test addresses can go to another node. The tunnels are not affected, because their addresses are pinned.</td>
+<td>The DNS page shows the record as not in sync, with the answer of each nameserver. HomeGAP checks again on every pass. If the record does not arrive, save it again in the Bunny dashboard or contact Bunny.</td>
+</tr>
+<tr>
+<td>A Newt connector logs in to another server.</td>
+<td>The tunnel of that node stays down. Newt retries on the same connection, so it does not recover by itself.</td>
+<td>After 5 failed logins (approximately 15 seconds), the tunnel supervisor restarts Newt. The Tunnels page shows the reason.</td>
+</tr>
+<tr>
 <td>The issuance of a certificate fails on a node.</td>
 <td>That node cannot serve TLS for the affected names.</td>
 <td>Send the wildcard certificate with <code>certificates</code>, or repair ACME. The dashboard shows the expiry. See <a href="../../configuration/certificates/">Certificates</a>.</td>

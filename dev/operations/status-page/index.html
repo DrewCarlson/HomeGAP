@@ -2392,8 +2392,8 @@
 <p>The page never shows addresses or hostnames. While it is open, it refreshes every minute.</p>
 <p>The page also has a map of the nodes in their status colors. The node of the visitor is highlighted, with the round trip through each node. The map shows the homelab only as a soft area at the center of its region, for example "Home · North America". HomeGAP never sends the location of the homelab to the page.</p>
 <h2 id="how-the-page-works">How the page works<a class="headerlink" href="#how-the-page-works" title="Permanent link">&para;</a></h2>
-<p>Each node answers <code>status.&lt;domain&gt;</code> itself, with its own certificate, over HTTP and HTTPS. This name never goes through passthrough. The node redirects the visitor to its own name, <code>status-&lt;node&gt;.&lt;domain&gt;</code>.</p>
-<p>That name goes through the front door and the tunnel to the homelab. Thus the page, the node list and every ping come from the orchestrator.</p>
+<p>Each node answers <code>status.&lt;domain&gt;</code> itself, with its own certificate. This name never goes through passthrough. On HTTP, the node redirects to HTTPS on the same name.</p>
+<p>On HTTPS, the node sends each request on to the homelab under its own name, <code>status-&lt;node&gt;.&lt;domain&gt;</code>. That name goes through the front door and the tunnel to the homelab. The address bar keeps <code>status.&lt;domain&gt;</code>, and the orchestrator always knows which node the visitor came through. Thus the page, the node list and every ping come from the orchestrator.</p>
 <p>For the round trip through each other node, the browser sends one request to <code>status-&lt;node&gt;.&lt;domain&gt;</code>. The request goes through that node and its tunnel to the homelab, and back. The browser measures the time with Resource Timing, from the request to the first byte. Thus the time does not include DNS and the setup of the connection.</p>
 <h2 id="enable-the-status-page">Enable the status page<a class="headerlink" href="#enable-the-status-page" title="Permanent link">&para;</a></h2>
 <p>The status page needs a front door. The first activation needs a restart of the orchestrator.</p>
@@ -2433,7 +2433,7 @@
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">traefik.http.services.homegap-speedtest.loadbalancer.server.port</span><span class="p">:</span><span class="w"> </span><span class="s">"8089"</span>
 </code></pre></div>
 <p>To put the homelab on the map, set its location on the <strong>Locations</strong> page. See <a href="../maps/">Maps and locations</a>.</p>
-<!-- SCREENSHOT: docs/img/status-page/01-page.png | the public status page with the node list and the map -->
+<p><img src="../../img/status-page/01-page.png" alt="The public status page with the node list and the map"></p>
 
 
 

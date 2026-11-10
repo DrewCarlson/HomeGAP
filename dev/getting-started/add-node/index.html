@@ -2555,23 +2555,21 @@
 <h3 id="open-the-wizard">Open the wizard<a class="headerlink" href="#open-the-wizard" title="Permanent link">&para;</a></h3>
 <ol>
 <li>On the dashboard, open <strong>Nodes</strong>.</li>
-<li>Click <strong>Add node</strong>. The page shows "Set up a fresh server from its initial login and provision it".</li>
+<li>Click <strong>Add node</strong>. The page shows "Set up a fresh server from its initial login and provision it".
+<img src="../../img/add-node/01-open-wizard.png" alt="The Nodes page with the Add node button"></li>
 </ol>
-<!-- SCREENSHOT: docs/img/add-node/01-open-wizard.png | the Nodes page with the Add node button -->
-
 <h3 id="1-server">1. Server<a class="headerlink" href="#1-server" title="Permanent link">&para;</a></h3>
 <ol>
 <li>In <strong>Node id</strong>, type the id of the node, for example <code>eu1</code>. Use lowercase letters, digits and dashes. Start with a letter.</li>
 <li>In <strong>Public IP or host name</strong>, type the address of the server.</li>
 <li>In <strong>SSH port</strong>, type the SSH port. The default is <code>22</code>.</li>
-<li>Set the location. Search the known data-center cities (for example "dallas", "mumbai" or "hetzner"), or click a point in <strong>Pick on the map</strong>.</li>
+<li>Set the location. Search the known data-center cities (for example "dallas", "london" or "hetzner"), or click a point in <strong>Pick on the map</strong>.</li>
 <li>Optional: correct <strong>Region code</strong>, <strong>Latitude</strong>, <strong>Longitude</strong> or <strong>Place name</strong>.</li>
 <li>Optional: type the <strong>Provider</strong>.</li>
 <li>Click <strong>Continue</strong>.</li>
 </ol>
 <p>When you pick a point on the map, the nearest known city within 50 km gives the point its name.</p>
-<!-- SCREENSHOT: docs/img/add-node/02-server.png | the Server step with the node id, the address and a location from the search -->
-
+<p><img src="../../img/add-node/02-server.png" alt="The Server step with the node id, the address and a location from the search"></p>
 <h3 id="2-initial-login">2. Initial login<a class="headerlink" href="#2-initial-login" title="Permanent link">&para;</a></h3>
 <ol>
 <li>In <strong>User</strong>, type <code>root</code> or another user that can use sudo.</li>
@@ -2591,8 +2589,7 @@
 <li><strong>Orchestrator seen from</strong>: the address of the orchestrator, as the node sees it.</li>
 </ul>
 <p>If the host key is different from the last connection, the test reports it. Make sure that the server has a new install. Then click <strong>Forget the old host key and retry</strong>.</p>
-<!-- SCREENSHOT: docs/img/add-node/03-initial-login.png | the Initial login step after a successful connection test -->
-
+<p><img src="../../img/add-node/03-initial-login.png" alt="The Initial login step after a successful connection test"></p>
 <h3 id="3-access">3. Access<a class="headerlink" href="#3-access" title="Permanent link">&para;</a></h3>
 <p>The <strong>Management user</strong> is "The account HomeGAP manages the node with."</p>
 <ol>
@@ -2606,8 +2603,7 @@
 </ol>
 <p>A generated key is an ed25519 key. HomeGAP keeps it in <code>&lt;data dir&gt;/ssh/</code> on the orchestrator.</p>
 <p>HomeGAP uses sudo only for system changes: packages, the firewall, WireGuard and sysctls. The files under the install directory (<code>/opt/homegap</code> by default) belong to the management user. If the user is in the <code>docker</code> group, HomeGAP also runs Docker Compose as this user, so <code>docker compose</code> works there without sudo. The data directories of the cluster member stay with their containers.</p>
-<!-- SCREENSHOT: docs/img/add-node/04-access.png | the Access step with a dedicated user, a generated key and both options under SSH hardening -->
-
+<p><img src="../../img/add-node/04-access.png" alt="The Access step with a dedicated user, a generated key and both options under SSH hardening"></p>
 <h3 id="4-firewall">4. Firewall<a class="headerlink" href="#4-firewall" title="Permanent link">&para;</a></h3>
 <ol>
 <li>Keep <strong>Let HomeGAP manage the firewall</strong> selected. HomeGAP keeps the rules in sync on each provisioning pass.</li>
@@ -2628,25 +2624,22 @@
 <p>Use a stable address range. Or open SSH to anywhere and disable password login.</p>
 <p>To recover, log in through the web console of your provider. Run <code>ufw allow &lt;ssh port&gt;/tcp</code>. Then update <code>ssh_allow_from</code> in the config. The next pass replaces the rules.</p>
 </div>
-<!-- SCREENSHOT: docs/img/add-node/05-firewall.png | the Firewall step with the list of rules -->
-
+<p><img src="../../img/add-node/05-firewall.png" alt="The Firewall step with the list of rules"></p>
 <h3 id="5-review-run">5. Review &amp; run<a class="headerlink" href="#5-review-run" title="Permanent link">&para;</a></h3>
 <ol>
 <li>Examine the summary.</li>
 <li>Click <strong>Set up and add node</strong>. The page shows the progress of each setup step.</li>
 <li>When the page shows "Done. Provisioning starts on the next reconcile pass.", click <strong>Go to nodes</strong>.</li>
 </ol>
-<!-- SCREENSHOT: docs/img/add-node/06-review.png | the Review & run step with the summary -->
-<!-- SCREENSHOT: docs/img/add-node/07-done.png | the finished setup job with the Go to nodes button -->
-
+<p><img src="../../img/add-node/06-review.png" alt="The Review & run step with the summary">
+<img src="../../img/add-node/07-done.png" alt="The finished setup job with the Go to nodes button"></p>
 <h2 id="if-setup-fails">If setup fails<a class="headerlink" href="#if-setup-fails" title="Permanent link">&para;</a></h2>
 <p>A failed job shows the step with the failure and the reason. Correct the cause, then click <strong>Retry</strong>.</p>
 <p>You can run setup again safely. The completed steps are idempotent. If an earlier run already disabled password login, setup continues with the key of the node.</p>
 <h2 id="after-the-wizard">After the wizard<a class="headerlink" href="#after-the-wizard" title="Permanent link">&para;</a></h2>
 <p>Provisioning runs in the background. The first install takes a few minutes for Docker, the firewall and the Pangolin stack. During this time, the node shows <code>provisioning…</code> on the <strong>Nodes</strong> page.</p>
 <p>If the first provisioning fails, HomeGAP tries again after five minutes. To try again at once, click <strong>Re-provision</strong>.</p>
-<!-- SCREENSHOT: docs/img/add-node/08-provisioning.png | the Nodes page with the new node in the provisioning… state -->
-
+<p><img src="../../img/add-node/08-provisioning.png" alt="The Nodes page with the new node in the provisioning… state"></p>
 <h2 id="add-a-node-by-hand">Add a node by hand<a class="headerlink" href="#add-a-node-by-hand" title="Permanent link">&para;</a></h2>
 <p>You can also prepare the server yourself and add the node to <code>nodes[]</code> in the config. See the "By hand" tab in <a href="../servers/#give-homegap-access">Prepare the servers</a>.</p>
 

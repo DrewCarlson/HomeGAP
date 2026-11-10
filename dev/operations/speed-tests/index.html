@@ -2441,7 +2441,7 @@
 </tbody>
 </table>
 <p>A change of <code>speedtest.enabled</code> or <code>speedtest.bind</code> needs a restart of the orchestrator.</p>
-<p>The front door already forwards <code>speedtest.&lt;domain&gt;</code> and <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code> from the nodes. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the <code>homegap-mesh</code> service, because it owns the networks of the orchestrator:</p>
+<p>The front door already forwards <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code> from the nodes. A node answers the shared name <code>speedtest.&lt;domain&gt;</code> itself, and sends its requests on to the homelab as <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the <code>homegap-mesh</code> service, because it owns the networks of the orchestrator:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">labels</span><span class="p">:</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">traefik.enable</span><span class="p">:</span><span class="w"> </span><span class="s">"true"</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">traefik.http.routers.homegap-speedtest.rule</span><span class="p">:</span><span class="w"> </span><span class="s">"Host(`speedtest.example.net`)</span><span class="nv"> </span><span class="s">||</span><span class="nv"> </span><span class="s">HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"</span>
@@ -2463,10 +2463,9 @@
 <li>Click <strong>Copy</strong>.</li>
 <li>Open the link on the device.</li>
 </ol>
-<p><code>http://speedtest.&lt;domain&gt;/</code> goes to the node that DNS selects for the device. That node redirects to its own <code>speedtest-&lt;node&gt;</code> hostname. Thus each result belongs to a node.</p>
+<p><code>speedtest.&lt;domain&gt;</code> goes to the node that DNS selects for the device. That node answers the name itself and sends each request on to the homelab under its own name, <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>. The address bar keeps <code>speedtest.&lt;domain&gt;</code>. Thus the page shows the node, and each result belongs to a node. On HTTP, the node redirects to HTTPS on the same name.</p>
 <p>The token is in the fragment of the URL. The browser never sends the fragment to a server, so no log contains the token.</p>
-<!-- SCREENSHOT: docs/img/dashboard/speedtest-results.png | the Speed test page with a homelab to node result and a device link -->
-
+<p><img src="../../img/dashboard/speedtest-results.png" alt="The Speed test page with a homelab to node result and a device link"></p>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>HomeGAP keeps the results in <code>&lt;data_dir&gt;/speedtests.json</code>. The <strong>History</strong> panel shows the recent results.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>

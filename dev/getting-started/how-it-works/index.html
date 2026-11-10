@@ -2427,7 +2427,7 @@
 </tr>
 <tr>
 <td>Tunnels</td>
-<td>Keeps a Pangolin site for the homelab on each node. Writes one Newt connector spec for each node, for the tunnel supervisor.</td>
+<td>Keeps a Pangolin site for the homelab on each node. Writes one Newt connector spec for each node, for the tunnel supervisor. The spec has the addresses of the node's management host, the same values as its DNS records. The supervisor pins them in the hosts file of the <code>tunnels</code> container, so a connector does not depend on public DNS.</td>
 </tr>
 <tr>
 <td>Resources</td>
@@ -2435,7 +2435,7 @@
 </tr>
 <tr>
 <td>DNS</td>
-<td>Keeps the Bunny geo record sets for the root, the wildcard and each dedicated hostname. Also keeps a plain record for the management host of each node.</td>
+<td>Keeps the Bunny geo record sets for the root, the wildcard and each dedicated hostname. Also keeps a plain record for the management host of each node. Asks the nameservers of the zone directly if they serve each plain record.</td>
 </tr>
 <tr>
 <td>Observability</td>

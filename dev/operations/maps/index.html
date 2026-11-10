@@ -2411,17 +2411,15 @@
 <p>The Overview map shows every node and the homelab as markers that pulse in their health color. A marker pulses faster when it is not healthy. Lines go from the homelab to each node, in the color of its tunnel.</p>
 <p>When you move the pointer over a node, the map shows details of the node. These are its health, its tunnel, its round trip to the homelab, its provider and its failed checks.</p>
 <p>When you zoom out, markers that cover each other move apart into a column, with a short line to their real position. When you zoom in, they go back to their exact locations. The known locations of the catalog never move.</p>
-<!-- SCREENSHOT: docs/img/maps/01-overview.png | the Overview map with nodes, the homelab and the tunnel lines -->
-
+<p><img src="../../img/maps/01-overview.png" alt="The Overview map with nodes, the homelab and the tunnel lines"></p>
 <h2 id="the-other-maps">The other maps<a class="headerlink" href="#the-other-maps" title="Permanent link">&para;</a></h2>
 <p>On the <strong>Speed test</strong> map, each line has the latest result between the homelab and the node. Click a node to run its test.</p>
-<p>In the add-node wizard, search the known data-center cities, for example "dallas", "mumbai" or "hetzner". The search fills in the place name, the region code and the coordinates. Or click the map: the nearest known city within 50 km gives the point its name.</p>
+<p>In the add-node wizard, search the known data-center cities, for example "dallas", "london" or "hetzner". The search fills in the place name, the region code and the coordinates. Or click the map: the nearest known city within 50 km gives the point its name.</p>
 <h2 id="the-locations-page">The Locations page<a class="headerlink" href="#the-locations-page" title="Permanent link">&para;</a></h2>
 <p>The <strong>Locations</strong> page is under <strong>Config</strong>. It has two parts.</p>
 <p>The homelab location tells the maps where the homelab is. Set it on this page, or set <code>homelab.location</code> in the config. The API call is <code>PUT /api/homelab/location</code>. The public status page shows only the region of the homelab.</p>
 <p>The catalog lists the known locations. Approximately 100 data-center cities come with HomeGAP, with the providers in each city. You can add your own locations, and edit or hide the locations that come with HomeGAP. HomeGAP keeps your changes in <code>&lt;data_dir&gt;/locations.yml</code>.</p>
-<!-- SCREENSHOT: docs/img/maps/02-locations.png | the Locations page with the homelab location and the catalog -->
-
+<p><img src="../../img/maps/02-locations.png" alt="The Locations page with the homelab location and the catalog"></p>
 <h2 id="custom-tiles">Custom tiles<a class="headerlink" href="#custom-tiles" title="Permanent link">&para;</a></h2>
 <p>To build tiles with more detail, run <code>tools/build-map.sh tiles</code> from the repository, with <code>MAP_MAXZOOM</code> set to a higher zoom level. The script builds the tiles from a Protomaps build. Then set <code>map.tiles</code> to the path of the bigger file.</p>
 <h2 id="attribution">Attribution<a class="headerlink" href="#attribution" title="Permanent link">&para;</a></h2>
