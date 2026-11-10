@@ -184,9 +184,7 @@ how to build and test HomeGAP.
 ## Acknowledgements
 
 HomeGAP builds on [Pangolin](https://github.com/fosrl/pangolin), Newt and Gerbil by Fossorial,
-[Traefik](https://traefik.io/), [Bunny DNS](https://bunny.net/dns/),
-[Ktor](https://ktor.io/), [Compose for HTML](https://github.com/JetBrains/compose-multiplatform)
-and [kotlin-vite](https://github.com/DrewCarlson/kotlin-vite).
+[Traefik](https://traefik.io/) and [Bunny DNS](https://bunny.net/dns/).
 
 ## AI assistance
 
