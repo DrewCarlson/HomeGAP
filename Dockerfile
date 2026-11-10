@@ -34,10 +34,12 @@ RUN echo "newt ${NEWT_VERSION}" > /v/newt \
 FROM --platform=$BUILDPLATFORM docker.io/library/python:3.14-alpine AS docs
 ARG VERSION=dev
 COPY docs/requirements.txt /src/docs/requirements.txt
-RUN pip install --no-cache-dir -r /src/docs/requirements.txt
+# mike only publishes the versioned site, and installs from git: leave it out here.
+RUN grep -v '^mike' /src/docs/requirements.txt > /tmp/requirements.txt \
+    && pip install --no-cache-dir -r /tmp/requirements.txt
 COPY mkdocs.yml mkdocs.embedded.yml /src/
 COPY docs /src/docs
-RUN cd /src && NO_MKDOCS_2_WARNING=1 VERSION="$VERSION" mkdocs build --strict -f mkdocs.embedded.yml -d /site
+RUN cd /src && VERSION="$VERSION" zensical build --strict -f mkdocs.embedded.yml && mv site-embedded /site
 
 FROM docker.io/library/ubuntu:24.04
 ARG TARGETARCH

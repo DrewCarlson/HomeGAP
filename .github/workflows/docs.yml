@@ -1,7 +1,7 @@
 name: Documentation
 
-# Builds the docs on every push and PR that touches them. Publishes them to GitHub Pages with mike
-# (pushes to main as "dev", version tags vX.Y.Z as "X.Y" with the "latest" alias) once the
+# Builds the docs (Zensical) on every push and PR that touches them. Publishes them to GitHub Pages with mike
+# (Zensical's fork of mike; pushes to main as "dev", version tags vX.Y.Z as "X.Y" with the "latest" alias) once the
 # repository is public; until then the publish job is skipped.
 # Actions are pinned to full commit SHAs; the trailing comment is the release they resolve to.
 
@@ -29,9 +29,6 @@ concurrency:
   group: docs-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  NO_MKDOCS_2_WARNING: '1'
-
 jobs:
   build:
     name: Build
@@ -47,8 +44,8 @@ jobs:
           cache-dependency-path: docs/requirements.txt
       - run: python3 -m pip install -r docs/requirements.txt
       # strict: a broken link or a missing page fails the build.
-      - run: mkdocs build --strict
-      - run: mkdocs build --strict -f mkdocs.embedded.yml -d site-embedded
+      - run: zensical build --strict
+      - run: zensical build --strict -f mkdocs.embedded.yml
 
   publish:
     name: Publish

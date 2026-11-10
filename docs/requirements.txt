@@ -1,6 +1,4 @@
-mkdocs==1.6.1
-mkdocs-material==9.8.1
+zensical==0.1.0
 pymdown-extensions==13.0
-mkdocs-markdownextradata-plugin==0.2.6
-mike==2.2.0
-jinja2==3.1.6
+# Zensical's fork of mike (not on PyPI). Only the publish job needs it.
+mike @ git+https://github.com/squidfunk/mike.git@2.2.0+zensical-0.1.0

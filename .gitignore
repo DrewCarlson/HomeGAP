@@ -16,3 +16,8 @@ e2e/work/
 
 # Built by tools/build-map.sh tiles (shipped in the Docker image, not in git)
 /map/
+
+# Docs builds
+/site/
+/site-embedded/
+/.cache/

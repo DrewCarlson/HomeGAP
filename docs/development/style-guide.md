@@ -211,7 +211,7 @@ They show that a text is generated, and they give no information:
 
 ---
 
-## Part 5: Page format (Material for MkDocs)
+## Part 5: Page format (Zensical)
 
 - One `#` heading at the top: the page title, in sentence case. Then one or two sentences that
   tell what the page is for.
