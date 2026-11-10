@@ -21,6 +21,11 @@
   --sidebar: 232px;
   --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* Terminal colours in container logs (ANSI 0-15), readable on this theme's surfaces. */
+  --ansi-0: #1f2937;  --ansi-1: #c62828;  --ansi-2: #15803d;  --ansi-3: #a16207;
+  --ansi-4: #1d4ed8;  --ansi-5: #a21caf;  --ansi-6: #0e7490;  --ansi-7: #6b7280;
+  --ansi-8: #4b5563;  --ansi-9: #dc2626;  --ansi-10: #16a34a; --ansi-11: #ca8a04;
+  --ansi-12: #2563eb; --ansi-13: #c026d3; --ansi-14: #0891b2; --ansi-15: #374151;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -42,6 +47,10 @@
     --unknown: #9ca3af; --unknown-soft: rgba(156, 163, 175, .10);
     --shadow: none;
     --shadow-lg: 0 10px 30px rgba(0, 0, 0, .5);
+    --ansi-0: #6b7280;  --ansi-1: #f87171;  --ansi-2: #4ade80;  --ansi-3: #fbbf24;
+    --ansi-4: #60a5fa;  --ansi-5: #e879f9;  --ansi-6: #22d3ee;  --ansi-7: #d1d5db;
+    --ansi-8: #9ca3af;  --ansi-9: #fca5a5;  --ansi-10: #86efac; --ansi-11: #fde68a;
+    --ansi-12: #93c5fd; --ansi-13: #f0abfc; --ansi-14: #67e8f9; --ansi-15: #f9fafb;
     color-scheme: dark;
   }
 }
@@ -260,6 +269,27 @@ table.data tr.empty:hover td { background: none; }
 .empty-state { color: var(--muted); text-align: center; padding: 28px; }
 
 pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); font-size: 12px; line-height: 1.55; max-height: 560px; background: var(--surface-2); }
+/* Container logs: the programs' own terminal colours (see AnsiText). */
+.ansi-fg-0 { color: var(--ansi-0); } .ansi-bg-0 { background: var(--ansi-0); }
+.ansi-fg-1 { color: var(--ansi-1); } .ansi-bg-1 { background: var(--ansi-1); }
+.ansi-fg-2 { color: var(--ansi-2); } .ansi-bg-2 { background: var(--ansi-2); }
+.ansi-fg-3 { color: var(--ansi-3); } .ansi-bg-3 { background: var(--ansi-3); }
+.ansi-fg-4 { color: var(--ansi-4); } .ansi-bg-4 { background: var(--ansi-4); }
+.ansi-fg-5 { color: var(--ansi-5); } .ansi-bg-5 { background: var(--ansi-5); }
+.ansi-fg-6 { color: var(--ansi-6); } .ansi-bg-6 { background: var(--ansi-6); }
+.ansi-fg-7 { color: var(--ansi-7); } .ansi-bg-7 { background: var(--ansi-7); }
+.ansi-fg-8 { color: var(--ansi-8); } .ansi-bg-8 { background: var(--ansi-8); }
+.ansi-fg-9 { color: var(--ansi-9); } .ansi-bg-9 { background: var(--ansi-9); }
+.ansi-fg-10 { color: var(--ansi-10); } .ansi-bg-10 { background: var(--ansi-10); }
+.ansi-fg-11 { color: var(--ansi-11); } .ansi-bg-11 { background: var(--ansi-11); }
+.ansi-fg-12 { color: var(--ansi-12); } .ansi-bg-12 { background: var(--ansi-12); }
+.ansi-fg-13 { color: var(--ansi-13); } .ansi-bg-13 { background: var(--ansi-13); }
+.ansi-fg-14 { color: var(--ansi-14); } .ansi-bg-14 { background: var(--ansi-14); }
+.ansi-fg-15 { color: var(--ansi-15); } .ansi-bg-15 { background: var(--ansi-15); }
+.ansi-bold { font-weight: 600; }
+.ansi-dim { opacity: .7; }
+.ansi-italic { font-style: italic; }
+.ansi-underline { text-decoration: underline; }
 
 .toast {
   position: fixed; bottom: 20px; right: 20px; z-index: 20; max-width: 460px;

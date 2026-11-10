@@ -1,6 +1,9 @@
 package homegap.web.screens
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import homegap.presentation.diagnostics.AnsiColor
+import homegap.presentation.diagnostics.AnsiText
 import homegap.presentation.diagnostics.DiagnosticsScreenModel
 import homegap.web.ui.*
 import kotlinx.browser.document
@@ -9,7 +12,10 @@ import org.w3c.dom.url.URL
 import org.w3c.files.Blob
 import org.w3c.files.BlobPropertyBag
 import org.jetbrains.compose.web.dom.Div
+import org.jetbrains.compose.web.css.backgroundColor
+import org.jetbrains.compose.web.css.color
 import org.jetbrains.compose.web.dom.Pre
+import org.jetbrains.compose.web.dom.Span
 import org.jetbrains.compose.web.dom.Text
 
 @Composable
@@ -46,9 +52,35 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
         Panel("Loading…") { Div({ classes("panel-body") }) { Muted("Asking the node over SSH.") } }
     } else if (output != null) {
         Panel("${output.title} · ${output.node}", actions = {
-            ActionButton("Download", small = true) { download("${output.node}-${output.title.substringBefore(' ').lowercase()}.txt", output.text) }
+            ActionButton("Download", small = true) { download("${output.node}-${output.title.substringBefore(' ').lowercase()}.txt", AnsiText.plain(output.text)) }
         }) {
-            Pre { Text(output.text) }
+            TerminalText(output.text)
+        }
+    }
+}
+
+/** Log text with the programs' own terminal colours; the text is only ever rendered as text. */
+@Composable
+private fun TerminalText(text: String) {
+    val runs = remember(text) { AnsiText.parse(text) }
+    Pre {
+        for (run in runs) {
+            if (run.plain) {
+                Text(run.text)
+                continue
+            }
+            Span({
+                (run.fg as? AnsiColor.Indexed)?.let { classes("ansi-fg-${it.index}") }
+                (run.bg as? AnsiColor.Indexed)?.let { classes("ansi-bg-${it.index}") }
+                if (run.bold) classes("ansi-bold")
+                if (run.dim) classes("ansi-dim")
+                if (run.italic) classes("ansi-italic")
+                if (run.underline) classes("ansi-underline")
+                style {
+                    (run.fg as? AnsiColor.Rgb)?.let { color(org.jetbrains.compose.web.css.Color(it.css)) }
+                    (run.bg as? AnsiColor.Rgb)?.let { backgroundColor(org.jetbrains.compose.web.css.Color(it.css)) }
+                }
+            }) { Text(run.text) }
         }
     }
 }
