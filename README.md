@@ -4,76 +4,74 @@
 
 **Homelab Global Access Platform**
 
-Publish homelab services worldwide through your own regional edge nodes — no inbound ports, no third-party tunnel.
+Publish homelab services worldwide through your own regional edge nodes. No inbound ports, no third-party tunnel.
 
 [![Build](https://github.com/DrewCarlson/HomeGAP/actions/workflows/build.yml/badge.svg)](https://github.com/DrewCarlson/HomeGAP/actions/workflows/build.yml)
+[![Docs](https://img.shields.io/badge/docs-latest-5c6bc0)](https://drewcarlson.github.io/HomeGAP/latest/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Container image](https://img.shields.io/badge/ghcr.io-drewcarlson%2Fhomegap-2496ED?logo=docker&logoColor=white)](https://github.com/DrewCarlson/HomeGAP/pkgs/container/homegap)
+
+**[Documentation](https://drewcarlson.github.io/HomeGAP/latest/)** ·
+**[Getting started](https://drewcarlson.github.io/HomeGAP/latest/getting-started/)** ·
+**[Label reference](https://drewcarlson.github.io/HomeGAP/latest/services/labels/)**
 
 </div>
 
 ---
 
-HomeGAP is a self-hosted alternative to Cloudflare Tunnels and WARP. Your homelab stays the single
-origin and is never exposed; regional VPS nodes terminate connections close to each audience and
-tunnel back home over outbound-only WireGuard. A single controller container drives everything
-from Docker labels:
+HomeGAP is a self-hosted alternative to Cloudflare Tunnels and WARP. Your homelab is the only
+origin, and nothing at home accepts inbound connections. Regional VPS nodes take each viewer's
+connection near the viewer and send it home through a WireGuard tunnel that the homelab dials out.
 
-- **Regional nodes** are any Ubuntu VPS, from any provider and in any location, running
+One orchestrator container on the homelab controls the system from Docker labels:
+
+- **Regional nodes** are Ubuntu VPS servers from any provider, in any location. Each node runs
   [Pangolin EE](https://github.com/fosrl/pangolin) with Gerbil and Traefik.
-- **[Bunny DNS](https://bunny.net/dns/)** steers each viewer to the nearest node and fails over
-  using health checks.
-- **The orchestrator** reads Docker labels on the homelab and turns them into Pangolin resources
-  on every node, the Newt tunnels that feed them, and the Bunny DNS records that steer viewers.
-  It also provisions and maintains the nodes themselves over SSH.
+- **[Bunny DNS](https://bunny.net/dns/)** sends each viewer to the nearest healthy node. Health
+  checks remove a node that fails.
+- **The orchestrator** reads the labels and creates the Pangolin resources on every node, the
+  tunnels that connect the nodes to the homelab, and the DNS records. It also installs and
+  maintains the nodes over SSH.
 
-> [!NOTE]
-> HomeGAP is early-stage software. Validate it on a domain that nothing depends on yet — a spare
-> domain, or a subdomain delegated to Bunny — before moving production traffic onto it (see
-> [Getting started](#getting-started)).
-
-## Table of contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [Requirements](#requirements)
-- [Getting started](#getting-started)
-- [Service labels](#service-labels)
-- [Configuration](#configuration)
-- [Operations](#operations)
-- [Performance](#performance)
-- [Dashboard & API](#dashboard--api)
-- [Security model](#security-model)
-- [Failure modes](#failure-modes)
-- [Development](#development)
-- [Contributing](#contributing)
-- [Acknowledgements](#acknowledgements)
-- [AI assistance](#ai-assistance)
-- [License](#license)
+> [!CAUTION]
+> HomeGAP is early-stage software. Test it on a domain that nothing depends on, for example a
+> spare domain or a subdomain delegated to Bunny. Then move production traffic to it.
 
 ## Features
 
-- **Origin stays hidden** — no inbound ports at home; every tunnel is outbound.
-- **End-to-end TLS by default** — nodes route by SNI and never see plaintext; flip one label to
-  terminate on the node instead.
-- **HTTP(S), raw TCP and UDP**, plus private services reachable only through the Pangolin client.
-- **Geo routing with health-checked failover** — viewers reach the nearest healthy node.
-- **A VPN that outlives the homelab** — with the [cluster](#clustered-pangolin), every node is
-  one Pangolin with shared users and devices. Pangolin apps connect through the nearest node,
-  and signing in keeps working while the homelab is down.
-- **One-label exposure** — Docker labels are the source of truth; the controller reconciles the rest.
-- **Hands-off node lifecycle** — bare VPS to working edge node over SSH, with drift repair.
-- **Built-in dashboard** for observability, pausing, re-provisioning and node management.
-- **Self-hosted maps** of the nodes and the homelab, on the dashboard and the public status page,
-  with no third-party map service ([Maps and locations](#maps-and-locations)).
-- **Controller is never in the traffic path** — if it stops, nodes keep serving, tunnels stay
-  up and DNS keeps resolving. Everything remains manageable by hand: SSH into a node, use each
-  node's Pangolin dashboard, or use the Bunny console.
+- **The origin stays hidden.** The homelab has no open ports. Every tunnel starts at home.
+- **End-to-end TLS by default.** Nodes route by the TLS server name and never see plaintext. One
+  label moves TLS termination to the nodes.
+  ([Traffic paths](https://drewcarlson.github.io/HomeGAP/latest/services/traffic-paths/))
+- **HTTP(S), raw TCP and UDP**, and private services that only the Pangolin client can reach.
+  ([Services](https://drewcarlson.github.io/HomeGAP/latest/services/))
+- **Geo routing with failover.** Each viewer reaches the nearest healthy node.
+  ([DNS routing and health checks](https://drewcarlson.github.io/HomeGAP/latest/configuration/dns/))
+- **A VPN that keeps working when the homelab is down.** In cluster mode, all nodes are one
+  Pangolin with shared users and devices. The Pangolin apps connect through the nearest node,
+  and sign-in continues to work while the homelab is offline.
+  ([Cluster mode](https://drewcarlson.github.io/HomeGAP/latest/cluster/))
+- **Real client addresses and private-only services.** The homelab sees each viewer's address,
+  and a Traefik allowlist can admit only Pangolin clients.
+  ([Client addresses](https://drewcarlson.github.io/HomeGAP/latest/services/client-addresses/))
+- **One label publishes a service.** Docker labels are the source of truth. The orchestrator
+  makes the rest match them.
+- **Node lifecycle from a bare VPS.** A dashboard wizard turns a fresh server into a node over
+  SSH. Updates roll out one node at a time, with automatic rollback.
+  ([Add a node](https://drewcarlson.github.io/HomeGAP/latest/getting-started/add-node/))
+- **A built-in dashboard** for health, pausing, re-provisioning, speed tests, diagnostics and
+  node management. It also serves the documentation for its own version.
+  ([The dashboard](https://drewcarlson.github.io/HomeGAP/latest/operations/dashboard/))
+- **Self-hosted maps** of the nodes and the homelab, on the dashboard and on an optional public
+  status page. No third-party map service.
+  ([Maps and locations](https://drewcarlson.github.io/HomeGAP/latest/operations/maps/))
+- **The orchestrator is never in the traffic path.** If it stops, the nodes continue to serve,
+  the tunnels stay up and DNS continues to resolve. You can manage each part by hand: SSH, each
+  node's Pangolin dashboard, or the Bunny console.
 
-## Architecture
+## How it works
 
-Solid arrows are viewer traffic; dashed arrows are the orchestrator's control plane, which is
-never in the traffic path.
+Solid arrows are viewer traffic. Dashed arrows are the orchestrator's control plane.
 
 ```mermaid
 flowchart TD
@@ -104,188 +102,30 @@ flowchart TD
     orch -.->|Bunny API| dns
 ```
 
-With `cluster:` in the config, every node's Pangolin is one instance of a single Pangolin EE
-cluster. They share a database that has a member on the homelab and on every node, over a
-private WireGuard mesh. The homelab holds the primary while it's up, and the nodes elect one of
-themselves while it isn't. Without `cluster:`, each node runs an independent Pangolin; everything
-below except the cluster sections still applies.
+A viewer's request goes to the node that DNS picks. The node reads only the TLS server name and
+sends the encrypted stream through the tunnel to your homelab Traefik, which ends TLS as it does
+today. The cluster parts (the shared database and the mesh) exist only in cluster mode.
+[How HomeGAP works](https://drewcarlson.github.io/HomeGAP/latest/getting-started/how-it-works/)
+explains each step.
 
-### Reconciliation
+## A quick look
 
-The orchestrator is a reconciler. It continuously drives the *actual* state toward the *desired*
-state. Desired state is the Docker labels plus the config file and nothing else. The orchestrator
-works in six independent domains, so a failure in one never blocks the others:
-
-| Domain | What it does |
-| --- | --- |
-| Discovery | Reads `homegap.*` labels from the Docker socket (mounted read-only). If discovery fails, the resource and DNS domains are skipped for that pass, so an empty view can never delete anything. |
-| Nodes | Uses SSH to turn a bare Ubuntu 22.04/24.04/26.04/26.10 VPS into a Pangolin EE node: preflight, Docker, `ufw`, the compose stack, secrets, health wait, headless bootstrap (admin, org, least-privilege API key, license) and a verify step. Every step is idempotent, and a periodic drift check repairs out-of-band changes. |
-| Tunnels | On each node, keeps a Pangolin site that represents the homelab. Writes one Newt connector spec per node for the `homegap tunnels` supervisor. |
-| Resources | Declares Pangolin resources through per-resource blueprints keyed by deterministic `hg-*` niceIds. It deletes only stale `hg-*` resources and never touches unmanaged ones. It also writes the node's hot-reloaded Traefik routes (SNI passthrough, health, management API). |
-| DNS | Keeps Bunny geo record sets for the root, the wildcard and each dedicated hostname, plus a plain record per node management host. |
-| Observability | Collects node, tunnel, resource and DNS health for the dashboard. |
-
-Reconciliation runs in three ways at once:
-
-- **Event-driven:** on Docker events, debounced.
-- **Periodic:** a full resync, every 60s by default.
-- **On demand:** from the dashboard.
-
-Every pass applies only the minimal diff.
-
-### Traffic paths
-
-- **Front door, passthrough (default).** The homelab Traefik claims the root domain and
-  `*.domain`. On each node, a Traefik TCP router on `:443` matches the TLS SNI (root, plus any
-  single label under the domain) and forwards the still-encrypted stream into the Pangolin TCP
-  resource and through the tunnel to the homelab Traefik. The node never sees plaintext, and
-  Authelia and anything else at home keep working unchanged.
-- **Front door, terminate.** Setting `homegap.tls=terminate` swaps in Pangolin HTTP resources for
-  the root and the wildcard. The node ends TLS (it already holds the same wildcard certificate)
-  and re-proxies to the homelab Traefik with the host preserved. Wildcard HTTP resources are a
-  Pangolin EE feature and need a license key on every node (see [EE licenses](#ee-licenses)).
-  A node that refuses the wildcard is automatically left out of the wildcard DNS set, so viewers
-  are never steered to a node that would answer 404.
-- **Dedicated subdomain.** A labeled service with its own hostname gets its own resource, which
-  takes precedence over the wildcard. HTTPS services default to passthrough straight to the
-  service; plain HTTP services are terminated on the node.
-- **Raw TCP/UDP.** The service gets its own public port on its nodes: a Traefik entrypoint, a
-  published Gerbil port and a `ufw` rule. It also gets its own DNS record.
-- **Client addresses.** With `homegap.proxy_protocol`, passthrough traffic carries the viewer's
-  address to the homelab; with `homegap.private_network`, Pangolin clients reach chosen names over
-  a separate network so the homelab can allow them alone. See
-  [Client addresses and private-only services](#client-addresses-and-private-only-services).
-- **Private.** Private services become Pangolin private resources, with an alias set to the
-  hostname. They are reachable only through the Pangolin client, and get no public DNS record and
-  no public port. In a cluster, one private resource lists every node's site: a Pangolin app
-  connects to `pangolin.<domain>`, which DNS sends to the nearest healthy node, and relays through
-  that node to the homelab. The node is chosen when the app connects or changes network.
-
-### Health and failover
-
-Each geo record carries a Bunny HTTP monitor. Bunny probes `http://<node-ip>/` every 30s from
-three regions. On the node, that request is routed through the tunnel to the front door's
-`homegap.healthcheck` path, so a node only counts as healthy when it is up, its tunnel is up and
-the origin answers:
-
-- If the origin is down, the probe gets a 502.
-- If the tunnel is down, the probe fails within 5s.
-
-Bunny drops offline members from a record set, so those viewers resolve to the next-nearest node.
-When every member is offline, Bunny returns all of them (fail-open). Realistic failover time is
-the health interval plus the 60s TTL plus resolver caching: roughly 1–5 minutes.
-
-In a cluster, the database fails over on its own: when the member holding the primary is gone,
-the remaining members elect another in about 30 seconds, and HomeGAP moves the primary back to
-the homelab once it has been caught up for `cluster.primary.switch_back_after`. See
-[Cluster database](#cluster-database) and [Failure modes](#failure-modes).
-
-## Requirements
-
-| Component | Requirement |
-| --- | --- |
-| Homelab | Docker with Compose; a Traefik instance fronting your services |
-| Regional nodes | Ubuntu 22.04, 24.04, 26.04 or 26.10 VPS (x86_64 or aarch64), public IPv4 (IPv6 optional), and SSH access: either root or a sudo user with a password or key (the [add-node wizard](#adding-a-node) sets up the rest), or a user with passwordless sudo and a key you configure yourself |
-| DNS | A [Bunny DNS](https://bunny.net/dns/) zone and API key |
-| Pangolin EE license | Optional; required for wildcard resources in `terminate` mode. One key for a cluster, or one per node without it (see [EE licenses](#ee-licenses)) |
-| Nodes for the cluster | Two or more, so the cluster can elect a primary (and keep sign-ins working) while the homelab is down |
-
-## Getting started
-
-The container image is published at `ghcr.io/drewcarlson/homegap` for `linux/amd64` and
-`linux/arm64`. The same image runs both the orchestrator (`homegap run`) and the tunnel
-supervisor (`homegap tunnels`).
-
-### Manual steps (once)
-
-1. Choose a test domain that no live services depend on — a spare domain, or a subdomain of your
-   real domain (e.g. `gap.example.net`) delegated to Bunny with NS records — host it in Bunny DNS,
-   and create an API key.
-2. Create a bare VPS per region (Ubuntu 22.04, 24.04, 26.04 or 26.10). Once the orchestrator
-   runs, add it with the dashboard's [add-node wizard](#adding-a-node), starting from the root
-   password your provider gives you. Or set it up yourself: a user with passwordless sudo and a
-   dedicated SSH key per node, then add it to `nodes[]`.
-3. Label your Traefik container (root + wildcard + `tls`, see [Service labels](#service-labels))
-   and write `config/config.yml` starting from
-   [`config/config.example.yml`](config/config.example.yml). Add `cluster: {}` for
-   [clustered Pangolin](#clustered-pangolin) (recommended with two or more nodes).
-4. Run the orchestrator and the tunnel supervisor on the homelab
-   ([`deploy/homelab-compose.yml`](deploy/homelab-compose.yml)) with the Docker socket mounted
-   read-only, plus the config, the SSH keys and the secrets.
-
-> [!TIP]
-> Try `HOMEGAP_DRY_RUN=true` first: it runs full discovery and logs the desired state, with no
-> SSH, API or DNS writes. `homegap plan --labels labels.json` prints what a set of labels
-> produces without touching Docker.
-
-### Automated by the orchestrator
-
-5. With the cluster: set up the private mesh and the shared database (homelab member first, then
-   each node).
-6. Provision each node (Docker, `ufw`, Pangolin EE + Gerbil + Traefik, secrets, certificate,
-   admin, org, API key, license).
-7. Create one homelab site per node and one Newt connector per node.
-8. Create the passthrough or terminate resources, the dedicated resources, and the Bunny geo
-   records and monitors.
-9. Verify on the test domain: nodes green, each name resolving per region, failover working, and
-   the passthrough/terminate toggle working. Then point `domain` at your production domain and
-   move it to Bunny.
-10. With the cluster: add people on the dashboard's **Access** page, and put
-    `https://pangolin.<domain>` into their Pangolin apps (see [Users and devices](#users-and-devices)).
-
-## Service labels
-
-Exposing a service is a one-label change. Everything the homelab Traefik fronts needs no labels:
-the Traefik container's claim on the root and the wildcard covers it.
-
-| Label | Default | Description |
-| --- | --- | --- |
-| `homegap.expose` | — (required) | Hostname to expose, e.g. `app.example.net`, or the root `example.net`. Must be inside `domain`. |
-| `homegap.wildcard` | `false` | On the root entry, also claim `*.<domain>`. |
-| `homegap.port` | 443 for https, 80 for http | Target container port. Required for tcp/udp. |
-| `homegap.protocol` | `http` | `http` / `https` / `tcp` / `udp` |
-| `homegap.tls` | `passthrough` | `passthrough` (the node sees only SNI) or `terminate` (the node ends TLS; Pangolin auth possible). Plain `http` is always terminated. |
-| `homegap.regions` | `all` | Comma-separated list of node ids, e.g. `na1,as1`. |
-| `homegap.access` | `public` | `public`, or `private` (Pangolin client only). |
-| `homegap.auth` | `none` | `none` / `sso` / `pin`. Requires `tls=terminate`. |
-| `homegap.healthcheck` | `/` (front door probe) | HTTP path or `tcp`. Used for Pangolin target health and by the node's Bunny health probe. |
-
-Extensions:
-
-| Label | Description |
-| --- | --- |
-| `homegap.host` | Host the tunnel dials. Defaults to the container name, which must resolve on a network shared with the `tunnels` container. |
-| `homegap.public_port` | Public port on nodes for tcp/udp services. Defaults to `homegap.port`. Ports used by the node itself (22, 80, 443, 51820, …) are rejected. |
-| `homegap.roles` | Pangolin roles allowed for `auth=sso` and private resources. |
-| `homegap.pin_env` | Environment variable on the orchestrator holding the 6-digit PIN for `auth=pin`. |
-| `homegap.pause` | `true` holds this service's Pangolin resources and DNS records as they are. |
-| `homegap.proxy_protocol` | `true` sends each viewer's address to the service with PROXY protocol v2, so it sees real client IPs instead of the `tunnels` container. Https passthrough and tcp services only, and the service must accept the header first. See [Client addresses and private-only services](#client-addresses-and-private-only-services). |
-| `homegap.private_network` | A Docker network only the `tunnels` container and this service share. Pangolin clients reach the service at its address there, so their traffic is told apart from public traffic. Public http/https services only. |
-| `homegap.private_hosts` | With `private_network`: the names Pangolin clients reach that way, relative to the service's hostname (`jellyfin`, `*.home`) or in full. Defaults to the service's hostname (unless `private_middleware` is set). A name covering the client address or a node's management host is refused. |
-| `homegap.private_middleware` | With `private_network`: also give a private path to every name this Traefik routes through this middleware (e.g. `private-only@file`), read from its API. Works with both `private_hosts` and on its own. |
-| `homegap.traefik_api` | This Traefik's API, for `private_middleware`. Defaults to `http://<container name>:8080` (`api.insecure`). |
-
-### Examples
+Label your homelab Traefik as the front door. Every name that it serves under the domain is then
+published through the nodes, with no more labels:
 
 ```yaml
-# The homelab Traefik claims root + wildcard with end-to-end TLS.
 traefik:
   labels:
     homegap.expose: "example.net"
     homegap.wildcard: "true"
     homegap.protocol: "https"
-    homegap.tls: "passthrough"      # flip to "terminate" to A/B test
+    homegap.tls: "passthrough"   # change to "terminate" to end TLS on the nodes
+```
 
-# A raw-TCP service on its own subdomain, private, on two nodes.
-ssh-jump:
-  labels:
-    homegap.expose: "ssh.example.net"
-    homegap.port: "22"
-    homegap.protocol: "tcp"
-    homegap.access: "private"
-    homegap.regions: "na1,as1"
+Other services need labels only when they need their own path, for example a game server on a
+public UDP port in one region:
 
-# A public game server on UDP 27015, served from one region.
+```yaml
 game:
   labels:
     homegap.expose: "game.example.net"
@@ -294,762 +134,52 @@ game:
     homegap.regions: "eu1"
 ```
 
-### Client addresses and private-only services
+The [label reference](https://drewcarlson.github.io/HomeGAP/latest/services/labels/) lists every
+label.
 
-Every connection reaches the homelab from the `tunnels` container, so without these labels the
-homelab Traefik sees one address for everyone. Two labels on the front door fix that:
+## Get started
 
-```yaml
-services:
-  traefik:
-    labels:
-      homegap.expose: "example.net"
-      homegap.wildcard: "true"
-      homegap.protocol: "https"
-      homegap.proxy_protocol: "true"            # real client IPs
-      homegap.private_network: "homegap-private" # Pangolin clients arrive from here
-      homegap.private_middleware: "private-only@file" # ...for every router using this
-      homegap.private_hosts: "*.home"            # and these names too (optional)
-    networks: [traefik, homegap-private]
-  tunnels:
-    networks:
-      traefik: { ipv4_address: 172.32.0.250 }    # a fixed address to trust below
-      homegap-private: {}
+You need Docker and Traefik on the homelab, one Ubuntu VPS for each region, and a Bunny DNS zone.
+See the [requirements](https://drewcarlson.github.io/HomeGAP/latest/getting-started/requirements/).
 
-networks:
-  homegap-private:
-    ipam: { config: [ { subnet: 172.33.0.0/24 } ] }
-```
+1. [Choose standalone or cluster mode](https://drewcarlson.github.io/HomeGAP/latest/getting-started/choose-a-mode/).
+2. [Prepare Bunny DNS](https://drewcarlson.github.io/HomeGAP/latest/getting-started/bunny-dns/).
+3. [Prepare the servers](https://drewcarlson.github.io/HomeGAP/latest/getting-started/servers/).
+4. [Install on the homelab](https://drewcarlson.github.io/HomeGAP/latest/getting-started/install/).
+5. [Add a node](https://drewcarlson.github.io/HomeGAP/latest/getting-started/add-node/).
+6. [Publish a service](https://drewcarlson.github.io/HomeGAP/latest/getting-started/first-service/).
 
-- **Real client IPs.** The node adds a PROXY protocol header to the still-encrypted stream (TLS
-  stays passthrough: the node reads no more than the SNI name, as before). Trust it from the
-  `tunnels` container only, on the entrypoint:
+The image `ghcr.io/drewcarlson/homegap` is published for `linux/amd64` and `linux/arm64`.
 
-  ```yaml
-  entryPoints:
-    websecure:
-      proxyProtocol:
-        trustedIPs: ["172.32.0.250/32"]
-  ```
+## Documentation
 
-  Connections without the header (your LAN, the nodes' health probes) still work. Terminated
-  services get `X-Forwarded-For` instead; trust it with `forwardedHeaders.trustedIPs` on the
-  same address. Enable the label only after the entrypoint trusts it, or every TLS handshake
-  through the nodes fails.
-- **Private-only services.** Pangolin clients resolve each name in `homegap.private_hosts` to a
-  private resource that goes to the front door's address on `homegap-private`. The connection
-  leaves the `tunnels` container from that network, so the homelab Traefik sees it come from
-  `172.33.0.0/24`, a range public traffic never has. Allow only that (and your LAN):
-
-  ```yaml
-  http:
-    middlewares:
-      private-only:
-        ipAllowList:
-          sourceRange: ["172.33.0.0/24", "192.168.1.0/24"]
-  ```
-
-  Put the middleware on the routers of private-only services, in labels or in Traefik's files.
-  With `homegap.private_middleware`, HomeGAP reads this Traefik's routers from its API (only
-  this one: another Traefik on the host is never read) and gives a private path to every name a
-  router using the middleware serves. A service in a subfolder of the root,
-  ``Host(`example.net`) && PathPrefix(`/grafana`)``, gives the root its private path: Pangolin
-  clients then reach the whole root over the private network, and its public routers still
-  answer them as before. Routers matched by `HostRegexp` can't be read; list their names in
-  `homegap.private_hosts`. The API must be reachable from the orchestrator (it shares the
-  `traefik` network); with `api.insecure: true` it answers on port 8080, which needs no
-  published port. Until it first answers, HomeGAP leaves services as they are; after that, a
-  failed read keeps the routers it last reported.
-
-  Which Pangolin users get the private path is set by `homegap.roles`. `*.example.net` itself is refused: it would also cover
-  the address the Pangolin apps connect to, which they would then try to reach through
-  themselves. A sub-zone such as `*.home` is fine.
-
-Errors are reported per container in the dashboard and the log, and never block other services.
-Examples of errors: an unknown protocol, auth without terminate, a reserved public port, or a
-hostname claimed twice.
-
-## Configuration
-
-One YAML file holds the configuration. A complete example is
-[`config/config.example.yml`](config/config.example.yml). Secrets are referenced, never inlined:
-
-- `*_env` names an environment variable.
-- `*_file` names a mounted file.
-- `/run/secrets/<ENV_NAME>` is also checked, so Docker secrets work.
-
-Key sections:
-
-| Section | Purpose |
+| Section | What it covers |
 | --- | --- |
-| `domain`, `bunny.zone` | The served domain and its Bunny zone (equal to, or a parent of, the domain). |
-| `bunny.routing` | `geolocation` uses each node's `location` (latitude/longitude). If only a `region` code is given (`NA`, `SA`, `EU`, `AF`, `ME`, `AS`, `OC`), a rough centroid is used. `latency` uses `latency_zone`. `none` turns off smart routing. |
-| `bunny.monitor` | `http` (recommended), `ping` or `none`. |
-| `pangolin` | Image versions, ACME email, org id, optional default `license_key_env`, optional CrowdSec, and `base_blueprint` — a Pangolin blueprint applied to every node before the managed resources. |
-| `certificates` | How the wildcard + root certificate reaches the nodes: `none` (nodes use their own ACME HTTP-01), `files` (PEM chain and key), or `acme_json` (read the homelab Traefik's ACME store, mounted read-only; the certificate must be issued with DNS-01, for example Traefik's `bunny` provider). |
-| `nodes[]` | Per node: `id`, `host`, SSH user, port and key file, `location`, and optionally `license_key_env` (each node needs its own EE key), `public_ipv4` / `public_ipv6`, `management_host` (default `pangolin-<id>.<domain>`), `dashboard_public` (default `false`), `firewall` (default `true`), `ssh_allow_from` (sources allowed to reach SSH through the firewall, IPv4/IPv6 addresses or CIDRs; empty, the default, allows SSH from anywhere — see [Adding a node](#adding-a-node) before restricting it), `install_docker` (default `true`). |
-| `tunnels` | Shared state directory, `mtu` (WireGuard MTU for Newt and every Gerbil) and `native` (kernel WireGuard for Newt). See [Performance](#performance). |
-| `cluster` | Optional. `mesh.subnet` (default `10.77.0.0/24`) and `mesh.port` (default `51821/udp`) for the private WireGuard mesh between the homelab and every node. `image` (default `ghcr.io/drewcarlson/homegap-cluster:latest`) runs each member's database services. `primary.preferred` (default `homelab`) and `primary.switch_back_after` (default `10m`) decide where the database primary lives. `client_hostname` (default `pangolin`) names the geo-routed address clients and the login pages use. `exit_nodes` (`nodes`, `homelab`, `roles`, `newt_image`) offers internet exits to the Pangolin apps; see [Exit nodes](#exit-nodes). See [Cluster mesh](#cluster-mesh), [Cluster database](#cluster-database) and [Clustered Pangolin](#clustered-pangolin). |
-| `pangolin.tcp_tuning` | BBR, fq and larger TCP buffers on every node (default `true`). |
-| `speedtest` | `enabled`, `hostname` (default `speedtest`), `bind` (default `0.0.0.0:8089`), `link_ttl`, `phase_seconds`, `streams` (homelab ↔ node, default 4). |
-| `status_page` | `enabled`, `hostname` (default `status`), `title` (default `Status`). Shares `speedtest.bind`; see [Status page](#status-page). |
-| `homelab` | `location: { latitude, longitude, name }`: where the homelab is, for the maps. Set it from the dashboard's **Locations** page. The public status page only shows its region. |
-| `map` | `tiles` (default `/usr/share/homegap/map/world.pmtiles`, shipped in the image): the map tiles. See [Maps and locations](#maps-and-locations). |
-| `nodes[].location` | `{ latitude, longitude, name }`; `name` (e.g. `Dallas, Texas`) is shown on maps. Without a location, a node sits at its region's centre. |
-| `dashboard` | Bind address, optional bearer token, and whether config edits from the UI are allowed. |
-| `reconcile` | `resync_interval` (default `60s`; Docker events trigger passes immediately in between), `debounce`, `node_check_interval` (SSH drift check, default `5m`), `dns_check_interval` (how often the Bunny zone is re-read when the desired records are unchanged, default `5m`; changes sync at once), `dry_run`. |
-
-The orchestrator re-reads the file on every pass. An invalid edit is logged, and the last good
-configuration stays in effect.
-
-### EE licenses
-
-Pangolin EE license keys are **bound to a single Pangolin instance** when first activated: a
-second instance trying the same key is rejected ("already been activated with a different
-instance name").
-
-- **With the cluster, one key covers every node**, because they share one database. Set
-  `pangolin.license_key_env`. HomeGAP activates it through the first node that can and tells the
-  others to re-read it. Per-node keys are ignored. The cluster database panel shows the license
-  state.
-- **Without the cluster, each node needs its own key.** Give each node one with
-  `nodes[].license_key_env`; `pangolin.license_key_env` is only a default for single-node setups.
-  A rejected key is reported once per node (dashboard check `ee-license`) and is not retried
-  until the key changes.
-
-> [!WARNING]
-> Activations are recorded by the license server, so avoid activating production keys on
-> throwaway or test instances.
-
-### Node updates and rollback
-
-Provisioning runs in the background, so a slow node (a first install, a Docker download) never
-delays health checks, tunnels or DNS for the others. The dashboard shows `provisioning…` or
-`updating…` on the node while it runs.
-
-When a change alters the stack of nodes that are already healthy (a new image version, MTU,
-tuning, raw ports and so on), the update **rolls out one node at a time**:
-
-1. The running stack is saved on the node (`<install_dir>/.homegap-rollback`): every managed file
-   and, when the Pangolin image changes, Pangolin's database, since a newer version migrates it.
-2. The node is updated, then must pass Pangolin's health check, the API bootstrap, the verify
-   checks (Gerbil UDP ports, Integration API) and, if its tunnel was up, the tunnel reconnecting.
-3. If any step fails, the saved stack is restored and restarted, and the node keeps serving on it.
-
-A failed update **holds the rollout**: no other node is updated, and the dashboard shows a banner
-with the error. To recover:
-
-- **Retry**: apply the update to that node again (after fixing the cause on the node).
-- **Skip**: leave that node on its current stack and let the rollout continue with the others.
-- **Change the config**: a new desired stack is tried on the failed node first, then rolls out.
-  Reverting the change clears the failure.
-
-New nodes and drift repairs do not wait for rollouts. A first provisioning that fails is retried
-after five minutes, or at once with *Re-provision*. Host-level steps (Docker, firewall, TCP
-tuning) are idempotent and not rolled back.
-
-### Adding a node
-
-The dashboard's **Nodes → Add node** wizard takes a fresh VPS from the credentials your provider
-gives you to a provisioned node. Setup runs on the orchestrator as a background job, so you can
-leave the page while it works.
-
-1. **Server:** node id, public IP or host name, SSH port, and a region code or coordinates.
-2. **Initial login:** root (or another user that can sudo) with a password or a private key file.
-   *Test connection* checks the login and reports the OS, how root access works, whether Docker is
-   installed, the host key fingerprint (compare it with your provider's console) and the address
-   the node sees the orchestrator connect from. A changed host key is reported, and can be
-   forgotten after you confirm the server was rebuilt.
-3. **Access:** the user HomeGAP manages the node as (by default a new `homegap` user with
-   passwordless sudo, optionally in the `docker` group) and its SSH key: generated (ed25519, kept in
-   `<data dir>/ssh/`), pasted, or a key file already on the orchestrator. Optionally disable root
-   login and password login over SSH. HomeGAP uses sudo only for system changes (packages,
-   firewall, WireGuard, sysctls); the files under the install dir belong to this user, and in the
-   `docker` group it also runs Docker Compose, so `docker compose` works there without sudo. The
-   cluster member's data directories stay with their containers.
-4. **Firewall:** let HomeGAP manage `ufw`, and choose whether SSH is open to anywhere or only to
-   listed sources (pre-filled with the address seen in the connection test).
-5. **Review & run.**
-
-Setup logs in once with the initial credentials and runs every step through that one connection.
-Servers with a login blocker (fail2ban, sshguard, CrowdSec) ban addresses that open many SSH logins
-in a short time, so the only other logins are the checks that must prove a new login works. If a
-blocker is installed, the orchestrator's address (as the server sees it) is exempted from it first,
-and any current ban on it is lifted.
-
-Each change is proven before it is kept:
-
-- The new user's key login and passwordless sudo are checked over a fresh connection before SSH is
-  hardened.
-- SSH settings go into `/etc/ssh/sshd_config.d/01-homegap.conf` (ahead of cloud-init's drop-in),
-  are syntax-checked, and their effective values are checked (`sshd -T -C`) for root, the login
-  user and the management user connecting from the orchestrator's address, so a `Match` block
-  that overrides them is caught. They are applied while the setup connection stays open; a fresh
-  key login must then succeed, or the previous settings are restored.
-- Before SSH settings or the firewall change, a timer on the node is armed to undo the change
-  after two minutes; it is disarmed only once a fresh login works. If the orchestrator loses the
-  node mid-change, the node reverts by itself.
-
-The password is used only for the setup job and is never written to disk or the config: it reaches
-`ssh` through `SSH_ASKPASS`, and `sudo` on its standard input. A failed job shows which step
-failed and why; fix the cause and retry. Re-running is safe: completed steps are idempotent, and if
-an earlier run already disabled the password login, setup continues with the node key.
-
-> [!WARNING]
-> Restricting SSH with `ssh_allow_from` locks the orchestrator out if its public IP changes to an
-> address not listed (a residential IP, a new ISP, a moved homelab). Provisioning and health checks
-> for that node then fail until the rule is fixed. Prefer a stable range, or leave SSH open to
-> anywhere with password login disabled. To recover, log in through your provider's web console
-> and run `ufw allow <ssh port>/tcp`, then update `ssh_allow_from`; the next pass replaces the rules.
-
-### Cluster mesh
-
-Setting `cluster:` in the config builds a private WireGuard mesh, `hg-mesh`, between the
-homelab and every node. It is the first part of clustered Pangolin (see
-[the build plan](docs/clustered-pangolin-plan.md)); cluster traffic will only ever cross it.
-
-- **Addresses are fixed.** The homelab is host 1 of `mesh.subnet`, and a node is host
-  `10 + slot`, its permanent tunnel slot.
-- **Node keys stay on the node.** Each node creates its own key on first setup. HomeGAP only
-  learns the public key.
-- **The homelab works behind NAT.** It dials every node and keeps the paths alive, so its address
-  is never published. Nodes reach each other directly on their public addresses.
-- **The node firewall opens `mesh.port`/udp** to anywhere: WireGuard authenticates every packet,
-  and the homelab's address can change.
-- **Nodes reach only the homelab's cluster services.** Inbound traffic on the homelab's end of
-  the mesh is dropped except replies, ping and the [cluster database](#cluster-database) ports,
-  so the dashboard stays private.
-- **Each node's interface is managed by `wg-quick`** (enabled at boot). Peer changes apply in
-  place without dropping existing sessions.
-
-On the homelab, the mesh interface lives in the `homegap-mesh` container's network namespace
-(see [`deploy/homelab-compose.yml`](deploy/homelab-compose.yml)). The orchestrator joins it with
-`NET_ADMIN`, so the interface outlives orchestrator restarts. The host kernel needs WireGuard
-(built into Linux 5.6 and later). The dashboard's **Nodes** page shows each member's last
-handshake with every other.
-
-**Each node probes the mesh, two ways.** Once a second it opens a TCP connection to every other
-member's etcd port:
-
-- **From the host**, like etcd, Patroni and replication: a small `probe` container in the node's
-  cluster member, on the host's network. Readings are kept in `/run/homegap-probe` on the node,
-  so they reset when it reboots.
-- **From inside Docker's network**, like Pangolin's database and Valkey traffic, which also
-  crosses the `homegap-cluster` bridge and its address translation: HAProxy's checks.
-
-The **Cluster mesh** panel shows both per node and peer: the latest round trip, the share of
-probes lost in the last hour, and each outage (three or more lost probes in a row) with when it
-happened and how long it lasted. A degraded pill means some loss or an outage in the hour; a red
-one means the peer isn't answering now. If only the container column shows trouble, the link is
-fine and the problem is on that node's Docker side. The homelab doesn't probe, but every node
-probes it.
-
-### Cluster database
-
-With `cluster:` set, the homelab and every node also run one member of a shared database, the
-one clustered Pangolin will use. Each member runs five containers from the `homegap-cluster`
-image: etcd (the vote), PostgreSQL under Patroni, Valkey, Valkey Sentinel and HAProxy. Nodes
-also run the [mesh probe](#cluster-mesh).
-
-- **The homelab is the primary.** It starts the cluster, and nodes join one at a time: first
-  the vote, then as streaming replicas.
-- **Nodes take over when the homelab is gone.** If the homelab drops off the mesh, the nodes that
-  can still reach a majority of the vote promote one of themselves, in about 30 seconds. A member
-  that loses the majority (the homelab, if it's the one cut off) demotes itself, so two
-  primaries never accept writes.
-- **The homelab takes it back.** When it returns, it rejoins as a replica (rewinding any writes
-  it took after losing the vote). After it has stayed caught up for `primary.switch_back_after`,
-  HomeGAP switches the PostgreSQL primary back to it, then Valkey.
-- **Services find the primary through HAProxy.** On each node, containers on the
-  `homegap-cluster` Docker network connect to `cluster-proxy:5433` (PostgreSQL) and
-  `cluster-proxy:6380` (Valkey). HAProxy follows the current primary and cuts connections to a
-  member that's demoted. Each node's `cluster-proxy` check shows where HAProxy sends PostgreSQL
-  and Valkey, how often it lost the primary in the last hour and when it last did. It's red while
-  a primary has no reachable member, yellow for 5 minutes after an unplanned loss, then green again. A switch HomeGAP makes on purpose (a switch-back, maintenance, a node update, the dashboard) briefly leaves HAProxy without a primary too; that is noted but stays green. HAProxy's stats page listens on the node's `127.0.0.1:8404` only.
-- **The vote needs a majority.** With the homelab and one node, losing either stops writes.
-  Two or more nodes are needed for the cluster to keep working without the homelab.
-- **PostgreSQL runs without JIT compilation.** Pangolin only makes small lookups, and a
-  connection that JIT-compiles one keeps about 40 MB.
-- **Settings changes don't restart the database.** When HomeGAP changes a member's
-  `patroni.yml`, Patroni re-reads it; settings that need a PostgreSQL restart show as pending.
-  The homelab's `db` container picks up a changed file within ten seconds (with the current
-  `homegap-cluster` image).
-- **Passwords are generated once** and kept in `cluster/secrets.json` in the data directory.
-- **The homelab member keeps backups.** It writes a nightly `pg_dump` to `./backups` next to the
-  homelab compose file and keeps the newest seven.
-
-Each node's member is its own compose project in `/opt/homegap/cluster`, separate from the
-Pangolin stack, so stack updates never restart the database. Removing a node removes its member
-from the vote and deletes its data.
-
-The **Nodes** page has a **Cluster database** panel:
-
-- **Each member:** its vote (etcd), its PostgreSQL role and replication lag, and its Valkey role.
-- **Whether the vote has a majority**, and when a pending switch-back is due.
-- **Alerts:**
-  - no majority, or no primary;
-  - a member cut off from the others (by its mesh handshakes or its vote);
-  - a replica more than 16 MiB behind;
-  - fewer than two nodes, so the cluster can't elect a primary without the homelab;
-  - the license state.
-- **The primary's history:** each change, and whether it was a failover, a switch-back or
-  manual.
-- **Make primary** on a caught-up replica: a planned switchover (writes pause for a second or
-  two, nothing is lost). If the new primary isn't where it belongs, the switch-back returns it
-  after the hold.
-
-### Clustered Pangolin
-
-With `cluster:` set, every node's Pangolin is one instance of a single Pangolin EE cluster on the
-[cluster database](#cluster-database), instead of an independent Pangolin with its own SQLite
-database. There is one org, one set of users and one license.
-
-- **Each node runs the PostgreSQL build** of the configured image (`ee-<version>` becomes
-  `ee-postgresql-<version>`).
-- **Writes go to the current primary, reads stay local.** Pangolin writes through
-  `cluster-proxy` and reads from the node's own database member. Signing in and using the
-  session straight away works through a node ~300 ms from the primary (tested in e2e with added
-  mesh latency).
-- **Each node is its own region.** The homelab gets one site per node (`<site_name>-<node id>`),
-  created through that node so its connector always uses that node's exit node.
-- **Each service is one resource with a target on every node's site.** HomeGAP applies them
-  once per pass, through the first ready node. A node only routes through its own target, so
-  every node keeps its own tunnel to the homelab and none relays through another. Private
-  resources list every serving node's site, and a client uses whichever is nearest when it
-  connects. Each node still has its own health resource (`hg-health-<node id>`) and speed test
-  host, and passthrough ports are the same on every node.
-- **DNS only steers a hostname to a node whose own target exists**, as before.
-- **Traefik reads Pangolin's routes from a file** (`traefik.file_mode`), which each node writes
-  for its own sites. HomeGAP's passthrough routes sit next to it in the same directory.
-- **One address for clients: `<client_hostname>.<domain>`** (default `pangolin.<domain>`). Every
-  node serves Pangolin's login pages and API on it, and a geo-routed record with a health
-  monitor points it at the nearest healthy node, so signing in and enrolling devices work while
-  the homelab is down. Point the Pangolin apps at this address. Passthrough never captures it.
-- **Gerbil's API is reachable over the mesh only** (on the node's mesh address), so the
-  cluster's other Pangolins can reach it. Docker starts after the mesh interface.
-- **One admin, one API key, one license.** The first node sets up the cluster's admin, org and
-  API key. The admin and server secret are kept in the controller's state and on every node, so
-  they can be recovered from any node. `pangolin.license_key_env` is activated once, through the
-  first node that can, and the other nodes are told to re-read it. A per-node `license_key_env`
-  is ignored.
-- **Nodes start one at a time until the cluster's Pangolin exists**, so the empty database is
-  migrated only once. A node's stack waits until its database member is streaming.
-- **Upgrades are rolled out one node at a time, as before.** The first node to start a new
-  Pangolin version (the one that migrates the database) saves a dump of it first. If that update
-  fails, rolling it back also restores the dump.
-- **Pick the mode when you deploy.** Adding or removing `cluster:` on a running deployment isn't
-  supported: nodes already provisioned in the other mode keep their old stack until they are
-  removed and added again.
-
-#### Users and devices
-
-With the cluster on, the dashboard's **Access** page manages who can sign in to the Pangolin
-apps, without logging in to Pangolin as the admin:
-
-- **The address for the apps**, `https://<client_hostname>.<domain>`, to copy into the
-  Pangolin app (self-hosted server).
-- **Add a user** by email, with one or more roles (new users default to the least-privileged
-  one). Either set a password there (the user can sign in at once; share it with them
-  privately) or create an invite link (valid 7 days) for the person to pick their own.
-- **Users:** change roles or remove a user. The server admin HomeGAP created is listed but
-  can't be removed here. Open invitations can be withdrawn.
-- **Devices:** each person's apps and every machine client, whether it's online, and the node
-  it relays through. Block, archive or delete a device.
-
-Changes go through whichever node's Pangolin is reachable (they all share one database) and are
-written to the reconcile log. HomeGAP grants its API key the permissions this needs the first
-time it runs (one admin login).
-
-#### Exit nodes
-
-With `cluster.exit_nodes`, the Pangolin apps can send **all** of a device's traffic through
-HomeGAP, like a VPN, and the person picks where it leaves for the internet:
-
-```yaml
-cluster:
-  exit_nodes:
-    nodes: true        # "Exit via <node>" for each node: leaves with that node's address
-    homelab: true      # "Exit via homelab": relayed by the nearest node, leaves from home
-    roles: [Member]    # who may use them (Admin always can)
-```
-
-- **Exit via a node:** each node gets a second Pangolin site, `exit-<node>`, whose Newt connector
-  runs on the node itself (`<install_dir>/exit`, on the host network, talking to the node's own
-  Pangolin on loopback). The connector makes the person's connections from the node. It keeps
-  working while the homelab is down.
-- **Exit via homelab:** one exit on every node's homelab site. The device relays through the
-  nearest node, and the homelab's connector makes the connections, so traffic leaves with your
-  home address. It needs the homelab up.
-- **Picking one** is up to the Pangolin client (Pangolin calls these "exit nodes"). While one is
-  picked, the device's default route goes through it.
-- **Turning either off** removes the exits, and for nodes also the connector and its site.
-
-These are Pangolin `exit-node` private resources (`hg-exit-<node>`, `hg-exit-homelab`). They open
-no new ports: the node's connector dials out like any other.
-
-### Node management host
-
-Newt and the Pangolin client must reach each node's Pangolin API. HomeGAP routes
-`https://<management_host>/api/v1` on each node. That hostname is excluded from the wildcard
-passthrough and has its own plain DNS record. The node's web UI is not routed publicly by default.
-To reach it, use SSH port forwarding:
-
-```bash
-ssh -L 3002:127.0.0.1:3002 deploy@<node>
-```
-
-Then open `http://localhost:3002`. Set `dashboard_public: true` if you use `auth: sso|pin`, which
-needs the node's login pages to be public.
-
-## Operations
-
-- **Expose a service:** add labels to its container. The Docker event triggers a reconcile.
-- **Add a region:** use the dashboard's [add-node wizard](#adding-a-node), or add a node to the
-  config. It is provisioned and DNS is extended on the next pass.
-- **Remove a region:** remove it from the config. Its DNS records drain on the next pass, and the
-  stack keeps running until you confirm the decommission in the dashboard. With the cluster on,
-  the decommission also clears what the node left in the cluster's Pangolin: its homelab and
-  exit sites, and the exit node its Gerbil registered (matched by region, the node id), on the
-  next pass. Leftovers of nodes removed earlier are cleared the same way. Only
-  records HomeGAP creates are removed.
-- **The homelab losing every node:** when two or more nodes are configured and none of them
-  answers over SSH, the dashboard shows a banner and the log records when it started and ended.
-  The nodes keep serving meanwhile (and fail the database over if it lasts). If the mesh probes
-  show the nodes reaching each other throughout, the trouble was the homelab's own connection.
-- **Debug a node:** the dashboard's **Diagnostics** page shows any container's logs (the Pangolin
-  stack, the cluster member, the mesh probe and the exit connector) and runs a read-only
-  diagnostics bundle: containers, the cluster proxy's backends, the mesh interface and probe,
-  addresses and routes, Docker networks, listening ports, the firewall, NAT and forwarding rules,
-  connection tracking, kernel messages and recent logs. Both can be downloaded as text. Nothing
-  on the node changes, and no secrets are printed.
-- **Upgrade the homelab:** run `deploy/upgrade.sh` (with your compose arguments, e.g.
-  `-f homelab-compose.yml`) instead of `docker compose pull && docker compose up -d`. It updates
-  the orchestrator, moves the database and Valkey primaries to a node
-  (`homegap maintenance start`), restarts the homelab's cluster containers one at a time and
-  waits for each to serve again, then ends the hold; the primaries come back after the usual
-  switch-back delay. The tunnel connectors, which every node's traffic to the homelab goes
-  through, are only restarted when their code or Newt changed (`--tunnels` forces it), so they
-  may keep running the previous image. The mesh container is never touched.
-  Afterwards the nodes' cluster members follow the image the homelab now has (pinned to its
-  registry digest): one node per pass, only while every member is serving and no maintenance is
-  under way. Each node pulls the image first, moves any primary it holds to the homelab, then
-  restarts its services one at a time, each serving again before the next. The log says when and
-  why a node's update waits.
-- **Hold a manual change:** pause globally, per node or per service (dashboard or
-  `homegap.pause`). Paused targets are observed but never modified.
-- **Re-provision a node:** click *Re-provision*. Destroying and recreating a VPS is safe: nodes
-  are cattle.
-
-## Performance
-
-Every request crosses two TCP legs (viewer → node, node → homelab) and one WireGuard tunnel.
-Three settings matter most:
-
-| Setting | Effect |
-| --- | --- |
-| `pangolin.tcp_tuning: true` (default) | Writes `/etc/sysctl.d/99-homegap.conf` on each node: BBR congestion control, `fq` qdisc, socket buffers up to 64 MiB, MTU probing, higher reordering tolerance. The same TCP settings are applied inside the node's Gerbil/Traefik namespace (Docker containers do not inherit the host's); the Nodes tab shows them as `edge tcp`. BBR keeps long, lossy paths fast. The node fact `tcp_cc` (Nodes tab) shows what the kernel actually uses; some VPS kernels refuse. |
-| `tunnels.mtu: 1420` | Sets the WireGuard MTU on both ends (Newt `--mtu`, Gerbil `--mtu`). The upstream default of 1280 costs throughput. Lower it if the path has PPPoE or another tunnel: check with `ping -M do -s <mtu - 28> <node>` from the homelab. |
-| `tunnels.native: true` | Runs each Newt main tunnel on a kernel WireGuard interface instead of Newt's userspace network stack, usually the largest gain. The `tunnels` container then needs `cap_add: [NET_ADMIN]`, `devices: [/dev/net/tun]` and a host kernel with WireGuard. |
-
-Each node gets a permanent tunnel slot, stored in the orchestrator's state, which picks its
-tunnel subnet (`100.89.<128 + 4·slot>.0/22`), its kernel interface (`hgnewt<slot>`) and its local
-ports, so connectors for several nodes can coexist in the `tunnels` container. New nodes take the
-lowest free slot; removing or reordering nodes never moves another node. Pangolin fixes the subnet
-when a node first registers its exit node, and the orchestrator checks each node's slot against
-its live site subnet. Two nodes sharing a subnet (for example, both created before slots existed)
-are reported as an error: re-create one node's Pangolin database before enabling `native`.
-
-For the homelab side in native mode, tune the `tunnels` container itself. TCP settings are per
-network namespace, so the host's `/etc/sysctl.d` does not reach containers, and the defaults
-(cubic, a 4 MiB send buffer) cap every download from the homelab to a distant node. Set them on
-the service (see `deploy/homelab-compose.yml`):
-
-```yaml
-sysctls:
-  net.ipv4.tcp_congestion_control: bbr   # needs `modprobe tcp_bbr` on the host
-  net.ipv4.tcp_rmem: "4096 131072 67108864"
-  net.ipv4.tcp_wmem: "4096 65536 67108864"
-  net.ipv4.tcp_slow_start_after_idle: "0"
-  net.ipv4.tcp_mtu_probing: "1"
-  net.ipv4.tcp_reordering: "10"          # tolerate reordering on long routes
-  net.ipv4.tcp_max_reordering: "1000"
-```
-
-Check with `docker compose exec tunnels sysctl net.ipv4.tcp_congestion_control net.ipv4.tcp_wmem`.
-On a path with about 170 ms round trip this took one setup from about 115 to about 250 Mbps.
-Also enable `fq` on the host (`net.core.default_qdisc = fq`), which BBR paces with.
-
-In userspace mode Newt uses its own TCP stack, so these settings do not apply; raising
-`net.core.rmem_max` / `net.core.wmem_max` on the host (for example to `7500000`) still helps its
-UDP socket.
-
-### Speed tests
-
-With `speedtest.enabled: true` the orchestrator serves a speed test origin on `speedtest.bind`.
-Route `speedtest.<domain>` and `speedtest-<node>.<domain>` to it from the homelab reverse proxy
-(the front door already forwards them from the nodes). For Traefik labels on the orchestrator:
-
-```yaml
-labels:
-  traefik.enable: "true"
-  traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"
-  traefik.http.routers.homegap-speedtest.entrypoints: websecure
-  traefik.http.routers.homegap-speedtest.tls: "true"
-  traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
-```
-
-The dashboard's *Speed test* tab offers two measurements: ping, jitter, download and upload.
-
-- **Homelab ↔ node:** runs `curl` on the node over SSH against its own port 443 with the node's
-  speed test hostname, so the traffic takes the production path through the tunnel. Runs
-  `speedtest.streams` parallel streams (default 4, selectable per run); rates are the sum. One
-  stream shows what a single connection gets over the distance; several show the tunnel's capacity.
-- **Device → node → homelab:** creates a short-lived link (`speedtest.link_ttl`) to open on any
-  device. `http://speedtest.<domain>/` is answered by whichever node DNS picks for the device,
-  which redirects to its own `speedtest-<node>` hostname, so results are attributed to a node.
-  The token travels in the URL fragment, which is never sent to a server or logged.
-
-Results are kept in `<data_dir>/speedtests.json`. Changing `speedtest.enabled` or `bind` needs an
-orchestrator restart.
-
-### Status page
-
-With `status_page.enabled: true`, anyone can open `https://status.<domain>/`. It shows:
-
-- **the node they came through** (the one DNS picked for their location), with their round trip to
-  the homelab through it;
-- **every node's state**: online, degraded (carrying traffic with a failing check) or offline
-  (down, paused, being removed, or its tunnel to the homelab is down);
-- **their round trip through each other online node**: one request from their browser to
-  `status-<node>.<domain>`, through that node and its tunnel to the homelab and back. The time is
-  read from the browser's Resource Timing (request sent to first byte), so DNS and connection
-  setup aren't counted.
-
-It never shows addresses or hostnames. It refreshes every minute while open.
-
-How it works: each node answers `status.<domain>` itself (with its certificate, over HTTP and
-HTTPS, never passed through) and redirects to its own `status-<node>.<domain>`. That name rides
-the front door through the tunnel to the homelab, so the page, the node list and every ping come
-from the orchestrator. It shares the speed test's listener (`speedtest.bind`), so route
-`status-<node>.<domain>` there too. With both features on, one label covers both:
-
-```yaml
-  traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.example\\.net$`)"
-```
-
-It needs a front door (`homegap.expose`). Turning it on for the first time needs an
-orchestrator restart, like the speed test.
-
-The page also has a map of the nodes in their status colors, with the visitor's node highlighted
-and their round trip through each. The homelab appears only as a soft area at the centre of its
-region ("Home · North America"); its location is never sent to the page.
-
-### Maps and locations
-
-The dashboard's **Overview**, **Speed test**, **Locations** and add-node pages, and the public
-status page, have a draggable, zoomable world map. Nothing is fetched from a third party, ever:
-the map library (MapLibre GL), the styles (Protomaps), the fonts, the icons and the map data
-(OpenStreetMap, as one 45 MB PMTiles file down to zoom 6, enough for cities and regions) all come
-from the orchestrator. The release image includes the tiles; without them the maps still show
-markers, on a plain background.
-
-- **Overview:** every node and the homelab as pulsing markers in their health color (faster when
-  not healthy), with lines from the homelab to each node colored by its tunnel. Hovering a node
-  shows its health, tunnel, round trip to the homelab, provider and failing checks.
-- **Speed test:** each line is labeled with the latest homelab ↔ node result; clicking a node runs
-  its test.
-- **Add node:** search the known data-center cities ("dal", "mumbai", "hetzner") to fill in the
-  place name, region code and coordinates, or click the map: the nearest known city within 50 km
-  names the point.
-- **Locations** (under Config): where the homelab is, and the catalog of known locations. About
-  100 data-center cities ship with HomeGAP, with the providers there; add your own, edit or hide
-  shipped ones. Your changes are kept in `<data_dir>/locations.yml`.
-
-`tools/build-map.sh tiles` builds the tiles from a Protomaps build (set `MAP_MAXZOOM` for more
-detail, and point `map.tiles` at the bigger file). The map's scripts are npm packages pinned in
-`gradle/libs.versions.toml`, and its fonts and icons are downloaded from Protomaps'
-basemaps-assets at a pinned commit and checked against `web/map-assets.tsv`; the dashboard build
-copies both into the binary, so none of them live in this repository. Map data © OpenStreetMap contributors (ODbL), via
-Protomaps.
-
-## Dashboard & API
-
-The dashboard is served by the orchestrator on `dashboard.bind`.
-
-> [!IMPORTANT]
-> Expose the dashboard **only** as a private Pangolin resource, never publicly.
-
-It shows:
-
-- **Nodes:** reachability; Docker, Pangolin, Gerbil and Traefik health; certificate expiry;
-  tunnel state; last provision; drift.
-- **Services:** per-region health.
-- **DNS:** records, monitor state and whether they match the desired state.
-- **Tunnels:** process state, restarts and throughput.
-- **Speed test:** homelab ↔ node and device → node → homelab measurements, with history.
-- **Access** (cluster only): the cluster's users, invitations and devices; see
-  [Users and devices](#users-and-devices).
-- **Reconcile log:** grouped by domain.
-- **Diagnostics:** a node's container logs and its read-only diagnostics bundle.
-- **Desired vs. actual:** the diff, plus every referenced secret with whether it is present.
-  Secret values are never shown.
-
-| Method & path | Purpose |
-| --- | --- |
-| `GET /api/status` | Full status snapshot |
-| `GET /api/events?after=SEQ` | Server-sent events: `status` (the snapshot, sent only when it changes) and `log` (new entries after `SEQ`). The dashboard uses this instead of polling. |
-| `GET /api/log?domain=` | Recent reconcile log |
-| `GET /api/diff` | Desired-vs-actual items and the effective desired state |
-| `GET /api/secrets` | Referenced secrets (names, sources, presence only) |
-| `GET /api/config` | Config file and nodes |
-| `POST /api/resync` | Queue a pass |
-| `POST /api/nodes/{id}/provision` | Force a full re-provision |
-| `POST /api/nodes` / `DELETE /api/nodes/{id}` | Add / remove a node (rewrites the config file, with a backup) |
-| `POST /api/nodes/{id}/decommission?confirm={id}` | Stop the stack on a removed node and forget it |
-| `GET /api/nodes/{id}/logs?service=&since=&tail=` | A container's logs: `service` is `pangolin`, `gerbil`, `traefik`, `haproxy`, `db`, `valkey`, `sentinel`, `etcd`, `probe` or `newt`; `since` like `30m` (default), `tail` up to 5000 lines (default 300) |
-| `GET /api/nodes/{id}/diagnostics` | The node's read-only diagnostics bundle (`{node, title, text, at}`) |
-| `GET /api/locations` | The known locations (shipped and local) and the homelab's location |
-| `PUT /api/locations/{id}` / `DELETE /api/locations/{id}?reset=` | Add or edit a location / remove it (a shipped one is hidden; `reset=true` restores an edited one) |
-| `PUT /api/homelab/location` | Set the homelab's location: `{location: {latitude, longitude, name}}`, or `null` to clear it |
-| `GET /map/...` | The map's tiles (range requests), scripts, fonts and icons; also served on the public listener for the status page |
-| `POST /api/cluster/switchover` | Make a caught-up replica the database primary now: `{to}` (cluster only) |
-| `GET /api/access` | The cluster's users, roles, open invitations and devices (cluster only) |
-| `POST /api/access/users` | Add a user: `{email, roleIds, password?}`; without a password, the response has the invite link |
-| `DELETE /api/access/users/{id}` / `PUT /api/access/users/{id}/roles` | Remove a user / set their roles (`{roleIds}`) |
-| `DELETE /api/access/invitations/{id}` | Withdraw an open invitation |
-| `POST /api/access/devices/{id}/{action}` | `block`, `unblock`, `archive`, `unarchive` or `delete` a device |
-| `GET /api/speedtest` | Speed test settings and recent results |
-| `POST /api/speedtest/nodes/{id}` | Run a homelab ↔ node speed test (blocks until done) |
-| `POST /api/speedtest/link` | Create a device test link |
-| `POST /api/setup/test` | Test an initial SSH login (`host`, `port`, `user`, `password` or `keyFile`, `resetHostKey`) |
-| `POST /api/setup/keys` | Generate, import or describe a node's SSH key |
-| `POST /api/setup/jobs` / `GET /api/setup/jobs/{id}` | Start a node setup job (the add-node wizard) / read its progress |
-| `POST /api/pause` | `{"scope":"global|node|service","id":"…","paused":true}` |
-
-## Security model
-
-- **The orchestrator is the trust center.** It holds every SSH key and API key. Run it on a
-  minimal host, mount secrets rather than baking them into the image, and keep the dashboard
-  private (optionally also set `dashboard.auth_token_env`).
-- **Node secrets** (Pangolin server secret, admin credentials, setup token, CrowdSec bouncer key)
-  are generated from the kernel CSPRNG. They are pushed over SSH into
-  `<install_dir>/secrets/node.json` (mode 0600), which is authoritative. The local state file
-  (`/data/state.json`, mode 0600) is only a cache: if it is lost, credentials are re-read from
-  the node.
-- The orchestrator's Pangolin API key on each node is a root key restricted to the actions it
-  needs. Older keys it minted are retired automatically.
-- Node Pangolin ports (3000/3002/3003) are bound to loopback. The orchestrator reaches them only
-  through SSH port forwarding.
-- `ufw` allows only SSH (from anywhere, or from `ssh_allow_from`), 80/443, 51820/udp and
-  21820/udp, plus raw ports that a label asks for. New rules are added before rules HomeGAP added
-  earlier and no longer wants are removed; rules it did not add are left alone.
-- Setup passwords given to the add-node wizard are kept in memory for the job only and never
-  stored. Generated node keys are written to the data directory with mode 0600.
-- The Docker socket is mounted read-only, and labels are only read. Tunnels run in a separate
-  container, so the controller never carries traffic.
-- `passthrough` keeps nodes blind to plaintext. Enable `pangolin.crowdsec` for edge abuse
-  mitigation on terminated traffic. It cannot inspect passthrough streams.
-- The homelab IP is never published. Every tunnel is outbound from home.
-
-To report a security issue, please open a private
-[security advisory](https://github.com/DrewCarlson/HomeGAP/security/advisories/new) rather than
+| [Getting started](https://drewcarlson.github.io/HomeGAP/latest/getting-started/) | The concepts, the requirements and the setup from start to finish. |
+| [Services](https://drewcarlson.github.io/HomeGAP/latest/services/) | Labels, traffic paths, raw ports, private services, sign-in, client addresses. |
+| [Cluster mode](https://drewcarlson.github.io/HomeGAP/latest/cluster/) | The mesh, the shared database, users and devices, the Pangolin apps, exit nodes. |
+| [Configuration](https://drewcarlson.github.io/HomeGAP/latest/configuration/) | Every config key, secrets, certificates, DNS, EE licenses. |
+| [Operations](https://drewcarlson.github.io/HomeGAP/latest/operations/dashboard/) | The dashboard, updates, upgrades, troubleshooting, failure modes, performance. |
+| [Reference](https://drewcarlson.github.io/HomeGAP/latest/reference/cli/) | The command line, the HTTP API, the security model, ports, files. |
+| [Development](https://drewcarlson.github.io/HomeGAP/latest/development/building/) | Building from source, the end-to-end tests, the documentation. |
+
+## Security
+
+The orchestrator holds every SSH key and API key, so run it on a minimal host and keep its
+dashboard private. The [security model](https://drewcarlson.github.io/HomeGAP/latest/reference/security/)
+gives the details.
+
+To report a security issue, open a private
+[security advisory](https://github.com/DrewCarlson/HomeGAP/security/advisories/new). Do not open
 a public issue.
-
-## Failure modes
-
-| Failure | Effect | Recovery |
-| --- | --- | --- |
-| Regional node down | Bunny drops it; its viewers resolve to the next-nearest node | The orchestrator repairs or re-provisions it; DNS recovers automatically |
-| Node update fails | That node is rolled back to its previous stack; the rollout to other nodes stops | Retry or skip it from the dashboard, or change the config (see [Node updates and rollback](#node-updates-and-rollback)) |
-| Orchestrator down | None on live traffic; only new label or config changes wait | Restart it; it reconciles to the desired state |
-| Homelab origin down | Passthrough sites show a "back shortly" page from the nodes (503, about 15 s after the nodes lose the homelab; raw ports and node-terminated resources just fail). Public services are down (single origin, by design). With the cluster, Pangolin apps stay connected and new sign-ins work after ~30 s, once the nodes elect a database primary; only homelab services are unreachable | Restore the origin; tunnels reconnect, and the primary moves back after the hold |
-| Node holding the database primary down (cluster) | Sign-ins and changes pause ~30 s while the others elect a new primary; public traffic fails over through DNS as for any node | Automatic; the primary returns to the homelab after the hold |
-| Homelab cut off from the nodes, but up (cluster) | The homelab loses the vote and stops taking writes; the nodes elect a primary and keep serving | Heal the link: the homelab rejoins as a replica (rewinding any writes it couldn't keep) and the primary moves back after the hold |
-| Mesh link between two nodes broken (cluster) | Nothing visible while a majority of members still reach each other; the dashboard flags the isolated member | Fix the network; WireGuard reconnects on its own |
-| Fewer than half the cluster members reachable | No primary can be elected: logins and changes fail; connected apps and public traffic keep working | Bring members back; the dashboard shows "no majority" |
-| Newt tunnel drops | That node's health probe fails, so it drops out of DNS | The supervisor restarts Newt with backoff; failover covers the gap |
-| Certificate issuance fails on a node | That node cannot serve TLS for affected names | Push the wildcard via `certificates`, or fix ACME; the dashboard shows expiry |
-| A login blocker on a node (fail2ban, sshguard, CrowdSec) bans the orchestrator | SSH from the orchestrator times out or is cut before login; setup or provisioning for that node fails | Lift the ban from the provider's console or another network, then retry; the add-node wizard exempts the orchestrator's address from these blockers |
-| Orchestrator IP changes while `ssh_allow_from` is set | Provisioning and SSH checks fail for those nodes; live traffic is unaffected | Allow SSH again from the provider's console (`ufw allow <port>/tcp`), then update `ssh_allow_from` |
-| Bunny outage | DNS resolution affected | Accepted single dependency |
-| State cache lost | None | Secrets are re-read from the nodes, API keys re-minted, Newt credentials recovered from the connector spec |
-
-## Development
-
-### Building
-
-Requirements: JDK 21. Gradle, Kotlin/Native and Node for the dashboard are downloaded
-automatically.
-
-```bash
-./gradlew macosArm64Test                       # unit tests (host target)
-./gradlew :presentation:jsNodeTest            # dashboard presenter tests (Node)
-./gradlew linkReleaseExecutableLinuxX64 linkReleaseExecutableLinuxArm64
-docker buildx build --platform linux/amd64,linux/arm64 -t homegap .
-./gradlew -Phomegap.skipWeb=true …             # skip bundling the dashboard for fast iteration
-./gradlew :web:jsBrowserDevelopmentServe --continuous   # dashboard dev server (proxies /api to :8088)
-tools/build-map.sh tiles                       # map/world.pmtiles for local runs (the image builds its own)
-```
-
-### End-to-end tests
-
-`e2e/` contains a self-contained end-to-end harness, built from:
-
-- a fake Ubuntu VPS (sshd plus its own Docker daemon),
-- a simulated homelab (Traefik, whoami, socat),
-- the orchestrator and the tunnel supervisor,
-- a Bunny API stand-in.
-
-```bash
-./gradlew linkReleaseExecutableLinuxArm64   # or LinuxX64 on an amd64 Docker host
-e2e/run.sh        # provisions two fake nodes from scratch over SSH
-                  # (exports an untracked ./.env, e.g. PANGOLIN_LICENSE_KEY, to test EE features)
-e2e/verify.sh     # checks passthrough, wildcard, terminate, raw TCP, health and redirects on every
-                  # node, and the cluster's client address
-```
-
-With the cluster on (as in `e2e/config.e2e.yml`), `e2e/verify-cluster.sh` checks the cluster
-itself:
-
-- the database is healthy, with the primary on the homelab;
-- a user created through the dashboard signs in at `pangolin.<domain>` through every node;
-- a Pangolin client (the `client` service) reaches a private service through whichever node it's
-  sent to (`CLIENT_NODE_IP` plays the part of DNS);
-- with the homelab cut off from the mesh, a node takes over and the homelab stops taking writes;
-  after healing, HomeGAP switches the primary (and Valkey) back.
-
-```bash
-e2e/verify-cluster.sh   # about 5 minutes, most of it the switch-back hold
-```
-
-### Repository layout
-
-```text
-src/nativeMain/kotlin/homegap/
-  discovery/    Docker socket client + label parsing
-  model/        pure planner: labels + config -> desired state
-  reconcile/    controller loop and the node, tunnel, resource and DNS reconcilers
-  clients/      Pangolin (integration + bootstrap), Bunny, SSH (OpenSSH ControlMaster)
-  provision/    node stack templates, certificates, YAML emitter
-  state/        local state cache
-  dashboard/    REST API + embedded SPA, and the map's files
-  locations/    the locations catalog (shipped list + local edits)
-  tunnels/      Newt connector supervisor
-api/            wire types shared by the API and the dashboard
-web/            Compose for HTML dashboard, bundled with Vite (kotlin-vite)
-deploy/         homelab compose; reference node stack
-blueprints/     example Pangolin base blueprint
-config/         example configuration
-locations/      the shipped data-center catalog (datacenters.yml)
-tools/          build-map.sh: the self-hosted map's tiles
-e2e/            end-to-end harness
-```
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a pull request, please make sure the unit
-tests pass (`./gradlew macosArm64Test`) and, for changes that touch provisioning, routing or
-DNS, that the [end-to-end harness](#end-to-end-tests) passes.
+Issues and pull requests are welcome. Before you open a pull request, make sure that the unit
+tests pass (`./gradlew macosArm64Test`). For changes to provisioning, routing or DNS, the
+[end-to-end tests](https://drewcarlson.github.io/HomeGAP/latest/development/e2e/) must also pass.
+[Build from source](https://drewcarlson.github.io/HomeGAP/latest/development/building/) tells you
+how to build and test HomeGAP.
 
 ## Acknowledgements
 
