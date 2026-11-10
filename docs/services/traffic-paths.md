@@ -16,7 +16,7 @@ The node serves some names itself, so the wildcard passthrough does not include 
 
 - The management host of each node, `pangolin-<id>.<domain>`.
 - In cluster mode, the client address `pangolin.<domain>`.
-- The status page, `status.<domain>`.
+- The shared names of the status page and the speed test, `status.<domain>` and `speedtest.<domain>`. The node sends their requests on to the homelab under its own names, `status-<node>.<domain>` and `speedtest-<node>.<domain>`.
 - Dedicated hostnames that use `terminate`.
 
 On port 80, the node sends a permanent redirect to HTTPS for the passthrough names.

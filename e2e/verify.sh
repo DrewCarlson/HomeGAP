@@ -5,6 +5,8 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 v() { docker compose exec -T viewer "$@"; }
+# A device test link's token, to read which node the speed test's shared name came through.
+TOKEN=$(curl -s -X POST http://127.0.0.1:18088/api/speedtest/link | sed -n 's/.*[#&]t=\([A-Za-z0-9_-]*\).*/\1/p')
 for node in na1:172.30.0.10 as1:172.30.0.11; do
   id=${node%%:*}; ip=${node#*:}
   echo "================ $id ($ip)"
@@ -25,6 +27,9 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
     v sh -c "curl -sS -v --cacert /certs/ca.pem --resolve pangolin.test.example.net:443:$ip https://pangolin.test.example.net/auth/login 2>&1 | grep -E 'subject:|^< HTTP/'"
     v sh -c "curl -sS --cacert /certs/ca.pem --resolve pangolin.test.example.net:443:$ip -o /dev/null -w 'api %{http_code}\n' https://pangolin.test.example.net/api/v1/"
   fi
+  echo "--- the shared status and speed test names name this node, with no redirect (expect 200 \"via\":\"$id\" 200 \"node\":\"$id\")"
+  v sh -c "curl -sS --cacert /certs/ca.pem --resolve status.test.example.net:443:$ip -o /dev/null -w '%{http_code} ' https://status.test.example.net/; curl -sS --cacert /certs/ca.pem --resolve status.test.example.net:443:$ip https://status.test.example.net/status/nodes | grep -o '\"via\":\"[^\"]*\"'"
+  v sh -c "curl -sS --cacert /certs/ca.pem --resolve speedtest.test.example.net:443:$ip -o /dev/null -w '%{http_code} ' https://speedtest.test.example.net/; curl -sS --cacert /certs/ca.pem --resolve speedtest.test.example.net:443:$ip -H 'X-HomeGAP-Token: $TOKEN' https://speedtest.test.example.net/speedtest/info | grep -o '\"node\":\"[^\"]*\"'"
   echo "--- port-80 health endpoint (what Bunny probes)"
   v sh -c "curl -sS -o /dev/null -w '%{http_code}\n' http://$ip/"
   echo "--- http -> https redirect"

@@ -17,7 +17,7 @@ With `speedtest.enabled: true`, the orchestrator serves a speed test origin on `
 
 A change of `speedtest.enabled` or `speedtest.bind` needs a restart of the orchestrator.
 
-The front door already forwards `speedtest.<domain>` and `speedtest-<node>.<domain>` from the nodes. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the `homegap-mesh` service, because it owns the networks of the orchestrator:
+The front door already forwards `speedtest-<node>.<domain>` from the nodes. A node answers the shared name `speedtest.<domain>` itself, and sends its requests on to the homelab as `speedtest-<node>.<domain>`. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the `homegap-mesh` service, because it owns the networks of the orchestrator:
 
 ```yaml
 labels:
@@ -50,7 +50,7 @@ This test uses a short-lived link that you open on any device. The link is valid
 2. Click **Copy**.
 3. Open the link on the device.
 
-`http://speedtest.<domain>/` goes to the node that DNS selects for the device. That node redirects to its own `speedtest-<node>` hostname. Thus each result belongs to a node.
+`speedtest.<domain>` goes to the node that DNS selects for the device. That node answers the name itself and sends each request on to the homelab under its own name, `speedtest-<node>.<domain>`. The address bar keeps `speedtest.<domain>`. Thus the page shows the node, and each result belongs to a node. On HTTP, the node redirects to HTTPS on the same name.
 
 The token is in the fragment of the URL. The browser never sends the fragment to a server, so no log contains the token.
 

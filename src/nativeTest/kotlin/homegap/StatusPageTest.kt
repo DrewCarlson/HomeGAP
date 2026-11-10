@@ -32,7 +32,7 @@ class StatusPageTest {
         assertEquals("status.test.example.net" to "status-as1.test.example.net", n.statusRedirect)
         val routes = NodeTemplates.dynamicRoutes(n, emptyMap())
         assertTrue("Host(`status.test.example.net`)" in routes)
-        assertTrue("https://status-as1.test.example.net/" in routes)
+        assertTrue("Host: \"status-as1.test.example.net\"" in routes || "Host: status-as1.test.example.net" in routes, routes)
         assertTrue("!HostSNI(`status.test.example.net`)" in NodeTemplates.sniRule(n.sniRoutes.single()))
     }
 

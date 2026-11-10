@@ -54,6 +54,7 @@ ul { padding-left:18px; } a { color:var(--accent); }
   var token = params.get('t') || sessionStorage.getItem('homegap.st') || '';
   if (params.get('t')) { sessionStorage.setItem('homegap.st', token); history.replaceState(null, '', location.pathname + location.search); }
   var H = { 'X-HomeGAP-Token': token };
+  // Opened at the shared name (the node DNS picked for this device), or at a node's own name.
   var auto = new URLSearchParams(location.search).get('via') === 'auto';
   var phase = 8;
   function el(id) { return document.getElementById(id); }
@@ -174,9 +175,10 @@ ul { padding-left:18px; } a { color:var(--accent); }
   if (!token) { status('Missing test token. Open this page from a link created in the HomeGAP dashboard.', true); el('via').textContent = ''; return; }
   info().then(function (i) {
     phase = i.phaseSeconds || 8;
+    if (!Object.keys(i.nodes).some(function (id) { return i.nodes[id].indexOf('//' + location.host + '/') >= 0; })) auto = true;
     el('via').textContent = i.node
       ? 'Connected through node ' + i.node + (auto ? ' (chosen by DNS for your location)' : '') + '.'
-      : 'Connected through the node DNS chose for you (node name unknown on this address; use the plain-HTTP link or a node below).';
+      : 'Connected through the node DNS chose for you (this address does not name it; pick a node below).';
     var ul = el('others');
     Object.keys(i.nodes).forEach(function (id) {
       var li = document.createElement('li'), a = document.createElement('a');

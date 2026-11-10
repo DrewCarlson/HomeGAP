@@ -22,9 +22,9 @@ The page also has a map of the nodes in their status colors. The node of the vis
 
 ## How the page works
 
-Each node answers `status.<domain>` itself, with its own certificate, over HTTP and HTTPS. This name never goes through passthrough. The node redirects the visitor to its own name, `status-<node>.<domain>`.
+Each node answers `status.<domain>` itself, with its own certificate. This name never goes through passthrough. On HTTP, the node redirects to HTTPS on the same name.
 
-That name goes through the front door and the tunnel to the homelab. Thus the page, the node list and every ping come from the orchestrator.
+On HTTPS, the node sends each request on to the homelab under its own name, `status-<node>.<domain>`. That name goes through the front door and the tunnel to the homelab. The address bar keeps `status.<domain>`, and the orchestrator always knows which node the visitor came through. Thus the page, the node list and every ping come from the orchestrator.
 
 For the round trip through each other node, the browser sends one request to `status-<node>.<domain>`. The request goes through that node and its tunnel to the homelab, and back. The browser measures the time with Resource Timing, from the request to the first byte. Thus the time does not include DNS and the setup of the connection.
 

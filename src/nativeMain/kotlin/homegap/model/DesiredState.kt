@@ -30,9 +30,13 @@ data class NodeDesired(
     val rawPorts: List<RawPort>,
     val healthResourceNiceId: String?,
     val healthPath: String,
-    /** Speed test entry redirect on :80 (auto hostname -> this node's hostname), when enabled. */
+    /**
+     * The speed test's shared name -> this node's name. The node answers the shared name itself
+     * and passes each request on to the homelab under its own name, so the page always knows the
+     * node it came through, whatever address the visitor opened.
+     */
     val speedtestRedirect: Pair<String, String>? = null,
-    /** Status page entry (shared name -> this node's name), answered by the node on :80 and :443. */
+    /** The status page's shared name -> this node's name, answered the same way. */
     val statusRedirect: Pair<String, String>? = null,
     /** The cluster's client address, served by this node's Pangolin (login pages and API). */
     val clientHost: String? = null,
@@ -125,7 +129,6 @@ object Planner {
     const val FRONTDOOR_TCP = "hg-frontdoor"
     const val HEALTH = "hg-health"
     const val SPEEDTEST = "hg-speedtest"
-    const val SPEEDTEST_AUTO = "hg-speedtest-auto"
     const val STATUS = "hg-status"
     const val PRIVATE_PATH_PREFIX = "hg-private--"
 
@@ -300,10 +303,11 @@ object Planner {
                 sni += SniRoute(
                     name = "homegap-frontdoor",
                     resourceNiceId = FRONTDOOR_TCP,
-                    // The speed test hostnames ride the front door to the homelab proxy.
-                    exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts + listOfNotNull(spNode),
+                    // The per-node speed test and status names ride the front door to the homelab;
+                    // the shared ones are answered by the node itself.
+                    exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts.drop(1) + listOfNotNull(spNode),
                     wildcardOf = if (fd.wildcard) fd.hostname else null,
-                    excludeHosts = (listOfNotNull(mgmt, config.clientHost, spAuto) + terminateDedicated).distinct().sorted(),
+                    excludeHosts = (listOfNotNull(mgmt, config.clientHost, spAuto, stHosts.firstOrNull()) + terminateDedicated).distinct().sorted(),
                     priority = 100,
                 )
                 redirects += fd.hostname
@@ -312,7 +316,6 @@ object Planner {
                 publicRes += httpResource(NICE_PREFIX + fd.key, fd, fd.hostname, method)
                 if (fd.wildcard) publicRes += httpResource(NICE_PREFIX + "wildcard-" + fd.key, fd, "*." + fd.hostname, method)
                 if (st != null) {
-                    publicRes += httpResource(SPEEDTEST_AUTO, fd, stHosts[0], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
                     publicRes += httpResource(perNode(config, SPEEDTEST, node.id), fd, stHosts[1], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
                 }
                 if (spNode != null) {

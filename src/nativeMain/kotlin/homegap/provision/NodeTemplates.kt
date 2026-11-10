@@ -445,23 +445,9 @@ object NodeTemplates {
                 putJsonObject("middlewares") {
                     putJsonObject("homegap-redirect-https") { putJsonObject("redirectScheme") { put("scheme", "https"); put("permanent", true) } }
                     putJsonObject("homegap-health-path") { putJsonObject("replacePath") { put("path", desired.healthPath) } }
-                    desired.speedtestRedirect?.let { (_, to) ->
-                        putJsonObject("homegap-speedtest-which") {
-                            putJsonObject("redirectRegex") {
-                                put("regex", "^.*$")
-                                put("replacement", "https://$to/?via=auto")
-                                put("permanent", false)
-                            }
-                        }
-                    }
-                    desired.statusRedirect?.let { (_, to) ->
-                        putJsonObject("homegap-status-which") {
-                            putJsonObject("redirectRegex") {
-                                put("regex", "^.*$")
-                                put("replacement", "https://$to/")
-                                put("permanent", false)
-                            }
-                        }
+                    // A shared name's requests continue under this node's own name (see [selfVia]).
+                    for ((name, pair) in sharedNames(desired)) putJsonObject("homegap-$name-via") {
+                        putJsonObject("headers") { putJsonObject("customRequestHeaders") { put("Host", pair.second) } }
                     }
                 }
                 putJsonObject("routers") {
@@ -506,22 +492,24 @@ object NodeTemplates {
                             put("priority", 10000)
                         }
                     }
-                    desired.statusRedirect?.let { (from, _) ->
-                        // The status page's shared name: whichever node DNS picked answers with its
-                        // own name (over HTTPS with the node's certificate, so passthrough never
-                        // carries it), and the page then knows which node the visitor came through.
-                        putJsonObject("homegap-status-which") {
+                    for ((name, pair) in sharedNames(desired)) {
+                        val (from, _) = pair
+                        // The shared name (status.<domain>, speedtest.<domain>): whichever node DNS
+                        // picked answers it with its own certificate and sends each request on under
+                        // its own name, so the page knows the node the visitor came through. The
+                        // address bar keeps the shared name.
+                        putJsonObject("homegap-$name-via") {
                             put("rule", "Host(`$from`)")
                             putJsonArray("entryPoints") { add("websecure") }
-                            putJsonArray("middlewares") { add("homegap-status-which") }
-                            put("service", "noop@internal")
+                            putJsonArray("middlewares") { add("homegap-$name-via") }
+                            put("service", "homegap-$name-via")
                             put("priority", 10000)
                             putJsonObject("tls") { put("certResolver", "letsencrypt") }
                         }
-                        putJsonObject("homegap-status-which-http") {
+                        putJsonObject("homegap-$name-via-http") {
                             put("rule", "Host(`$from`)")
                             putJsonArray("entryPoints") { add("web") }
-                            putJsonArray("middlewares") { add("homegap-status-which") }
+                            putJsonArray("middlewares") { add("homegap-redirect-https") }
                             put("service", "noop@internal")
                             put("priority", 10000)
                         }
@@ -544,17 +532,6 @@ object NodeTemplates {
                             putJsonArray("middlewares") { add("homegap-redirect-https") }
                             put("service", "noop@internal")
                             put("priority", 10)
-                        }
-                    }
-                    desired.speedtestRedirect?.let { (from, _) ->
-                        // Plain-HTTP entry link: whichever node DNS picked answers with its own
-                        // per-node hostname, so the test page knows which node it runs through.
-                        putJsonObject("homegap-speedtest-which") {
-                            put("rule", "Host(`$from`)")
-                            putJsonArray("entryPoints") { add("web") }
-                            putJsonArray("middlewares") { add("homegap-speedtest-which") }
-                            put("service", "noop@internal")
-                            put("priority", 20)
                         }
                     }
                     val ipHosts = listOfNotNull(node.ipv4(), node.publicIpv6?.let { "[$it]" })
@@ -581,9 +558,19 @@ object NodeTemplates {
                     }
                 }
                 putJsonObject("services") {
+                    for ((name, _) in sharedNames(desired)) putJsonObject("homegap-$name-via") { selfVia("homegap-$name-via") }
                     putJsonObject("homegap-pangolin-api") { lb("http://pangolin:3000") }
                     putJsonObject("homegap-pangolin-next") { lb("http://pangolin:3002") }
                     putJsonObject("homegap-unavailable") { lb("http://127.0.0.1:9") }
+                }
+                if (sharedNames(desired).isNotEmpty()) putJsonObject("serversTransports") {
+                    for ((name, pair) in sharedNames(desired)) putJsonObject("homegap-$name-via") {
+                        put("serverName", pair.second)
+                        // The connection goes to this node's own :443 and from there, still encrypted,
+                        // through the front door and the tunnel to the homelab Traefik. The node
+                        // already ends the visitor's TLS for this name; there is no other hop here.
+                        put("insecureSkipVerify", true)
+                    }
                 }
             }
             val sni = desired.sniRoutes.mapNotNull { r -> resourceIds[r.resourceNiceId]?.let { r to it } }
@@ -608,6 +595,21 @@ object NodeTemplates {
             }
         }
         return YamlEmitter.emit(root, HEADER)
+    }
+
+    /** The status page's and the speed test's shared names on this node: name -> (shared, own). */
+    private fun sharedNames(desired: NodeDesired): List<Pair<String, Pair<String, String>>> =
+        listOfNotNull(desired.statusRedirect?.let { "status" to it }, desired.speedtestRedirect?.let { "speedtest" to it })
+
+    /**
+     * Back into this node's own :443 under its own per-node name, which the front door carries to
+     * the homelab like any other name under the domain.
+     */
+    private fun JsonObjectBuilder.selfVia(transport: String) {
+        putJsonObject("loadBalancer") {
+            putJsonArray("servers") { addJsonObject { put("url", "https://127.0.0.1:443") } }
+            put("serversTransport", transport)
+        }
     }
 
     private fun JsonObjectBuilder.lb(url: String) {

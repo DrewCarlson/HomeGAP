@@ -32,16 +32,28 @@ class SpeedTestTest {
         val fd = container("traefik", "homegap.expose" to "test.example.net", "homegap.protocol" to "https", "homegap.tls" to "passthrough")
         val plan = Planner.plan(cfg, listOf(fd))
         val hosts = plan.nodes.getValue("na1").sniRoutes.single().exactHosts
-        assertTrue("speedtest.test.example.net" in hosts && "speedtest-na1.test.example.net" in hosts)
+        // The per-node name rides the front door; the shared one is the node's own.
+        assertTrue("speedtest-na1.test.example.net" in hosts && "speedtest.test.example.net" !in hosts)
         assertTrue(plan.dns.any { it.fqdn == "speedtest.test.example.net" && it.geo })
     }
 
     @Test
-    fun autoEntryRedirectsToTheNodesOwnHostname() {
+    fun theSharedNameIsAnsweredByTheNodeUnderItsOwnName() {
         val n = Planner.plan(cfg, listOf(TRAEFIK)).nodes.getValue("as1")
+        assertTrue("speedtest.test.example.net" in n.sniRoutes.single().excludeHosts, "never passed through: the node answers it")
         val routes = NodeTemplates.dynamicRoutes(n, emptyMap())
+        // HTTPS on the shared name goes back into the node's own :443 as speedtest-as1, which the
+        // front door carries home: the homelab always sees which node it came through.
         assertTrue("Host(`speedtest.test.example.net`)" in routes)
-        assertTrue("https://speedtest-as1.test.example.net/?via=auto" in routes)
+        assertTrue("Host: \"speedtest-as1.test.example.net\"" in routes || "Host: speedtest-as1.test.example.net" in routes, routes)
+        assertTrue("serverName: \"speedtest-as1.test.example.net\"" in routes || "serverName: speedtest-as1.test.example.net" in routes)
+        assertTrue("https://127.0.0.1:443" in routes)
+        assertFalse("via=auto" in routes, "no redirect: the address bar keeps the shared name")
+        // Terminate mode needs no Pangolin resource for the shared name either.
+        val terminate = container("traefik", "homegap.expose" to "test.example.net", "homegap.wildcard" to "true", "homegap.protocol" to "https", "homegap.tls" to "terminate")
+        val t = Planner.plan(cfg, listOf(terminate)).nodes.getValue("as1")
+        assertTrue(t.publicResources.none { it.fullDomain == "speedtest.test.example.net" })
+        assertTrue("Host(`speedtest.test.example.net`)" in NodeTemplates.dynamicRoutes(t, emptyMap()))
     }
 
     @Test

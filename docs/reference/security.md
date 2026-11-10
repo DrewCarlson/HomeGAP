@@ -43,6 +43,7 @@ With `passthrough`, the nodes never see plaintext. `pangolin.crowdsec` gives abu
 
 - The public status page never shows addresses or hostnames. It shows the homelab only as its region. See [Status page](../operations/status-page.md).
 - The token of a speed test link for a device is in the fragment of the URL. The browser never sends it to a server, so no log contains it. See [Speed tests](../operations/speed-tests.md).
+- The nodes end TLS for the shared names `status.<domain>` and `speedtest.<domain>`, which serve only these HomeGAP pages. A node then sends each request back into its own port 443 under its own name, and the front door carries it home still encrypted. On that inner connection the node does not check the certificate, because the connection does not leave the node before it enters the tunnel.
 
 ## Report a security issue
 
