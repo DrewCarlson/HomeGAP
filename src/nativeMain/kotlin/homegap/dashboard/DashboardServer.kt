@@ -55,6 +55,8 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
             get("/healthz") { call.respondText("ok") }
             get(MapFiles.TILES_PATH) { with(MapFiles) { serveTiles(config.map.tiles) } }
             get("/map/{path...}") { with(MapFiles) { serveMapAsset() } }
+            get(DocsFiles.PREFIX) { with(DocsFiles) { serveDocs() } }
+            get("${DocsFiles.PREFIX}/{path...}") { with(DocsFiles) { serveDocs() } }
             get("/{path...}") { serveAsset() }
         }
     }

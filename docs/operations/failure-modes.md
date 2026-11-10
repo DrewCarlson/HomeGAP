@@ -1,0 +1,21 @@
+# Failure modes
+
+This page tells you what happens when a part of the system fails, and how to recover. The orchestrator is never in the traffic path. Thus most failures of the control plane do not affect live traffic.
+
+| Failure | Effect | Recovery |
+| --- | --- | --- |
+| A regional node is down. | Bunny removes it. Its viewers resolve to the next-nearest node. | The orchestrator repairs or provisions the node again. DNS recovers by itself. |
+| A node update fails. | HomeGAP rolls that node back to its previous stack. The rollout to the other nodes stops. | Click **Retry update** or **Skip update**, or change the config. See [Node updates and rollback](node-updates.md). |
+| The orchestrator is down. | Live traffic does not change. Only new label or config changes wait. | Restart the orchestrator. It reconciles to the desired state. |
+| The homelab origin is down. | Public services are down, because the homelab is the single origin. Passthrough sites show a "back shortly" page (503) approximately 15 seconds after the nodes lose the homelab. Raw ports and resources that the node terminates fail. | Restore the origin. The tunnels connect again. |
+| The homelab origin is down, in cluster mode. | Pangolin apps stay connected. New sign-ins work after approximately 30 seconds, when the nodes elect a database primary. Only the homelab services are not reachable. | Restore the origin. The primary moves back after the hold. |
+| The node with the database primary is down (cluster). | Sign-ins and changes stop for approximately 30 seconds, while the other members elect a new primary. DNS moves public traffic as for any node. | Automatic. The primary returns to the homelab after the hold. |
+| The homelab is up, but cut off from the nodes (cluster). | The homelab loses the vote and stops all writes. The nodes elect a primary and continue to serve. | Repair the link. The homelab joins again as a replica and rewinds the writes that it cannot keep. The primary moves back after the hold. |
+| The mesh link between two nodes is broken (cluster). | Nothing is visible while a majority of members still reach each other. The dashboard shows the isolated member. | Repair the network. WireGuard connects again by itself. |
+| Fewer than half of the cluster members are reachable. | The cluster cannot elect a primary. Sign-ins and changes fail. Connected apps and public traffic continue to work. | Bring the members back. The dashboard shows "no majority". |
+| A Newt tunnel drops. | The health probe of that node fails, so Bunny removes the node from DNS. | The tunnel supervisor restarts Newt with a backoff. Failover covers the gap. |
+| The issuance of a certificate fails on a node. | That node cannot serve TLS for the affected names. | Send the wildcard certificate with `certificates`, or repair ACME. The dashboard shows the expiry. See [Certificates](../configuration/certificates.md). |
+| A login blocker on a node (fail2ban, sshguard or CrowdSec) bans the orchestrator. | SSH from the orchestrator times out, or the server cuts it before login. Setup or provisioning for that node fails. | Remove the ban from the console of the provider or from another network. Then try again. The add-node wizard exempts the address of the orchestrator from these blockers. |
+| The IP address of the orchestrator changes while `ssh_allow_from` is set. | Provisioning and SSH checks fail for those nodes. Live traffic does not change. | Open SSH again from the console of the provider (`ufw allow <port>/tcp`). Then update `ssh_allow_from`. |
+| Bunny has an outage. | DNS resolution has problems. | None. Bunny is the single dependency that HomeGAP accepts. |
+| HomeGAP loses its state cache. | None. | HomeGAP reads the secrets from the nodes again, creates new API keys and recovers the Newt credentials from the connector spec. |

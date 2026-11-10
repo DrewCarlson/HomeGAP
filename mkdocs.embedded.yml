@@ -1,0 +1,11 @@
+# The build the orchestrator serves at /docs/ on its dashboard: one version (the image's own),
+# relative links, and nothing loaded from another site.
+INHERIT: mkdocs.yml
+site_url: ''
+use_directory_urls: true
+plugins:
+  - search
+  - markdownextradata: {}
+extra:
+  hg_version: !ENV [VERSION, 'dev']
+  version: null

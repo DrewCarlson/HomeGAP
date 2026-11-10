@@ -30,6 +30,15 @@ COPY gradle/libs.versions.toml /v/
 RUN echo "newt ${NEWT_VERSION}" > /v/newt \
     && cd /v && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16 > /tunnels-version
 
+# The documentation, served by the dashboard at /docs/ (the pages for this image's version).
+FROM --platform=$BUILDPLATFORM docker.io/library/python:3.14-alpine AS docs
+ARG VERSION=dev
+COPY docs/requirements.txt /src/docs/requirements.txt
+RUN pip install --no-cache-dir -r /src/docs/requirements.txt
+COPY mkdocs.yml mkdocs.embedded.yml /src/
+COPY docs /src/docs
+RUN cd /src && NO_MKDOCS_2_WARNING=1 VERSION="$VERSION" mkdocs build --strict -f mkdocs.embedded.yml -d /site
+
 FROM docker.io/library/ubuntu:24.04
 ARG TARGETARCH
 
@@ -42,6 +51,7 @@ RUN apt-get update \
 COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
 COPY --from=map /src/map/world.pmtiles /usr/share/homegap/map/world.pmtiles
 COPY --from=tunnels-version /tunnels-version /usr/share/homegap/tunnels-version
+COPY --from=docs /site /usr/share/homegap/docs
 COPY build/bin/linuxX64/releaseExecutable/homegap.kexe /tmp/homegap-amd64
 COPY build/bin/linuxArm64/releaseExecutable/homegap.kexe /tmp/homegap-arm64
 RUN if [ "${TARGETARCH:-$(dpkg --print-architecture)}" = "amd64" ]; then mv /tmp/homegap-amd64 /usr/local/bin/homegap; else mv /tmp/homegap-arm64 /usr/local/bin/homegap; fi \

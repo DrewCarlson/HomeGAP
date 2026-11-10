@@ -38,6 +38,8 @@ fun App(model: AppModel) {
                     Div({ classes("mono") }) { Text(it.domain) }
                     Div { Text(it.versionLine) }
                 }
+                // The pages for this version, served by the orchestrator itself.
+                A("/docs/", { classes("docs-link"); attr("target", "_blank"); attr("rel", "noopener") }) { Text("Documentation") }
             }
         }
         Div({ classes("main-col") }) {

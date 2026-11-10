@@ -1,0 +1,69 @@
+# Documentation
+
+These docs use MkDocs with Material for MkDocs. This page tells you how to preview and build them, how the versions work and where the dashboard copy comes from.
+
+## Sources
+
+- The config is `mkdocs.yml`.
+- The pages are in `docs/`.
+- `docs/requirements.txt` pins the dependencies: `mkdocs` 1.6.1, `mkdocs-material` 9.8.1, `pymdown-extensions` 13.0, `mkdocs-markdownextradata-plugin` 0.2.6, `mike` 2.2.0 and `jinja2` 3.1.6.
+
+The theme is dark (`slate`), and it uses system fonts. The site loads no fonts from a third party.
+
+## Preview the docs
+
+1. Install the dependencies:
+    ```bash
+    python3 -m pip install -r docs/requirements.txt
+    ```
+2. Start the preview server:
+    ```bash
+    mkdocs serve
+    ```
+3. Open `http://127.0.0.1:8000`.
+
+To build the site as CI does, run a strict build. A broken link or a missing page fails it.
+
+```bash
+mkdocs build --strict
+```
+
+## Variables and Jinja
+
+Every page goes through Jinja, through the `markdownextradata` plugin. The variable `hg_version` gives the version that the pages describe. It comes from the `VERSION` environment variable, with the default `dev`.
+
+!!! warning "Caution"
+    Literal Jinja delimiters in a page, for example in a Go template for `docker inspect`, break the build. Put such text in a Jinja `raw` block.
+
+## Versions
+
+`.github/workflows/docs.yml` builds both configs on every push and pull request that changes the docs. It publishes to GitHub Pages (the `gh-pages` branch) with mike, but only when the repository is public:
+
+| Event | Version |
+| --- | --- |
+| A push to `main` | `dev` |
+| A tag `vX.Y.Z` | `X.Y`, with the alias `latest`. `latest` becomes the default. |
+
+## The copy in the image
+
+The Dockerfile builds `mkdocs.embedded.yml` into `/usr/share/homegap/docs`. This config inherits `mkdocs.yml`, but it has no version selector and no mike. The image build gives it `VERSION`, and `build.yml` passes the image version.
+
+The dashboard serves this copy at `/docs/`, and links it as **Documentation** at the bottom of the sidebar. To use a different folder, set `HOMEGAP_DOCS_DIR`. For example, build a local copy and point the orchestrator at it:
+
+```bash
+mkdocs build -f mkdocs.embedded.yml -d site
+```
+
+## Writing rules
+
+Follow the [Writing style guide](style-guide.md) for every page.
+
+A screenshot that the maintainer must add is an HTML comment on its own line, in this form:
+
+```text
+<!-- SCREENSHOT: docs/img/<page>/<nn>-<what>.png | what the image shows -->
+```
+
+The images go in `docs/img/`.
+
+Do not use Mermaid diagrams. Mermaid loads from a CDN, and the copy on the dashboard must work without internet access.

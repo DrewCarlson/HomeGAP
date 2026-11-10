@@ -1,0 +1,139 @@
+site_name: HomeGAP
+site_description: Publish homelab services worldwide through your own regional edge nodes.
+site_url: https://drewcarlson.github.io/HomeGAP/
+repo_url: https://github.com/DrewCarlson/HomeGAP
+repo_name: DrewCarlson/HomeGAP
+remote_branch: gh-pages
+docs_dir: docs
+edit_uri: edit/main/docs/
+copyright: 'Copyright &copy; 2026 HomeGAP Maintainers'
+strict: true
+
+# Design notes kept beside the docs, not part of the site.
+exclude_docs: |
+  requirements.txt
+  clustered-pangolin-plan.md
+  map-plan.md
+
+theme:
+  name: material
+  # System fonts: the site is also served by the orchestrator, which never loads third-party files.
+  font: false
+  palette:
+    scheme: slate
+    primary: indigo
+    accent: light blue
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - content.action.edit
+    - content.code.copy
+    - content.tabs.link
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+  - mike:
+      canonical_version: latest
+  - markdownextradata: {}
+
+extra:
+  # The release the pages describe, e.g. 0.1.0 (no "v"). Set by the workflow and the image build.
+  hg_version: !ENV [VERSION, 'dev']
+  version:
+    provider: mike
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/DrewCarlson/HomeGAP
+    - icon: fontawesome/brands/docker
+      link: https://github.com/DrewCarlson/HomeGAP/pkgs/container/homegap
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - getting-started/index.md
+      - How HomeGAP works: getting-started/how-it-works.md
+      - Requirements: getting-started/requirements.md
+      - Standalone or cluster: getting-started/choose-a-mode.md
+      - Prepare Bunny DNS: getting-started/bunny-dns.md
+      - Prepare the servers: getting-started/servers.md
+      - Install on the homelab: getting-started/install.md
+      - Add a node: getting-started/add-node.md
+      - Publish a service: getting-started/first-service.md
+  - Services:
+      - services/index.md
+      - Label reference: services/labels.md
+      - Traffic paths: services/traffic-paths.md
+      - Raw TCP and UDP: services/raw-ports.md
+      - Private services: services/private.md
+      - Pangolin sign-in: services/authentication.md
+      - Client addresses and private-only services: services/client-addresses.md
+  - Cluster mode:
+      - cluster/index.md
+      - Cluster mesh: cluster/mesh.md
+      - Cluster database: cluster/database.md
+      - Clustered Pangolin: cluster/pangolin.md
+      - Users and devices: cluster/access.md
+      - Connect the Pangolin apps: cluster/pangolin-apps.md
+      - Exit nodes: cluster/exit-nodes.md
+  - Configuration:
+      - configuration/index.md
+      - Reference: configuration/reference.md
+      - Secrets: configuration/secrets.md
+      - Certificates: configuration/certificates.md
+      - DNS routing and health checks: configuration/dns.md
+      - Pangolin EE licenses: configuration/licenses.md
+      - Pangolin options: configuration/pangolin.md
+  - Operations:
+      - The dashboard: operations/dashboard.md
+      - Node updates and rollback: operations/node-updates.md
+      - Upgrade the homelab: operations/upgrade.md
+      - Manage nodes: operations/nodes.md
+      - Diagnostics and troubleshooting: operations/troubleshooting.md
+      - Failure modes: operations/failure-modes.md
+      - Performance: operations/performance.md
+      - Speed tests: operations/speed-tests.md
+      - Status page: operations/status-page.md
+      - Maps and locations: operations/maps.md
+  - Reference:
+      - Command line: reference/cli.md
+      - HTTP API: reference/api.md
+      - Security model: reference/security.md
+      - Ports and firewall: reference/ports.md
+      - Files and state: reference/files.md
+      - Glossary: reference/glossary.md
+  - Development:
+      - Build from source: development/building.md
+      - End-to-end tests: development/e2e.md
+      - Documentation: development/documentation.md
+      - Writing style guide: development/style-guide.md

@@ -1,0 +1,83 @@
+name: Documentation
+
+# Builds the docs on every push and PR that touches them. Publishes them to GitHub Pages with mike
+# (pushes to main as "dev", version tags vX.Y.Z as "X.Y" with the "latest" alias) once the
+# repository is public; until then the publish job is skipped.
+# Actions are pinned to full commit SHAs; the trailing comment is the release they resolve to.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'mkdocs.embedded.yml'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'mkdocs.embedded.yml'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NO_MKDOCS_2_WARNING: '1'
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+      - run: python3 -m pip install -r docs/requirements.txt
+      # strict: a broken link or a missing page fails the build.
+      - run: mkdocs build --strict
+      - run: mkdocs build --strict -f mkdocs.embedded.yml -d site-embedded
+
+  publish:
+    name: Publish
+    needs: build
+    if: github.event_name != 'pull_request' && !github.event.repository.private
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+      - run: python3 -m pip install -r docs/requirements.txt
+      - name: Configure Git user
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+      - name: Deploy a release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          export VERSION
+          mike deploy --push --update-aliases "${VERSION%.*}" latest
+          mike set-default --push latest
+      - name: Deploy main
+        if: github.ref == 'refs/heads/main'
+        run: VERSION=dev mike deploy --push dev
