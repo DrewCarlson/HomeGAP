@@ -67,6 +67,8 @@ plugins:
 extra:
   # The release the pages describe, e.g. 0.1.0 (no "v"). Set by the workflow and the image build.
   hg_version: !ENV [VERSION, 'dev']
+  # The copy the dashboard serves loads nothing from other sites (no badge images).
+  hg_embedded: false
   version:
     provider: mike
     default: latest

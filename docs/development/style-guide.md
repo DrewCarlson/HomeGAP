@@ -188,7 +188,8 @@ explains the system to a colleague.
 - **Use prose for explanations** and lists for real lists (options, steps, items to check). A
   page that is only bullets is not acceptable.
 - **Bold is for UI labels and for the first use of a defined term.** Do not start each list item
-  with a bold phrase.
+  with a bold phrase. The exception is the feature list on the home page (and in the README),
+  where each item starts with its point in bold.
 
 ### Do not use these patterns
 

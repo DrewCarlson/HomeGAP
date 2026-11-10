@@ -9,4 +9,5 @@ plugins:
   - markdownextradata: {}
 extra:
   hg_version: !ENV [VERSION, 'dev']
+  hg_embedded: true
   version: null
