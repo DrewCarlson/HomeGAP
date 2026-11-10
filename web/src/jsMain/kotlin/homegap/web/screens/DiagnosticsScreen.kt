@@ -7,6 +7,7 @@ import homegap.presentation.diagnostics.AnsiText
 import homegap.presentation.diagnostics.DiagnosticsScreenModel
 import homegap.web.ui.*
 import kotlinx.browser.document
+import org.jetbrains.compose.web.css.Color
 import org.w3c.dom.HTMLAnchorElement
 import org.w3c.dom.url.URL
 import org.w3c.files.Blob
@@ -20,7 +21,10 @@ import org.jetbrains.compose.web.dom.Text
 
 @Composable
 fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
-    Panel("Node", "Everything here is read-only: nothing on the node changes") {
+    Panel(
+        title = "Node",
+        subtitle = "Everything here is read-only: nothing on the node changes"
+    ) {
         Div({ classes("panel-body") }) {
             if (model.nodes.isEmpty()) {
                 Muted("No nodes yet.")
@@ -28,32 +32,69 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
             }
             Div({ classes("inline-row") }) {
                 Muted("Node")
-                Segmented(model.nodes, model.node ?: "", { it }, enabled = !model.loading, onSelect = model.onSelectNode)
+                Segmented(
+                    model.nodes,
+                    selected = model.node.orEmpty(),
+                    label = { it },
+                    enabled = !model.loading,
+                    onSelect = model.onSelectNode
+                )
             }
             Div({ classes("inline-row") }) {
                 Muted("Container")
-                Segmented(model.services.map { it.first }, model.service, { id -> model.services.first { it.first == id }.second }, enabled = !model.loading, onSelect = model.onSelectService)
+                Segmented(
+                    options = model.services.map { it.first },
+                    selected = model.service,
+                    label = { id -> model.services.first { it.first == id }.second },
+                    enabled = !model.loading,
+                    onSelect = model.onSelectService
+                )
             }
             Div({ classes("inline-row") }) {
                 Muted("Since")
-                Segmented(model.sinceChoices, model.since, { it }, enabled = !model.loading, onSelect = model.onSelectSince)
-                ActionButton("Show logs", ButtonStyle.Primary, enabled = !model.loading && model.node != null, onClick = model.onShowLogs)
+                Segmented(
+                    options = model.sinceChoices,
+                    selected = model.since,
+                    label = { it },
+                    enabled = !model.loading,
+                    onSelect = model.onSelectSince
+                )
                 ActionButton(
-                    "Run diagnostics", enabled = !model.loading && model.node != null,
+                    text = "Show logs",
+                    style = ButtonStyle.Primary,
+                    enabled = !model.loading && model.node != null,
+                    onClick = model.onShowLogs
+                )
+                ActionButton(
+                    text = "Run diagnostics",
+                    enabled = !model.loading && model.node != null,
                     tooltip = "Containers, mesh, cluster proxy, firewall, NAT, ports and recent logs",
                     onClick = model.onRunDiagnostics,
                 )
             }
-            model.error?.let { Div({ classes("banner", "error") }) { Text(it) } }
+            model.error?.let { error ->
+                Div({ classes("banner", "error") }) {
+                    Text(error)
+                }
+            }
         }
     }
     val output = model.output
     if (model.loading) {
         Panel("Loading…") { Div({ classes("panel-body") }) { Muted("Asking the node over SSH.") } }
     } else if (output != null) {
-        Panel("${output.title} · ${output.node}", actions = {
-            ActionButton("Download", small = true) { download("${output.node}-${output.title.substringBefore(' ').lowercase()}.txt", AnsiText.plain(output.text)) }
-        }) {
+        Panel(
+            title = "${output.title} · ${output.node}",
+            actions = {
+                ActionButton("Download", small = true) {
+                    val cleanTitle = output.title.substringBefore(' ').lowercase()
+                    download(
+                        "${output.node}-${cleanTitle}.txt",
+                        AnsiText.plain(output.text)
+                    )
+                }
+            }
+        ) {
             TerminalText(output.text)
         }
     }
@@ -77,8 +118,12 @@ private fun TerminalText(text: String) {
                 if (run.italic) classes("ansi-italic")
                 if (run.underline) classes("ansi-underline")
                 style {
-                    (run.fg as? AnsiColor.Rgb)?.let { color(org.jetbrains.compose.web.css.Color(it.css)) }
-                    (run.bg as? AnsiColor.Rgb)?.let { backgroundColor(org.jetbrains.compose.web.css.Color(it.css)) }
+                    (run.fg as? AnsiColor.Rgb)?.let {
+                        color(Color(it.css))
+                    }
+                    (run.bg as? AnsiColor.Rgb)?.let {
+                        backgroundColor(Color(it.css))
+                    }
                 }
             }) { Text(run.text) }
         }

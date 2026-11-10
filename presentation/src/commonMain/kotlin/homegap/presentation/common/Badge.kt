@@ -6,7 +6,7 @@ import homegap.api.Health
 import homegap.presentation.format.label
 import homegap.presentation.format.toHealth
 
-/** A coloured status pill. */
+/** A colored status pill. */
 @Immutable
 data class Badge(val health: Health, val text: String, val tooltip: String? = null) {
     companion object {

@@ -42,7 +42,11 @@ class AddNodeScreenPresenter(
         // The locations catalog, for the location search and naming a point picked on the map.
         val catalog by produceState(emptyList<LocationDto>()) {
             while (true) {
-                runCatchingCancellable { api.locations().locations }.onSuccess { value = it; return@produceState }
+                runCatchingCancellable { api.locations().locations }
+                    .onSuccess {
+                        value = it
+                        return@produceState
+                    }
                 delay(3.seconds)
             }
         }
@@ -74,16 +78,22 @@ class AddNodeScreenPresenter(
                     is WizardEvent.GoTo -> store.update { d ->
                         if (event.step.ordinal <= d.step.ordinal) d.copy(step = event.step, showErrors = false) else d
                     }
+
                     WizardEvent.Back -> store.update { d ->
                         d.copy(step = WizardStep.entries[(d.step.ordinal - 1).coerceAtLeast(0)], showErrors = false)
                     }
+
                     WizardEvent.Next -> store.update { d ->
                         if (AddNodeValidation.errors(d, d.step, latestProps.existingNodeIds).isNotEmpty()) {
                             d.copy(showErrors = true)
                         } else {
-                            d.copy(step = WizardStep.entries[(d.step.ordinal + 1).coerceAtMost(WizardStep.entries.lastIndex)], showErrors = false)
+                            d.copy(
+                                step = WizardStep.entries[(d.step.ordinal + 1).coerceAtMost(WizardStep.entries.lastIndex)],
+                                showErrors = false
+                            )
                         }
                     }
+
                     WizardEvent.TestConnection, WizardEvent.ForgetHostKeyAndTest -> if (!testing) {
                         testing = true
                         appScope.launch {
@@ -94,6 +104,7 @@ class AddNodeScreenPresenter(
                             }
                         }
                     }
+
                     WizardEvent.CreateKey -> if (!keyBusy) {
                         keyBusy = true
                         appScope.launch {
@@ -104,6 +115,7 @@ class AddNodeScreenPresenter(
                             }
                         }
                     }
+
                     WizardEvent.Run -> if (!starting) {
                         starting = true
                         appScope.launch {
@@ -114,11 +126,13 @@ class AddNodeScreenPresenter(
                             }
                         }
                     }
+
                     WizardEvent.EditAfterFailure -> store.update { it.copy(job = null) }
                     WizardEvent.Finish -> {
                         store.reset()
                         latestProps.onFinished()
                     }
+
                     WizardEvent.Reset -> store.reset()
                     is WizardEvent.SearchLocation -> locationQuery = event.query
                     is WizardEvent.PickLocation -> {
@@ -128,11 +142,20 @@ class AddNodeScreenPresenter(
                             store.update { place(it, l.latitude, l.longitude, l.region, l.name) }
                         }
                     }
+
                     is WizardEvent.PickOnMap -> {
                         val lat = LocationSearch.round2(event.latitude)
                         val lon = LocationSearch.round2(event.longitude)
                         val near = LocationSearch.nearest(latestCatalog, lat, lon)
-                        store.update { place(it, lat, lon, near?.region ?: LocationSearch.regionFor(lat, lon), near?.name ?: "") }
+                        store.update {
+                            place(
+                                it,
+                                lat,
+                                lon,
+                                near?.region ?: LocationSearch.regionFor(lat, lon),
+                                near?.name.orEmpty()
+                            )
+                        }
                     }
                 }
             }
@@ -144,7 +167,10 @@ class AddNodeScreenPresenter(
         return AddNodeScreenModel(
             step = step,
             steps = WizardStep.entries.map {
-                StepTabModel(it, if (it == step) StepState.Current else if (it.ordinal < step.ordinal) StepState.Done else StepState.Upcoming)
+                StepTabModel(
+                    it,
+                    if (it == step) StepState.Current else if (it.ordinal < step.ordinal) StepState.Done else StepState.Upcoming
+                )
             },
             values = draft.values,
             toggles = draft.toggles,
@@ -166,9 +192,15 @@ class AddNodeScreenPresenter(
             onEvent = onEvent,
             locationQuery = locationQuery,
             locationMatches = LocationSearch.search(catalog, locationQuery).map { l ->
-                LocationOptionModel(l.id, LocationSearch.label(l), listOf(l.region, l.providers.take(4).joinToString(", ")).filter { it.isNotBlank() }.joinToString(" · "))
+                LocationOptionModel(
+                    l.id,
+                    LocationSearch.label(l),
+                    listOf(l.region, l.providers.take(4).joinToString(", ")).filter { it.isNotBlank() }
+                        .joinToString(" · ")
+                )
             },
-            pick = draft[WizardField.Latitude].trim().toDoubleOrNull()?.let { lat -> draft[WizardField.Longitude].trim().toDoubleOrNull()?.let { lat to it } },
+            pick = draft[WizardField.Latitude].trim().toDoubleOrNull()
+                ?.let { lat -> draft[WizardField.Longitude].trim().toDoubleOrNull()?.let { lat to it } },
         )
     }
 
@@ -226,7 +258,10 @@ class AddNodeScreenPresenter(
     private fun edit(draft: AddNodeDraft, field: WizardField, value: String): AddNodeDraft {
         val next = draft.copy(values = draft.values + (field to value))
         // A different node id needs its own key.
-        return if (field == WizardField.NodeId && draft.keyFor != null && draft.keyFor != value.trim()) next.copy(key = null, keyFor = null) else next
+        return if (field == WizardField.NodeId && draft.keyFor != null && draft.keyFor != value.trim()) next.copy(
+            key = null,
+            keyFor = null
+        ) else next
     }
 
     private fun toggle(draft: AddNodeDraft, toggle: WizardToggle, on: Boolean): AddNodeDraft {
@@ -291,48 +326,96 @@ class AddNodeScreenPresenter(
     private fun firewallRules(draft: AddNodeDraft): List<String> {
         val port = AddNodeValidation.port(draft) ?: 22
         val ssh = if (draft.has(WizardToggle.RestrictSsh)) {
-            AddNodeValidation.sources(draft).map { "SSH ($port/tcp) from $it" }.ifEmpty { listOf("SSH ($port/tcp) from: none yet") }
+            AddNodeValidation.sources(draft).map { "SSH ($port/tcp) from $it" }
+                .ifEmpty { listOf("SSH ($port/tcp) from: none yet") }
         } else {
             listOf("SSH ($port/tcp) from anywhere")
         }
-        return ssh + listOf("HTTP 80/tcp, HTTPS 443/tcp and 443/udp", "WireGuard 51820/udp and 21820/udp", "Ports of raw TCP/UDP services, as they are labeled")
+        return ssh + listOf(
+            "HTTP 80/tcp, HTTPS 443/tcp and 443/udp",
+            "WireGuard 51820/udp and 21820/udp",
+            "Ports of raw TCP/UDP services, as they are labeled"
+        )
     }
 
     private fun notices(draft: AddNodeDraft): List<NoticeModel> = buildList {
         when (draft.step) {
             WizardStep.Server -> if (draft[WizardField.Region].isBlank() && draft[WizardField.Latitude].isBlank()) {
-                add(NoticeModel(false, "Geolocation routing needs a region code (NA, SA, EU, AF, ME, AS, OC) or coordinates."))
+                add(
+                    NoticeModel(
+                        false,
+                        "Geolocation routing needs a region code (NA, SA, EU, AF, ME, AS, OC) or coordinates."
+                    )
+                )
             }
+
             WizardStep.Access -> {
                 if (draft.has(WizardToggle.DisablePasswordLogin)) {
-                    add(NoticeModel(false, "After setup, SSH accepts only keys. Keep your provider's web console as the way back in."))
+                    add(
+                        NoticeModel(
+                            false,
+                            "After setup, SSH accepts only keys. Keep your provider's web console as the way back in."
+                        )
+                    )
                 }
                 if (!draft.has(WizardToggle.CreateUser) && AddNodeValidation.targetUser(draft) != "root") {
-                    add(NoticeModel(false, "${AddNodeValidation.targetUser(draft)} will be given passwordless sudo, which HomeGAP needs."))
+                    add(
+                        NoticeModel(
+                            false,
+                            "${AddNodeValidation.targetUser(draft)} will be given passwordless sudo, which HomeGAP needs."
+                        )
+                    )
                 }
             }
+
             WizardStep.Firewall -> if (draft.has(WizardToggle.Firewall) && draft.has(WizardToggle.RestrictSsh)) {
-                add(NoticeModel(true, "If the orchestrator's public IP changes to an address not listed here, it loses SSH access to this node until the rule is fixed from the provider's console. Prefer a stable range, or allow SSH from anywhere (key-only logins)."))
+                add(
+                    NoticeModel(
+                        true,
+                        "If the orchestrator's public IP changes to an address not listed here, it loses SSH access to this node until the rule is fixed from the provider's console. Prefer a stable range, or allow SSH from anywhere (key-only logins)."
+                    )
+                )
                 val seen = draft.test?.clientIp
                 if (seen != null && !AddNodeValidation.covers(AddNodeValidation.sources(draft), seen)) {
-                    add(NoticeModel(true, "The server sees the orchestrator at $seen, which is not covered: setup would fail its access check and turn the firewall off again."))
+                    add(
+                        NoticeModel(
+                            true,
+                            "The server sees the orchestrator at $seen, which is not covered: setup would fail its access check and turn the firewall off again."
+                        )
+                    )
                 }
             }
+
             else -> Unit
         }
     }
 
     private fun review(draft: AddNodeDraft): List<ReviewLine> = buildList {
         val target = AddNodeValidation.targetUser(draft)
-        add(ReviewLine("Node", "${draft[WizardField.NodeId].trim()} at ${draft[WizardField.Host].trim()}:${AddNodeValidation.port(draft) ?: 22}"))
+        add(
+            ReviewLine(
+                "Node",
+                "${draft[WizardField.NodeId].trim()} at ${draft[WizardField.Host].trim()}:${AddNodeValidation.port(draft) ?: 22}"
+            )
+        )
         val place = listOfNotNull(
             draft[WizardField.LocationName].trim().ifBlank { null },
             draft[WizardField.Region].trim().uppercase().ifBlank { null },
             draft[WizardField.Latitude].trim().ifBlank { null }?.let { "$it, ${draft[WizardField.Longitude].trim()}" },
         )
         if (place.isNotEmpty()) add(ReviewLine("Location", place.joinToString(" · ")))
-        add(ReviewLine("Initial login", "${draft[WizardField.LoginUser].trim()} with ${if (draft.auth == AuthMethod.Password) "password" else "key"}"))
-        add(ReviewLine("Managed as", if (draft.has(WizardToggle.CreateUser)) "$target (new: sudo${if (draft.has(WizardToggle.DockerGroup)) ", docker" else ""}, passwordless sudo)" else target))
+        add(
+            ReviewLine(
+                "Initial login",
+                "${draft[WizardField.LoginUser].trim()} with ${if (draft.auth == AuthMethod.Password) "password" else "key"}"
+            )
+        )
+        add(
+            ReviewLine(
+                "Managed as",
+                if (draft.has(WizardToggle.CreateUser)) "$target (new: sudo${if (draft.has(WizardToggle.DockerGroup)) ", docker" else ""}, passwordless sudo)" else target
+            )
+        )
         draft.key?.let { add(ReviewLine("SSH key", "${it.fingerprint} (${it.path})")) }
         val ssh = listOfNotNull(
             "no root login".takeIf { draft.has(WizardToggle.DisableRootLogin) },
@@ -344,7 +427,11 @@ class AddNodeScreenPresenter(
                 "Firewall",
                 when {
                     !draft.has(WizardToggle.Firewall) -> "not managed by HomeGAP"
-                    draft.has(WizardToggle.RestrictSsh) -> "on; SSH only from ${AddNodeValidation.sources(draft).joinToString()}"
+                    draft.has(WizardToggle.RestrictSsh) -> {
+                        val sources = AddNodeValidation.sources(draft).joinToString()
+                        "on; SSH only from $sources"
+                    }
+
                     else -> "on; SSH from anywhere"
                 },
             )
@@ -354,7 +441,13 @@ class AddNodeScreenPresenter(
     private fun SetupJobDto.toModel() = JobModel(
         running = state == "running",
         succeeded = state == "succeeded",
-        steps = steps.map { JobStepModel(it.title, STEP_BADGES[it.status] ?: Badge(Health.UNKNOWN, it.status), it.detail) },
+        steps = steps.map {
+            JobStepModel(
+                it.title,
+                STEP_BADGES[it.status] ?: Badge(Health.UNKNOWN, it.status),
+                it.detail
+            )
+        },
         error = error,
     )
 

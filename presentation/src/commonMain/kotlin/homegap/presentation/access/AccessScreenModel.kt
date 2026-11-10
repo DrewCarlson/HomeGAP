@@ -9,7 +9,10 @@ sealed interface AccessScreenModel : ScreenModel {
 
     /** No cluster, or no node's Pangolin is reachable. */
     @Immutable
-    data class Unavailable(val message: String, val clientAddress: String?) : AccessScreenModel
+    data class Unavailable(
+        val message: String,
+        val clientAddress: String?
+    ) : AccessScreenModel
 
     @Immutable
     data class Ready(
@@ -32,7 +35,11 @@ sealed interface AccessScreenModel : ScreenModel {
 }
 
 @Immutable
-data class RoleOptionModel(val id: Int, val name: String, val selected: Boolean)
+data class RoleOptionModel(
+    val id: Int,
+    val name: String,
+    val selected: Boolean
+)
 
 @Immutable
 data class NewUserFormModel(
@@ -63,7 +70,12 @@ data class UserRowModel(
 )
 
 @Immutable
-data class InvitationRowModel(val id: String, val email: String, val roles: String, val expires: String?)
+data class InvitationRowModel(
+    val id: String,
+    val email: String,
+    val roles: String,
+    val expires: String?
+)
 
 @Immutable
 data class DeviceRowModel(
@@ -79,4 +91,8 @@ data class DeviceRowModel(
 )
 
 @Immutable
-data class DeviceActionModel(val label: String, val action: String, val danger: Boolean = false)
+data class DeviceActionModel(
+    val label: String,
+    val action: String,
+    val danger: Boolean = false
+)

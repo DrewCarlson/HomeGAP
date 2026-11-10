@@ -38,7 +38,11 @@ class ActionRunner(
             _busy.value = true
             try {
                 runCatchingCancellable { action() }
-                    .onSuccess { notify(it.message); session.refresh(); onSuccess() }
+                    .onSuccess {
+                        notify(it.message)
+                        session.refresh()
+                        onSuccess()
+                    }
                     .onFailure { notify("$label failed: ${it.message}", isError = true) }
             } finally {
                 _busy.value = false

@@ -13,8 +13,9 @@ plugins {
 
 kotlin {
     jvmToolchain(21)
-    js(IR) {
-        // No browser tests: a disabled test task keeps Karma (a GitHub tarball) out of the npm install.
+    js {
+        // Disabled test task keeps Karma (a GitHub tarball) out of the npm install,
+        // this prevents occasional CI failures due to network service outages.
         browser { testTask { enabled = false } }
         useEsModules()
         binaries.executable()
@@ -24,12 +25,14 @@ kotlin {
         jsMain.dependencies {
             implementation(project(":api"))
             implementation(project(":presentation"))
-            implementation(compose.runtime)
-            implementation(compose.html.core)
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.js)
+            implementation(libs.ktor.client.content.negotiation)
+            implementation(libs.ktor.serialization.kotlinx.json)
+            implementation(libs.compose.runtime)
+            implementation(libs.compose.html.core)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
-            // The map's libraries. Nothing imports them: they are copied as-is to /map/lib/ (see
-            // jsProcessResources below), so the dashboard and the status page load the same files.
             implementation(npm("maplibre-gl", libs.versions.maplibre.get()))
             implementation(npm("pmtiles", libs.versions.pmtiles.get()))
             implementation(npm("@protomaps/basemaps", libs.versions.protomaps.basemaps.get()))

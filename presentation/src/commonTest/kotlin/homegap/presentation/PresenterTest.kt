@@ -7,7 +7,7 @@ import homegap.api.AccessUserDto
 import homegap.api.Health
 import homegap.api.LogEntryDto
 import homegap.api.LogLevel
-import homegap.api.LogResponse
+import homegap.api.ServerEvent
 import homegap.api.NodeUpdateDto
 import homegap.api.SpeedTestOverview
 import homegap.presentation.access.AccessScreenModel
@@ -22,7 +22,6 @@ import homegap.presentation.config.ConfigScreenPresenter
 import homegap.presentation.config.ConfigScreenProps
 import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.ControllerSession
-import homegap.presentation.data.ServerEvent
 import homegap.presentation.dns.DnsScreenPresenter
 import homegap.presentation.addnode.*
 import homegap.presentation.nodes.NodesScreenModel
@@ -42,7 +41,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
 import kotlin.test.*
 
 class PresenterTest {
@@ -201,7 +199,7 @@ class PresenterTest {
     fun activityFiltersTheStreamedLogAndStartsOverAfterARestart() = runTest {
         val g = graph
         fun log(vararg entries: LogEntryDto) =
-            g.session.onEvent(ServerEvent("log", Json.encodeToString(LogResponse.serializer(), LogResponse(entries.toList()))))
+            g.session.onEvent(ServerEvent.Log(entries.toList()))
         log(LogEntryDto(1, "dns", LogLevel.INFO, "a", seq = 1), LogEntryDto(2, "nodes", LogLevel.CHANGE, "b", seq = 2))
 
         val models = present(g.activity, ActivityScreenProps)

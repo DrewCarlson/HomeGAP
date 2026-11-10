@@ -11,7 +11,7 @@ plugins {
  */
 kotlin {
     jvmToolchain(21)
-    js(IR) {
+    js {
         browser { testTask { enabled = false } }
         nodejs()
     }
@@ -20,7 +20,7 @@ kotlin {
         all { languageSettings.optIn("kotlin.time.ExperimentalTime") }
         commonMain.dependencies {
             api(project(":api"))
-            api(compose.runtime)
+            api(libs.compose.runtime)
             api(libs.kotlinx.coroutines.core)
         }
         commonTest.dependencies {

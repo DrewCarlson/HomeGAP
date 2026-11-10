@@ -6,118 +6,143 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.*
 import homegap.presentation.data.*
-import kotlinx.browser.window
-import kotlinx.coroutines.await
+import io.ktor.client.HttpClient
+import io.ktor.client.call.body
+import io.ktor.client.plugins.sse.SSEClientException
+import io.ktor.client.plugins.sse.deserialize
+import io.ktor.client.plugins.sse.sse
+import io.ktor.client.request.delete
+import io.ktor.client.request.get
+import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
-import org.w3c.fetch.RequestInit
-import org.w3c.fetch.Response
-import kotlin.js.Promise
-import kotlin.js.json
 
-/** [ControllerApi] over the browser's fetch, against the page's own origin (bound by Metro). */
+/** [ControllerApi] over ktor's browser client, against the page's own origin (bound by Metro). */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
 @Inject
-class FetchControllerApi(private val tokens: TokenStore) : ControllerApi {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+class FetchControllerApi(
+    private val http: HttpClient,
+    private val json: Json,
+) : ControllerApi {
 
-    override suspend fun status(): StatusSnapshot = get("/status")
-    override suspend fun diff(): DiffResponse = get("/diff")
-    override suspend fun secrets(): SecretsResponse = get("/secrets")
-    override suspend fun config(): ConfigResponse = get("/config")
-    override suspend fun speedtest(): SpeedTestOverview = get("/speedtest")
+    override suspend fun status(): StatusSnapshot = http.get("/api/status").body()
+    override suspend fun diff(): DiffResponse = http.get("/api/diff").body()
+    override suspend fun secrets(): SecretsResponse = http.get("/api/secrets").body()
+    override suspend fun config(): ConfigResponse = http.get("/api/config").body()
+    override suspend fun speedtest(): SpeedTestOverview = http.get("/api/speedtest").body()
 
-    /** Uses fetch rather than EventSource so the bearer token can be sent. */
-    override suspend fun events(afterSeq: Long, onEvent: (ServerEvent) -> Unit) {
-        val response = fetch("GET", "/events?after=$afterSeq", accept = "text/event-stream")
-        if (!response.ok) throw ApiException(response.status.toInt(), "HTTP ${response.status}")
-        val reader = response.asDynamic().body.getReader()
-        val decoder = js("new TextDecoder()")
-        val streaming = js("({stream: true})")
-        val parser = EventStreamParser()
-        while (true) {
-            val chunk = (reader.read() as Promise<dynamic>).await()
-            if (chunk.done == true) return
-            parser.feed(decoder.decode(chunk.value, streaming) as String).forEach(onEvent)
+    /** Uses ktor's SSE client rather than EventSource so the bearer token can be sent. */
+    override suspend fun events(afterSeq: Long): Flow<ServerEvent> = flow {
+        try {
+            http.sse(
+                "/api/events?after=$afterSeq",
+                deserialize = { type, data -> json.decodeFromString(json.serializersModule.serializer(type.kotlinType!!), data) },
+            ) {
+                incoming.collect { event ->
+                    // Comment-only events (": keepalive") carry no data.
+                    deserialize<ServerEvent>(event)?.let { emit(it) }
+                }
+            }
+        } catch (e: SSEClientException) {
+            (e.cause as? ApiException)?.let { throw it }
+            val status = e.response?.status ?: throw e
+            throw ApiException(status.value, "HTTP $status")
         }
     }
 
-    override suspend fun resync(): ActionResponse = post("/resync")
-    override suspend fun provision(node: String): ActionResponse = post("/nodes/$node/provision")
-    override suspend fun retryUpdate(node: String): ActionResponse = post("/nodes/$node/update/retry")
-    override suspend fun skipUpdate(node: String): ActionResponse = post("/nodes/$node/update/skip")
+    override suspend fun resync(): ActionResponse = http.post("/api/resync").body()
+    override suspend fun provision(node: String): ActionResponse = http.post("/api/nodes/$node/provision").body()
+    override suspend fun retryUpdate(node: String): ActionResponse = http.post("/api/nodes/$node/update/retry").body()
+    override suspend fun skipUpdate(node: String): ActionResponse = http.post("/api/nodes/$node/update/skip").body()
 
     override suspend fun pause(scope: PauseScope, id: String?, paused: Boolean): ActionResponse =
-        post("/pause", PauseRequest(scope.wire, id, paused))
+        http.post("/api/pause") {
+            setBody(PauseRequest(scope.wire, id, paused))
+        }.body()
 
-    override suspend fun addNode(node: NodeConfigDto): ActionResponse = post("/nodes", node)
-    override suspend fun removeNode(id: String): ActionResponse = send("DELETE", "/nodes/$id")
+    override suspend fun addNode(node: NodeConfigDto): ActionResponse =
+        http.post("/api/nodes") { setBody(node) }.body()
+    override suspend fun removeNode(id: String): ActionResponse =
+        http.delete("/api/nodes/$id").body()
 
     override suspend fun decommission(id: String, confirm: String): ActionResponse =
-        post("/nodes/$id/decommission?confirm=$confirm")
+        http.post("/api/nodes/$id/decommission") {
+            parameter("confirm", confirm)
+        }.body()
 
-    override suspend fun speedLink(): SpeedTestLinkDto = post("/speedtest/link")
+    override suspend fun speedLink(): SpeedTestLinkDto =
+        http.post("/api/speedtest/link").body()
 
     override suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto =
-        post("/speedtest/nodes/$node?streams=$streams")
+        http.post("/api/speedtest/nodes/$node") {
+            parameter("streams", streams)
+        }.body()
 
-    override suspend fun testConnection(login: SshLoginDto): ConnectionTestDto = post("/setup/test", login)
-    override suspend fun createKey(request: SshKeyRequestDto): SshKeyDto = post("/setup/keys", request)
-    override suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto = post("/setup/jobs", request)
-    override suspend fun setupJob(id: String): SetupJobDto = get("/setup/jobs/$id")
+    override suspend fun testConnection(login: SshLoginDto): ConnectionTestDto =
+        http.post("/api/setup/test") { setBody(login) }.body()
+
+    override suspend fun createKey(request: SshKeyRequestDto): SshKeyDto =
+        http.post("/api/setup/keys") { setBody(request) }.body()
+
+    override suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto =
+        http.post("/api/setup/jobs") { setBody(request) }.body()
+
+    override suspend fun setupJob(id: String): SetupJobDto = http.get("/api/setup/jobs/$id").body()
 
     override suspend fun nodeLogs(node: String, service: String, since: String, tail: Int): NodeTextDto =
-        get("/nodes/$node/logs?service=$service&since=$since&tail=$tail")
-    override suspend fun nodeDiagnostics(node: String): NodeTextDto = get("/nodes/$node/diagnostics")
+        http.get("/api/nodes/$node/logs") {
+            parameter("service", service)
+            parameter("since", since)
+            parameter("tail", tail)
+        }.body()
 
-    override suspend fun locations(): LocationsResponse = get("/locations")
+    override suspend fun nodeDiagnostics(node: String): NodeTextDto =
+        http.get("/api/nodes/$node/diagnostics").body()
+
+    override suspend fun locations(): LocationsResponse = http.get("/api/locations").body()
     override suspend fun saveLocation(location: LocationDto): ActionResponse =
-        json.decodeFromString(ActionResponse.serializer(), request("PUT", "/locations/${location.id}", json.encodeToString(LocationDto.serializer(), location)))
-    override suspend fun deleteLocation(id: String, reset: Boolean): ActionResponse = send("DELETE", "/locations/$id${if (reset) "?reset=true" else ""}")
+        http.put("/api/locations/${location.id}") { setBody(location) }.body()
+
+    override suspend fun deleteLocation(id: String, reset: Boolean): ActionResponse =
+        http.delete("/api/locations/$id") {
+            if (reset) {
+                parameter("reset", reset)
+            }
+        }.body()
+
     override suspend fun setHomelabLocation(place: PlaceDto?): ActionResponse =
-        json.decodeFromString(ActionResponse.serializer(), request("PUT", "/homelab/location", json.encodeToString(SetHomelabLocationRequest.serializer(), SetHomelabLocationRequest(place))))
+        http.put("/api/homelab/location") {
+            setBody(SetHomelabLocationRequest(place))
+        }.body()
 
-    override suspend fun switchPrimary(to: String): ActionResponse = post("/cluster/switchover", SwitchoverRequest(to))
+    override suspend fun switchPrimary(to: String): ActionResponse =
+        http.post("/api/cluster/switchover") {
+            setBody(SwitchoverRequest(to))
+        }.body()
 
-    override suspend fun access(): AccessOverviewDto = get("/access")
-    override suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse = post("/access/users", request)
-    override suspend fun removeUser(id: String): ActionResponse = send("DELETE", "/access/users/$id")
+    override suspend fun access(): AccessOverviewDto = http.get("/api/access").body()
+    override suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse =
+        http.post("/api/access/users") {
+            setBody(request)
+        }.body()
+
+    override suspend fun removeUser(id: String): ActionResponse =
+        http.delete("/api/access/users/$id").body()
+
     override suspend fun setUserRoles(id: String, roleIds: List<Int>): ActionResponse =
-        json.decodeFromString(ActionResponse.serializer(), request("PUT", "/access/users/$id/roles", json.encodeToString(SetAccessRolesRequest.serializer(), SetAccessRolesRequest(roleIds))))
-    override suspend fun removeInvitation(id: String): ActionResponse = send("DELETE", "/access/invitations/$id")
-    override suspend fun deviceAction(id: Int, action: String): ActionResponse = post("/access/devices/$id/$action")
+        http.put("/api/access/users/$id/roles") {
+            setBody(SetAccessRolesRequest(roleIds))
+        }.body()
 
-    private suspend inline fun <reified T> get(path: String): T = send("GET", path)
+    override suspend fun removeInvitation(id: String): ActionResponse =
+        http.delete("/api/access/invitations/$id").body()
 
-    private suspend inline fun <reified T> post(path: String): T = send("POST", path)
-
-    private suspend inline fun <reified B, reified T> post(path: String, body: B): T =
-        json.decodeFromString(serializer<T>(), request("POST", path, json.encodeToString(serializer<B>(), body)))
-
-    private suspend inline fun <reified T> send(method: String, path: String): T =
-        json.decodeFromString(serializer<T>(), request(method, path))
-
-    private suspend fun request(method: String, path: String, body: String? = null): String {
-        val response = fetch(method, path, body = body)
-        val text = response.text().await()
-        if (!response.ok) {
-            val message = runCatching { json.decodeFromString(ActionResponse.serializer(), text).message }.getOrNull()
-            throw ApiException(response.status.toInt(), message ?: "HTTP ${response.status}")
-        }
-        return text
-    }
-
-    private suspend fun fetch(
-        method: String,
-        path: String,
-        body: String? = null,
-        accept: String = "application/json",
-    ): Response {
-        val headers = json("Accept" to accept).apply {
-            if (body != null) this["Content-Type"] = "application/json"
-            tokens.token?.let { this["Authorization"] = "Bearer $it" }
-        }
-        return window.fetch("/api$path", RequestInit(method = method, headers = headers, body = body)).await()
-    }
+    override suspend fun deviceAction(id: Int, action: String): ActionResponse =
+        http.post("/api/access/devices/$id/$action").body()
 }

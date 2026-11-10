@@ -18,6 +18,8 @@ import homegap.presentation.map.MapInfo
 import homegap.presentation.map.MapMarker
 import homegap.presentation.map.MapModel
 import homegap.presentation.map.MarkerKind
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.seconds
 
 data object LocationsScreenProps
 
@@ -109,8 +111,12 @@ class LocationsScreenPresenter(
         val data by produceState<LocationsResponse?>(null, reload) {
             // Keeps trying while the orchestrator is unreachable (e.g. restarting).
             while (true) {
-                runCatchingCancellable { api.locations() }.onSuccess { value = it; return@produceState }
-                kotlinx.coroutines.delay(3_000)
+                runCatchingCancellable { api.locations() }
+                    .onSuccess {
+                        value = it
+                        return@produceState
+                    }
+                delay(3.seconds)
             }
         }
         var query by remember { mutableStateOf("") }
@@ -120,55 +126,102 @@ class LocationsScreenPresenter(
         val all = data?.locations.orEmpty()
         val latestAll by rememberUpdatedState(all)
 
-        fun refresh() { reload++ }
+        fun refresh() {
+            reload++
+        }
 
         val onEvent: (LocationsEvent) -> Unit = remember {
             { event ->
                 when (event) {
                     is LocationsEvent.Search -> query = event.query
                     LocationsEvent.Add -> editor = LocationEditorModel(true, emptyMap(), null, null)
-                    is LocationsEvent.Edit -> latestAll.firstOrNull { it.id == event.id }?.let { editor = it.toEditor() }
+                    is LocationsEvent.Edit -> latestAll.firstOrNull { it.id == event.id }
+                        ?.let { editor = it.toEditor() }
+
                     is LocationsEvent.Change -> editor = editor?.let { e ->
                         val values = e.values + (event.field to event.value)
                         e.copy(values = values, pick = pickOf(values), error = null)
                     }
+
                     is LocationsEvent.PickForEditor -> editor = editor?.let { e ->
                         val lat = LocationSearch.round2(event.latitude)
                         val lon = LocationSearch.round2(event.longitude)
-                        val values = e.values + mapOf(LocationField.Latitude to lat.toString(), LocationField.Longitude to lon.toString()) +
-                            (if (e[LocationField.Region].isBlank()) mapOf(LocationField.Region to LocationSearch.regionFor(lat, lon)) else emptyMap())
+                        val values = e.values + mapOf(
+                            LocationField.Latitude to lat.toString(),
+                            LocationField.Longitude to lon.toString()
+                        ) +
+                                (if (e[LocationField.Region].isBlank()) mapOf(
+                                    LocationField.Region to LocationSearch.regionFor(
+                                        lat,
+                                        lon
+                                    )
+                                ) else emptyMap())
                         e.copy(values = values, pick = lat to lon, error = null)
                     }
+
                     LocationsEvent.Save -> editor?.let { e ->
                         val dto = e.toDto()
                         if (dto == null) {
                             editor = e.copy(error = "An id, a name and valid coordinates are required.")
                         } else {
-                            actions.run("Save location", onSuccess = { editor = null; refresh() }) { api.saveLocation(dto) }
+                            actions.run(
+                                label = "Save location",
+                                onSuccess = {
+                                    editor = null
+                                    refresh()
+                                }
+                            ) {
+                                api.saveLocation(
+                                    dto
+                                )
+                            }
                         }
                     }
+
                     LocationsEvent.Cancel -> editor = null
-                    is LocationsEvent.Delete -> actions.run("Remove location", onSuccess = { refresh() }) { api.deleteLocation(event.id, reset = false) }
-                    is LocationsEvent.Reset -> actions.run("Restore location", onSuccess = { refresh() }) { api.deleteLocation(event.id, reset = true) }
+                    is LocationsEvent.Delete -> actions.run(
+                        "Remove location",
+                        onSuccess = { refresh() }) { api.deleteLocation(event.id, reset = false) }
+
+                    is LocationsEvent.Reset -> actions.run(
+                        "Restore location",
+                        onSuccess = { refresh() }) { api.deleteLocation(event.id, reset = true) }
+
                     is LocationsEvent.SearchHomelab -> homeQuery = event.query
                     is LocationsEvent.HomelabFromCatalog -> latestAll.firstOrNull { it.id == event.id }?.let { l ->
                         homeQuery = ""
                         homePending = PlaceDto(l.latitude, l.longitude, l.name)
                     }
+
                     is LocationsEvent.HomelabFromMap -> {
                         val lat = LocationSearch.round2(event.latitude)
                         val lon = LocationSearch.round2(event.longitude)
                         val near = LocationSearch.nearest(latestAll, lat, lon)
                         homePending = PlaceDto(lat, lon, near?.name)
                     }
+
                     LocationsEvent.SaveHomelab -> homePending?.let { p ->
-                        actions.run("Save homelab location", onSuccess = { homePending = null; refresh() }) { api.setHomelabLocation(p) }
+                        actions.run(
+                            label = "Save homelab location",
+                            onSuccess = {
+                                homePending = null
+                                refresh()
+                            }
+                        ) { api.setHomelabLocation(p) }
                     }
-                    LocationsEvent.ClearHomelab -> actions.run("Clear homelab location", onSuccess = { homePending = null; refresh() }) {
-                        api.setHomelabLocation(null)
+
+                    LocationsEvent.ClearHomelab -> {
+                        actions.run(
+                            "Clear homelab location",
+                            onSuccess = {
+                                homePending = null
+                                refresh()
+                            }
+                        ) {
+                            api.setHomelabLocation(null)
+                        }
                     }
                 }
-                Unit
             }
         }
 
@@ -184,14 +237,27 @@ class LocationsScreenPresenter(
             homelab = HomelabLocationModel(
                 current = home?.let { describe(it) },
                 query = homeQuery,
-                matches = LocationSearch.search(all, homeQuery).map { LocationOptionModel(it.id, LocationSearch.label(it), it.providers.take(4).joinToString(", ")) },
+                matches = LocationSearch.search(all, homeQuery).map {
+                    LocationOptionModel(
+                        it.id,
+                        LocationSearch.label(it),
+                        it.providers.take(4).joinToString(", ")
+                    )
+                },
                 pending = homePending?.let { describe(it) },
                 pick = homePick?.let { it.latitude to it.longitude },
                 canEdit = true,
             ),
             map = remember(all) {
                 MapModel(all.map { l ->
-                    MapMarker(l.id, l.latitude, l.longitude, Health.UNKNOWN, MarkerKind.Place, info = MapInfo(LocationSearch.label(l), l.providers.joinToString(", ").ifBlank { null }))
+                    MapMarker(
+                        l.id,
+                        l.latitude,
+                        l.longitude,
+                        Health.UNKNOWN,
+                        MarkerKind.Place,
+                        info = MapInfo(LocationSearch.label(l), l.providers.joinToString(", ").ifBlank { null })
+                    )
                 }, fitMaxZoom = 1.5)
             },
             onEvent = onEvent,
@@ -199,7 +265,7 @@ class LocationsScreenPresenter(
     }
 
     private fun describe(p: PlaceDto): String =
-        (p.name?.takeIf { it.isNotBlank() }?.let { "$it · " } ?: "") + "${p.latitude}, ${p.longitude}"
+        (p.name?.takeIf { it.isNotBlank() }?.let { "$it · " }.orEmpty()) + "${p.latitude}, ${p.longitude}"
 
     private fun pickOf(values: Map<LocationField, String>): Pair<Double, Double>? {
         val lat = values[LocationField.Latitude]?.trim()?.toDoubleOrNull() ?: return null
@@ -226,8 +292,13 @@ class LocationsScreenPresenter(
         val lon = this[LocationField.Longitude].trim().toDoubleOrNull()
         if (id.isBlank() || name.isBlank() || lat == null || lon == null || lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
         return LocationDto(
-            id = id, name = name, country = this[LocationField.Country].trim(), countryCode = this[LocationField.CountryCode].trim().uppercase(),
-            region = this[LocationField.Region].trim().uppercase(), latitude = lat, longitude = lon,
+            id = id,
+            name = name,
+            country = this[LocationField.Country].trim(),
+            countryCode = this[LocationField.CountryCode].trim().uppercase(),
+            region = this[LocationField.Region].trim().uppercase(),
+            latitude = lat,
+            longitude = lon,
             providers = this[LocationField.Providers].split(',').map { it.trim() }.filter { it.isNotEmpty() },
         )
     }

@@ -12,11 +12,22 @@ import org.jetbrains.compose.web.dom.Text
 
 @Composable
 fun ActivityScreen(model: ActivityScreenModel) {
-    Segmented(model.domains, model.selectedDomain, label = { it ?: "all" }, onSelect = model.onSelectDomain)
+    Segmented(
+        options = model.domains,
+        selected = model.selectedDomain,
+        label = { it ?: "all" },
+        onSelect = model.onSelectDomain
+    )
     Section({ classes("panel") }) {
         Div({ classes("log") }) {
-            if (model.entries.isEmpty()) Div({ classes("empty-state") }) { Text(model.emptyText) }
-            model.entries.forEach { entry -> key(entry.seq) { LogRow(entry) } }
+            if (model.entries.isEmpty()) {
+                Div({ classes("empty-state") }) {
+                    Text(model.emptyText)
+                }
+            }
+            model.entries.forEach { entry ->
+                key(entry.seq) { LogRow(entry) }
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ package homegap.web.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import homegap.api.Health
 import kotlinx.browser.window
 import homegap.presentation.nodes.DatabasePanelModel
@@ -16,9 +17,16 @@ import org.jetbrains.compose.web.dom.Text
 import org.jetbrains.compose.web.dom.Tr
 
 @Composable
-fun NodesScreen(model: NodesScreenModel, onNavigate: (Route) -> Unit) {
+fun NodesScreen(
+    model: NodesScreenModel,
+    onNavigate: (Route) -> Unit
+) {
     Panel("Nodes", actions = {
-        NavLink(HashRouter.href(Route.AddNode), { onNavigate(Route.AddNode) }, listOf("btn", "primary", "sm")) { Text("Add node") }
+        NavLink(
+            href = HashRouter.href(Route.AddNode),
+            onNavigate = { onNavigate(Route.AddNode) },
+            classNames = listOf("btn", "primary", "sm")
+        ) { Text("Add node") }
     }) {
         NodeTable(model.nodes, model.events)
     }
@@ -27,12 +35,24 @@ fun NodesScreen(model: NodesScreenModel, onNavigate: (Route) -> Unit) {
 }
 
 @Composable
-private fun DatabasePanel(db: DatabasePanelModel, onSwitchPrimary: (String) -> Unit) {
-    Panel("Cluster database", "PostgreSQL (Patroni) and Valkey, shared by every node's Pangolin") {
+private fun DatabasePanel(
+    db: DatabasePanelModel,
+    onSwitchPrimary: (String) -> Unit
+) {
+    Panel(
+        title = "Cluster database",
+        subtitle = "PostgreSQL (Patroni) and Valkey, shared by every node's Pangolin"
+    ) {
         Div({ classes("panel-body") }) {
             db.alerts.forEach { alert ->
-                val kind = when (alert.health) { Health.DOWN -> "error"; Health.DEGRADED -> "warn"; else -> "info" }
-                Div({ classes("banner", kind) }) { Text(alert.text) }
+                val kind = when (alert.health) {
+                    Health.DOWN -> "error"
+                    Health.DEGRADED -> "warn"
+                    else -> "info"
+                }
+                Div({ classes("banner", kind) }) {
+                    Text(alert.text)
+                }
             }
             Div({ classes("inline-row") }) {
                 Muted("PostgreSQL primary")
@@ -42,9 +62,17 @@ private fun DatabasePanel(db: DatabasePanelModel, onSwitchPrimary: (String) -> U
                 Muted("Vote")
                 Pill(db.quorum)
             }
-            db.switchBack?.let { Div({ classes("banner", "info") }) { Text(it) } }
+            db.switchBack?.let {
+                Div({ classes("banner", "info") }) {
+                    Text(it)
+                }
+            }
         }
-        DataTable(listOf("Member", "Address", "Vote", "Database", "Valkey", "Replication lag", ""), "No members yet.", db.members.isEmpty()) {
+        DataTable(
+            listOf("Member", "Address", "Vote", "Database", "Valkey", "Replication lag", ""),
+            "No members yet.",
+            db.members.isEmpty()
+        ) {
             db.members.forEach { m ->
                 key(m.id) {
                     Tr {
@@ -55,8 +83,12 @@ private fun DatabasePanel(db: DatabasePanelModel, onSwitchPrimary: (String) -> U
                         Cell("Valkey") { Pill(m.valkey) }
                         Cell("Replication lag", "mono") { Text(m.lag) }
                         Cell("", "actions") {
-                            if (m.canBecomePrimary) ActionButton("Make primary", small = true) {
-                                if (window.confirm(SWITCH_CONFIRM.replace("@ID@", m.id))) onSwitchPrimary(m.id)
+                            if (m.canBecomePrimary) {
+                                ActionButton("Make primary", small = true) {
+                                    if (window.confirm(SWITCH_CONFIRM.replace("@ID@", m.id))) {
+                                        onSwitchPrimary(m.id)
+                                    }
+                                }
                             }
                         }
                     }
@@ -65,7 +97,9 @@ private fun DatabasePanel(db: DatabasePanelModel, onSwitchPrimary: (String) -> U
         }
         if (db.history.isNotEmpty()) {
             Div({ classes("panel-body") }) { Muted("Primary history") }
-            DataTable(listOf("When", "Change", "Cause")) {
+            DataTable(
+                headers = listOf("When", "Change", "Cause")
+            ) {
                 db.history.forEach { h ->
                     Tr {
                         Cell("When", "nowrap") { Text(h.time) }
@@ -78,27 +112,51 @@ private fun DatabasePanel(db: DatabasePanelModel, onSwitchPrimary: (String) -> U
     }
 }
 
-private const val SWITCH_CONFIRM = "Make @ID@ the database primary now? Writes pause for a second or two while it switches. " +
-    "If @ID@ isn't where the primary belongs, HomeGAP moves it back after the hold."
+private const val SWITCH_CONFIRM =
+    "Make @ID@ the database primary now? Writes pause for a second or two while it switches. " +
+            "If @ID@ isn't where the primary belongs, HomeGAP moves it back after the hold."
 
 @Composable
 private fun MeshPanel(mesh: MeshPanelModel) {
     Panel("Cluster mesh", "Private WireGuard links between the homelab and every node (${mesh.subnet})") {
-        DataTable(listOf("Member", "Address", "Status", "Last handshake with", "Host probe (last hour)", "Container probe (last hour)"), "No members yet.", mesh.members.isEmpty()) {
+        DataTable(
+            headers = remember {
+                listOf(
+                    "Member",
+                    "Address",
+                    "Status",
+                    "Last handshake with",
+                    "Host probe (last hour)",
+                    "Container probe (last hour)"
+                )
+            },
+            emptyText = "No members yet.",
+            isEmpty = mesh.members.isEmpty()
+        ) {
             mesh.members.forEach { member ->
                 key(member.id) {
                     Tr {
-                        Cell("Member", "primary-cell") { B { Text(member.id) } }
-                        Cell("Address", "mono") { Text(member.address) }
+                        Cell("Member", "primary-cell") {
+                            B { Text(member.id) }
+                        }
+                        Cell("Address", "mono") {
+                            Text(member.address)
+                        }
                         Cell("Status") {
                             Pill(member.status)
                             member.error?.let { Muted(it) }
                         }
                         Cell("Last handshake with") {
-                            Div({ classes("inline-row") }) { member.peers.forEach { Pill(it, small = true) } }
+                            Div({ classes("inline-row") }) {
+                                member.peers.forEach { Pill(it, small = true) }
+                            }
                         }
-                        Cell("Host probe (last hour)") { ProbePills(member.probes) }
-                        Cell("Container probe (last hour)") { ProbePills(member.containerProbes) }
+                        Cell("Host probe (last hour)") {
+                            ProbePills(member.probes)
+                        }
+                        Cell("Container probe (last hour)") {
+                            ProbePills(member.containerProbes)
+                        }
                     }
                 }
             }
@@ -108,6 +166,11 @@ private fun MeshPanel(mesh: MeshPanelModel) {
 
 @Composable
 private fun ProbePills(probes: List<homegap.presentation.common.Badge>) {
-    if (probes.isEmpty()) Muted("—")
-    else Div({ classes("inline-row") }) { probes.forEach { Pill(it, small = true) } }
+    if (probes.isEmpty()) {
+        Muted("—")
+    } else {
+        Div({ classes("inline-row") }) {
+            probes.forEach { Pill(it, small = true) }
+        }
+    }
 }

@@ -15,7 +15,11 @@ class LocalStorageTokenStore : TokenStore {
     override var token: String?
         get() = localStorage.getItem(KEY)
         set(value) {
-            if (value.isNullOrBlank()) localStorage.removeItem(KEY) else localStorage.setItem(KEY, value)
+            if (value.isNullOrBlank()) {
+                localStorage.removeItem(KEY)
+            } else {
+                localStorage.setItem(KEY, value)
+            }
         }
 
     private companion object {

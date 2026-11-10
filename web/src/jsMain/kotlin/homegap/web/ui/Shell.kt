@@ -22,6 +22,8 @@ import homegap.web.routing.HashRouter
 import homegap.web.screens.*
 import kotlinx.browser.document
 import kotlinx.coroutines.delay
+import org.jetbrains.compose.web.attributes.ATarget
+import org.jetbrains.compose.web.attributes.target
 import org.jetbrains.compose.web.dom.*
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -39,7 +41,13 @@ fun App(model: AppModel) {
                     Div { Text(it.versionLine) }
                 }
                 // The pages for this version, served by the orchestrator itself.
-                A("/docs/", { classes("docs-link"); attr("target", "_blank"); attr("rel", "noopener") }) { Text("Documentation") }
+                A("/docs/", {
+                    classes("docs-link")
+                    target(ATarget.Blank)
+                    attr("rel", "noopener")
+                }) {
+                    Text("Documentation")
+                }
             }
         }
         Div({ classes("main-col") }) {
@@ -141,9 +149,18 @@ private fun Brand() {
 private fun NavLinks(items: List<NavItem>, onNavigate: (Route) -> Unit, className: String) {
     Nav({ classes(className) }) {
         items.forEach { item ->
-            NavLink(HashRouter.href(item.route), { onNavigate(item.route) }, if (item.selected) listOf("active") else emptyList()) {
+            NavLink(
+                HashRouter.href(item.route),
+                { onNavigate(item.route) },
+                if (item.selected) listOf("active") else emptyList()
+            ) {
                 Span { Text(item.route.title) }
-                if (item.needsAttention) Span({ classes("dot"); title("Needs attention") })
+                if (item.needsAttention) {
+                    Span({
+                        classes("dot")
+                        title("Needs attention")
+                    })
+                }
             }
         }
     }

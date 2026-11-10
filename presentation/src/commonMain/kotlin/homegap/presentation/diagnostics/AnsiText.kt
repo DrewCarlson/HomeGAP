@@ -42,7 +42,8 @@ object AnsiText {
             if (buf.isEmpty()) return
             val run = style.copy(text = buf.toString())
             val last = runs.lastOrNull()
-            if (last != null && last.copy(text = "") == style) runs[runs.size - 1] = last.copy(text = last.text + run.text) else runs += run
+            if (last != null && last.copy(text = "") == style) runs[runs.size - 1] =
+                last.copy(text = last.text + run.text) else runs += run
             buf.clear()
         }
 
@@ -54,23 +55,35 @@ object AnsiText {
                     // CSI: parameters and intermediates, then one final byte (@ to ~).
                     var j = i + 2
                     while (j < text.length && text[j] in ' '..'?') j++
-                    if (j >= text.length) { i = text.length; continue }
+                    if (j >= text.length) {
+                        i = text.length
+                        continue
+                    }
                     if (text[j] == 'm') {
                         flush()
                         style = sgr(style, text.substring(i + 2, j))
                     }
                     i = j + 1
                 }
+
                 c == ESC && i + 1 < text.length && text[i + 1] == ']' -> {
                     // OSC (titles, links): up to BEL or ESC \.
                     var j = i + 2
                     while (j < text.length && text[j] != '\u0007' && !(text[j] == ESC && j + 1 < text.length && text[j + 1] == '\\')) j++
                     i = if (j < text.length && text[j] == ESC) j + 2 else j + 1
                 }
+
                 c == ESC -> i += 2 // any other escape: ESC and one character
-                c == '\n' || c == '\t' -> { buf.append(c); i++ }
+                c == '\n' || c == '\t' -> {
+                    buf.append(c)
+                    i++
+                }
+
                 c < ' ' || c == '\u007F' -> i++ // other control characters (\r, bells, ...)
-                else -> { buf.append(c); i++ }
+                else -> {
+                    buf.append(c)
+                    i++
+                }
             }
         }
         flush()
@@ -112,7 +125,12 @@ object AnsiText {
 
     private fun extended(codes: List<Int>, at: Int): Pair<AnsiColor?, Int> = when (codes.getOrNull(at)) {
         5 -> codes.getOrNull(at + 1)?.let { indexed(it) to 2 } ?: (null to 1)
-        2 -> if (at + 3 < codes.size) AnsiColor.Rgb(codes[at + 1].coerceIn(0, 255), codes[at + 2].coerceIn(0, 255), codes[at + 3].coerceIn(0, 255)) to 4 else null to codes.size - at
+        2 -> if (at + 3 < codes.size) AnsiColor.Rgb(
+            codes[at + 1].coerceIn(0, 255),
+            codes[at + 2].coerceIn(0, 255),
+            codes[at + 3].coerceIn(0, 255)
+        ) to 4 else null to codes.size - at
+
         else -> null to 0
     }
 
@@ -124,6 +142,7 @@ object AnsiText {
             fun level(x: Int) = if (x == 0) 0 else 55 + x * 40
             AnsiColor.Rgb(level(v / 36), level(v / 6 % 6), level(v % 6))
         }
+
         in 232..255 -> (8 + (n - 232) * 10).let { AnsiColor.Rgb(it, it, it) }
         else -> null
     }

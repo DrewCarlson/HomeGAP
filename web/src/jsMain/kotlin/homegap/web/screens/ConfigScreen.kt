@@ -2,23 +2,41 @@ package homegap.web.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import homegap.presentation.config.ConfigScreenModel
+import homegap.presentation.routing.Route
+import homegap.web.routing.HashRouter
 import homegap.web.ui.*
 import org.jetbrains.compose.web.dom.*
 
 @Composable
 fun ConfigScreen(model: ConfigScreenModel) {
-    Panel("Locations", "Data-center cities offered when adding a node, and where the homelab is", actions = {
-        A(href = homegap.web.routing.HashRouter.href(homegap.presentation.routing.Route.Locations), { classes("link") }) { Text("Manage locations →") }
-    }) {}
-    Panel("Desired vs. actual", "From the last reconcile pass", actions = {
-        Label(attrs = { classes("check") }) {
-            CheckboxInput(model.onlyChanges) { onChange { model.onToggleOnlyChanges(it.value) } }
-            Text("Only differences")
+    Panel(
+        title = "Locations",
+        subtitle = "Data-center cities offered when adding a node, and where the homelab is",
+        actions = {
+            A(
+                href = HashRouter.href(Route.Locations),
+                { classes("link") }) { Text("Manage locations →") }
+        }) {}
+    Panel(
+        title = "Desired vs. actual",
+        subtitle = "From the last reconcile pass",
+        actions = {
+            Label(attrs = { classes("check") }) {
+                CheckboxInput(model.onlyChanges) {
+                    onChange { model.onToggleOnlyChanges(it.value) }
+                }
+                Text("Only differences")
+            }
         }
-    }) {
+    ) {
         val emptyText = if (model.loading) "Loading…" else "Everything matches the desired state."
-        DataTable(listOf("Domain", "Target", "Key", "Action", "Desired", "Actual"), emptyText, model.diff.isEmpty()) {
+        DataTable(
+            headers = remember { listOf("Domain", "Target", "Key", "Action", "Desired", "Actual") },
+            emptyText = emptyText,
+            isEmpty = model.diff.isEmpty()
+        ) {
             model.diff.forEach { item ->
                 Tr {
                     Cell("Domain") { Tag(item.domain) }
@@ -31,8 +49,13 @@ fun ConfigScreen(model: ConfigScreenModel) {
             }
         }
     }
-    Panel("Referenced secrets", "Names and sources only; values are never shown") {
-        DataTable(listOf("Secret", "Used by", "Source", "Present")) {
+    Panel(
+        title = "Referenced secrets",
+        subtitle = "Names and sources only; values are never shown"
+    ) {
+        DataTable(
+            headers = remember { listOf("Secret", "Used by", "Source", "Present") }
+        ) {
             model.secrets.forEach { secret ->
                 key(secret.name, secret.usedBy) {
                     Tr {

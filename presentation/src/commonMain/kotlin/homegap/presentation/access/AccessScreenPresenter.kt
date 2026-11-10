@@ -54,7 +54,9 @@ class AccessScreenPresenter(
 
         val current = overview ?: return AccessScreenModel.Loading
         val address = current.clientAddress
-        if (!current.available || address == null) return AccessScreenModel.Unavailable(current.note ?: "Not available.", address)
+        if (!current.available || address == null) return AccessScreenModel.Unavailable(
+            current.note ?: "Not available.", address
+        )
 
         // New users default to the least-privileged role.
         val roles = chosenRoles ?: current.roles.filter { !it.admin }.take(1).map { it.id }.toSet()
@@ -79,6 +81,7 @@ class AccessScreenPresenter(
                 submitting = false
             }
         }
+
         fun change(label: String, call: suspend () -> ActionResponse) = actions.run(label) { call().also { reload++ } }
 
         return AccessScreenModel.Ready(
@@ -96,10 +99,22 @@ class AccessScreenPresenter(
                     setPassword -> "Create user"
                     else -> "Create invite link"
                 },
-                onEmail = { email = it; formError = null },
+                onEmail = {
+                    email = it
+                    formError = null
+                },
                 onSetPassword = { setPassword = it },
-                onPassword = { password = it; formError = null },
-                onToggleRole = { id -> chosenRoles = if (id in roles) roles - id else roles + id },
+                onPassword = {
+                    password = it
+                    formError = null
+                },
+                onToggleRole = { id ->
+                    chosenRoles = if (id in roles) {
+                        roles - id
+                    } else {
+                        roles + id
+                    }
+                },
                 onSubmit = submit::trigger,
             ),
             users = current.users.map { u ->
@@ -117,7 +132,11 @@ class AccessScreenPresenter(
                 )
             },
             invitations = current.invitations.map { i ->
-                InvitationRowModel(i.id, i.email, i.roles.joinToString(), i.expiresAt?.let { "Expires ${timeFormatter.dateTime(it)}" })
+                InvitationRowModel(
+                    i.id,
+                    i.email,
+                    i.roles.joinToString(),
+                    i.expiresAt?.let { "Expires ${timeFormatter.dateTime(it)}" })
             },
             devices = current.devices.map { it.toRow() },
             inviteLink = inviteLink,
@@ -149,7 +168,13 @@ class AccessScreenPresenter(
         },
         via = viaNode?.let { "via $it" },
         actions = buildList {
-            add(if (blocked) DeviceActionModel("Unblock", "unblock") else DeviceActionModel("Block", "block", danger = true))
+            add(
+                if (blocked) DeviceActionModel("Unblock", "unblock") else DeviceActionModel(
+                    "Block",
+                    "block",
+                    danger = true
+                )
+            )
             add(if (archived) DeviceActionModel("Restore", "unarchive") else DeviceActionModel("Archive", "archive"))
             add(DeviceActionModel("Delete", "delete", danger = true))
         },

@@ -2,6 +2,7 @@ package homegap.web.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import homegap.presentation.addnode.*
 import homegap.web.ui.*
 import kotlinx.browser.window
@@ -25,17 +26,41 @@ fun AddNodeScreen(model: AddNodeScreenModel) {
         WizardStep.Firewall -> FirewallStep(model)
         WizardStep.Review -> ReviewStep(model)
     }
-    model.notices.forEach { Div({ classes("banner", if (it.warning) "warn" else "info") }) { Text(it.text) } }
+    model.notices.forEach { (warning, text) ->
+        Div({
+            classes("banner", if (warning) "warn" else "info")
+        }) {
+            Text(text)
+        }
+    }
     if (model.errors.isNotEmpty()) {
         Div({ classes("banner", "error") }) {
-            Ul({ classes("plain-list") }) { model.errors.forEach { Li { Text(it) } } }
+            Ul({ classes("plain-list") }) {
+                model.errors.forEach { Li { Text(it) } }
+            }
         }
     }
     Div({ classes("wizard-actions") }) {
-        ActionButton("Start over", tooltip = "Clear everything entered") { send(WizardEvent.Reset) }
+        ActionButton(
+            text = "Start over",
+            tooltip = "Clear everything entered"
+        ) {
+            send(WizardEvent.Reset)
+        }
         Span({ classes("spacer") })
-        if (model.canGoBack) ActionButton("Back") { send(WizardEvent.Back) }
-        model.nextLabel?.let { ActionButton(it, ButtonStyle.Primary) { send(WizardEvent.Next) } }
+        if (model.canGoBack) {
+            ActionButton("Back") {
+                send(WizardEvent.Back)
+            }
+        }
+        model.nextLabel?.let { nextLabel ->
+            ActionButton(
+                text = nextLabel,
+                style = ButtonStyle.Primary
+            ) {
+                send(WizardEvent.Next)
+            }
+        }
     }
 }
 
@@ -45,9 +70,13 @@ private fun Stepper(model: AddNodeScreenModel) {
         model.steps.forEachIndexed { index, tab ->
             Li({
                 classes("wizard-step", tab.state.name.lowercase())
-                if (tab.state == StepState.Done && model.job == null) onClick { model.onEvent(WizardEvent.GoTo(tab.step)) }
+                if (tab.state == StepState.Done && model.job == null) {
+                    onClick { model.onEvent(WizardEvent.GoTo(tab.step)) }
+                }
             }) {
-                Span({ classes("wizard-step-num") }) { Text("${index + 1}") }
+                Span({ classes("wizard-step-num") }) {
+                    Text("${index + 1}")
+                }
                 Span { Text(tab.step.title) }
             }
         }
@@ -55,27 +84,59 @@ private fun Stepper(model: AddNodeScreenModel) {
 }
 
 @Composable
-private fun Field(model: AddNodeScreenModel, field: WizardField, type: InputType<String> = InputType.Text) {
-    TextField(field.label, model[field], field.placeholder, type) { model.onEvent(WizardEvent.Edit(field, it)) }
+private fun Field(
+    model: AddNodeScreenModel,
+    field: WizardField,
+    type: InputType<String> = InputType.Text
+) {
+    TextField(
+        label = field.label,
+        value = model[field],
+        placeholder = field.placeholder,
+        type = type
+    ) {
+        model.onEvent(WizardEvent.Edit(field, it))
+    }
 }
 
 @Composable
-private fun Option(model: AddNodeScreenModel, toggle: WizardToggle, title: String, description: String?, enabled: Boolean = true) {
-    CheckOption(title, description, model.has(toggle), enabled) { model.onEvent(WizardEvent.Toggle(toggle, it)) }
+private fun Option(
+    model: AddNodeScreenModel,
+    toggle: WizardToggle,
+    title: String,
+    description: String?,
+    enabled: Boolean = true
+) {
+    CheckOption(
+        title = title,
+        description = description,
+        checked = model.has(toggle),
+        enabled = enabled
+    ) {
+        model.onEvent(WizardEvent.Toggle(toggle, it))
+    }
 }
 
 // ------------------------------------------------------------------------------- steps
 
 @Composable
 private fun ServerStep(model: AddNodeScreenModel) {
-    Panel("Server", "The VPS to turn into a node. Its id names DNS records and the management host.", flush = false) {
+    Panel(
+        title = "Server",
+        subtitle = "The VPS to turn into a node. Its id names DNS records and the management host.",
+        flush = false
+    ) {
         Div({ classes("form-grid") }) {
             Field(model, WizardField.NodeId)
             Field(model, WizardField.Host)
             Field(model, WizardField.Port)
         }
     }
-    Panel("Location", "Used for geo DNS routing and the maps. Search the known data-center cities, or click the map.", flush = false) {
+    Panel(
+        title = "Location",
+        subtitle = "Used for geo DNS routing and the maps. Search the known data-center cities, or click the map.",
+        flush = false
+    ) {
         LocationSearchBox(
             query = model.locationQuery,
             matches = model.locationMatches,
@@ -90,11 +151,16 @@ private fun ServerStep(model: AddNodeScreenModel) {
             Field(model, WizardField.Provider)
         }
     }
-    Panel("Pick on the map", "Click where the server is; the nearest known city names it") {
+    Panel(
+        title = "Pick on the map",
+        subtitle = "Click where the server is; the nearest known city names it"
+    ) {
         WorldMap(
             homegap.presentation.map.MapModel(),
             heightPx = 300,
-            onPick = { lat, lon -> model.onEvent(WizardEvent.PickOnMap(lat, lon)) },
+            onPick = { lat, lon ->
+                model.onEvent(WizardEvent.PickOnMap(lat, lon))
+            },
             pick = model.pick,
         )
     }
@@ -103,17 +169,31 @@ private fun ServerStep(model: AddNodeScreenModel) {
 @Composable
 private fun LoginStep(model: AddNodeScreenModel) {
     val send = model.onEvent
-    Panel("Initial login", "The credentials your provider gave you. Used only during setup; never stored.", flush = false) {
-        Segmented(AuthMethod.entries, model.auth, label = { if (it == AuthMethod.Password) "Password" else "Private key" }) {
+    Panel(
+        title = "Initial login",
+        subtitle = "The credentials your provider gave you. Used only during setup; never stored.",
+        flush = false
+    ) {
+        Segmented(
+            AuthMethod.entries,
+            model.auth,
+            label = { if (it == AuthMethod.Password) "Password" else "Private key" }) {
             send(WizardEvent.ChooseAuth(it))
         }
         Div({ classes("form-grid") }) {
             Field(model, WizardField.LoginUser)
-            if (model.auth == AuthMethod.Password) Field(model, WizardField.Password, InputType.Password)
-            else Field(model, WizardField.LoginKeyFile)
+            if (model.auth == AuthMethod.Password) {
+                Field(model, WizardField.Password, InputType.Password)
+            } else {
+                Field(model, WizardField.LoginKeyFile)
+            }
         }
         Div({ classes("inline-row") }) {
-            ActionButton(if (model.testing) "Testing…" else "Test connection", ButtonStyle.Primary, enabled = !model.testing) {
+            ActionButton(
+                text = if (model.testing) "Testing…" else "Test connection",
+                style = ButtonStyle.Primary,
+                enabled = !model.testing
+            ) {
                 send(WizardEvent.TestConnection)
             }
         }
@@ -122,48 +202,109 @@ private fun LoginStep(model: AddNodeScreenModel) {
 }
 
 @Composable
-private fun ConnectionResult(result: ConnectionResultModel, testing: Boolean, send: (WizardEvent) -> Unit) {
+private fun ConnectionResult(
+    result: ConnectionResultModel,
+    testing: Boolean,
+    send: (WizardEvent) -> Unit
+) {
     Div({ classes("result-card", if (result.ok) "ok" else "bad") }) {
         B { Text(result.headline) }
         result.error?.let { ErrorText(it, mono = false) }
         if (result.hostKeyChanged) {
-            ActionButton("Forget the old host key and retry", small = true, enabled = !testing) {
+            ActionButton(
+                text = "Forget the old host key and retry",
+                small = true,
+                enabled = !testing
+            ) {
                 send(WizardEvent.ForgetHostKeyAndTest)
             }
         }
-        if (result.facts.isNotEmpty()) Facts(result.facts)
-        if (result.ok) Muted("Compare the host key with the one shown in your provider's console before continuing.")
+        if (result.facts.isNotEmpty()) {
+            Facts(result.facts)
+        }
+        if (result.ok) {
+            Muted("Compare the host key with the one shown in your provider's console before continuing.")
+        }
     }
 }
 
 @Composable
 private fun AccessStep(model: AddNodeScreenModel) {
     val send = model.onEvent
-    Panel("Management user", "The account HomeGAP manages the node with.", flush = false) {
-        Option(model, WizardToggle.CreateUser, "Create a dedicated user", "With passwordless sudo, and SSH login by key only.")
+    Panel(
+        title = "Management user",
+        subtitle = "The account HomeGAP manages the node with.",
+        flush = false
+    ) {
+        Option(
+            model = model,
+            toggle = WizardToggle.CreateUser,
+            title = "Create a dedicated user",
+            description = "With passwordless sudo, and SSH login by key only."
+        )
         if (model.has(WizardToggle.CreateUser)) {
-            Div({ classes("form-grid") }) { Field(model, WizardField.NewUser) }
-            Option(model, WizardToggle.DockerGroup, "Add it to the docker group", "Lets the user run docker without sudo when you log in yourself.")
+            Div({ classes("form-grid") }) {
+                Field(model, WizardField.NewUser)
+            }
+            Option(
+                model,
+                toggle = WizardToggle.DockerGroup,
+                title = "Add it to the docker group",
+                description = "Lets the user run docker without sudo when you log in yourself."
+            )
         } else {
             Muted("The node will be managed as ${model.targetUser}.")
         }
     }
-    Panel("SSH key", "HomeGAP logs in with this key from now on. The private key stays on the orchestrator.", flush = false) {
-        Segmented(KeyMode.entries, model.keyMode, label = { it.label }) { send(WizardEvent.ChooseKeyMode(it)) }
+    Panel(
+        title = "SSH key",
+        subtitle = "HomeGAP logs in with this key from now on. The private key stays on the orchestrator.",
+        flush = false
+    ) {
+        Segmented(
+            options = KeyMode.entries,
+            selected = model.keyMode,
+            label = { it.label }
+        ) {
+            send(WizardEvent.ChooseKeyMode(it))
+        }
         when (model.keyMode) {
-            KeyMode.Generate -> Muted("Creates an ed25519 key for this node in the orchestrator's data directory.")
-            KeyMode.Import -> TextAreaField(WizardField.ImportKey.label, model[WizardField.ImportKey], WizardField.ImportKey.placeholder, rows = 6, mono = true) {
+            KeyMode.Generate -> {
+                Muted("Creates an ed25519 key for this node in the orchestrator's data directory.")
+            }
+
+            KeyMode.Import -> TextAreaField(
+                label = WizardField.ImportKey.label,
+                value = model[WizardField.ImportKey],
+                placeholder = WizardField.ImportKey.placeholder,
+                rows = 6,
+                mono = true
+            ) {
                 send(WizardEvent.Edit(WizardField.ImportKey, it))
             }
-            KeyMode.Existing -> Div({ classes("form-grid") }) { Field(model, WizardField.ExistingKey) }
+
+            KeyMode.Existing -> {
+                Div({ classes("form-grid") }) {
+                    Field(model, WizardField.ExistingKey)
+                }
+            }
         }
         Div({ classes("inline-row") }) {
             val label = when {
                 model.keyBusy -> "Working…"
-                model.keyMode == KeyMode.Generate -> if (model.key == null) "Generate key" else "Generate a new key"
+                model.keyMode == KeyMode.Generate -> {
+                    if (model.key == null) "Generate key" else "Generate a new key"
+                }
+
                 else -> "Use this key"
             }
-            ActionButton(label, ButtonStyle.Primary, enabled = !model.keyBusy) { send(WizardEvent.CreateKey) }
+            ActionButton(
+                text = label,
+                style = ButtonStyle.Primary,
+                enabled = !model.keyBusy
+            ) {
+                send(WizardEvent.CreateKey)
+            }
         }
         model.key?.let { key ->
             Div({ classes("result-card", "ok") }) {
@@ -171,37 +312,72 @@ private fun AccessStep(model: AddNodeScreenModel) {
                 Muted(key.path, mono = true)
                 Div({ classes("code-block") }) {
                     Code { Text(key.publicKey) }
-                    ActionButton("Copy", small = true) { window.navigator.clipboard.writeText(key.publicKey) }
+                    ActionButton("Copy", small = true) {
+                        window.navigator.clipboard.writeText(key.publicKey)
+                    }
                 }
             }
         }
     }
-    Panel("SSH hardening", "Applied only after the new key login is proven to work; reverted automatically if access breaks.", flush = false) {
+    Panel(
+        title = "SSH hardening",
+        subtitle = "Applied only after the new key login is proven to work; reverted automatically if access breaks.",
+        flush = false
+    ) {
         Option(
-            model, WizardToggle.DisableRootLogin, "Disable root login",
-            if (model.targetUser == "root") "Needs a management user other than root." else "root can no longer log in over SSH.",
+            model,
+            toggle = WizardToggle.DisableRootLogin,
+            title = "Disable root login",
+            description = when (model.targetUser) {
+                "root" -> "Needs a management user other than root."
+                else -> "root can no longer log in over SSH."
+            },
             enabled = model.targetUser != "root",
         )
-        Option(model, WizardToggle.DisablePasswordLogin, "Disable password login", "SSH accepts keys only, for every user.")
+        Option(
+            model,
+            toggle = WizardToggle.DisablePasswordLogin,
+            title = "Disable password login",
+            description = "SSH accepts keys only, for every user."
+        )
     }
 }
 
 @Composable
 private fun FirewallStep(model: AddNodeScreenModel) {
     val send = model.onEvent
-    Panel("Firewall", "ufw: deny incoming by default, open only what the node serves.", flush = false) {
-        Option(model, WizardToggle.Firewall, "Let HomeGAP manage the firewall", "Rules are kept in sync on every provisioning pass.")
+    Panel(
+        title = "Firewall",
+        subtitle = "ufw: deny incoming by default, open only what the node serves.",
+        flush = false
+    ) {
+        Option(
+            model,
+            WizardToggle.Firewall,
+            "Let HomeGAP manage the firewall",
+            "Rules are kept in sync on every provisioning pass."
+        )
         if (model.has(WizardToggle.Firewall)) {
             Div({ classes("stream-picker") }) {
                 Span({ classes("muted") }) { Text("SSH from") }
-                Segmented(listOf(false, true), model.has(WizardToggle.RestrictSsh), label = { if (it) "Only these sources" else "Anywhere" }) {
+                Segmented(
+                    options = remember { listOf(false, true) },
+                    selected = model.has(WizardToggle.RestrictSsh),
+                    label = { if (it) "Only these sources" else "Anywhere" }
+                ) {
                     send(WizardEvent.Toggle(WizardToggle.RestrictSsh, it))
                 }
             }
-            if (model.has(WizardToggle.RestrictSsh)) Field(model, WizardField.AllowFrom)
+            if (model.has(WizardToggle.RestrictSsh)) {
+                Field(model, WizardField.AllowFrom)
+            }
             Div {
                 Muted("Rules")
-                Ul({ classes("plain-list", "rules") }) { model.firewallRules.forEach { Li { Text(it) } } }
+                Ul({ classes("plain-list", "rules") }) {
+                    model.firewallRules.forEach { rule ->
+                        Li { Text(rule) }
+                    }
+                }
             }
         }
     }
@@ -209,10 +385,18 @@ private fun FirewallStep(model: AddNodeScreenModel) {
 
 @Composable
 private fun ReviewStep(model: AddNodeScreenModel) {
-    Panel("Review", "Setup runs on the orchestrator; you can leave this page while it works.", flush = false) {
+    Panel(
+        title = "Review",
+        subtitle = "Setup runs on the orchestrator; you can leave this page while it works.",
+        flush = false
+    ) {
         Facts(model.review)
         Div({ classes("inline-row") }) {
-            ActionButton(if (model.starting) "Starting…" else "Set up and add node", ButtonStyle.Primary, enabled = !model.starting) {
+            ActionButton(
+                text = if (model.starting) "Starting…" else "Set up and add node",
+                style = ButtonStyle.Primary,
+                enabled = !model.starting
+            ) {
                 model.onEvent(WizardEvent.Run)
             }
         }
@@ -223,18 +407,26 @@ private fun ReviewStep(model: AddNodeScreenModel) {
 
 @Composable
 private fun JobPanel(job: JobModel, send: (WizardEvent) -> Unit) {
-    val subtitle = when {
-        job.running -> "Working…"
-        job.succeeded -> "Done. Provisioning starts on the next reconcile pass."
-        else -> "Stopped. Nothing unsafe was left behind; fix the problem and retry."
+    val subtitle = remember(job) {
+        when {
+            job.running -> "Working…"
+            job.succeeded -> "Done. Provisioning starts on the next reconcile pass."
+            else -> "Stopped. Nothing unsafe was left behind; fix the problem and retry."
+        }
     }
-    Panel("Setup", subtitle, flush = false) {
+    Panel(
+        title = "Setup",
+        subtitle = subtitle,
+        flush = false
+    ) {
         Ol({ classes("job-steps") }) {
             job.steps.forEach { step ->
                 key(step.title) {
                     Li({ classes("job-step") }) {
                         Div({ classes("inline-row") }) {
-                            Span({ classes("job-step-title") }) { Text(step.title) }
+                            Span({ classes("job-step-title") }) {
+                                Text(step.title)
+                            }
                             Pill(step.badge, small = true)
                         }
                         step.detail?.let { Muted(it) }
@@ -242,14 +434,30 @@ private fun JobPanel(job: JobModel, send: (WizardEvent) -> Unit) {
                 }
             }
         }
-        job.error?.let { Div({ classes("banner", "error") }) { Text(it) } }
+        job.error?.let {
+            Div({ classes("banner", "error") }) {
+                Text(it)
+            }
+        }
         Div({ classes("wizard-actions") }) {
             when {
                 job.running -> Unit
-                job.succeeded -> ActionButton("Go to nodes", ButtonStyle.Primary) { send(WizardEvent.Finish) }
+                job.succeeded -> {
+                    ActionButton(
+                        text = "Go to nodes",
+                        style = ButtonStyle.Primary
+                    ) {
+                        send(WizardEvent.Finish)
+                    }
+                }
+
                 else -> {
-                    ActionButton("Edit settings") { send(WizardEvent.EditAfterFailure) }
-                    ActionButton("Retry", ButtonStyle.Primary) { send(WizardEvent.Run) }
+                    ActionButton("Edit settings") {
+                        send(WizardEvent.EditAfterFailure)
+                    }
+                    ActionButton("Retry", ButtonStyle.Primary) {
+                        send(WizardEvent.Run)
+                    }
                 }
             }
         }

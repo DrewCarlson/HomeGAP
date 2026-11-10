@@ -7,6 +7,8 @@ import homegap.presentation.app.BannerModel
 import homegap.presentation.speedtest.*
 import homegap.web.ui.*
 import kotlinx.browser.window
+import org.jetbrains.compose.web.attributes.ATarget
+import org.jetbrains.compose.web.attributes.target
 import org.jetbrains.compose.web.dom.*
 
 private const val TUNNEL_PATH = "curl on the node → its own :443 → WireGuard tunnel → homelab proxy"
@@ -14,22 +16,38 @@ private const val TUNNEL_PATH = "curl on the node → its own :443 → WireGuard
 private val DISABLED = BannerModel(
     BannerKind.Info,
     "Speed tests are disabled. Set speedtest.enabled: true in the config, route the speedtest hostnames to the " +
-        "orchestrator's speed test port in your homelab proxy, and restart the orchestrator.",
+            "orchestrator's speed test port in your homelab proxy, and restart the orchestrator.",
 )
 
 private const val DEVICE_HELP = "The auto link lets DNS pick the node for the device's location; that node " +
-    "answers it and tells the page which node it is, so the result is attributed to it. Anyone holding a link " +
-    "can run tests until it expires."
+        "answers it and tells the page which node it is, so the result is attributed to it. Anyone holding a link " +
+        "can run tests until it expires."
 
 @Composable
 fun SpeedTestScreen(model: SpeedTestScreenModel) {
     when (model) {
-        SpeedTestScreenModel.Loading -> Div({ classes("loading") }) { Text("Loading…") }
         SpeedTestScreenModel.Disabled -> Banner(DISABLED)
+        SpeedTestScreenModel.Loading -> {
+            Div({ classes("loading") }) {
+                Text("Loading…")
+            }
+        }
+
         is SpeedTestScreenModel.Ready -> {
             if (!model.map.isEmpty) {
-                Panel("Map", "Latest homelab ↔ node results on each line; click a node to test it") {
-                    WorldMap(model.map, heightPx = 340, onMarkerClick = { id -> if (id != "homelab" && model.canStart) model.onRunTest(id) })
+                Panel(
+                    title = "Map",
+                    subtitle = "Latest homelab ↔ node results on each line; click a node to test it"
+                ) {
+                    WorldMap(
+                        model = model.map,
+                        heightPx = 340,
+                        onMarkerClick = { id ->
+                            if (id != "homelab" && model.canStart) {
+                                model.onRunTest(id)
+                            }
+                        }
+                    )
                 }
             }
             Div({ classes("two-col") }) {
@@ -46,11 +64,19 @@ private fun TunnelTests(model: SpeedTestScreenModel.Ready) {
     Panel("Homelab ↔ node", TUNNEL_PATH, flush = false) {
         Div({ classes("stream-picker") }) {
             Span({ classes("muted") }) { Text("Parallel streams") }
-            Segmented(model.streamChoices, model.streams, label = { "$it" }, enabled = model.canStart, onSelect = model.onSelectStreams)
+            Segmented(
+                options = model.streamChoices,
+                selected = model.streams,
+                label = { "$it" },
+                enabled = model.canStart,
+                onSelect = model.onSelectStreams
+            )
         }
         Div({ classes("node-tests") }) {
             model.nodeTests.forEach { test ->
-                key(test.nodeId) { NodeTest(test, model.canStart) { model.onRunTest(test.nodeId) } }
+                key(test.nodeId) {
+                    NodeTest(test, model.canStart) { model.onRunTest(test.nodeId) }
+                }
             }
         }
     }
@@ -63,11 +89,13 @@ private fun NodeTest(test: NodeTestModel, canStart: Boolean, onRun: () -> Unit) 
             B { Text(test.nodeId) }
             ActionButton(test.buttonText, small = true, enabled = canStart, onClick = onRun)
         }
-        val metrics = test.metrics
-        if (metrics == null) {
-            Muted("No result yet")
-        } else {
-            Div({ classes("metrics") }) { metrics.forEach { Metric(it) } }
+        when (val metrics = test.metrics) {
+            null -> Muted("No result yet")
+            else -> {
+                Div({ classes("metrics") }) {
+                    metrics.forEach { Metric(it) }
+                }
+            }
         }
         test.note?.let { Muted(it) }
     }
@@ -75,9 +103,17 @@ private fun NodeTest(test: NodeTestModel, canStart: Boolean, onRun: () -> Unit) 
 
 @Composable
 private fun DeviceTests(device: DeviceTestModel) {
-    Panel("Your device → node → homelab", "Open a link on the device you want to test", flush = false) {
+    Panel(
+        title = "Your device → node → homelab",
+        subtitle = "Open a link on the device you want to test",
+        flush = false
+    ) {
         P({ classes("muted") }) { Text(DEVICE_HELP) }
-        ActionButton(device.buttonText, ButtonStyle.Primary, onClick = device.onCreateLink)
+        ActionButton(
+            text = device.buttonText,
+            style = ButtonStyle.Primary,
+            onClick = device.onCreateLink
+        )
         if (device.links.isNotEmpty()) {
             Div({ classes("links") }) {
                 device.links.forEach { LinkRow(it) }
@@ -91,12 +127,19 @@ private fun DeviceTests(device: DeviceTestModel) {
 private fun LinkRow(link: TestLinkModel) {
     Div({ classes("link-row") }) {
         Span({ classes("link-label") }) { Text(link.label) }
-        A(href = link.url, {
-            classes("mono")
-            attr("target", "_blank")
-            attr("rel", "noopener")
-        }) { Text(link.displayUrl) }
-        ActionButton("Copy", small = true) { window.navigator.clipboard.writeText(link.url) }
+        A(
+            href = link.url,
+            attrs = {
+                classes("mono")
+                target(ATarget.Blank)
+                attr("rel", "noopener")
+            }
+        ) {
+            Text(link.displayUrl)
+        }
+        ActionButton("Copy", small = true) {
+            window.navigator.clipboard.writeText(link.url)
+        }
     }
 }
 

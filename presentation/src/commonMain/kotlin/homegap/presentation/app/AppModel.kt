@@ -38,7 +38,7 @@ data class HeaderModel(
     val onTogglePause: () -> Unit,
 )
 
-/** "Synced 12s ago" with a coloured dot; details in the tooltip. */
+/** "Synced 12s ago" with a colored dot; details in the tooltip. */
 @Immutable
 data class PassStatusModel(val health: Health, val text: String, val tooltip: String?)
 

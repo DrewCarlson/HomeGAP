@@ -6,6 +6,8 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import homegap.api.LogResponse
+import homegap.api.ServerEvent
+import homegap.api.name
 import homegap.api.StatusSnapshot
 import homegap.platform.nowMillis
 import homegap.reconcile.Controller
@@ -72,13 +74,13 @@ class StatusRoutes(private val controller: Controller) : RoutingController {
                 val snapshot = controller.snapshot()
                 val comparable = snapshot.copy(generatedAt = 0)
                 if (comparable != lastStatus) {
-                    writeEvent("status", json.encodeToString(StatusSnapshot.serializer(), snapshot))
+                    writeEvent(ServerEvent.Status(snapshot))
                     lastStatus = comparable
                     lastWrite = nowMillis()
                 }
                 val entries = controller.log.since(lastSeq)
                 if (entries.isNotEmpty()) {
-                    writeEvent("log", json.encodeToString(LogResponse.serializer(), LogResponse(entries)))
+                    writeEvent(ServerEvent.Log(entries))
                     lastSeq = entries.last().seq
                     lastWrite = nowMillis()
                 }
@@ -94,8 +96,8 @@ class StatusRoutes(private val controller: Controller) : RoutingController {
         }
     }
 
-    private suspend fun ByteWriteChannel.writeEvent(name: String, data: String) {
-        writeStringUtf8("event: $name\ndata: $data\n\n")
+    private suspend fun ByteWriteChannel.writeEvent(event: ServerEvent) {
+        writeStringUtf8("event: ${event.name}\ndata: ${json.encodeToString<ServerEvent>(event)}\n\n")
     }
 
     private companion object {

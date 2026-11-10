@@ -11,7 +11,7 @@ data class ServicesScreenModel(
     val onTogglePause: (key: String, paused: Boolean) -> Unit,
 ) : ScreenModel
 
-/** One labelled service as shown in the services tables. */
+/** One labeled service as shown in the services tables. */
 @Immutable
 data class ServiceRowModel(
     val key: String,
@@ -31,7 +31,7 @@ fun ServiceStatusDto.toRowModel() = ServiceRowModel(
     key = key,
     hostname = hostname,
     wildcard = if (wildcard) "+ *.$hostname" else null,
-    container = container + (name?.let { " · $it" } ?: ""),
+    container = container + (name?.let { " · $it" }.orEmpty()),
     paused = paused,
     kind = kind,
     protocol = if (ports.isNotEmpty()) ports.joinToString(", ") else "$protocol / $tls",

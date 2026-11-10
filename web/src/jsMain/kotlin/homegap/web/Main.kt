@@ -12,7 +12,8 @@ fun main() {
     val graph = createGraph<WebAppGraph>()
     val router = HashRouter()
     renderComposable(rootElementId = "root") {
-        val model = graph.appPresenter.model(remember(router.route) { AppProps(router.route, router) })
+        val props = remember(router.route) { AppProps(router.route, router) }
+        val model = graph.appPresenter.model(props)
         App(model)
     }
 }

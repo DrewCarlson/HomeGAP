@@ -15,7 +15,7 @@ import org.jetbrains.compose.web.dom.Div
 import org.w3c.dom.HTMLElement
 import kotlin.js.Promise
 
-/** Loads the shared map module (`/map/homegap-map.js`) once; kept out of the main bundle. */
+/** Loads the shared map module once; kept out of the main bundle. */
 private val mapModule: Promise<dynamic> by lazy {
     val url = "/map/homegap-map.js"
     js("import(url)").unsafeCast<Promise<dynamic>>()
@@ -50,7 +50,12 @@ fun WorldMap(
             if (onPick != null) options.onClick = { lng: Double, lat: Double -> pickClick?.invoke(lat, lng) }
             mapModule.then { module: dynamic ->
                 module.createMap(element, options).unsafeCast<Promise<dynamic>>().then { h: dynamic ->
-                    if (disposed) h.destroy() else { created = h; handle = h }
+                    if (disposed) {
+                        h.destroy()
+                    } else {
+                        created = h
+                        handle = h
+                    }
                     Unit
                 }.catch { failed = "The map could not be loaded." }
                 Unit
@@ -68,11 +73,17 @@ fun WorldMap(
         if (h == null) return@LaunchedEffect
         h.setMarkers(model.markers.map { m ->
             val o: dynamic = js("({})")
-            o.id = m.id; o.lat = m.latitude; o.lng = m.longitude; o.health = m.health.name; o.kind = m.kind.wire
-            o.label = m.label; o.highlight = m.highlight
+            o.id = m.id;
+            o.lat = m.latitude
+            o.lng = m.longitude
+            o.health = m.health.name
+            o.kind = m.kind.wire
+            o.label = m.label
+            o.highlight = m.highlight
             m.info?.let { info ->
                 val i: dynamic = js("({})")
-                i.title = info.title; i.subtitle = info.subtitle
+                i.title = info.title
+                i.subtitle = info.subtitle
                 i.rows = info.rows.map { r -> arrayOf(r.label, r.value, r.health?.name) }.toTypedArray()
                 o.info = i
             }
@@ -81,13 +92,20 @@ fun WorldMap(
         }.toTypedArray())
         h.setLines(model.lines.map { l ->
             val o: dynamic = js("({})")
-            o.id = l.id; o.from = arrayOf(l.from.longitude, l.from.latitude); o.to = arrayOf(l.to.longitude, l.to.latitude)
-            o.health = l.health.name; o.label = l.label
+            o.id = l.id
+            o.from = arrayOf(l.from.longitude, l.from.latitude)
+            o.to = arrayOf(l.to.longitude, l.to.latitude)
+            o.health = l.health.name
+            o.label = l.label
             o
         }.toTypedArray())
         h.setAreas(model.areas.map { a ->
             val o: dynamic = js("({})")
-            o.id = a.id; o.lng = a.center.longitude; o.lat = a.center.latitude; o.radiusKm = a.radiusKm; o.label = a.label
+            o.id = a.id
+            o.lng = a.center.longitude
+            o.lat = a.center.latitude
+            o.radiusKm = a.radiusKm
+            o.label = a.label
             o.health = a.health?.name
             o
         }.toTypedArray())

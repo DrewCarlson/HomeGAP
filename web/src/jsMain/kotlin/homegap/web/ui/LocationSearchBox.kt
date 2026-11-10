@@ -14,7 +14,7 @@ fun LocationSearchBox(
     matches: List<LocationOptionModel>,
     onQuery: (String) -> Unit,
     onPick: (String) -> Unit,
-    placeholder: String = "Search cities or providers: dallas, mumbai, hetzner…",
+    placeholder: String = "Search cities or providers: dallas, london, hetzner…",
 ) {
     Div({ classes("location-search") }) {
         Input(InputType.Search) {
@@ -22,7 +22,12 @@ fun LocationSearchBox(
             placeholder(placeholder)
             attr("aria-label", "Search locations")
             onInput { onQuery(it.value) }
-            onKeyDown { e -> if (e.key == "Enter" && matches.isNotEmpty()) { e.preventDefault(); onPick(matches.first().id) } }
+            onKeyDown { e ->
+                if (e.key == "Enter" && matches.isNotEmpty()) {
+                    e.preventDefault()
+                    onPick(matches.first().id)
+                }
+            }
         }
         if (query.isNotBlank()) {
             Ul({ classes("location-results") }) {

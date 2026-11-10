@@ -15,12 +15,19 @@ fun DnsScreen(model: DnsScreenModel) {
             model.records.forEach { record ->
                 key(record.key) {
                     Tr {
-                        Cell("Name", "mono", "primary-cell") { Text(record.name) }
+                        Cell("Name", "mono", "primary-cell") {
+                            Text(record.name)
+                        }
                         Cell("Type") { Tag(record.type) }
                         Cell("Value", "mono") { Text(record.value) }
                         Cell("Node") { Text(record.node) }
                         Cell("Routing", "muted") { Text(record.routing) }
-                        Cell("Monitor") { record.monitor?.let { Pill(it) } ?: Placeholder("none") }
+                        Cell("Monitor") {
+                            when (val monitor = record.monitor) {
+                                null -> Placeholder("none")
+                                else -> Pill(monitor)
+                            }
+                        }
                         Cell("State") { Pill(record.state) }
                     }
                 }

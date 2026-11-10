@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.disabled
 import org.jetbrains.compose.web.attributes.placeholder
+import org.jetbrains.compose.web.attributes.rows
 import org.jetbrains.compose.web.dom.*
 
 enum class ButtonStyle(val className: String?) { Default(null), Primary("primary"), Danger("danger") }
@@ -27,7 +28,7 @@ fun ActionButton(
     }) { Text(text) }
 }
 
-/** Labelled single-line text input. */
+/** Labeled single-line text input. */
 @Composable
 fun TextField(
     label: String,
@@ -74,15 +75,15 @@ fun NavLink(href: String, onNavigate: () -> Unit, classNames: List<String> = emp
     }) { content() }
 }
 
-/** Labelled multi-line text input. */
+/** Labeled multi-line text input. */
 @Composable
 fun TextAreaField(label: String, value: String, placeholder: String, rows: Int = 4, mono: Boolean = false, onChange: (String) -> Unit) {
     Label {
         Text(label)
         TextArea(value) {
             placeholder(placeholder)
-            attr("rows", rows.toString())
-            attr("spellcheck", "false")
+            rows(rows)
+            spellCheck(false)
             if (mono) classes("mono")
             onInput { onChange(it.value) }
         }

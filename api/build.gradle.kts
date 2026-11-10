@@ -5,7 +5,7 @@ plugins {
 
 kotlin {
     jvmToolchain(21)
-    js(IR) { browser { testTask { enabled = false } } }
+    js { browser { testTask { enabled = false } } }
     linuxX64()
     linuxArm64()
     macosArm64()

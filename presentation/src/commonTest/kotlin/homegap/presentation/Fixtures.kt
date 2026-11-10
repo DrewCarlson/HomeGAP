@@ -7,7 +7,9 @@ import homegap.presentation.core.Presenter
 import homegap.presentation.data.*
 import homegap.presentation.format.TimeFormatter
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.TestScope
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -52,7 +54,7 @@ class FakeControllerApi(
     override suspend fun secrets() = SecretsResponse(listOf(SecretRefDto("bunny", "DNS", "env:B", present = false)))
     override suspend fun config() = ConfigResponse("/config.yml", false, "domain: x", emptyList())
     override suspend fun speedtest() = speedtestValue
-    override suspend fun events(afterSeq: Long, onEvent: (ServerEvent) -> Unit) = awaitCancellation()
+    override suspend fun events(afterSeq: Long): Flow<ServerEvent> = flow { awaitCancellation() }
     override suspend fun resync() = ok("resync")
     override suspend fun provision(node: String) = ok("provision $node")
     override suspend fun retryUpdate(node: String) = ok("retry $node")

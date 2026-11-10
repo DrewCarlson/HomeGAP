@@ -9,7 +9,7 @@ import org.jetbrains.compose.web.dom.Div
 import org.jetbrains.compose.web.dom.Span
 import org.jetbrains.compose.web.dom.Text
 
-/** Coloured status pill; [small] for dense lists such as checks. */
+/** Colored status pill; [small] for dense lists such as checks. */
 @Composable
 fun Pill(badge: Badge, small: Boolean = false) {
     Span({
@@ -56,7 +56,7 @@ fun Stat(stat: StatModel) {
     }
 }
 
-/** Labelled number in a speed test result. */
+/** Labeled number in a speed test result. */
 @Composable
 fun Metric(metric: MetricModel) {
     Div({ classes("metric") }) {
