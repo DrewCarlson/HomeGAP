@@ -27,6 +27,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
 import kotlin.time.Duration.Companion.minutes
@@ -111,7 +112,7 @@ class NodeReconciler(
             log.info(domain, "paused: skipping provisioning and drift repair", node.id)
             val secrets = st.toSecrets() ?: placeholderSecrets()
             val (keyId, key) = cachedKey(node.id) ?: (null to null)
-            return Assessment(desired, ssh, secrets, emptyList(), st.stackHash ?: "", Kind.NONE, null, true, connectApi(node, ssh, slot, keyId, key))
+            return Assessment(desired, ssh, secrets, emptyList(), st.stackHash.orEmpty(), Kind.NONE, null, true, connectApi(node, ssh, slot, keyId, key))
         }
 
         val secrets = ensureSecrets(node, ssh)
@@ -328,7 +329,7 @@ class NodeReconciler(
 
     private fun homegap.state.NodeState.toSecrets(): NodeSecrets? {
         if (setupToken == null || serverSecret == null || adminEmail == null || adminPassword == null) return null
-        return NodeSecrets(setupToken, serverSecret, adminEmail, adminPassword, facts["crowdsecKey"] ?: "")
+        return NodeSecrets(setupToken, serverSecret, adminEmail, adminPassword, facts["crowdsecKey"].orEmpty())
     }
 
     private fun placeholderSecrets() = NodeSecrets("<generated>", "<generated>", NodeTemplates.adminEmail(ctx.config), "<generated>", "<generated>")
@@ -347,7 +348,7 @@ class NodeReconciler(
         st.facts["crowdsecKey"]?.takeIf { known != null && it.isNotEmpty() }?.let { return sharedSecrets(known!!, it) }
         val remote = ssh.runScript("cat ${shQuote("$dir/${NodeTemplates.SECRETS}")} 2>/dev/null || true", 60).stdout.trim()
             .takeIf { it.startsWith("{") }
-            ?.let { runCatching { LENIENT_JSON.decodeFromString(NodeSecrets.serializer(), it) }.getOrNull() }
+            ?.let { runCatching { LENIENT_JSON.decodeFromString<NodeSecrets>(it) }.getOrNull() }
         val shared = known ?: run {
             val recovered = remote?.takeIf { it.cluster }?.let {
                 ClusterPangolinState(it.serverSecret, it.setupToken, it.adminEmail, it.adminPassword, bootstrapped = true)
@@ -380,7 +381,7 @@ class NodeReconciler(
         val remote = ssh.runScript("cat ${shQuote("$dir/${NodeTemplates.SECRETS}")} 2>/dev/null || true", 60).stdout.trim()
         val secrets = if (remote.startsWith("{")) {
             log.info(domain, "recovered node secrets from the node", node.id)
-            LENIENT_JSON.decodeFromString(NodeSecrets.serializer(), remote).let {
+            LENIENT_JSON.decodeFromString<NodeSecrets>(remote).let {
                 if (it.crowdsecBouncerKey.isEmpty()) it.copy(crowdsecBouncerKey = Crypto.token(40)) else it
             }
         } else {

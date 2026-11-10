@@ -105,14 +105,18 @@ data class ControllerState(
 
 class StateStore(private val path: String) {
     private val logger = KotlinLogging.logger {}
-    private val json = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefaults = false }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        prettyPrint = true
+        encodeDefaults = false
+    }
     private val mutex = Mutex()
     private var state: ControllerState = load()
 
     private fun load(): ControllerState {
         val text = Files.readTextOrNull(path) ?: return ControllerState()
         return try {
-            json.decodeFromString(ControllerState.serializer(), text)
+            json.decodeFromString(text)
         } catch (e: Exception) {
             logger.error(e) { "State file $path is unreadable; starting from an empty cache (reality will be re-read)" }
             Files.writeAtomic("$path.corrupt", text, "600".toInt(8))
@@ -131,7 +135,7 @@ class StateStore(private val path: String) {
         val next = block(state)
         if (next != state) {
             state = next
-            Files.writeAtomic(path, json.encodeToString(ControllerState.serializer(), next), "600".toInt(8))
+            Files.writeAtomic(path, json.encodeToString(next), "600".toInt(8))
             revision.value++
         }
         state

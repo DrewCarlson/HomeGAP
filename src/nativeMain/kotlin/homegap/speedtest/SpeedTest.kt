@@ -21,7 +21,6 @@ import io.ktor.server.routing.*
 import io.ktor.utils.io.*
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
 
 /** Short-lived bearer tokens for the public speed test endpoints (in memory only). */
@@ -47,16 +46,29 @@ class SpeedTestTokens {
 }
 
 /** Recent results, persisted next to the controller state. */
-class SpeedTestStore(private val path: String, private val keep: Int = 300) {
+class SpeedTestStore(
+    private val path: String,
+    private val keep: Int = 300
+) {
     private val lock = SynchronizedObject()
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
-    private val serializer = ListSerializer(SpeedTestResultDto.serializer())
+    private val json = Json {
+        ignoreUnknownKeys = true
+        explicitNulls = false
+    }
     private var results: List<SpeedTestResultDto> =
-        Files.readTextOrNull(path)?.let { runCatching { json.decodeFromString(serializer, it) }.getOrNull() } ?: emptyList()
+        Files.readTextOrNull(path)
+            ?.let { runCatching { json.decodeFromString<List<SpeedTestResultDto>>(it) }.getOrNull() }
+            .orEmpty()
 
     fun add(r: SpeedTestResultDto) = synchronized(lock) {
         results = (listOf(r) + results).take(keep)
-        runCatching { Files.writeAtomic(path, json.encodeToString(serializer, results), "600".toInt(8)) }
+        runCatching {
+            Files.writeAtomic(
+                path = path,
+                content = json.encodeToString(results),
+                mode = "600".toInt(8)
+            )
+        }
     }
 
     fun recent(): List<SpeedTestResultDto> = synchronized(lock) { results }
@@ -79,17 +91,38 @@ class SpeedTestServer(
 
     fun start(host: String, port: Int) {
         // Reuse the address: after a restart the old process's connections linger in TIME_WAIT.
-        embeddedServer(CIO, configure = { reuseAddress = true; connector { this.host = host; this.port = port } }) { module() }.start(wait = false)
+        embeddedServer(
+            CIO,
+            configure = {
+                reuseAddress = true
+                connector {
+                    this.host = host
+                    this.port = port
+                }
+            }
+        ) {
+            module()
+        }.start(wait = false)
     }
 
     /** Node id for a per-node speed test hostname, or null for the auto hostname. */
     fun nodeFor(host: String): String? {
         val cfg = config()
-        return cfg.nodes.firstOrNull { cfg.speedtest.nodeHost(cfg.domain, it.id).equals(host, ignoreCase = true) }?.id
+        return cfg.nodes
+            .firstOrNull {
+                cfg.speedtest
+                    .nodeHost(cfg.domain, it.id)
+                    .equals(host, ignoreCase = true)
+            }?.id
     }
 
     fun Application.module() {
-        install(ContentNegotiation) { json(Json { explicitNulls = false; ignoreUnknownKeys = true }) }
+        install(ContentNegotiation) {
+            json(Json {
+                explicitNulls = false
+                ignoreUnknownKeys = true
+            })
+        }
         install(Authentication) {
             // Short-lived link tokens, sent as a header by the test page.
             provider(LINK_AUTH) {
@@ -97,8 +130,14 @@ class SpeedTestServer(
                     if (tokens.valid(context.call.request.header(TOKEN_HEADER))) {
                         context.principal(UserIdPrincipal("speedtest-link"))
                     } else {
-                        context.challenge(LINK_AUTH, AuthenticationFailedCause.InvalidCredentials) { challenge, call ->
-                            call.respond(HttpStatusCode.Unauthorized, "speed test link expired or invalid")
+                        context.challenge(
+                            key = LINK_AUTH,
+                            cause = AuthenticationFailedCause.InvalidCredentials
+                        ) { challenge, call ->
+                            call.respond(
+                                status = HttpStatusCode.Unauthorized,
+                                message = "speed test link expired or invalid"
+                            )
                             challenge.complete()
                         }
                     }
@@ -106,11 +145,27 @@ class SpeedTestServer(
             }
         }
         routing {
-            get("/") { if (status.serves(call.request.host())) statusPage() else page() }
-            get("/index.html") { if (status.serves(call.request.host())) statusPage() else page() }
+            get("/") {
+                if (status.serves(call.request.host())) {
+                    statusPage()
+                } else {
+                    page()
+                }
+            }
+            get("/index.html") {
+                if (status.serves(call.request.host())) {
+                    statusPage()
+                } else {
+                    page()
+                }
+            }
             // The status page's map: the tiles and the map's scripts, fonts and icons only.
-            get(homegap.dashboard.MapFiles.TILES_PATH) { with(homegap.dashboard.MapFiles) { serveTiles(config().map.tiles) } }
-            get("/map/{path...}") { with(homegap.dashboard.MapFiles) { serveMapAsset() } }
+            get(homegap.dashboard.MapFiles.TILES_PATH) {
+                with(homegap.dashboard.MapFiles) { serveTiles(config().map.tiles) }
+            }
+            get("/map/{path...}") {
+                with(homegap.dashboard.MapFiles) { serveMapAsset() }
+            }
             route("/status") {
                 install(NoStore)
                 get("/nodes") { statusNodes() }
@@ -139,14 +194,17 @@ class SpeedTestServer(
             put("node", nodeFor(call.request.host()))
             put("phaseSeconds", cfg.speedtest.phaseSeconds)
             putJsonObject("nodes") {
-                cfg.nodes.forEach { put(it.id, "https://" + cfg.speedtest.nodeHost(cfg.domain, it.id) + "/") }
+                cfg.nodes.forEach {
+                    put(it.id, "https://${cfg.speedtest.nodeHost(cfg.domain, it.id)}/")
+                }
             }
         })
     }
 
     /** Streams random bytes for `?seconds=` (default `speedtest.phase_seconds`, at most 30). */
     private suspend fun RoutingContext.download() {
-        val seconds = (call.request.queryParameters["seconds"]?.toIntOrNull() ?: config().speedtest.phaseSeconds).coerceIn(1, 30)
+        val seconds =
+            (call.request.queryParameters["seconds"]?.toIntOrNull() ?: config().speedtest.phaseSeconds).coerceIn(1, 30)
         val end = nowMillis() + seconds * 1000L
         call.respondBytesWriter(ContentType.Application.OctetStream) {
             while (nowMillis() < end) {
@@ -161,10 +219,18 @@ class SpeedTestServer(
         val request = call.receive<DeviceResultRequest>()
         store.add(
             SpeedTestResultDto(
-                id = newResultId(), at = nowMillis(), kind = "device", nodeId = nodeFor(call.request.host()),
-                auto = request.auto, pingMs = request.pingMs, jitterMs = request.jitterMs,
-                downMbps = request.downMbps, upMbps = request.upMbps, pingSamples = request.pingSamples,
-                error = request.error?.take(300), client = call.request.header(HttpHeaders.UserAgent)?.take(160),
+                id = newResultId(),
+                at = nowMillis(),
+                kind = "device",
+                nodeId = nodeFor(call.request.host()),
+                auto = request.auto,
+                pingMs = request.pingMs,
+                jitterMs = request.jitterMs,
+                downMbps = request.downMbps,
+                upMbps = request.upMbps,
+                pingSamples = request.pingSamples,
+                error = request.error?.take(300),
+                client = call.request.header(HttpHeaders.UserAgent)?.take(160),
             )
         )
         call.respond(HttpStatusCode.NoContent)
@@ -184,21 +250,25 @@ class SpeedTestServer(
         call.response.header(
             "Content-Security-Policy",
             "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-                "img-src 'self' data: blob:; worker-src 'self' blob:; child-src blob:; connect-src 'self' https:; " +
-                "base-uri 'none'; frame-ancestors 'none'",
+                    "img-src 'self' data: blob:; worker-src 'self' blob:; child-src blob:; connect-src 'self' https:; " +
+                    "base-uri 'none'; frame-ancestors 'none'",
         )
         call.respondText(StatusPage.HTML, ContentType.Text.Html)
     }
 
     private suspend fun RoutingContext.statusNodes() {
         val host = call.request.host()
-        if (!status.serves(host)) return call.respond(HttpStatusCode.NotFound)
+        if (!status.serves(host)) {
+            return call.respond(HttpStatusCode.NotFound)
+        }
         call.respond(status.build(host))
     }
 
     /** One round trip, timed by the visitor's browser from another node's status page (CORS). */
     private suspend fun RoutingContext.statusPing() {
-        if (!status.serves(call.request.host())) return call.respond(HttpStatusCode.NotFound)
+        if (!status.serves(call.request.host())) {
+            return call.respond(HttpStatusCode.NotFound)
+        }
         call.response.header(HttpHeaders.AccessControlAllowOrigin, "*")
         call.response.header("Timing-Allow-Origin", "*")
         call.respond(HttpStatusCode.NoContent)
@@ -264,8 +334,14 @@ object TunnelSpeedTest {
     private fun sh(s: String) = "'" + s.replace("'", "'\"'\"'") + "'"
 
     data class Parsed(
-        val pingMs: Double?, val jitterMs: Double?, val samples: Int, val downMbps: Double?, val upMbps: Double?, val error: String?,
-        val downStreams: List<Double> = emptyList(), val upStreams: List<Double> = emptyList(),
+        val pingMs: Double?,
+        val jitterMs: Double?,
+        val samples: Int,
+        val downMbps: Double?,
+        val upMbps: Double?,
+        val error: String?,
+        val downStreams: List<Double> = emptyList(),
+        val upStreams: List<Double> = emptyList(),
     )
 
     fun parse(out: String, host: String, streams: Int = 1): Parsed {
@@ -279,6 +355,7 @@ object TunnelSpeedTest {
                 else -> "$phase: HTTP $code"
             }
         }
+
         val pings = mutableListOf<Double>()
         var pingCode: String? = null
         val downs = mutableListOf<Double>()
@@ -287,18 +364,35 @@ object TunnelSpeedTest {
             val p = l.trim().split(' ')
             when (p.firstOrNull()) {
                 "P" -> if (p.size == 4) {
-                    if (p[3] !in setOf("200", "204")) pingCode = p[3]
-                    else pings += (p[2].toDouble() - p[1].toDouble()) * 1000.0
-                }
-                "D" -> if (p.size == 5) {
-                    if (p[4] != "200") codeError("download", p[4])
-                    else {
-                        val secs = p[3].toDouble() - p[2].toDouble()
-                        if (secs > 0) downs += p[1].toDouble() * 8 / secs / 1e6
+                    if (p[3] !in setOf("200", "204")) {
+                        pingCode = p[3]
+                    } else {
+                        pings += (p[2].toDouble() - p[1].toDouble()) * 1000.0
                     }
                 }
-                "U" -> if (p.size == 2 && p[1] != "200") codeError("upload", p[1])
-                else -> if (l.trim().startsWith("{")) uploadJson += l.trim()
+
+                "D" -> if (p.size == 5) {
+                    if (p[4] != "200") {
+                        codeError("download", p[4])
+                    } else {
+                        val secs = p[3].toDouble() - p[2].toDouble()
+                        if (secs > 0) {
+                            downs += p[1].toDouble() * 8 / secs / 1e6
+                        }
+                    }
+                }
+
+                "U" -> {
+                    if (p.size == 2 && p[1] != "200") {
+                        codeError("upload", p[1])
+                    }
+                }
+
+                else -> {
+                    if (l.trim().startsWith("{")) {
+                        uploadJson += l.trim()
+                    }
+                }
             }
         }
         pingCode?.let { codeError("ping", it) }
@@ -311,14 +405,24 @@ object TunnelSpeedTest {
             }.getOrNull()
         }
         if (streams > 1) {
-            if (downs.isNotEmpty() && downs.size < streams) errors += "download: only ${downs.size} of $streams streams completed"
-            if (ups.isNotEmpty() && ups.size < streams) errors += "upload: only ${ups.size} of $streams streams completed"
+            if (downs.isNotEmpty() && downs.size < streams) {
+                errors += "download: only ${downs.size} of $streams streams completed"
+            }
+            if (ups.isNotEmpty() && ups.size < streams) {
+                errors += "upload: only ${ups.size} of $streams streams completed"
+            }
         }
         val samples = pings.drop(1)
         val (avg, jitter) = stats(samples)
         return Parsed(
-            avg, jitter, samples.size, downs.takeIf { it.isNotEmpty() }?.sum(), ups.takeIf { it.isNotEmpty() }?.sum(),
-            errors.distinct().joinToString("; ").ifEmpty { null }, downs, ups,
+            pingMs = avg,
+            jitterMs = jitter,
+            samples = samples.size,
+            downMbps = downs.takeIf { it.isNotEmpty() }?.sum(),
+            upMbps = ups.takeIf { it.isNotEmpty() }?.sum(),
+            error = errors.distinct().joinToString("; ").ifEmpty { null },
+            downStreams = downs,
+            upStreams = ups,
         )
     }
 
@@ -326,7 +430,13 @@ object TunnelSpeedTest {
     fun stats(samples: List<Double>): Pair<Double?, Double?> {
         if (samples.isEmpty()) return null to null
         val avg = samples.average()
-        val jitter = if (samples.size < 2) 0.0 else samples.zipWithNext { a, b -> kotlin.math.abs(b - a) }.average()
+        val jitter = if (samples.size < 2) {
+            0.0
+        } else {
+            samples
+                .zipWithNext { a, b -> kotlin.math.abs(b - a) }
+                .average()
+        }
         return avg to jitter
     }
 }

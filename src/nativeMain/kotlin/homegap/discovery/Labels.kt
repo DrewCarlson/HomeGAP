@@ -115,10 +115,10 @@ data class ServiceSpec(
      * Stable identifier used to key every derived Pangolin/Bunny object. A named service adds its
      * name after `--`, which a hostname's slug never contains.
      */
-    val key: String get() = slug(hostname) + (name?.let { "--" + slug(it) } ?: "")
+    val key: String get() = slug(hostname) + (name?.let { "--" + slug(it) }.orEmpty())
 
     /** Shown in logs and errors: the container, and the service's name when it has one. */
-    val label: String get() = containerName + (name?.let { " ($it)" } ?: "")
+    val label: String get() = containerName + (name?.let { " ($it)" }.orEmpty())
 
     fun servesNode(nodeId: String): Boolean = regions == null || nodeId in regions
 }

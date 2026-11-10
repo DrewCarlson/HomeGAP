@@ -214,7 +214,7 @@ object ClusterTemplates {
      * so a change recreates only that service.
      */
     fun nodeCompose(image: String, configHashes: Map<String, String>): String {
-        fun label(service: String) = configHashes[service]?.let { "\n    labels: { org.homegap.config: \"$it\" }" } ?: ""
+        fun label(service: String) = configHashes[service]?.let { "\n    labels: { org.homegap.config: \"$it\" }" }.orEmpty()
         return """
             |# Managed by HomeGAP: this node's cluster member. Changes are overwritten.
             |name: homegap-cluster

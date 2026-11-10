@@ -10,7 +10,8 @@ import homegap.config.AppConfig
 import homegap.platform.Files
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.sin
@@ -41,11 +42,15 @@ data class LocationEntry(
 class LocationCatalog(config: AppConfig) {
     private val path = "${config.dataDir}/locations.yml"
     private val yaml = Yaml(configuration = YamlConfiguration(strictMode = false, encodeDefaults = false))
-    private val serializer = ListSerializer(LocationEntry.serializer())
-    private val builtIn: List<LocationEntry> by lazy { yaml.decodeFromString(serializer, BuiltInLocations.yaml) }
+    private val builtIn: List<LocationEntry> by lazy {
+        yaml.decodeFromString<List<LocationEntry>>(BuiltInLocations.yaml)
+    }
 
     private fun local(): List<LocationEntry> =
-        Files.readTextOrNull(path)?.takeIf { it.isNotBlank() }?.let { yaml.decodeFromString(serializer, it) }.orEmpty()
+        Files.readTextOrNull(path)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { yaml.decodeFromString<List<LocationEntry>>(it) }
+            .orEmpty()
 
     fun all(): List<LocationDto> = merge(builtIn, local())
 
@@ -71,8 +76,8 @@ class LocationCatalog(config: AppConfig) {
 
     private fun save(entries: List<LocationEntry>) {
         val header = "# Locations added or edited in the HomeGAP dashboard. Entries with a shipped id replace it;\n" +
-            "# `hidden: true` hides one.\n"
-        Files.writeAtomic(path, header + yaml.encodeToString(serializer, entries.sortedBy { it.id }))
+                "# `hidden: true` hides one.\n"
+        Files.writeAtomic(path, header + yaml.encodeToString(entries.sortedBy { it.id }))
     }
 
     companion object {
@@ -89,7 +94,8 @@ class LocationCatalog(config: AppConfig) {
                     else -> o.toDto(builtIn = true, edited = true)
                 }
             }
-            val added = local.filter { l -> !l.hidden && builtIn.none { it.id == l.id } }.map { it.toDto(builtIn = false, edited = false) }
+            val added = local.filter { l -> !l.hidden && builtIn.none { it.id == l.id } }
+                .map { it.toDto(builtIn = false, edited = false) }
             return (shipped + added).sortedWith(compareBy({ it.region }, { it.country }, { it.name }))
         }
 
@@ -110,7 +116,8 @@ class LocationCatalog(config: AppConfig) {
         /** Great-circle distance in km. */
         fun distanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
             val r = kotlin.math.PI / 180
-            val a = sin((lat2 - lat1) * r / 2).let { it * it } + cos(lat1 * r) * cos(lat2 * r) * sin((lon2 - lon1) * r / 2).let { it * it }
+            val a =
+                sin((lat2 - lat1) * r / 2).let { it * it } + cos(lat1 * r) * cos(lat2 * r) * sin((lon2 - lon1) * r / 2).let { it * it }
             return 2 * 6371.0 * asin(sqrt(a))
         }
     }

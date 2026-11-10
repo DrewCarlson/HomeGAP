@@ -26,7 +26,7 @@ class ReconcileLog(private val capacity: Int = 1000) {
     fun error(domain: String, message: String, target: String? = null) = add(LogLevel.ERROR, domain, message, target)
 
     private fun add(level: LogLevel, domain: String, message: String, target: String?) {
-        val line = "[$domain]${target?.let { " [$it]" } ?: ""} $message"
+        val line = "[$domain]${target?.let { " [$it]" }.orEmpty()} $message"
         when (level) {
             LogLevel.ERROR -> logger.error { line }
             LogLevel.WARN -> logger.warn { line }

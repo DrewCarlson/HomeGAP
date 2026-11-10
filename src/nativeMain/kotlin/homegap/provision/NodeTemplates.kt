@@ -74,7 +74,7 @@ object NodeTemplates {
             RenderedFile(".env", envFile(secrets, config.pangolin.crowdsec), "0600"),
             RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot, cluster), "0600").apply { restarts = "pangolin" },
             RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts, cluster != null)).apply { restarts = "traefik" },
-            RenderedFile(SECRETS, PRETTY_JSON.encodeToString(NodeSecrets.serializer(), secrets), "0600"),
+            RenderedFile(SECRETS, PRETTY_JSON.encodeToString(secrets), "0600"),
         )
         files += RenderedFile("${MaintenancePage.DIR}/server.py", MaintenancePage.SCRIPT).apply { restarts = MaintenancePage.SERVICE }
         files += RenderedFile("${MaintenancePage.DIR}/index.html", MaintenancePage.page(config.domain, node.id))

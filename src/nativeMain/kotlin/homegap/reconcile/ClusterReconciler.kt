@@ -27,7 +27,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlin.concurrent.Volatile
 import kotlin.io.encoding.Base64
@@ -367,7 +366,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     private val historyJson = Json { ignoreUnknownKeys = true }
 
     fun history(): List<PrimaryChangeDto> = Files.readTextOrNull(historyFile)
-        ?.let { runCatching { historyJson.decodeFromString(ListSerializer(PrimaryChangeDto.serializer()), it) }.getOrNull() }
+        ?.let { runCatching { historyJson.decodeFromString<List<PrimaryChangeDto>>(it) }.getOrNull() }
         .orEmpty()
 
     /** Appends a change of primary to the history (kept in the data directory, newest first). */
@@ -379,7 +378,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         val cause = pendingCause ?: if (last == null) "initial" else "failover"
         pendingCause = null
         val next = (listOf(PrimaryChangeDto(nowMillis(), last, leader, cause)) + past).take(HISTORY)
-        Files.writeAtomic(historyFile, historyJson.encodeToString(ListSerializer(PrimaryChangeDto.serializer()), next))
+        Files.writeAtomic(historyFile, historyJson.encodeToString(next))
     }
 
     // ------------------------------------------------------------------ departed nodes
@@ -451,11 +450,11 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     // ------------------------------------------------------------------ secrets and files
 
     fun secrets(): ClusterSecrets {
-        Files.readTextOrNull(secretsFile)?.let { return json.decodeFromString(ClusterSecrets.serializer(), it) }
+        Files.readTextOrNull(secretsFile)?.let { return json.decodeFromString(it) }
         val created = ClusterSecrets(Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32))
         Files.mkdirs(dir)
         Files.chmodPath(dir, "700".toInt(8))
-        Files.writeAtomic(secretsFile, json.encodeToString(ClusterSecrets.serializer(), created), "600".toInt(8))
+        Files.writeAtomic(secretsFile, json.encodeToString(created), "600".toInt(8))
         return created
     }
 

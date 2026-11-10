@@ -1,6 +1,7 @@
 package homegap
 
 import dev.zacsweers.metro.createGraphFactory
+import homegap.api.ActionResponse
 import homegap.config.ConfigLoader
 import homegap.di.ControllerGraph
 import homegap.di.RunOptions
@@ -63,7 +64,7 @@ fun main(args: Array<String>) {
                 plan.labelWarnings.forEach { println("WARN  ${it.container}: ${it.message}") }
                 for ((id, n) in plan.nodes) {
                     println("node $id (${n.managementHost})")
-                    n.publicResources.forEach { println("  public  ${it.niceId}: ${it.mode.wire} ${it.fullDomain ?: ":${it.proxyPort}"} -> ${it.target.host}:${it.target.port}${it.target.method?.let { m -> " ($m)" } ?: ""}") }
+                    n.publicResources.forEach { println("  public  ${it.niceId}: ${it.mode.wire} ${it.fullDomain ?: ":${it.proxyPort}"} -> ${it.target.host}:${it.target.port}${it.target.method?.let { m -> " ($m)" }.orEmpty()}") }
                     n.privateResources.forEach { println("  private ${it.niceId}: ${it.alias} -> ${it.destination} tcp=${it.tcpPorts} udp=${it.udpPorts}") }
                     n.sniRoutes.forEach { println("  sni     ${it.name}: ${NodeTemplates.sniRule(it)}") }
                     n.rawPorts.forEach { println("  port    ${it.entryPoint}") }
@@ -138,7 +139,7 @@ private fun maintenance(configPath: String, action: String, minutes: Int) = runB
             token?.let { header(io.ktor.http.HttpHeaders.Authorization, "Bearer $it") }
         }
         val body = r.bodyAsText()
-        val message = runCatching { Json.decodeFromString(homegap.api.ActionResponse.serializer(), body).message }.getOrDefault(body)
+        val message = runCatching { Json.decodeFromString<ActionResponse>(body).message }.getOrDefault(body)
         if (!r.status.isSuccess()) {
             eprintln("homegap maintenance $action: $message")
             exitProcess(1)

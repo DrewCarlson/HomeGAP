@@ -86,12 +86,21 @@ class PatroniClient(private val http: HttpClient, user: String, password: String
 
     /** A planned switchover: no data loss, writes pause for a moment. */
     suspend fun switchover(baseUrl: String, leader: String, candidate: String) =
-        post("$baseUrl/switchover", buildJsonObject { put("leader", leader); put("candidate", candidate) })
+        post(
+            url = "$baseUrl/switchover",
+            body = buildJsonObject {
+                put("leader", leader)
+                put("candidate", candidate)
+            }
+        )
 
     private suspend fun post(url: String, body: JsonObject?) {
         val r = http.post(url) {
             header(HttpHeaders.Authorization, auth)
-            body?.let { contentType(ContentType.Application.Json); setBody(it.toString()) }
+            body?.let {
+                contentType(ContentType.Application.Json)
+                setBody(it.toString())
+            }
             timeout { requestTimeoutMillis = 60_000 }
         }
         check(r.status.isSuccess()) { "Patroni ${url.substringAfterLast('/')}: HTTP ${r.status.value} ${r.bodyAsText().take(200)}" }

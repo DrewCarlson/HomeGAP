@@ -73,7 +73,7 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
                     invitations = invitations.await().map { i ->
                         AccessInvitationDto(i.inviteId, i.email, i.roles.map { it.roleName ?: names[it.roleId] ?: "role ${it.roleId}" }, i.expiresAt)
                     },
-                    devices = devices.sortedWith(compareBy({ !it.online }, { it.user ?: "" }, { it.name })),
+                    devices = devices.sortedWith(compareBy({ !it.online }, { it.user.orEmpty() }, { it.name })),
                 )
             }
         } catch (e: Exception) {

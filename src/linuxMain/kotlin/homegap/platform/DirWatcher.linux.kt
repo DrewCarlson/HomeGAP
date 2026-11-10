@@ -19,7 +19,10 @@ actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): F
     val fd = inotify_init1(IN_CLOEXEC)
     if (fd < 0) {
         // No inotify (unusual container restrictions): fall back to scanning.
-        while (true) { delay(3.seconds); emit(Unit) }
+        while (true) {
+            delay(3.seconds)
+            emit(Unit)
+        }
     }
     try {
         val mask = (IN_CLOSE_WRITE or IN_MOVED_TO or IN_MOVED_FROM or IN_DELETE or IN_CREATE).toUInt()
@@ -28,7 +31,10 @@ actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): F
         while (true) {
             // Blocks this IO thread until something changes; no wakeups while idle.
             val n = buf.usePinned { read(fd, it.addressOf(0), buf.size.convert()) }
-            if (n < 0) { delay(1.seconds); continue }
+            if (n < 0) {
+                delay(1.seconds)
+                continue
+            }
             if (eventNames(buf, n.toInt()).any(accept)) emit(Unit)
         }
     } finally {
@@ -42,7 +48,7 @@ internal fun eventNames(buf: ByteArray, n: Int): List<String> {
     var off = 0
     while (off + 16 <= n) {
         val len = (buf[off + 12].toInt() and 0xff) or ((buf[off + 13].toInt() and 0xff) shl 8) or
-            ((buf[off + 14].toInt() and 0xff) shl 16) or ((buf[off + 15].toInt() and 0xff) shl 24)
+                ((buf[off + 14].toInt() and 0xff) shl 16) or ((buf[off + 15].toInt() and 0xff) shl 24)
         val start = off + 16
         if (len > 0 && start + len <= n) {
             var end = start

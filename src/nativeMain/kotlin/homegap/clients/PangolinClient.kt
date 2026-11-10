@@ -13,7 +13,11 @@ import kotlin.io.encoding.Base64
 
 class PangolinApiException(val status: Int, message: String) : Exception(message)
 
-private val lenient = Json { ignoreUnknownKeys = true; explicitNulls = false; isLenient = true }
+private val lenient = Json {
+    ignoreUnknownKeys = true
+    explicitNulls = false
+    isLenient = true
+}
 
 /** Decodes Pangolin's `{data, success, error, message, status}` envelope. */
 internal suspend fun HttpResponse.pangolinData(): JsonElement {
@@ -139,7 +143,12 @@ data class PangolinClientEntry(
 )
 
 @Serializable
-data class PangolinDomain(val domainId: String, val baseDomain: String, val verified: Boolean? = null, val type: String? = null)
+data class PangolinDomain(
+    val domainId: String,
+    val baseDomain: String,
+    val verified: Boolean? = null,
+    val type: String? = null
+)
 
 /**
  * Pangolin Integration API client (`/v1`, Bearer `<apiKeyId>.<secret>`).
@@ -181,16 +190,23 @@ open class PangolinClient(
         lenient.decodeFromJsonElement(get("/org/$orgId/domains").jsonObject["domains"] ?: JsonArray(emptyList()))
 
     open suspend fun listSites(orgId: String): List<PangolinSite> =
-        lenient.decodeFromJsonElement(get("/org/$orgId/sites?pageSize=1000").jsonObject["sites"] ?: JsonArray(emptyList()))
+        lenient.decodeFromJsonElement(
+            get("/org/$orgId/sites?pageSize=1000").jsonObject["sites"] ?: JsonArray(emptyList())
+        )
 
-    open suspend fun pickSiteDefaults(orgId: String): SiteDefaults = lenient.decodeFromJsonElement(get("/org/$orgId/pick-site-defaults"))
+    open suspend fun pickSiteDefaults(orgId: String): SiteDefaults =
+        lenient.decodeFromJsonElement(get("/org/$orgId/pick-site-defaults"))
 
     open suspend fun createNewtSite(orgId: String, name: String, niceId: String, d: SiteDefaults): PangolinSite {
         val body = buildJsonObject {
-            put("name", name); put("niceId", niceId); put("type", "newt"); put("exitNodeId", d.exitNodeId)
+            put("name", name)
+            put("niceId", niceId)
+            put("type", "newt")
+            put("exitNodeId", d.exitNodeId)
             d.subnet?.let { put("subnet", it) }
             d.clientAddress?.let { put("address", it) }
-            put("newtId", d.newtId); put("secret", d.newtSecret)
+            put("newtId", d.newtId)
+            put("secret", d.newtSecret)
         }
         return lenient.decodeFromJsonElement(send(HttpMethod.Put, "/org/$orgId/site", body))
     }
@@ -198,7 +214,9 @@ open class PangolinClient(
     /** Rotates a newt site's secret (used when controller state was lost). Returns the newtId. */
     open suspend fun regenerateNewtSecret(siteId: Int, secret: String): String? {
         val data = send(HttpMethod.Post, "/re-key/$siteId/regenerate-site-secret", buildJsonObject {
-            put("type", "newt"); put("secret", secret); put("disconnect", true)
+            put("type", "newt")
+            put("secret", secret)
+            put("disconnect", true)
         })
         return (data as? JsonObject)?.get("newtId")?.jsonPrimitive?.contentOrNull
     }
@@ -209,7 +227,11 @@ open class PangolinClient(
     }
 
     open suspend fun listResources(orgId: String): List<PangolinResource> =
-        lenient.decodeFromJsonElement(get("/org/$orgId/resources?pageSize=1000").jsonObject["resources"] ?: JsonArray(emptyList()))
+        lenient.decodeFromJsonElement(
+            get("/org/$orgId/resources?pageSize=1000").jsonObject["resources"] ?: JsonArray(
+                emptyList()
+            )
+        )
 
     open suspend fun deleteResource(resourceId: Int) {
         send(HttpMethod.Delete, "/resource/$resourceId", null)
@@ -232,16 +254,30 @@ open class PangolinClient(
     // ------------------------------------------------------------------ users and devices
 
     open suspend fun listRoles(orgId: String): List<PangolinRole> =
-        lenient.decodeFromJsonElement(get("/org/$orgId/roles?pageSize=1000").jsonObject["roles"] ?: JsonArray(emptyList()))
+        lenient.decodeFromJsonElement(
+            get("/org/$orgId/roles?pageSize=1000").jsonObject["roles"] ?: JsonArray(emptyList())
+        )
 
     open suspend fun listUsers(orgId: String): List<PangolinUser> =
-        lenient.decodeFromJsonElement(get("/org/$orgId/users?pageSize=1000").jsonObject["users"] ?: JsonArray(emptyList()))
+        lenient.decodeFromJsonElement(
+            get("/org/$orgId/users?pageSize=1000").jsonObject["users"] ?: JsonArray(emptyList())
+        )
 
     open suspend fun listInvitations(orgId: String): List<PangolinInvitation> =
-        lenient.decodeFromJsonElement(get("/org/$orgId/invitations?limit=1000").jsonObject["invitations"] ?: JsonArray(emptyList()))
+        lenient.decodeFromJsonElement(
+            get("/org/$orgId/invitations?limit=1000").jsonObject["invitations"] ?: JsonArray(
+                emptyList()
+            )
+        )
 
     /** Invites [email] (no email is sent) and returns the invite link; [regenerate] replaces an open invite. */
-    open suspend fun createInvite(orgId: String, email: String, roleIds: List<Int>, validHours: Int, regenerate: Boolean): String {
+    open suspend fun createInvite(
+        orgId: String,
+        email: String,
+        roleIds: List<Int>,
+        validHours: Int,
+        regenerate: Boolean
+    ): String {
         val data = send(HttpMethod.Post, "/org/$orgId/create-invite", buildJsonObject {
             put("email", email)
             putJsonArray("roleIds") { roleIds.forEach { add(it) } }
@@ -249,7 +285,10 @@ open class PangolinClient(
             put("sendEmail", false)
             put("regenerate", regenerate)
         })
-        return data.jsonObject["inviteLink"]?.jsonPrimitive?.contentOrNull ?: throw PangolinApiException(500, "the invite has no link")
+        return data.jsonObject["inviteLink"]?.jsonPrimitive?.contentOrNull ?: throw PangolinApiException(
+            500,
+            "the invite has no link"
+        )
     }
 
     open suspend fun removeInvitation(orgId: String, inviteId: String) {
@@ -269,14 +308,19 @@ open class PangolinClient(
     }
 
     open suspend fun listClients(orgId: String): List<PangolinClientEntry> =
-        lenient.decodeFromJsonElement(get("/org/$orgId/clients?pageSize=1000").jsonObject["clients"] ?: JsonArray(emptyList()))
+        lenient.decodeFromJsonElement(
+            get("/org/$orgId/clients?pageSize=1000").jsonObject["clients"] ?: JsonArray(
+                emptyList()
+            )
+        )
 
     open suspend fun listUserDevices(orgId: String): List<PangolinClientEntry> {
         val data = get("/org/$orgId/user-devices?pageSize=1000").jsonObject
         return lenient.decodeFromJsonElement(data["devices"] ?: data["clients"] ?: JsonArray(emptyList()))
     }
 
-    open suspend fun getClient(clientId: Int): PangolinClientEntry = lenient.decodeFromJsonElement(get("/client/$clientId"))
+    open suspend fun getClient(clientId: Int): PangolinClientEntry =
+        lenient.decodeFromJsonElement(get("/client/$clientId"))
 
     /** `archive`, `unarchive`, `block` or `unblock`. */
     open suspend fun clientAction(clientId: Int, action: String) {
@@ -312,22 +356,34 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
         }
 
     suspend fun initialSetupComplete(): Boolean =
-        call(HttpMethod.Get, "/auth/initial-setup-complete").pangolinData().jsonObject["complete"]?.jsonPrimitive?.booleanOrNull ?: false
+        call(
+            HttpMethod.Get,
+            "/auth/initial-setup-complete"
+        ).pangolinData().jsonObject["complete"]?.jsonPrimitive?.booleanOrNull ?: false
 
     suspend fun setServerAdmin(email: String, password: String, setupToken: String) {
         call(HttpMethod.Put, "/auth/set-server-admin", buildJsonObject {
-            put("email", email); put("password", password); put("setupToken", setupToken)
+            put("email", email)
+            put("password", password)
+            put("setupToken", setupToken)
         }).pangolinData()
     }
 
     suspend fun login(email: String, password: String) {
-        val resp = call(HttpMethod.Post, "/auth/login", buildJsonObject { put("email", email); put("password", password) })
+        val resp = call(
+            method = HttpMethod.Post,
+            path = "/auth/login",
+            body = buildJsonObject {
+                put("email", email)
+                put("password", password)
+            }
+        )
         resp.pangolinData()
         session = resp.setCookie().firstOrNull { it.name == "p_session_token" }?.value
             ?: resp.headers.getAll(HttpHeaders.SetCookie)?.firstNotNullOfOrNull { h ->
                 h.split(';').first().trim().takeIf { it.startsWith("p_session_token=") }?.substringAfter('=')
             }
-            ?: throw PangolinApiException(resp.status.value, "login did not return a session cookie")
+                    ?: throw PangolinApiException(resp.status.value, "login did not return a session cookie")
     }
 
     suspend fun orgExists(orgId: String): Boolean = runCatching {
@@ -342,8 +398,10 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
     suspend fun createOrg(orgId: String, name: String) {
         val defaults = call(HttpMethod.Get, "/pick-org-defaults").pangolinData().jsonObject
         call(HttpMethod.Put, "/org", buildJsonObject {
-            put("orgId", orgId); put("name", name)
-            put("subnet", defaults["subnet"]!!); put("utilitySubnet", defaults["utilitySubnet"]!!)
+            put("orgId", orgId)
+            put("name", name)
+            put("subnet", defaults["subnet"]!!)
+            put("utilitySubnet", defaults["utilitySubnet"]!!)
         }).pangolinData()
     }
 
@@ -357,7 +415,7 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
         val d = call(HttpMethod.Get, "/api-keys").pangolinData().jsonObject
         return (d["apiKeys"] as? JsonArray).orEmpty().map {
             val o = it.jsonObject
-            o["apiKeyId"]!!.jsonPrimitive.content to (o["name"]?.jsonPrimitive?.contentOrNull ?: "")
+            o["apiKeyId"]!!.jsonPrimitive.content to (o["name"]?.jsonPrimitive?.contentOrNull.orEmpty())
         }
     }
 
@@ -384,8 +442,10 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
         val inviteId = inviteToken.substringBefore('-')
         val token = inviteToken.substringAfter('-')
         val resp = call(HttpMethod.Put, "/auth/signup", buildJsonObject {
-            put("email", email); put("password", password)
-            put("inviteId", inviteId); put("inviteToken", token)
+            put("email", email)
+            put("password", password)
+            put("inviteId", inviteId)
+            put("inviteToken", token)
             put("skipVerificationEmail", true)
         })
         resp.pangolinData()
@@ -394,7 +454,14 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
         val previous = session
         session = userSession
         try {
-            call(HttpMethod.Post, "/invite/accept", buildJsonObject { put("inviteId", inviteId); put("token", token) }).pangolinData()
+            call(
+                HttpMethod.Post,
+                "/invite/accept",
+                buildJsonObject {
+                    put("inviteId", inviteId)
+                    put("token", token)
+                }
+            ).pangolinData()
         } finally {
             session = previous
         }
@@ -410,18 +477,61 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
     companion object {
         /** Least-privilege action set the orchestrator's per-node key needs. */
         val ORCHESTRATOR_ACTIONS = listOf(
-            "getOrg", "listOrgs", "listOrgDomains", "getDomain",
-            "createSite", "getSite", "listSites", "updateSite", "deleteSite", "reGenerateSecret", "createNewt",
-            "createResource", "deleteResource", "getResource", "listResources", "updateResource",
-            "createTarget", "deleteTarget", "getTarget", "listTargets", "updateTarget",
-            "createSiteResource", "deleteSiteResource", "getSiteResource", "listSiteResources", "updateSiteResource",
-            "listRoles", "getRole", "setResourceRoles", "listResourceRoles", "setResourceUsers", "listResourceUsers",
-            "setResourcePincode", "applyBlueprint", "listBlueprints", "getBlueprint",
-            "listHealthChecks", "getCertificate", "restartCertificate",
+            "getOrg",
+            "listOrgs",
+            "listOrgDomains",
+            "getDomain",
+            "createSite",
+            "getSite",
+            "listSites",
+            "updateSite",
+            "deleteSite",
+            "reGenerateSecret",
+            "createNewt",
+            "createResource",
+            "deleteResource",
+            "getResource",
+            "listResources",
+            "updateResource",
+            "createTarget",
+            "deleteTarget",
+            "getTarget",
+            "listTargets",
+            "updateTarget",
+            "createSiteResource",
+            "deleteSiteResource",
+            "getSiteResource",
+            "listSiteResources",
+            "updateSiteResource",
+            "listRoles",
+            "getRole",
+            "setResourceRoles",
+            "listResourceRoles",
+            "setResourceUsers",
+            "listResourceUsers",
+            "setResourcePincode",
+            "applyBlueprint",
+            "listBlueprints",
+            "getBlueprint",
+            "listHealthChecks",
+            "getCertificate",
+            "restartCertificate",
             // Users and devices, managed from the dashboard.
-            "listUsers", "getOrgUser", "inviteUser", "listInvitations", "removeInvitation", "removeUser",
-            "addUserRole", "removeUserRole",
-            "listClients", "getClient", "archiveClient", "unarchiveClient", "blockClient", "unblockClient", "deleteClient",
+            "listUsers",
+            "getOrgUser",
+            "inviteUser",
+            "listInvitations",
+            "removeInvitation",
+            "removeUser",
+            "addUserRole",
+            "removeUserRole",
+            "listClients",
+            "getClient",
+            "archiveClient",
+            "unarchiveClient",
+            "blockClient",
+            "unblockClient",
+            "deleteClient",
         )
     }
 }

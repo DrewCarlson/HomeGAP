@@ -68,7 +68,7 @@ class NodeSetupTest {
     fun confirmFailsWhenARevertTimerAlreadyFired() {
         val script = SetupScripts.confirm(listOf("ufw", "ssh"))
         assertTrue("[ -f /run/homegap-setup-ufw.armed ] ||" in script && "[ -f /run/homegap-setup-ssh.armed ] ||" in script)
-        assertTrue(script.indexOf("exit 1") < script.indexOf("rm -f"), "every timer is checked before any is cancelled")
+        assertTrue(script.indexOf("exit 1") < script.indexOf("rm -f"), "every timer is checked before any is canceled")
     }
 
     @Test
