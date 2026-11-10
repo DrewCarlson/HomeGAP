@@ -7,6 +7,8 @@ import * as basemaps from "./lib/basemaps.mjs";
 const BASE = new URL(".", import.meta.url).href;
 const ATTRIBUTION = '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors · <a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a>';
 const HEALTH = ["OK", "DEGRADED", "DOWN", "UNKNOWN"];
+/** Vertical spacing of markers stacked apart when they would overlap (px). */
+const ROW = 20;
 
 let setup;
 /** Loads the PMTiles protocol and the stylesheet once per page. */
@@ -123,6 +125,17 @@ function circle(center, radiusKm, n = 64) {
     ring.push([center[0] + dx, center[1] + dy]);
   }
   return ring;
+}
+
+/** A popup offset 14px from a marker drawn at offset `o` from its point, for every anchor. */
+function popupOffset(o) {
+  const d = 14;
+  const at = (x, y) => [o.x + x, o.y + y];
+  return {
+    center: at(0, 0), top: at(0, d), bottom: at(0, -d), left: at(d, 0), right: at(-d, 0),
+    "top-left": at(d * 0.7, d * 0.7), "top-right": at(-d * 0.7, d * 0.7),
+    "bottom-left": at(d * 0.7, -d * 0.7), "bottom-right": at(-d * 0.7, -d * 0.7),
+  };
 }
 
 function escape(s) {
@@ -244,6 +257,60 @@ export async function createMap(container, options = {}) {
     map.on("click", (e) => options.onClick(e.lngLat.wrap().lng, e.lngLat.wrap().lat));
   }
 
+  /**
+   * Markers that would cover each other at this zoom (a node in a city and a homelab just outside
+   * it, zoomed out to the world) are stacked in a column, north first, each with a short leader
+   * line to its true spot. Only the drawn position moves: once zooming in has separated them they
+   * sit exactly on their locations again. Known locations ("place") are never moved.
+   */
+  function declutter() {
+    const live = markers.filter((m) => m.spread);
+    const pts = live.map((m) => {
+      const p = map.project(m.marker.getLngLat());
+      return { m, x: p.x, y: p.y };
+    });
+    // Two markers clash when their dots (and so the start of their labels) would overlap.
+    const clash = (a, b) => Math.hypot(a.x - b.x, a.y - b.y) < ROW;
+    const group = pts.map((_, i) => i);
+    const root = (i) => (group[i] === i ? i : (group[i] = root(group[i])));
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) if (clash(pts[i], pts[j])) group[root(i)] = root(j);
+    const groups = new Map();
+    pts.forEach((p, i) => groups.set(root(i), [...(groups.get(root(i)) || []), p]));
+    for (const g of groups.values()) {
+      g.sort((a, b) => a.y - b.y || a.x - b.x);
+      const cx = g.reduce((t, p) => t + p.x, 0) / g.length;
+      const cy = g.reduce((t, p) => t + p.y, 0) / g.length;
+      g.forEach((p, i) => {
+        const dx = g.length > 1 ? cx - p.x : 0;
+        const dy = g.length > 1 ? cy + (i - (g.length - 1) / 2) * ROW - p.y : 0;
+        p.m.marker.setOffset([dx, dy]);
+        let leader = p.m.el.querySelector(".hg-leader");
+        const len = Math.hypot(dx, dy);
+        if (len < 3) { leader?.remove(); return; }
+        if (!leader) {
+          leader = document.createElement("span");
+          leader.className = "hg-leader";
+          p.m.el.prepend(leader);
+        }
+        // From the drawn dot back to the true location.
+        leader.style.width = `${len}px`;
+        leader.style.transform = `rotate(${Math.atan2(-dy, -dx)}rad)`;
+      });
+    }
+    // A label that would run over another marker's dot goes on the dot's left instead, when
+    // that side is clear.
+    const drawn = live.map((m) => {
+      const p = map.project(m.marker.getLngLat());
+      const o = m.marker.getOffset();
+      return { m, x: p.x + o.x, y: p.y + o.y, w: m.el.querySelector(".hg-label")?.offsetWidth || 0 };
+    });
+    const covers = (a, left) => drawn.some((b) => b !== a && Math.abs(b.y - a.y) < 12 &&
+      (left ? b.x > a.x - 18 - a.w - 7 && b.x < a.x - 7 : b.x > a.x + 7 && b.x < a.x + 18 + a.w + 7));
+    for (const a of drawn) a.m.el.classList.toggle("hg-label-left", a.w > 0 && covers(a, false) && !covers(a, true));
+  }
+  map.on("zoom", declutter);
+  map.on("resize", declutter);
+
   const handle = {
     /**
      * markers: [{ id, lng, lat, health, kind: "node"|"homelab", label, highlight, info, onClick }]
@@ -264,17 +331,20 @@ export async function createMap(container, options = {}) {
         if (m.info) {
           popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14, className: "hg-popup", maxWidth: "280px" })
             .setHTML(popupHtml(m.info));
-          el.addEventListener("mouseenter", () => popup.setLngLat(marker.getLngLat()).addTo(map));
+          // Opened next to the drawn dot, which declutter() may have moved off the true point.
+          const open = () => popup.setOffset(popupOffset(marker.getOffset())).setLngLat(marker.getLngLat()).addTo(map);
+          el.addEventListener("mouseenter", open);
           el.addEventListener("mouseleave", () => popup.remove());
         }
         el.addEventListener("click", (e) => {
           e.stopPropagation();
           if (m.onClick) m.onClick(m.id);
-          else if (popup) popup.isOpen() ? popup.remove() : popup.setLngLat(marker.getLngLat()).addTo(map);
+          else if (popup) popup.isOpen() ? popup.remove() : popup.setOffset(popupOffset(marker.getOffset())).setLngLat(marker.getLngLat()).addTo(map);
         });
         if (m.onClick) el.style.cursor = "pointer";
-        return { remove: () => { popup?.remove(); marker.remove(); }, refresh: () => {} };
+        return { el, marker, spread: m.kind !== "place", remove: () => { popup?.remove(); marker.remove(); }, refresh: () => {} };
       });
+      declutter();
     },
     /** lines: [{ id, from: [lng, lat], to: [lng, lat], health, label }]; labels sit at the midpoint. */
     setLines(list) {
