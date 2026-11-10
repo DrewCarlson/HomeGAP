@@ -136,7 +136,7 @@ private fun PassStatus(pass: PassStatusModel) {
 @Composable
 private fun Brand() {
     Div({ classes("brand") }) {
-        Div({ classes("brand-mark") }) { Text("G") }
+        Img("/emblem.svg", "") { classes("brand-mark") }
         Div {
             Div({ classes("brand-name") }) { Text("HomeGAP") }
             Div({ classes("brand-sub") }) { Text("Global Access Platform") }

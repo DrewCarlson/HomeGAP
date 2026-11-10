@@ -1,5 +1,6 @@
 package homegap.provision
 
+import homegap.brand.Brand
 import homegap.model.NodeDesired
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
@@ -229,7 +230,11 @@ object MaintenancePage {
         |Server(("127.0.0.1", $$PORT), Page).serve_forever()
         |""".trimMargin()
 
-    /** The page itself: static HTML and CSS, no scripts. It reloads itself every 30 seconds. */
+    /**
+     * The page itself: static HTML and CSS, no scripts. It reloads itself every 30 seconds. The
+     * HomeGAP emblem stays a small mark in the footer and there is no favicon: visitors see this
+     * page under the site's own name.
+     */
     fun page(domain: String, node: String): String = $$"""
         |<!doctype html>
         |<html lang="en">
@@ -275,6 +280,8 @@ object MaintenancePage {
         |  margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--border);
         |  display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: 12.5px;
         |}
+        |.by { display: inline-flex; align-items: center; gap: 6px; }
+        |.hg-mark { width: 14px; height: 14px; flex: none; }
         |</style>
         |</head>
         |<body>
@@ -283,7 +290,7 @@ object MaintenancePage {
         |  <h1>Back shortly</h1>
         |  <p>$${escape(domain)} can't be reached right now. It is most likely restarting or being updated, and should be back in a few minutes.</p>
         |  <p>This page checks again every 30 seconds and shows the site as soon as it returns.</p>
-        |  <footer><span>$${escape(domain)}</span><span>Served by $${escape(node)}</span></footer>
+        |  <footer><span>$${escape(domain)}</span><span class="by">$${Brand.MARK_SVG}Served by $${escape(node)}</span></footer>
         |</main>
         |</body>
         |</html>

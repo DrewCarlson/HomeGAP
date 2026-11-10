@@ -1,8 +1,9 @@
 <div align="center">
 
-# HomeGAP
-
-**Homelab Global Access Platform**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/brand/readme-header-dark.svg">
+  <img alt="HomeGAP: Homelab Global Access Platform" src="docs/img/brand/readme-header-light.svg" width="300">
+</picture>
 
 Publish homelab services worldwide through your own regional edge nodes. No inbound ports, no third-party tunnel.
 

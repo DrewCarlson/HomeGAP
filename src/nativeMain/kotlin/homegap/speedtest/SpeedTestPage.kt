@@ -1,9 +1,12 @@
 package homegap.speedtest
 
+import homegap.brand.Brand
+
 /**
  * Self-contained device test page (no external assets). The link token arrives in the URL
  * fragment, which browsers keep across the node's redirect and never send to any server.
- * NOTE: the markup deliberately contains no dollar signs (Kotlin raw string).
+ * NOTE: the markup deliberately contains no dollar signs (Kotlin raw string); the only
+ * templates are the [Brand] emblem and favicon.
  */
 object SpeedTestPage {
     val HTML = """
@@ -14,13 +17,15 @@ object SpeedTestPage {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>HomeGAP speed test</title>
+${Brand.FAVICON_LINK}
 <style>
 :root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#5b6470; --card:#fff; --line:#dde1e6; --accent:#2563eb; --bad:#b42318; }
 @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --fg:#e6e9ee; --muted:#9aa4b1; --card:#171b21; --line:#2a313a; --accent:#60a5fa; --bad:#f97066; } }
 * { box-sizing: border-box; }
 body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
 main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
-h1 { font-size:22px; margin:0 0 4px; }
+h1 { font-size:22px; margin:0 0 4px; display:flex; align-items:center; gap:10px; }
+.hg-mark { width:28px; height:28px; flex:none; }
 .sub { color:var(--muted); margin:0 0 20px; }
 .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
 .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
@@ -37,7 +42,7 @@ ul { padding-left:18px; } a { color:var(--accent); }
 </head>
 <body>
 <main>
-  <h1>HomeGAP speed test</h1>
+  <h1>${Brand.MARK_SVG}HomeGAP speed test</h1>
   <p class="sub" id="via">Checking which node you are connected through&hellip;</p>
   <div class="grid">
     <div class="card"><div class="label">Ping</div><div class="value"><span id="ping">&ndash;</span><span class="unit">ms</span></div></div>

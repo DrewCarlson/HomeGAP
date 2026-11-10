@@ -1,5 +1,7 @@
 package homegap.status
 
+import homegap.brand.Brand
+
 /**
  * The public status page: light and dark, with nothing loaded from anywhere but itself (the map's
  * scripts, fonts and tiles come from this origin's `/map/`). It reads
@@ -16,6 +18,7 @@ object StatusPage {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Status</title>
+$${Brand.FAVICON_LINK}
 <style>
 :root {
   --bg: #f4f6f8; --fg: #14181d; --muted: #5f6b78; --faint: #8a95a2; --card: #ffffff; --line: #e3e7ec;
@@ -76,6 +79,8 @@ button:disabled { opacity: .55; cursor: default; }
 .ms small { color: var(--muted); font-weight: 500; }
 .ms.na { color: var(--faint); font-weight: 500; }
 footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.6; }
+.powered { display: flex; align-items: center; gap: 6px; margin-top: 14px; color: var(--faint); font-size: 12.5px; }
+.hg-mark { width: 14px; height: 14px; flex: none; }
 .error { padding: 18px 24px; color: var(--bad); }
 .mapcard { margin-bottom: 16px; overflow: hidden; }
 #map { height: 320px; }
@@ -120,6 +125,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
     Lower is better; the node you're connected through is the one DNS picked for your location.
     The home area on the map marks only the region the service runs from.
   </footer>
+  <div class="powered">$${Brand.MARK_SVG}Powered by HomeGAP</div>
 </main>
 <script>
 (function () {

@@ -17,6 +17,8 @@ theme:
   name: material
   # System fonts: the site is also served by the orchestrator, which never loads third-party files.
   font: false
+  logo: img/brand/favicon.svg
+  favicon: img/brand/favicon.svg
   palette:
     scheme: slate
     primary: indigo
