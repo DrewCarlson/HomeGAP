@@ -93,16 +93,24 @@ For `tunnels.native: true`, the service needs `cap_add: [NET_ADMIN]` and `device
       homegap.tls: "passthrough"
     ```
     If the HTTPS entrypoint of Traefik does not listen on 443 inside its container, also add `homegap.port: "<that port>"`.
-14. Recreate the Traefik container, so that it gets the labels.
-15. Start the services:
+14. Add the HTTP provider of HomeGAP to the static configuration of your homelab Traefik. With it, Traefik answers 421 for the names that only the nodes serve. See [When a browser uses one connection for two names](../services/traffic-paths.md#when-a-browser-uses-one-connection-for-two-names).
+    ```yaml
+    providers:
+      http:
+        endpoint: http://orchestrator:8088/api/traefik/homelab
+        pollInterval: 30s
+    ```
+    Keep your other providers. Traefik can use the file provider and the HTTP provider at the same time. The address is the dashboard of the orchestrator, on the `traefik` network. The dashboard must listen on that network: `dashboard.bind: 0.0.0.0:8088`, as in the example config. Traefik does not need the dashboard token for this address. The orchestrator accepts a request from the front door container that Traefik did not forward for another client.
+15. Recreate the Traefik container, so that it gets the labels and the provider.
+16. Start the services:
     ```bash
     docker compose up -d
     ```
-16. Look at the log of the orchestrator:
+17. Look at the log of the orchestrator:
     ```bash
     docker compose logs -f orchestrator
     ```
-17. Check the config:
+18. Check the config:
     ```bash
     docker compose exec orchestrator homegap validate
     ```

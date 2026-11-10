@@ -440,7 +440,11 @@ object NodeTemplates {
     fun dynamicRoutes(desired: NodeDesired, resourceIds: Map<String, Int>, cluster: Boolean = false): String {
         val node = desired.node
         val mgmt = desired.managementHost
+        val sni = desired.sniRoutes.mapNotNull { r -> resourceIds[r.resourceNiceId]?.let { r to it } }
         val root = buildJsonObject {
+            if (misdirectedRule(sni.map { it.first }) != null) putJsonObject("tls") {
+                putJsonObject("options") { putJsonObject(ELSEWHERE_TLS_OPTIONS) { put("minVersion", "VersionTLS12") } }
+            }
             putJsonObject("http") {
                 putJsonObject("middlewares") {
                     putJsonObject("homegap-redirect-https") { putJsonObject("redirectScheme") { put("scheme", "https"); put("permanent", true) } }
@@ -451,6 +455,18 @@ object NodeTemplates {
                     }
                 }
                 putJsonObject("routers") {
+                    // Names this node passes through, asked for on a connection the node ends itself
+                    // (a browser reusing it, the names sharing an IP and a wildcard certificate):
+                    // the TLS options differ, so Traefik answers 421 and the browser reconnects.
+                    misdirectedRule(sni.map { it.first })?.let { rule ->
+                        putJsonObject(MISDIRECTED_ROUTER) {
+                            put("rule", rule)
+                            putJsonArray("entryPoints") { add("websecure") }
+                            put("service", "noop@internal")
+                            put("priority", 1)
+                            putJsonObject("tls") { put("options", ELSEWHERE_TLS_OPTIONS) }
+                        }
+                    }
                     putJsonObject("homegap-mgmt-api") {
                         put("rule", "Host(`$mgmt`) && PathPrefix(`/api/v1`)")
                         putJsonArray("entryPoints") { add("websecure") }
@@ -573,7 +589,6 @@ object NodeTemplates {
                     }
                 }
             }
-            val sni = desired.sniRoutes.mapNotNull { r -> resourceIds[r.resourceNiceId]?.let { r to it } }
             val transport = !cluster && desired.publicResources.any { it.proxyProtocol }
             if (sni.isNotEmpty() || transport) {
                 putJsonObject("tcp") {
@@ -614,6 +629,29 @@ object NodeTemplates {
 
     private fun JsonObjectBuilder.lb(url: String) {
         putJsonObject("loadBalancer") { putJsonArray("servers") { addJsonObject { put("url", url) } } }
+    }
+
+    /** The TLS options of the routes for names served elsewhere (any name but "default"). */
+    const val ELSEWHERE_TLS_OPTIONS = "homegap-elsewhere"
+    const val MISDIRECTED_ROUTER = "homegap-misdirected"
+
+    /**
+     * Never asked for (`.invalid` is reserved): a route keeps its own TLS options only with at least
+     * one plain Host() in its rule, and a plain Host() for a passthrough name would take that name
+     * from its SNI route.
+     */
+    const val MISDIRECTED_ANCHOR = "homegap-misdirected.invalid"
+
+    /**
+     * The rule matching every name the node passes through ([routes]), as patterns, or null when
+     * there are none. Excluded names need no exception: the routes serving them rank higher.
+     */
+    fun misdirectedRule(routes: List<SniRoute>): String? {
+        val patterns = routes.flatMap { r ->
+            r.exactHosts.map { "(?i)^" + it.replace(".", "\\.") + "$" } + listOfNotNull(r.wildcardOf?.let(::wildcardRegex))
+        }.distinct()
+        if (patterns.isEmpty()) return null
+        return (listOf("Host(`$MISDIRECTED_ANCHOR`)") + patterns.map { "HostRegexp(`$it`)" }).joinToString(" || ")
     }
 
     /** Single-label wildcard match, mirroring Pangolin's wildcard semantics. */

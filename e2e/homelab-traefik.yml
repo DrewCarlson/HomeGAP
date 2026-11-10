@@ -15,3 +15,8 @@ api:
 providers:
   file:
     filename: /etc/traefik/dynamic.yml
+  # Names only the nodes serve answer 421 here, so a browser reusing a connection reconnects
+  # (see docs/services/traffic-paths.md). No token: the orchestrator recognizes this Traefik.
+  http:
+    endpoint: http://orchestrator:8088/api/traefik/homelab
+    pollInterval: 10s

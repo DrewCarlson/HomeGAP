@@ -2,6 +2,7 @@ package homegap
 
 import homegap.config.ConfigLoader
 import homegap.platform.Files
+import homegap.routes.OpenRoutingController
 import homegap.routes.RoutingController
 import homegap.routes.RoutingControllers
 import io.ktor.client.request.*
@@ -27,7 +28,7 @@ class RoutingControllersTest {
 
     @Test
     fun mountsEveryControllerUnderApi() = testApplication {
-        application { RoutingControllers(controllers, ConfigLoader.parse(TEST_CONFIG)).init(this) }
+        application { RoutingControllers(controllers, ConfigLoader.parse(TEST_CONFIG), emptySet()).init(this) }
         assertEquals("one", client.get("/api/one").bodyAsText())
         assertEquals("two", client.get("/api/two").bodyAsText())
         assertEquals(HttpStatusCode.NotFound, client.get("/one").status)
@@ -38,7 +39,14 @@ class RoutingControllersTest {
         val tokenFile = tmpPath("token")
         Files.writeAtomic(tokenFile, "s3cret\n")
         val config = ConfigLoader.parse("$TEST_CONFIG\ndashboard:\n  auth_token_file: $tokenFile\n")
-        application { RoutingControllers(controllers, config).init(this) }
+        // A route with its own check stays reachable without the token; the others do not.
+        val open = object : OpenRoutingController {
+            override fun init(parent: Route, token: String?) {
+                parent.get("/api/open") { call.respondText(if (token == "s3cret") "own check" else "no token") }
+            }
+        }
+        application { RoutingControllers(controllers, config, setOf(open)).init(this) }
+        assertEquals("own check", client.get("/api/open").bodyAsText())
 
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/one").status)
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/one") { bearerAuth("wrong") }.status)

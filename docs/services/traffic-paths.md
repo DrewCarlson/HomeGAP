@@ -49,6 +49,19 @@ The health resource goes to the front door. If there is no front door, it goes t
 
 For passthrough names, the node shows a "back shortly" page with HTTP status 503. The page starts approximately 15 seconds after the node loses the homelab. Raw ports and resources that the node terminates fail.
 
+## When a browser uses one connection for two names
+
+The names on a node have the same IP address, and one wildcard certificate is valid for all of them. Thus a browser can use one connection for two names. For example, Firefox opens `pangolin.example.net` and then sends the requests for `app.example.net` on the same connection. But the node ends TLS for `pangolin.example.net` and passes `app.example.net` through to the homelab. Without a correction, the wrong Traefik gets the request and answers 404.
+
+HomeGAP makes each Traefik answer 421 (Misdirected Request) for these requests. The browser then opens a new connection for the name, and the request goes to the correct location.
+
+- On each node, the route `homegap-misdirected` matches the names that the node passes through. HomeGAP writes it in the routes file of the node.
+- On the homelab, the route `homegap-misdirected` matches the names that only the nodes serve: the management host of each node, the client address, and the shared names of the status page and the speed test. Traefik gets this route from the orchestrator through its HTTP provider. See step 14 of [Install on the homelab](../getting-started/install.md). HomeGAP does not include a name that your homelab Traefik routes itself, when it can read the routes of your Traefik. If it cannot read them, it does not include the shared name of the speed test.
+
+Each of these routes uses its own TLS options, `homegap-elsewhere`. Traefik answers 421 when the TLS options of the route are different from the TLS options of the connection. On a connection for the correct name, no other route matches, and the request goes to its usual route.
+
+A service that ends TLS itself, with no Traefik in front of it, cannot answer 421. If a browser uses the connection of such a service for another name, the service gets the request.
+
 ## Comparison
 
 | | Passthrough | Terminate |

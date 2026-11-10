@@ -104,6 +104,17 @@ class Controller(
 
     /** The last routers each front door's Traefik API reported (kept while it doesn't answer). */
     private val routerCache = mutableMapOf<String, List<TraefikRouter>>()
+
+    /**
+     * The homelab Traefik's routes as last read from its API, or null when HomeGAP does not read it
+     * (no container sets the private-middleware label) or has not read it yet.
+     */
+    @Volatile var homelabRouters: List<TraefikRouter>? = null
+        private set
+
+    /** The front door container's addresses on its Docker networks, as last discovered. */
+    @Volatile var frontDoorAddresses: Set<String> = emptySet()
+        private set
     private val routerFailing = mutableSetOf<String>()
     private val traefikApi by lazy { TraefikApi(localHttp) }
 
@@ -128,6 +139,7 @@ class Controller(
                 if (url !in routerCache) complete = false
             }
         }
+        if (urls.isNotEmpty()) homelabRouters = urls.mapNotNull { routerCache[it] }.flatten().takeIf { urls.all { u -> u in routerCache } }
         return if (complete) routerCache.filterKeys { it in urls } else null
     }
 
@@ -307,6 +319,8 @@ class Controller(
             val plan = Planner.plan(cfg, containers ?: emptyList(), pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
+                frontDoorAddresses = plan.frontDoor?.let { fd -> containers.firstOrNull { it.name == fd.containerName } }
+                    ?.networkSettings?.networks?.values?.map { it.ipAddress }?.filter { it.isNotBlank() }?.toSet().orEmpty()
                 plan.labelErrors.forEach { log.error("discovery", it.message, it.container) }
                 plan.labelWarnings.forEach { log.warn("discovery", it.message, it.container) }
                 if (dryRun) logDesired(plan)
