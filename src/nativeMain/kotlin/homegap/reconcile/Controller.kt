@@ -761,10 +761,12 @@ class Controller(
                 kind = when {
                     s == plan.frontDoor -> "front-door"
                     s.access.label == "private" -> "private"
-                    s.protocol.label in setOf("tcp", "udp") -> "raw"
+                    s.protocol.isRaw -> "raw"
                     else -> "dedicated"
                 },
                 paused = s.paused || s.key in st.pauses.services,
+                name = s.name,
+                ports = s.ports.map { it.toString() },
                 perNode = cfg.nodes.filter { s.servesNode(it.id) }.map { n ->
                     serviceHealth[n.id]?.get(s.key) ?: ServiceNodeHealthDto(n.id, Health.UNKNOWN)
                 },

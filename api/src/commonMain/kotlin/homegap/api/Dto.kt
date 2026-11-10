@@ -145,6 +145,10 @@ data class ServiceStatusDto(
     val kind: String,
     val paused: Boolean,
     val perNode: List<ServiceNodeHealthDto> = emptyList(),
+    /** Its name under `homegap.services.<name>`, or null for a container's top-level service. */
+    val name: String? = null,
+    /** Raw services: each published port, e.g. `7881/tcp`, `2222:22/tcp`, `3478/tcp+udp`. */
+    val ports: List<String> = emptyList(),
 )
 
 @Serializable

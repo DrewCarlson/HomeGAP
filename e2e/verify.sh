@@ -35,4 +35,10 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
   v sh -c "curl -sS -v --cacert /certs/ca.pem --resolve wiki.test.example.net:443:$ip https://wiki.test.example.net/ 2>&1 | grep -E 'subject:|Name:'"
   echo "--- raw tcp on public port 19000 (expect echo)"
   v sh -c "(printf 'ping-through-tunnel\n'; sleep 2) | nc $ip 19000"
+  echo "--- port list: 7881/tcp and 3478/tcp (expect two echoes)"
+  v sh -c "(printf 'rtc-tcp\n'; sleep 2) | nc $ip 7881; (printf 'turn-tcp\n'; sleep 2) | nc $ip 3478"
+  echo "--- port list: 3478/udp, and the named service's 17000/udp to the container's 7000 (expect two replies)"
+  v sh -c "printf 'turn-udp\n' | nc -u -w3 $ip 3478; printf 'alt-udp\n' | nc -u -w3 $ip 17000"
+  echo "--- two UDP callers at once on 7882 (expect each its own reply, from different source ports)"
+  v sh -c "printf 'caller-a\n' | nc -u -w3 $ip 7882 & printf 'caller-b\n' | nc -u -w3 $ip 7882 & wait"
 done

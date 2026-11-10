@@ -124,6 +124,27 @@ services:
       homegap.public_port: "19000"
     networks: [e2e]
 
+  # Several raw ports on one container, like a voice/video server: a port list with protocols,
+  # one port on both TCP and UDP, and a named service on the same hostname with a public port
+  # that differs from the container's. The UDP echoes report the address they see, to show that
+  # each caller keeps its own path through the tunnel.
+  rtc:
+    image: docker.io/alpine/socat:1.8.0.1
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        udp() { socat -T5 UDP-LISTEN:$$1,fork,reuseaddr SYSTEM:'read l; echo "$$l seen-from $$SOCAT_PEERADDR:$$SOCAT_PEERPORT"' & }
+        socat TCP-LISTEN:7881,fork,reuseaddr EXEC:cat &
+        socat TCP-LISTEN:3478,fork,reuseaddr EXEC:cat &
+        udp 7882; udp 3478; udp 7000
+        wait
+    labels:
+      homegap.expose: "rtc.test.example.net"
+      homegap.port: "7881/tcp, 7882/udp, 3478/tcp+udp"
+      homegap.services.alt.expose: "rtc.test.example.net"
+      homegap.services.alt.port: "17000:7000/udp"
+    networks: [e2e]
+
   # Private (Pangolin client only): no public DNS or node port.
   ssh-jump:
     image: docker.io/alpine/socat:1.8.0.1

@@ -35,13 +35,35 @@ object Labels {
     const val PRIVATE_MIDDLEWARE = "homegap.private_middleware"
     const val TRAEFIK_API = "homegap.traefik_api"
 
+    /** Named services on one container: `homegap.services.<name>.<label>` (`expose`, `port`, ...). */
+    const val SERVICES_PREFIX = "homegap.services."
+
+    /** Top-level labels that every named service takes as its default. */
+    val INHERITED = setOf(HOST, REGIONS, ACCESS, ROLES, PAUSE)
+
     const val COMPOSE_SERVICE = "com.docker.compose.service"
     const val COMPOSE_PROJECT = "com.docker.compose.project"
 
     val KNOWN = setOf(EXPOSE, WILDCARD, PORT, PROTOCOL, TLS, REGIONS, ACCESS, AUTH, HEALTHCHECK, HOST, PUBLIC_PORT, ROLES, PIN_ENV, PAUSE, PROXY_PROTOCOL, PRIVATE_NETWORK, PRIVATE_HOSTS, PRIVATE_MIDDLEWARE, TRAEFIK_API)
 }
 
-enum class Protocol(val label: String) { HTTP("http"), HTTPS("https"), TCP("tcp"), UDP("udp") }
+enum class Protocol(val label: String) {
+    HTTP("http"), HTTPS("https"), TCP("tcp"), UDP("udp"),
+    /** Raw ports, some or all of them on both TCP and UDP (`homegap.protocol: tcp+udp`, or per port). */
+    TCP_UDP("tcp+udp");
+
+    /** Published as raw ports on the nodes rather than routed by name. */
+    val isRaw: Boolean get() = this == TCP || this == UDP || this == TCP_UDP
+}
+
+/**
+ * One raw port of a service: [publicPort] on the nodes to [port] on the container, on each of
+ * [protocols] (TCP and/or UDP). From `homegap.port: "7881/tcp, 7882/udp, 3478/tcp+udp, 2222:22"`.
+ */
+data class PortMapping(val publicPort: Int, val port: Int, val protocols: Set<Protocol>) {
+    override fun toString(): String =
+        (if (publicPort != port) "$publicPort:" else "") + "$port/" + protocols.sortedBy { it.ordinal }.joinToString("+") { it.label }
+}
 enum class TlsMode(val label: String) { PASSTHROUGH("passthrough"), TERMINATE("terminate") }
 enum class Access(val label: String) { PUBLIC("public"), PRIVATE("private") }
 enum class AuthMode(val label: String) { NONE("none"), SSO("sso"), PIN("pin") }
@@ -84,9 +106,19 @@ data class ServiceSpec(
     val privateMiddleware: String? = null,
     /** Where this container's Traefik API answers (with [privateMiddleware]). */
     val traefikApi: String? = null,
+    /** Its name under `homegap.services.<name>`; null for the container's top-level service. */
+    val name: String? = null,
+    /** Raw services: every published port (at least one). Empty for http/https. */
+    val ports: List<PortMapping> = emptyList(),
 ) {
-    /** Stable identifier used to key every derived Pangolin/Bunny object. */
-    val key: String get() = slug(hostname)
+    /**
+     * Stable identifier used to key every derived Pangolin/Bunny object. A named service adds its
+     * name after `--`, which a hostname's slug never contains.
+     */
+    val key: String get() = slug(hostname) + (name?.let { "--" + slug(it) } ?: "")
+
+    /** Shown in logs and errors: the container, and the service's name when it has one. */
+    val label: String get() = containerName + (name?.let { " ($it)" } ?: "")
 
     fun servesNode(nodeId: String): Boolean = regions == null || nodeId in regions
 }
@@ -142,7 +174,8 @@ fun parseLabels(
     val errors = mutableListOf<String>()
     val warnings = mutableListOf<String>()
 
-    labels.keys.filter { it.startsWith(Labels.PREFIX) && it !in Labels.KNOWN }.forEach { warnings += "unknown label '$it' ignored" }
+    labels.keys.filter { it.startsWith(Labels.PREFIX) && it !in Labels.KNOWN && !it.startsWith(Labels.SERVICES_PREFIX) }
+        .forEach { warnings += "unknown label '$it' ignored" }
 
     if (!HOSTNAME.matches(expose)) errors += "${Labels.EXPOSE} '$expose' is not a valid hostname"
     if (!(expose == domain || expose.endsWith(".$domain"))) errors += "${Labels.EXPOSE} '$expose' is outside the managed domain '$domain'"
@@ -163,7 +196,15 @@ fun parseLabels(
     }
 
     val wildcard = bool(Labels.WILDCARD, false)
-    val protocol = enumLabel(Labels.PROTOCOL, Protocol.entries.toTypedArray(), { it.label }, Protocol.HTTP)
+    // "udp+tcp" reads the same as "tcp+udp".
+    val protocolRaw = labels[Labels.PROTOCOL]?.trim()?.lowercase()?.let { if (it == "udp+tcp") "tcp+udp" else it }
+    val portEntries = labels[Labels.PORT]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty()
+    // A port list with protocols ("7881/tcp,7882/udp") is raw even without homegap.protocol.
+    val inferredRaw = protocolRaw == null && portEntries.any { '/' in it }
+    var protocol = when {
+        inferredRaw || protocolRaw == "tcp+udp" -> Protocol.TCP_UDP
+        else -> enumLabel(Labels.PROTOCOL, Protocol.entries.toTypedArray(), { it.label }, Protocol.HTTP)
+    }
     var tls = enumLabel(Labels.TLS, TlsMode.entries.toTypedArray(), { it.label }, TlsMode.PASSTHROUGH)
     val access = enumLabel(Labels.ACCESS, Access.entries.toTypedArray(), { it.label }, Access.PUBLIC)
     val auth = enumLabel(Labels.AUTH, AuthMode.entries.toTypedArray(), { it.label }, AuthMode.NONE)
@@ -176,12 +217,49 @@ fun parseLabels(
         return p
     }
 
-    val port = port(Labels.PORT) ?: when (protocol) {
-        Protocol.HTTPS -> 443
-        Protocol.HTTP -> 80
-        else -> { errors += "${Labels.PORT} is required for ${protocol.label} services"; 0 }
-    }
     val publicPort = port(Labels.PUBLIC_PORT)
+    var ports = emptyList<PortMapping>()
+    val port: Int
+    if (!protocol.isRaw) {
+        port = if (portEntries.size > 1 || portEntries.any { !it.all(Char::isDigit) }) {
+            errors += "${Labels.PORT} must be one port number for ${protocol.label} services (got '${labels[Labels.PORT]?.trim()}')"
+            0
+        } else port(Labels.PORT) ?: if (protocol == Protocol.HTTPS) 443 else 80
+    } else {
+        // The protocols a port without its own "/tcp" or "/udp" gets.
+        val defaults = when {
+            inferredRaw -> null
+            protocol == Protocol.TCP_UDP -> setOf(Protocol.TCP, Protocol.UDP)
+            else -> setOf(protocol)
+        }
+        ports = portEntries.mapNotNull { e ->
+            val m = PORT_ENTRY.matchEntire(e.lowercase())
+            val pub = m?.groupValues?.get(1)?.takeIf { it.isNotEmpty() }?.toIntOrNull()
+            val target = m?.groupValues?.get(2)?.toIntOrNull()
+            val protos = m?.groupValues?.get(3)?.takeIf { it.isNotEmpty() }?.let { p ->
+                p.split('+').map { if (it == "tcp") Protocol.TCP else Protocol.UDP }.toSet()
+            } ?: defaults
+            when {
+                m == null || target == null || target !in 1..65535 || (pub != null && pub !in 1..65535) -> {
+                    errors += "${Labels.PORT}: '$e' is not a port (examples: 7881, 7881/tcp, 3478/tcp+udp, 2222:22/tcp)"; null
+                }
+                protos == null -> { errors += "${Labels.PORT}: '$e' needs a protocol (/tcp, /udp or /tcp+udp), or set ${Labels.PROTOCOL}"; null }
+                else -> PortMapping(pub ?: target, target, protos)
+            }
+        }
+        if (portEntries.isEmpty()) errors += "${Labels.PORT} is required for ${protocol.label} services"
+        if (publicPort != null) {
+            if (ports.size == 1 && portEntries.single().substringBefore('/').all(Char::isDigit)) ports = listOf(ports.single().copy(publicPort = publicPort))
+            else if (ports.isNotEmpty()) errors += "${Labels.PUBLIC_PORT} only works with a single port; write public:port in ${Labels.PORT} instead"
+        }
+        ports.flatMap { m -> m.protocols.map { m.publicPort to it } }.groupBy { it }.filter { it.value.size > 1 }.keys.forEach { (p, proto) ->
+            errors += "${Labels.PORT}: public port $p/${proto.label} is listed twice"
+        }
+        // What the ports add up to: tcp, udp, or both.
+        val used = ports.flatMap { it.protocols }.toSet()
+        if (used.isNotEmpty()) protocol = when (used) { setOf(Protocol.TCP) -> Protocol.TCP; setOf(Protocol.UDP) -> Protocol.UDP; else -> Protocol.TCP_UDP }
+        port = ports.firstOrNull()?.port ?: 0
+    }
 
     val regions = labels[Labels.REGIONS]?.trim()?.lowercase()?.let { raw ->
         if (raw == "" || raw == "all") null else raw.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
@@ -201,7 +279,7 @@ fun parseLabels(
         warnings += "plain-http services cannot be passed through; the node terminates TLS (tls=terminate)"
     }
     if (protocol == Protocol.HTTP) tls = TlsMode.TERMINATE
-    if (protocol == Protocol.TCP || protocol == Protocol.UDP) {
+    if (protocol.isRaw) {
         if (wildcard) errors += "${Labels.WILDCARD} is only valid for http/https services"
         if (labels[Labels.TLS] != null) warnings += "${Labels.TLS} has no effect on raw ${protocol.label} services"
     }
@@ -210,15 +288,16 @@ fun parseLabels(
     }
     if (auth == AuthMode.PIN && labels[Labels.PIN_ENV].isNullOrBlank()) errors += "${Labels.AUTH}=pin requires ${Labels.PIN_ENV}"
     if (wildcard && expose != domain) errors += "${Labels.WILDCARD}=true is only valid when ${Labels.EXPOSE} is the root domain"
-    if (publicPort != null && protocol != Protocol.TCP && protocol != Protocol.UDP) warnings += "${Labels.PUBLIC_PORT} only applies to tcp/udp"
-    val effectivePublic = publicPort ?: port
-    if ((protocol == Protocol.TCP || protocol == Protocol.UDP) && access == Access.PUBLIC && effectivePublic in RESERVED_NODE_PORTS) {
-        errors += "public port $effectivePublic is reserved on nodes; set ${Labels.PUBLIC_PORT}"
+    if (publicPort != null && !protocol.isRaw) warnings += "${Labels.PUBLIC_PORT} only applies to tcp/udp"
+    if (access == Access.PUBLIC) {
+        ports.map { it.publicPort }.filter { it in RESERVED_NODE_PORTS }.distinct().forEach {
+            errors += "public port $it is reserved on nodes; publish it on another port (public:port in ${Labels.PORT}, or ${Labels.PUBLIC_PORT})"
+        }
     }
 
     val proxyProtocol = bool(Labels.PROXY_PROTOCOL, false)
     if (proxyProtocol) {
-        val carried = protocol == Protocol.TCP || (protocol == Protocol.HTTPS && tls == TlsMode.PASSTHROUGH)
+        val carried = protocol == Protocol.TCP || protocol == Protocol.TCP_UDP || (protocol == Protocol.HTTPS && tls == TlsMode.PASSTHROUGH)
         if (!carried) errors += "${Labels.PROXY_PROTOCOL} needs an https passthrough or tcp service (the node only adds it to TCP streams)"
         if (access == Access.PRIVATE) errors += "${Labels.PROXY_PROTOCOL} only applies to public services"
     }
@@ -255,7 +334,7 @@ fun parseLabels(
             access = access,
             auth = auth,
             healthcheck = healthcheck,
-            publicPort = if (protocol == Protocol.TCP || protocol == Protocol.UDP) effectivePublic else null,
+            publicPort = ports.firstOrNull()?.publicPort,
             roles = roles,
             pinEnv = labels[Labels.PIN_ENV]?.trim(),
             paused = paused,
@@ -265,10 +344,58 @@ fun parseLabels(
             privateHosts = if (privateNetwork == null) emptyList() else privateHosts ?: if (privateMiddleware != null) emptyList() else listOf(expose),
             privateMiddleware = privateMiddleware,
             traefikApi = privateMiddleware?.let { traefikApiUrl(containerName, labels) },
+            ports = ports,
         ),
         emptyList(),
         warnings,
     )
+}
+
+/** `[public:]port[/tcp|/udp|/tcp+udp]` */
+private val PORT_ENTRY = Regex("""^(?:(\d+):)?(\d+)(?:/(tcp|udp|tcp\+udp|udp\+tcp))?$""")
+
+private val SERVICE_NAME = Regex("^[a-z0-9]([a-z0-9-]{0,29}[a-z0-9])?$")
+
+/** Every service one container declares: its top-level one and each named one. */
+data class ContainerParseResult(val specs: List<ServiceSpec>, val errors: List<String>, val warnings: List<String>)
+
+/**
+ * Parses all of a container's services: the top-level labels (`homegap.expose`, ...) and each
+ * named group `homegap.services.<name>.<label>`. A named service takes [Labels.INHERITED] from
+ * the top-level labels unless it sets its own. Errors of a named service start with its name and
+ * leave the container's other services alone.
+ */
+fun parseContainerLabels(containerId: String, containerName: String, labels: Map<String, String>, domain: String): ContainerParseResult {
+    val specs = mutableListOf<ServiceSpec>()
+    val errors = mutableListOf<String>()
+    val warnings = mutableListOf<String>()
+    val top = labels.filterKeys { !it.startsWith(Labels.SERVICES_PREFIX) }
+    val top0 = parseLabels(containerId, containerName, top, domain)
+    top0.spec?.let { specs += it }
+    errors += top0.errors
+    warnings += top0.warnings
+
+    val groups = labels.keys.filter { it.startsWith(Labels.SERVICES_PREFIX) }
+        .groupBy({ it.removePrefix(Labels.SERVICES_PREFIX).substringBefore('.') }, { it })
+    for ((name, keys) in groups.entries.sortedBy { it.key }) {
+        val where = "services.$name"
+        if (!SERVICE_NAME.matches(name)) {
+            errors += "$where: the name must be lowercase letters, digits and dashes"
+            continue
+        }
+        val own = keys.filter { '.' in it.removePrefix(Labels.SERVICES_PREFIX) }
+            .associate { Labels.PREFIX + it.removePrefix(Labels.SERVICES_PREFIX + name + ".") to labels.getValue(it) }
+        if (Labels.EXPOSE !in own) {
+            errors += "$where: ${Labels.EXPOSE} is required (as ${Labels.SERVICES_PREFIX}$name.expose)"
+            continue
+        }
+        val merged = top.filterKeys { it in Labels.INHERITED } + own
+        val r = parseLabels(containerId, containerName, merged, domain)
+        r.errors.forEach { errors += "$where: $it" }
+        r.warnings.forEach { warnings += "$where: ${it.replace("'homegap.", "'${Labels.SERVICES_PREFIX}$name.")}" }
+        r.spec?.let { specs += it.copy(name = name) }
+    }
+    return ContainerParseResult(specs, errors, warnings)
 }
 
 /** Ports a regional node already uses for itself (SSH, web, tunnels, Pangolin internals). */

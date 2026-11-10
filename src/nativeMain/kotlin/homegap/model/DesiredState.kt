@@ -151,22 +151,24 @@ object Planner {
         val nodeIds = config.nodes.map { it.id }.toSet()
 
         for (c in containers.sortedBy { it.name }) {
-            val r = parseLabels(c.id, c.name, c.labels, config.domain)
+            val r = parseContainerLabels(c.id, c.name, c.labels, config.domain)
             r.errors.forEach { errors += LabelIssue(c.name, it) }
             r.warnings.forEach { warnings += LabelIssue(c.name, it) }
-            var spec = r.spec ?: continue
+            for (parsedSpec in r.specs) {
+            var spec = parsedSpec
+            val where = spec.name?.let { "services.$it: " } ?: ""
             spec.privateMiddleware?.let { mw ->
                 // Names from the routers of this Traefik that use the middleware (its API).
                 val routers = traefikRouters[spec.traefikApi]
                 if (routers == null) {
-                    errors += LabelIssue(c.name, "${Labels.PRIVATE_MIDDLEWARE}: the Traefik API at ${spec.traefikApi} has not answered; set ${Labels.TRAEFIK_API} if it is elsewhere")
+                    errors += LabelIssue(c.name, where + "${Labels.PRIVATE_MIDDLEWARE}: the Traefik API at ${spec.traefikApi} has not answered; set ${Labels.TRAEFIK_API} if it is elsewhere")
                     return@let
                 }
                 val (hosts, unreadable) = routerHosts(routers, mw)
                 val (inside, outside) = hosts.partition { it == spec.hostname || it.endsWith(".${spec.hostname}") }
-                outside.forEach { warnings += LabelIssue(c.name, "$it uses $mw but is outside ${spec.hostname}: not given a private path") }
+                outside.forEach { warnings += LabelIssue(c.name, where + "$it uses $mw but is outside ${spec.hostname}: not given a private path") }
                 unreadable.forEach {
-                    warnings += LabelIssue(c.name, "router $it uses $mw but its names can't be read from its rule (HostRegexp or no Host); list them in ${Labels.PRIVATE_HOSTS}")
+                    warnings += LabelIssue(c.name, where + "router $it uses $mw but its names can't be read from its rule (HostRegexp or no Host); list them in ${Labels.PRIVATE_HOSTS}")
                 }
                 spec = spec.copy(privateHosts = (spec.privateHosts + inside).distinct())
             }
@@ -177,7 +179,7 @@ object Planner {
                 val ip = onPrivate.singleOrNull()?.value?.ipAddress
                 if (ip == null) {
                     // Public traffic is unaffected: only the private path is left out.
-                    errors += LabelIssue(c.name, "${Labels.PRIVATE_NETWORK}: the container has no address on a network named '$net'")
+                    errors += LabelIssue(c.name, where + "${Labels.PRIVATE_NETWORK}: the container has no address on a network named '$net'")
                     spec = spec.copy(privateNetwork = null, privateHosts = emptyList())
                     return@let
                 }
@@ -188,7 +190,7 @@ object Planner {
                 if (Labels.HOST !in c.labels) {
                     when (others.size) {
                         1 -> spec = spec.copy(targetHost = others.single().value.ipAddress)
-                        0 -> errors += LabelIssue(c.name, "${Labels.PRIVATE_NETWORK}: the container is only on '$net'; public traffic needs another network shared with the tunnels")
+                        0 -> errors += LabelIssue(c.name, where + "${Labels.PRIVATE_NETWORK}: the container is only on '$net'; public traffic needs another network shared with the tunnels")
                         else -> errors += LabelIssue(
                             c.name,
                             "${Labels.PRIVATE_NETWORK}: the container is on several other networks (${others.joinToString { it.key }}); set ${Labels.HOST} to its address on the one shared with the tunnels, or public traffic may arrive over '$net'",
@@ -200,23 +202,18 @@ object Planner {
                 val reserved = listOfNotNull(config.clientHost) + config.nodes.map { it.managementHost(config.domain) }
                 val (clash, ok) = spec.privateHosts.partition { alias -> reserved.any { aliasCovers(alias, it) } }
                 clash.forEach { alias ->
-                    errors += LabelIssue(c.name, "${Labels.PRIVATE_HOSTS}: '$alias' covers ${reserved.first { aliasCovers(alias, it) }}, which Pangolin clients must reach directly; name the services instead")
+                    errors += LabelIssue(c.name, where + "${Labels.PRIVATE_HOSTS}: '$alias' covers ${reserved.first { aliasCovers(alias, it) }}, which Pangolin clients must reach directly; name the services instead")
                 }
                 spec = spec.copy(privateHost = ip, privateHosts = ok)
             }
             val unknown = spec.regions?.filter { it !in nodeIds }.orEmpty()
-            if (unknown.isNotEmpty()) warnings += LabelIssue(c.name, "regions reference unknown node(s): ${unknown.joinToString()}")
+            if (unknown.isNotEmpty()) warnings += LabelIssue(c.name, where + "regions reference unknown node(s): ${unknown.joinToString()}")
             parsed += spec.copy(paused = spec.paused || spec.key in pausedServices)
+            }
         }
 
-        // One container per hostname: first (by name) wins, the rest are reported.
-        val services = mutableListOf<ServiceSpec>()
-        for ((host, group) in parsed.groupBy { it.hostname }) {
-            services += group.first()
-            group.drop(1).forEach { errors += LabelIssue(it.containerName, "hostname $host is already claimed by ${group.first().containerName}") }
-        }
-
-        val frontDoor = services.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC }
+        val services = claim(parsed, errors)
+        val frontDoor = services.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC && !it.protocol.isRaw }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
 
         val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, frontDoor) }
@@ -224,6 +221,49 @@ object Planner {
         val dns = planDns(config, activeNodes, services, frontDoor)
         return DesiredState(services, errors, warnings, frontDoor, nodes, dns)
     }
+
+    /**
+     * Which services keep their claims, in container-name order (first wins; the rest are
+     * reported): one http/https service per hostname; raw services may share a hostname (with
+     * each other and with one http/https service); one service per key; and on nodes they share,
+     * one public service per public port and protocol.
+     */
+    private fun claim(parsed: List<ServiceSpec>, errors: MutableList<LabelIssue>): List<ServiceSpec> {
+        val kept = mutableListOf<ServiceSpec>()
+        for (s in parsed) {
+            fun refuse(why: String) { errors += LabelIssue(s.containerName, (s.name?.let { "services.$it: " } ?: "") + why) }
+            val byHost = kept.filter { it.hostname == s.hostname }
+            val httpOwner = byHost.firstOrNull { !it.protocol.isRaw }
+            if (!s.protocol.isRaw && httpOwner != null) { refuse("hostname ${s.hostname} is already claimed by ${httpOwner.label}"); continue }
+            kept.firstOrNull { it.key == s.key }?.let { refuse("hostname ${s.hostname} is already claimed by ${it.label}; give this service a name under ${Labels.SERVICES_PREFIX}"); continue }
+            if (s.access == Access.PUBLIC) {
+                val mine = s.publicPorts()
+                val clash = kept.filter { o -> o.access == Access.PUBLIC && overlaps(o.regions, s.regions) }
+                    .firstNotNullOfOrNull { o -> o.publicPorts().firstOrNull { it in mine }?.let { o to it } }
+                if (clash != null) {
+                    refuse("public port ${clash.second.port}/${clash.second.protocol} is already used by ${clash.first.label}")
+                    continue
+                }
+            }
+            kept += s
+        }
+        return kept
+    }
+
+    private fun overlaps(a: List<String>?, b: List<String>?) = a == null || b == null || a.any { it in b }
+
+    /** The public ports a raw service takes on its nodes. */
+    private fun ServiceSpec.publicPorts(): Set<RawPort> =
+        ports.flatMap { m -> m.protocols.map { RawPort(m.publicPort, it.label) } }.toSet()
+
+    /**
+     * A raw service's Pangolin resource for one port and protocol. A top-level service with a single
+     * port keeps the id it had before port lists existed (`hg-<host>-tcp`), so upgrading recreates
+     * nothing; the others add the public port.
+     */
+    fun rawNiceId(s: ServiceSpec, m: PortMapping, proto: Protocol): String =
+        if (s.name == null && s.ports.size == 1 && m.protocols.size == 1) "$NICE_PREFIX${s.key}-${proto.label}"
+        else "$NICE_PREFIX${s.key}-${m.publicPort}-${proto.label}"
 
     private fun planNode(config: AppConfig, node: NodeConfig, services: List<ServiceSpec>, frontDoor: ServiceSpec?): NodeDesired {
         val site = config.siteNiceId(node.id)
@@ -298,16 +338,15 @@ object Planner {
                         publicRes += httpResource(NICE_PREFIX + s.key, s, s.hostname, if (s.protocol == Protocol.HTTPS) "https" else "http")
                     }
                 }
-                Protocol.TCP, Protocol.UDP -> {
-                    val proto = s.protocol.label
-                    val pp = s.publicPort ?: s.port
-                    raw += RawPort(pp, proto)
+                Protocol.TCP, Protocol.UDP, Protocol.TCP_UDP -> for (m in s.ports) for (proto in m.protocols.sortedBy { it.ordinal }) {
+                    val tcp = proto == Protocol.TCP
+                    raw += RawPort(m.publicPort, proto.label)
                     publicRes += PublicResource(
-                        niceId = "$NICE_PREFIX${s.key}-$proto", serviceKey = s.key,
-                        mode = if (s.protocol == Protocol.TCP) ResourceMode.TCP else ResourceMode.UDP,
-                        fullDomain = null, proxyPort = pp, ssl = false, target = Target(s.targetHost, s.port, null),
-                        healthcheck = s.healthcheck?.takeIf { s.protocol == Protocol.TCP }, paused = s.paused,
-                        proxyProtocol = s.proxyProtocol && s.protocol == Protocol.TCP,
+                        niceId = rawNiceId(s, m, proto), serviceKey = s.key,
+                        mode = if (tcp) ResourceMode.TCP else ResourceMode.UDP,
+                        fullDomain = null, proxyPort = m.publicPort, ssl = false, target = Target(s.targetHost, m.port, null),
+                        healthcheck = s.healthcheck?.takeIf { tcp }, paused = s.paused,
+                        proxyProtocol = s.proxyProtocol && tcp,
                     )
                 }
             }
@@ -378,8 +417,10 @@ object Planner {
     }
 
     private fun privateResource(s: ServiceSpec, site: String): PrivateResource {
-        val tcp = if (s.protocol != Protocol.UDP) s.port.toString() else ""
-        val udp = if (s.protocol == Protocol.UDP) s.port.toString() else ""
+        // A private resource reaches the container's own ports: a public:port mapping has no part here.
+        fun on(p: Protocol) = s.ports.filter { p in it.protocols }.map { it.port }.distinct().sorted().joinToString(",")
+        val tcp = if (s.protocol.isRaw) on(Protocol.TCP) else s.port.toString()
+        val udp = if (s.protocol.isRaw) on(Protocol.UDP) else ""
         return PrivateResource(
             niceId = NICE_PREFIX + s.key, serviceKey = s.key, name = s.hostname, siteNiceId = site,
             destination = s.targetHost, alias = s.hostname, tcpPorts = tcp, udpPorts = udp, roles = s.roles, paused = s.paused,
@@ -411,10 +452,11 @@ object Planner {
             geoSet(frontDoor.hostname, "root", eligible)
             if (frontDoor.wildcard) geoSet("*.${frontDoor.hostname}", "wildcard", eligible)
         }
-        for (s in services) {
-            if (s == frontDoor || s.access != Access.PUBLIC) continue
-            geoSet(s.hostname, "service:${s.key}", nodes.filter { s.servesNode(it.id) })
-        }
+        // One record set per hostname, however many services share it (raw ports on one name), on
+        // every node that serves any of them. The front door's own name already has its set.
+        services.filter { it != frontDoor && it.access == Access.PUBLIC && it.hostname != frontDoor?.hostname }
+            .groupBy { it.hostname }
+            .forEach { (host, group) -> geoSet(host, "service:${group.first().key}", nodes.filter { n -> group.any { it.servesNode(n.id) } }) }
         if (frontDoor != null && config.speedtest.enabled) {
             val eligible = nodes.filter { frontDoor.servesNode(it.id) }
             val st = config.speedtest
