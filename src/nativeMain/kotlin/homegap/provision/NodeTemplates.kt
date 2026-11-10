@@ -38,6 +38,14 @@ data class RenderedFile(val path: String, val content: String, val mode: String 
  */
 object NodeTemplates {
     const val DYNAMIC_ROUTES = "config/traefik/dynamic/homegap-routes.yml"
+
+    /**
+     * PROXY protocol version HomeGAP asks Pangolin for. Pangolin points such a TCP service at its
+     * `pp-transport-v<N>@file` transport, which it defines itself only in a file on clustered
+     * nodes; standalone nodes get it from HomeGAP's routes file.
+     */
+    const val PROXY_PROTOCOL_VERSION = 2
+    const val PROXY_PROTOCOL_TRANSPORT = "pp-transport-v$PROXY_PROTOCOL_VERSION"
     const val DYNAMIC_TLS = "config/traefik/dynamic/homegap-tls.yml"
     const val CERT = "config/traefik/certs/homegap.crt"
     const val KEY = "config/traefik/certs/homegap.key"
@@ -579,9 +587,13 @@ object NodeTemplates {
                 }
             }
             val sni = desired.sniRoutes.mapNotNull { r -> resourceIds[r.resourceNiceId]?.let { r to it } }
-            if (sni.isNotEmpty()) {
+            val transport = !cluster && desired.publicResources.any { it.proxyProtocol }
+            if (sni.isNotEmpty() || transport) {
                 putJsonObject("tcp") {
-                    putJsonObject("routers") {
+                    if (transport) putJsonObject("serversTransports") {
+                        putJsonObject(PROXY_PROTOCOL_TRANSPORT) { putJsonObject("proxyProtocol") { put("version", PROXY_PROTOCOL_VERSION) } }
+                    }
+                    if (sni.isNotEmpty()) putJsonObject("routers") {
                         for ((route, id) in sni) {
                             putJsonObject(route.name) {
                                 putJsonArray("entryPoints") { add("websecure") }

@@ -13,11 +13,22 @@ http:
       service: homegap-speedtest
       priority: 1000
       tls: {}
+    # Pangolin clients only: their traffic arrives over the private network.
+    private-only:
+      rule: "Host(`private.test.example.net`)"
+      entryPoints: [websecure]
+      service: whoami
+      middlewares: [private-only]
+      tls: {}
     everything:
       rule: "HostRegexp(`.+`)"
       entryPoints: [websecure]
       service: whoami
       tls: {}
+  middlewares:
+    private-only:
+      ipAllowList:
+        sourceRange: ["172.29.0.0/24"]
   services:
     homegap-speedtest:
       loadBalancer:

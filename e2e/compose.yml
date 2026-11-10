@@ -8,6 +8,12 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  # Only the tunnels and the homelab Traefik: Pangolin clients' traffic arrives from here, so the
+  # homelab Traefik can tell it from public traffic (homegap.private_network).
+  e2e-private:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
 
 volumes:
   node-docker:
@@ -80,7 +86,10 @@ services:
       homegap.wildcard: "true"
       homegap.protocol: "https"
       homegap.tls: "passthrough"
-    networks: [e2e]
+      homegap.proxy_protocol: "true"
+      homegap.private_network: "e2e-private"
+      homegap.private_hosts: "private"
+    networks: [e2e, e2e-private]
 
   # Dedicated subdomain, end-to-end TLS (SNI passthrough to the service itself).
   git:
@@ -215,7 +224,7 @@ services:
     volumes:
       - ./work/data:/data
       - ./work/certs:/certs:ro
-    networks: [e2e]
+    networks: [e2e, e2e-private]
 
   viewer:
     image: docker.io/curlimages/curl:8.11.1

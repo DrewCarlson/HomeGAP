@@ -151,6 +151,10 @@ Every pass applies only the minimal diff.
   service; plain HTTP services are terminated on the node.
 - **Raw TCP/UDP.** The service gets its own public port on its nodes: a Traefik entrypoint, a
   published Gerbil port and a `ufw` rule. It also gets its own DNS record.
+- **Client addresses.** With `homegap.proxy_protocol`, passthrough traffic carries the viewer's
+  address to the homelab; with `homegap.private_network`, Pangolin clients reach chosen names over
+  a separate network so the homelab can allow them alone. See
+  [Client addresses and private-only services](#client-addresses-and-private-only-services).
 - **Private.** Private services become Pangolin private resources, with an alias set to the
   hostname. They are reachable only through the Pangolin client, and get no public DNS record and
   no public port. In a cluster, one private resource lists every node's site: a Pangolin app
@@ -255,6 +259,9 @@ Extensions:
 | `homegap.roles` | Pangolin roles allowed for `auth=sso` and private resources. |
 | `homegap.pin_env` | Environment variable on the orchestrator holding the 6-digit PIN for `auth=pin`. |
 | `homegap.pause` | `true` holds this service's Pangolin resources and DNS records as they are. |
+| `homegap.proxy_protocol` | `true` sends each viewer's address to the service with PROXY protocol v2, so it sees real client IPs instead of the `tunnels` container. Https passthrough and tcp services only, and the service must accept the header first. See [Client addresses and private-only services](#client-addresses-and-private-only-services). |
+| `homegap.private_network` | A Docker network only the `tunnels` container and this service share. Pangolin clients reach the service at its address there, so their traffic is told apart from public traffic. Public http/https services only. |
+| `homegap.private_hosts` | With `private_network`: the names Pangolin clients reach that way, relative to the service's hostname (`jellyfin`, `*.home`) or in full. Defaults to the service's hostname. A name covering the client address or a node's management host is refused. |
 
 ### Examples
 
@@ -284,6 +291,65 @@ game:
     homegap.port: "27015"
     homegap.regions: "eu1"
 ```
+
+### Client addresses and private-only services
+
+Every connection reaches the homelab from the `tunnels` container, so without these labels the
+homelab Traefik sees one address for everyone. Two labels on the front door fix that:
+
+```yaml
+services:
+  traefik:
+    labels:
+      homegap.expose: "example.net"
+      homegap.wildcard: "true"
+      homegap.protocol: "https"
+      homegap.proxy_protocol: "true"            # real client IPs
+      homegap.private_network: "homegap-private" # Pangolin clients arrive from here
+      homegap.private_hosts: "jellyfin,*.home"   # the names they reach this way
+    networks: [traefik, homegap-private]
+  tunnels:
+    networks:
+      traefik: { ipv4_address: 172.32.0.250 }    # a fixed address to trust below
+      homegap-private: {}
+
+networks:
+  homegap-private:
+    ipam: { config: [ { subnet: 172.33.0.0/24 } ] }
+```
+
+- **Real client IPs.** The node adds a PROXY protocol header to the still-encrypted stream (TLS
+  stays passthrough: the node reads no more than the SNI name, as before). Trust it from the
+  `tunnels` container only, on the entrypoint:
+
+  ```yaml
+  entryPoints:
+    websecure:
+      proxyProtocol:
+        trustedIPs: ["172.32.0.250/32"]
+  ```
+
+  Connections without the header (your LAN, the nodes' health probes) still work. Terminated
+  services get `X-Forwarded-For` instead; trust it with `forwardedHeaders.trustedIPs` on the
+  same address. Enable the label only after the entrypoint trusts it, or every TLS handshake
+  through the nodes fails.
+- **Private-only services.** Pangolin clients resolve each name in `homegap.private_hosts` to a
+  private resource that goes to the front door's address on `homegap-private`. The connection
+  leaves the `tunnels` container from that network, so the homelab Traefik sees it come from
+  `172.33.0.0/24`, a range public traffic never has. Allow only that (and your LAN):
+
+  ```yaml
+  http:
+    middlewares:
+      private-only:
+        ipAllowList:
+          sourceRange: ["172.33.0.0/24", "192.168.1.0/24"]
+  ```
+
+  Put the middleware on the routers of private-only services. Which Pangolin users get the
+  private path is set by `homegap.roles`. `*.example.net` itself is refused: it would also cover
+  the address the Pangolin apps connect to, which they would then try to reach through
+  themselves. A sub-zone such as `*.home` is fine.
 
 Errors are reported per container in the dashboard and the log, and never block other services.
 Examples of errors: an unknown protocol, auth without terminate, a reserved public port, or a

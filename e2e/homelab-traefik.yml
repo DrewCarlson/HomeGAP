@@ -1,8 +1,13 @@
 entryPoints:
   websecure:
     address: ":443"
+    # The nodes send each viewer's address with PROXY protocol (homegap.proxy_protocol).
+    proxyProtocol:
+      trustedIPs: ["172.30.0.0/24"]
   web:
     address: ":80"
+    forwardedHeaders:
+      trustedIPs: ["172.30.0.0/24"]
 providers:
   file:
     filename: /etc/traefik/dynamic.yml

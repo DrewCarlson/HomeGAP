@@ -79,6 +79,9 @@ if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
     [ "$via" = "$id" ] && pass "the client relays through $id" || fail "client sent to $id relays through '${via}'"
     banner=$(docker compose exec -T client sh -c '(sleep 2) | nc -w 5 ssh.test.example.net 22' 2>/dev/null | tr -d '\r')
     [ "$banner" = "SSH-2.0-fake" ] && pass "private ssh.test.example.net reached via $id" || fail "private service via $id: '$banner'"
+    # homegap.private_hosts: the name goes over the private network, which the allowlist admits.
+    real=$(docker compose exec -T client sh -c 'wget -q -O - --no-check-certificate https://private.test.example.net/' 2>/dev/null | tr -d '\r' | sed -n 's/^X-Real-Ip: //p')
+    case "$real" in 172.29.0.*) pass "private.test.example.net via $id arrives from the private network ($real)" ;; *) fail "private.test.example.net via $id: X-Real-Ip '$real'" ;; esac
   done
   docker compose --profile client rm -sf client >/dev/null 2>&1
   curl -s -X POST "$DASH/access/devices/$CID/delete" >/dev/null

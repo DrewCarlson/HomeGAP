@@ -6,7 +6,10 @@ package homegap.discovery
  * Spec labels: expose, wildcard, port, protocol, tls, regions, access, auth, healthcheck.
  * Extensions: host (target host override), public_port (raw TCP/UDP listen port on nodes),
  * roles (Pangolin roles allowed for private/SSO access), pin_env (env var holding a 6-digit PIN),
- * pause (hold manual overrides on this service's resources).
+ * pause (hold manual overrides on this service's resources), proxy_protocol (send the viewer's
+ * address to the service with PROXY protocol v2), private_network (Pangolin clients reach the
+ * service at its address on this Docker network, which only their traffic uses) and
+ * private_hosts (the names they reach it by that way; the service's own hostname by default).
  */
 object Labels {
     const val PREFIX = "homegap."
@@ -24,11 +27,14 @@ object Labels {
     const val ROLES = "homegap.roles"
     const val PIN_ENV = "homegap.pin_env"
     const val PAUSE = "homegap.pause"
+    const val PROXY_PROTOCOL = "homegap.proxy_protocol"
+    const val PRIVATE_NETWORK = "homegap.private_network"
+    const val PRIVATE_HOSTS = "homegap.private_hosts"
 
     const val COMPOSE_SERVICE = "com.docker.compose.service"
     const val COMPOSE_PROJECT = "com.docker.compose.project"
 
-    val KNOWN = setOf(EXPOSE, WILDCARD, PORT, PROTOCOL, TLS, REGIONS, ACCESS, AUTH, HEALTHCHECK, HOST, PUBLIC_PORT, ROLES, PIN_ENV, PAUSE)
+    val KNOWN = setOf(EXPOSE, WILDCARD, PORT, PROTOCOL, TLS, REGIONS, ACCESS, AUTH, HEALTHCHECK, HOST, PUBLIC_PORT, ROLES, PIN_ENV, PAUSE, PROXY_PROTOCOL, PRIVATE_NETWORK, PRIVATE_HOSTS)
 }
 
 enum class Protocol(val label: String) { HTTP("http"), HTTPS("https"), TCP("tcp"), UDP("udp") }
@@ -62,6 +68,14 @@ data class ServiceSpec(
     val roles: List<String>,
     val pinEnv: String?,
     val paused: Boolean,
+    /** Its TCP resources (passthrough or raw TCP) send the viewer's address with PROXY protocol v2. */
+    val proxyProtocol: Boolean = false,
+    /** The Docker network whose address Pangolin clients reach this public service at. */
+    val privateNetwork: String? = null,
+    /** The container's address on [privateNetwork] (filled in from Docker when planning). */
+    val privateHost: String? = null,
+    /** The names Pangolin clients reach it by over [privateNetwork] (full names, `*`/`?` allowed). */
+    val privateHosts: List<String> = emptyList(),
 ) {
     /** Stable identifier used to key every derived Pangolin/Bunny object. */
     val key: String get() = slug(hostname)
@@ -72,6 +86,13 @@ data class ServiceSpec(
 data class LabelParseResult(val spec: ServiceSpec?, val errors: List<String>, val warnings: List<String> = emptyList())
 
 private val HOSTNAME = Regex("^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
+
+/** A Pangolin alias: a full name whose labels may use `*` and `?`. */
+private val PRIVATE_ALIAS = Regex("^(?:[a-z0-9*?](?:[a-z0-9*?-]{0,61}[a-z0-9*?])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+/** Whether the Pangolin alias [pattern] (`*` any run of characters, `?` one) covers [host]. */
+fun aliasCovers(pattern: String, host: String): Boolean =
+    Regex("^" + pattern.split('*').joinToString(".*") { part -> part.split('?').joinToString(".") { Regex.escape(it) } } + "$").matches(host)
 
 fun slug(hostname: String): String =
     hostname.lowercase().replace("*", "wildcard").replace(Regex("[^a-z0-9]+"), "-").trim('-').take(60)
@@ -164,6 +185,25 @@ fun parseLabels(
         errors += "public port $effectivePublic is reserved on nodes; set ${Labels.PUBLIC_PORT}"
     }
 
+    val proxyProtocol = bool(Labels.PROXY_PROTOCOL, false)
+    if (proxyProtocol) {
+        val carried = protocol == Protocol.TCP || (protocol == Protocol.HTTPS && tls == TlsMode.PASSTHROUGH)
+        if (!carried) errors += "${Labels.PROXY_PROTOCOL} needs an https passthrough or tcp service (the node only adds it to TCP streams)"
+        if (access == Access.PRIVATE) errors += "${Labels.PROXY_PROTOCOL} only applies to public services"
+    }
+    val privateNetwork = labels[Labels.PRIVATE_NETWORK]?.trim()?.takeIf { it.isNotEmpty() }
+    if (privateNetwork != null) {
+        if (access == Access.PRIVATE) errors += "${Labels.PRIVATE_NETWORK} is for public services (a private service already goes to ${Labels.HOST})"
+        if (protocol != Protocol.HTTP && protocol != Protocol.HTTPS) errors += "${Labels.PRIVATE_NETWORK} only applies to http/https services"
+    }
+    // Names relative to the service's hostname ("jellyfin", "*.home") or full names under it.
+    val privateHosts = labels[Labels.PRIVATE_HOSTS]?.split(',')?.map { it.trim().lowercase().trimEnd('.') }?.filter { it.isNotEmpty() }
+        ?.map { if (it == expose || it.endsWith(".$expose")) it else "$it.$expose" }?.distinct()
+    if (privateHosts != null) {
+        if (privateNetwork == null) errors += "${Labels.PRIVATE_HOSTS} needs ${Labels.PRIVATE_NETWORK}"
+        privateHosts.filter { !PRIVATE_ALIAS.matches(it) }.forEach { errors += "${Labels.PRIVATE_HOSTS}: '$it' is not a valid name" }
+    }
+
     val host = labels[Labels.HOST]?.trim()?.takeIf { it.isNotEmpty() } ?: containerName
     val roles = labels[Labels.ROLES]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
 
@@ -186,6 +226,9 @@ fun parseLabels(
             roles = roles,
             pinEnv = labels[Labels.PIN_ENV]?.trim(),
             paused = paused,
+            proxyProtocol = proxyProtocol,
+            privateNetwork = privateNetwork,
+            privateHosts = if (privateNetwork == null) emptyList() else privateHosts ?: listOf(expose),
         ),
         emptyList(),
         warnings,

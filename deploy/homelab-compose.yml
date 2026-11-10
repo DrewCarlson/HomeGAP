@@ -146,6 +146,13 @@ services:
     volumes:
       - homegap-data:/data
     networks: [traefik]
+    # For real client IPs and private-only services (homegap.proxy_protocol and
+    # homegap.private_network on the front door), give it a fixed address to trust and a second
+    # network shared only with your Traefik; see the README's "Client addresses and private-only
+    # services":
+    # networks:
+    #   traefik: { ipv4_address: 172.32.0.250 }
+    #   homegap-private: {}
 
   # Example front door claim: label your existing Traefik container like this instead.
   # traefik:

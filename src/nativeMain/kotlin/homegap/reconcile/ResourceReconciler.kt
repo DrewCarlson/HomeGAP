@@ -363,6 +363,10 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
             }
         } else {
             put("proxy-port", r.proxyPort!!)
+            if (r.proxyProtocol && r.mode == ResourceMode.TCP) {
+                put("proxy-protocol", true)
+                put("proxy-protocol-version", NodeTemplates.PROXY_PROTOCOL_VERSION)
+            }
         }
         putJsonArray("targets") {
             for (site in sites) addJsonObject {

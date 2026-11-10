@@ -64,6 +64,8 @@ data class PublicResource(
     val tlsServerName: String? = null,
     val healthcheck: HealthCheck? = null,
     val paused: Boolean = false,
+    /** TCP only: the node prepends a PROXY protocol v2 header with the viewer's address. */
+    val proxyProtocol: Boolean = false,
 ) {
     /** Traefik service name Pangolin generates for this resource (needs its numeric id). */
     fun traefikService(resourceId: Int): String = "$resourceId-$niceId-service@http"
@@ -125,6 +127,7 @@ object Planner {
     const val SPEEDTEST = "hg-speedtest"
     const val SPEEDTEST_AUTO = "hg-speedtest-auto"
     const val STATUS = "hg-status"
+    const val PRIVATE_PATH_PREFIX = "hg-private--"
 
     /**
      * A resource only one node serves (its health check, its speed test host). In a cluster all
@@ -149,7 +152,25 @@ object Planner {
             val r = parseLabels(c.id, c.name, c.labels, config.domain)
             r.errors.forEach { errors += LabelIssue(c.name, it) }
             r.warnings.forEach { warnings += LabelIssue(c.name, it) }
-            val spec = r.spec ?: continue
+            var spec = r.spec ?: continue
+            spec.privateNetwork?.let { net ->
+                // Compose prefixes a project's networks with the project name.
+                val ip = c.networkSettings.networks.entries
+                    .filter { (name, _) -> name == net || name.endsWith("_$net") }
+                    .map { it.value.ipAddress }.singleOrNull { it.isNotEmpty() }
+                if (ip == null) {
+                    errors += LabelIssue(c.name, "${Labels.PRIVATE_NETWORK}: the container has no address on a network named '$net'")
+                    continue
+                }
+                // A client resolves every name an alias covers into the tunnel, its own Pangolin
+                // address too: it would lose the cluster on its next reconnect.
+                val reserved = listOfNotNull(config.clientHost) + config.nodes.map { it.managementHost(config.domain) }
+                val (clash, ok) = spec.privateHosts.partition { alias -> reserved.any { aliasCovers(alias, it) } }
+                clash.forEach { alias ->
+                    errors += LabelIssue(c.name, "${Labels.PRIVATE_HOSTS}: '$alias' covers ${reserved.first { aliasCovers(alias, it) }}, which Pangolin clients must reach directly; name the services instead")
+                }
+                spec = spec.copy(privateHost = ip, privateHosts = ok)
+            }
             val unknown = spec.regions?.filter { it !in nodeIds }.orEmpty()
             if (unknown.isNotEmpty()) warnings += LabelIssue(c.name, "regions reference unknown node(s): ${unknown.joinToString()}")
             parsed += spec.copy(paused = spec.paused || spec.key in pausedServices)
@@ -201,7 +222,7 @@ object Planner {
                 publicRes += PublicResource(
                     niceId = FRONTDOOR_TCP, serviceKey = fd.key, mode = ResourceMode.TCP, fullDomain = null,
                     proxyPort = 0, ssl = false, target = Target(fd.targetHost, fd.port, null),
-                    healthcheck = fd.healthcheck, paused = fd.paused,
+                    healthcheck = fd.healthcheck, paused = fd.paused, proxyProtocol = fd.proxyProtocol,
                 )
                 sni += SniRoute(
                     name = "homegap-frontdoor",
@@ -236,6 +257,7 @@ object Planner {
                         publicRes += PublicResource(
                             niceId = nice, serviceKey = s.key, mode = ResourceMode.TCP, fullDomain = null, proxyPort = 0,
                             ssl = false, target = Target(s.targetHost, s.port, null), healthcheck = s.healthcheck, paused = s.paused,
+                            proxyProtocol = s.proxyProtocol,
                         )
                         sni += SniRoute("homegap-${s.key}", nice, listOf(s.hostname), null, emptyList(), 200)
                         redirects += s.hostname
@@ -252,6 +274,7 @@ object Planner {
                         mode = if (s.protocol == Protocol.TCP) ResourceMode.TCP else ResourceMode.UDP,
                         fullDomain = null, proxyPort = pp, ssl = false, target = Target(s.targetHost, s.port, null),
                         healthcheck = s.healthcheck?.takeIf { s.protocol == Protocol.TCP }, paused = s.paused,
+                        proxyProtocol = s.proxyProtocol && s.protocol == Protocol.TCP,
                     )
                 }
             }
@@ -277,7 +300,8 @@ object Planner {
             )
         }
 
-        val privateRes = mine.filter { it.access == Access.PRIVATE }.map { privateResource(it, site) }
+        val privateRes = mine.filter { it.access == Access.PRIVATE }.map { privateResource(it, site) } +
+            mine.filter { it.access == Access.PUBLIC && it.privateHost != null }.flatMap { privatePath(it, site) }
 
         return NodeDesired(
             node = node,
@@ -301,6 +325,24 @@ object Planner {
         ssl = true, target = Target(s.targetHost, s.port, method), auth = s.auth, roles = s.roles, pinEnv = s.pinEnv,
         healthcheck = s.healthcheck, paused = s.paused,
     )
+
+    /**
+     * A public service's private path (`homegap.private_network`): Pangolin clients resolve its
+     * names to private resources that go to the container's address on that network, so the
+     * service sees their traffic arrive from it rather than as public traffic. A wildcard front
+     * resource per name in [ServiceSpec.privateHosts]. (Pangolin only takes a wildcard alias
+     * when the destination is an IP address, so it is the address, not a name.)
+     */
+    private fun privatePath(s: ServiceSpec, site: String): List<PrivateResource> {
+        val ports = (listOf(s.port) + if (s.protocol == Protocol.HTTPS && s.port != 80) listOf(80) else emptyList()).sorted().joinToString(",")
+        return s.privateHosts.map { alias ->
+            PrivateResource(
+                // "--" never occurs in a service key, so these never collide with a service's own.
+                niceId = PRIVATE_PATH_PREFIX + slug(alias), serviceKey = s.key, name = "$alias (private)", siteNiceId = site,
+                destination = s.privateHost!!, alias = alias, tcpPorts = ports, udpPorts = "", roles = s.roles, paused = s.paused,
+            )
+        }
+    }
 
     private fun privateResource(s: ServiceSpec, site: String): PrivateResource {
         val tcp = if (s.protocol != Protocol.UDP) s.port.toString() else ""
