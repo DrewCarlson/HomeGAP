@@ -89,6 +89,24 @@ class PrivatePathTest {
     }
 
     @Test
+    fun publicTrafficNeverTakesThePrivateNetwork() {
+        val cfg = testConfig().copy(cluster = ClusterConfig())
+        // By name, Docker may answer with the private address: the target is the other one.
+        val fd = Planner.plan(cfg, listOf(frontDoor())).nodes.getValue("na1").publicResources.single { it.niceId == Planner.FRONTDOOR_TCP }
+        assertEquals("172.32.0.5", fd.target.host)
+        // homegap.host still wins.
+        val pinned = Planner.plan(cfg, listOf(frontDoor("homegap.host" to "traefik-public"))).nodes.getValue("na1").publicResources.single { it.niceId == Planner.FRONTDOOR_TCP }
+        assertEquals("traefik-public", pinned.target.host)
+        // Several other networks: which one the tunnels share is unknown, so it asks.
+        val many = frontDoor().let { it.copy(networkSettings = ContainerNetworkSettings(it.networkSettings.networks + ("monitoring" to NetworkEndpoint("172.40.0.9")))) }
+        assertTrue(Planner.plan(cfg, listOf(many)).labelErrors.any { "set homegap.host" in it.message })
+        // A missing private network leaves the public service alone.
+        val missing = Planner.plan(cfg, listOf(frontDoor("homegap.private_network" to "elsewhere")))
+        assertTrue(missing.nodes.getValue("na1").publicResources.any { it.niceId == Planner.FRONTDOOR_TCP })
+        assertTrue(missing.nodes.getValue("na1").privateResources.isEmpty())
+    }
+
+    @Test
     fun aClientsOwnAddressIsNeverCaptured() {
         val cfg = testConfig().copy(cluster = ClusterConfig())
         val plan = Planner.plan(cfg, listOf(frontDoor("homegap.private_hosts" to "*,jellyfin")))

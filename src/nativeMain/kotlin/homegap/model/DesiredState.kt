@@ -172,12 +172,28 @@ object Planner {
             }
             spec.privateNetwork?.let { net ->
                 // Compose prefixes a project's networks with the project name.
-                val ip = c.networkSettings.networks.entries
-                    .filter { (name, _) -> name == net || name.endsWith("_$net") }
-                    .map { it.value.ipAddress }.singleOrNull { it.isNotEmpty() }
+                val (onPrivate, others) = c.networkSettings.networks.entries.filter { it.value.ipAddress.isNotEmpty() }
+                    .partition { (name, _) -> name == net || name.endsWith("_$net") }
+                val ip = onPrivate.singleOrNull()?.value?.ipAddress
                 if (ip == null) {
+                    // Public traffic is unaffected: only the private path is left out.
                     errors += LabelIssue(c.name, "${Labels.PRIVATE_NETWORK}: the container has no address on a network named '$net'")
-                    continue
+                    spec = spec.copy(privateNetwork = null, privateHosts = emptyList())
+                    return@let
+                }
+                // Public traffic must not reach it over the private network: by name, Docker may
+                // answer with that address (the tunnels container is on both), and the service
+                // would see public traffic come from the private range. So it goes to the
+                // address on its other network, unless homegap.host names one.
+                if (Labels.HOST !in c.labels) {
+                    when (others.size) {
+                        1 -> spec = spec.copy(targetHost = others.single().value.ipAddress)
+                        0 -> errors += LabelIssue(c.name, "${Labels.PRIVATE_NETWORK}: the container is only on '$net'; public traffic needs another network shared with the tunnels")
+                        else -> errors += LabelIssue(
+                            c.name,
+                            "${Labels.PRIVATE_NETWORK}: the container is on several other networks (${others.joinToString { it.key }}); set ${Labels.HOST} to its address on the one shared with the tunnels, or public traffic may arrive over '$net'",
+                        )
+                    }
                 }
                 // A client resolves every name an alias covers into the tunnel, its own Pangolin
                 // address too: it would lose the cluster on its next reconnect.
