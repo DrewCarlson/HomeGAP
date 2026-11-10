@@ -1,0 +1,3134 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Publish homelab services worldwide through your own regional edge nodes.">
+      
+      
+      
+        <link rel="canonical" href="https://drewcarlson.github.io/HomeGAP/latest/development/style-guide/">
+      
+      
+      
+        <link rel="prev" href="../documentation/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="zensical-0.1.0">
+    
+    
+      
+        <title>Writing style guide - HomeGAP</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="HomeGAP" class="md-header__button md-logo" aria-label="HomeGAP" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            HomeGAP
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Writing style guide
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="light-blue"  aria-hidden="true"  type="radio" name="__palette" id="__palette_0">
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/DrewCarlson/HomeGAP" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    DrewCarlson/HomeGAP
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="HomeGAP" class="md-nav__button md-logo" aria-label="HomeGAP" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-book-open" viewBox="0 0 24 24"><path d="M12 5v16M20.001 19A2 2 0 0 0 22 17V5a2 2 0 0 0-1.999-2L16 3.002A5 5 0 0 0 12 5a5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 1.999 2H8a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+
+    </a>
+    HomeGAP
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/DrewCarlson/HomeGAP" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+  </div>
+  <div class="md-source__repository">
+    DrewCarlson/HomeGAP
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Getting started
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_2">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Getting started
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/how-it-works/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  How HomeGAP works
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/requirements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Requirements
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/choose-a-mode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Standalone or cluster
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/bunny-dns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Prepare Bunny DNS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/servers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Prepare the servers
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Install on the homelab
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/add-node/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Add a node
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/first-service/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Publish a service
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../services/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Services
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Services
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../services/labels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Label reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../services/traffic-paths/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Traffic paths
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../services/raw-ports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Raw TCP and UDP
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../services/private/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Private services
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../services/authentication/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pangolin sign-in
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../services/client-addresses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Client addresses and private-only services
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    
+    
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Examples
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../services/examples/fluxer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Fluxer (chat and voice)
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../cluster/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cluster mode
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_4">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Cluster mode
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cluster/mesh/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cluster mesh
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cluster/database/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cluster database
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cluster/pangolin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Clustered Pangolin
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cluster/access/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Users and devices
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cluster/pangolin-apps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Connect the Pangolin apps
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cluster/exit-nodes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Exit nodes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../configuration/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Configuration
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_5">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Configuration
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/secrets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Secrets
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/certificates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Certificates
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/dns/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  DNS routing and health checks
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/licenses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pangolin EE licenses
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../configuration/pangolin/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Pangolin options
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Operations
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_6">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Operations
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  The dashboard
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/node-updates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Node updates and rollback
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/upgrade/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Upgrade the homelab
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/nodes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Manage nodes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Diagnostics and troubleshooting
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/failure-modes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Failure modes
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Performance
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/speed-tests/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Speed tests
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/status-page/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Status page
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../operations/maps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Maps and locations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Reference
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_7">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Reference
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Command line
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  HTTP API
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/security/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Security model
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/ports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ports and firewall
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/files/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Files and state
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/glossary/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Glossary
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Development
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        
+          <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="true">
+            <label class="md-nav__title" for="__nav_8">
+              <span class="md-nav__icon md-icon"></span>
+              
+  
+  Development
+
+            </label>
+            <ul class="md-nav__list" data-md-scrollfix>
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../building/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Build from source
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  End-to-end tests
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../documentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Documentation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Writing style guide
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Writing style guide
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#part-0-role-and-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 0: Role and scope
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-1-the-nine-grammatical-and-structural-pillars" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 1: The nine grammatical and structural pillars
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 1: The nine grammatical and structural pillars">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#section-1-words-and-parts-of-speech" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 1: Words and parts of speech
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-2-noun-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 2: Noun clusters
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-3-verbs-and-tenses" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 3: Verbs and tenses
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-4-sentences" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 4: Sentences
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-5-procedures" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 5: Procedures
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-6-descriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 6: Descriptions
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-7-safety-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 7: Safety messages
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sections-8-and-9-punctuation-and-completeness" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sections 8 and 9: Punctuation and completeness
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-2-word-list-one-word-one-meaning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 2: Word list (one word, one meaning)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-3-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 3: Examples
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 3: Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-no-passive-voice-no-hedging" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example 1: No passive voice, no hedging
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-no-noun-clusters-no-phrasal-verbs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example 2: No noun clusters, no phrasal verbs
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-homegap-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example 3: HomeGAP text
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-4-a-human-voice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 4: A human voice
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 4: A human voice">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#do-not-use-these-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Do not use these patterns
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-5-page-format-zensical" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 5: Page format (Zensical)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-6-process-for-each-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 6: Process for each page
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+                
+              
+            </ul>
+          </nav>
+        
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#part-0-role-and-scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 0: Role and scope
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-1-the-nine-grammatical-and-structural-pillars" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 1: The nine grammatical and structural pillars
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 1: The nine grammatical and structural pillars">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#section-1-words-and-parts-of-speech" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 1: Words and parts of speech
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-2-noun-clusters" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 2: Noun clusters
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-3-verbs-and-tenses" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 3: Verbs and tenses
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-4-sentences" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 4: Sentences
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-5-procedures" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 5: Procedures
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-6-descriptions" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 6: Descriptions
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#section-7-safety-messages" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Section 7: Safety messages
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sections-8-and-9-punctuation-and-completeness" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sections 8 and 9: Punctuation and completeness
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-2-word-list-one-word-one-meaning" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 2: Word list (one word, one meaning)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-3-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 3: Examples
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 3: Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#example-1-no-passive-voice-no-hedging" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example 1: No passive voice, no hedging
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-2-no-noun-clusters-no-phrasal-verbs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example 2: No noun clusters, no phrasal verbs
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-3-homegap-text" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Example 3: HomeGAP text
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-4-a-human-voice" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 4: A human voice
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Part 4: A human voice">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#do-not-use-these-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Do not use these patterns
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-5-page-format-zensical" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 5: Page format (Zensical)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#part-6-process-for-each-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Part 6: Process for each page
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+    <a href="https://github.com/DrewCarlson/HomeGAP/edit/main/docs/development/style-guide.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-file-pen" viewBox="0 0 24 24"><path d="M12.659 22H18a2 2 0 0 0 2-2V8a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 14 2H6a2 2 0 0 0-2 2v9.34"/><path d="M14 2v5a1 1 0 0 0 1 1h5M10.378 12.622a1 1 0 0 1 3 3.003L8.36 20.637a2 2 0 0 1-.854.506l-2.867.837a.5.5 0 0 1-.62-.62l.836-2.869a2 2 0 0 1 .506-.853z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="writing-style-guide">Writing style guide<a class="headerlink" href="#writing-style-guide" title="Permanent link">&para;</a></h1>
+<p>This page is the brief for everyone who writes HomeGAP documentation, people and agents alike.
+The rules are a working profile of ASD-STE100 Simplified Technical English (STE), adapted for
+software documentation, plus rules for accuracy and for a natural, human voice.</p>
+<hr />
+<h2 id="part-0-role-and-scope">Part 0: Role and scope<a class="headerlink" href="#part-0-role-and-scope" title="Permanent link">&para;</a></h2>
+<p>You write and edit the HomeGAP documentation in <code>docs/</code>. You get a brief for each page. The brief
+lists the facts, the sources in the code, and the order of the page.</p>
+<ul>
+<li>Use only the facts in the brief, or facts you confirm in the source files that the brief names.</li>
+<li>Do not add a feature, option, default, number, command, UI label, file path or behavior that
+  the brief or the source does not show.</li>
+<li>If a fact that you need is not in the brief, and you cannot confirm it in the source, do not
+  guess. Put an HTML comment <code>&lt;!-- FACT-CHECK: what is missing --&gt;</code> at that location and list it
+  in your report.</li>
+<li>Write only files under <code>docs/</code>. Do not change code, <code>mkdocs.yml</code> or other files, unless the brief
+  tells you to.</li>
+<li>Use <code>example.net</code> for domains, <code>na1</code>, <code>eu1</code>, <code>as1</code> for node ids and documentation addresses
+  (<code>203.0.113.0/24</code>, <code>198.51.100.0/24</code>) for public IP addresses. Never use a real domain, a real
+  person's name or a real location of a user's homelab.</li>
+</ul>
+<hr />
+<h2 id="part-1-the-nine-grammatical-and-structural-pillars">Part 1: The nine grammatical and structural pillars<a class="headerlink" href="#part-1-the-nine-grammatical-and-structural-pillars" title="Permanent link">&para;</a></h2>
+<h3 id="section-1-words-and-parts-of-speech">Section 1: Words and parts of speech<a class="headerlink" href="#section-1-words-and-parts-of-speech" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 1.1: One word, one meaning.</strong> Use each word as one part of speech, with one meaning.<ul>
+<li>Use "close" only as a verb ("Close the dialog"). For the adjective, use "near".</li>
+<li>Use "oil" only as a noun. Write "Apply oil to the bearing", not "Oil the bearing".</li>
+</ul>
+</li>
+<li><strong>Rule 1.2: Use verbs for actions, not nouns made from verbs.</strong><ul>
+<li>Not: "Perform an inspection of the seal." / "Execute the alignment."</li>
+<li>Write: "Inspect the seal." / "Align the component."</li>
+</ul>
+</li>
+<li><strong>Rule 1.3: Do not use phrasal verbs.</strong><ul>
+<li>Not: "set up", "put together", "take apart", "carry out", "turn on", "find out".</li>
+<li>Write: "prepare" or "configure", "assemble", "disassemble", "do", "enable" or "start",
+  "learn" or "find".</li>
+<li>Exception: a phrasal verb that is a name in a UI or a command (the <strong>Add node</strong> button,
+  <code>docker compose up</code>) stays as it is.</li>
+</ul>
+</li>
+</ul>
+<h3 id="section-2-noun-clusters">Section 2: Noun clusters<a class="headerlink" href="#section-2-noun-clusters" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 2.1: Not more than three nouns in a row.</strong> Break longer clusters with prepositions.<ul>
+<li>Not: "node cluster member database container restart".</li>
+<li>Write: "a restart of the database container on the node's cluster member".</li>
+<li>Exception: a technical name stays as it is (<code>cluster-proxy</code>, "Pangolin EE license key").</li>
+</ul>
+</li>
+</ul>
+<h3 id="section-3-verbs-and-tenses">Section 3: Verbs and tenses<a class="headerlink" href="#section-3-verbs-and-tenses" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 3.1: Use only three verb forms.</strong><ol>
+<li>The infinitive, for a purpose: "To add a node, ...".</li>
+<li>The imperative, for a step: "Open", "Set", "Run".</li>
+<li>The present simple, for a description: "The orchestrator reads the labels."</li>
+</ol>
+</li>
+<li><strong>Rule 3.2: No compound or future tenses.</strong> Use the past participle only as an adjective
+  before a noun ("the saved stack"). Do not write "will", "has been", "will have".<ul>
+<li>Not: "The node will be removed from DNS."</li>
+<li>Write: "HomeGAP removes the node from DNS."</li>
+</ul>
+</li>
+<li><strong>Rule 3.3: Do not use "-ing" forms for actions or states.</strong><ul>
+<li>Not: "While provisioning the node, ..." / "The tunnel is reconnecting."</li>
+<li>Write: "During provisioning, ..." / "The tunnel reconnects."</li>
+<li>Exception: a technical name or UI text with "-ing" stays as it is (<code>provisioning…</code>,
+  "Pending switch-back", the <code>streaming</code> replica state, <code>ping</code>).</li>
+</ul>
+</li>
+</ul>
+<h3 id="section-4-sentences">Section 4: Sentences<a class="headerlink" href="#section-4-sentences" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 4.1: Word limits.</strong><ul>
+<li>A procedural sentence (a step): 20 words or fewer.</li>
+<li>A descriptive sentence: 25 words or fewer.</li>
+<li>Code, labels, paths and URLs count as one word each.</li>
+</ul>
+</li>
+<li><strong>Rule 4.2: One idea in each sentence.</strong> A sentence can have one dependent clause, if that
+  clause gives a simple condition ("If the tunnel is down, ...").</li>
+<li><strong>Rule 4.3: No hedging.</strong> Do not use <em>should</em>, <em>would</em>, <em>may</em>, <em>might</em>, <em>likely</em>, <em>probably</em>,
+  <em>could</em>, <em>perhaps</em>, <em>usually</em> (unless the code shows a real "usually", give the condition).<ul>
+<li>For a requirement, use <strong>must</strong>.</li>
+<li>For a capability, use <strong>can</strong>.</li>
+<li>For a recommendation, say it directly: "We recommend ...", or give the reason: "Use
+  <code>tunnels.mtu: 1420</code>. The default of 1280 decreases throughput."</li>
+</ul>
+</li>
+</ul>
+<h3 id="section-5-procedures">Section 5: Procedures<a class="headerlink" href="#section-5-procedures" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 5.1: One action in each step.</strong> Put each action in its own numbered step. A step can
+  have a second sentence that tells the result ("The dashboard shows the node as <code>provisioning…</code>.").</li>
+<li><strong>Rule 5.2: Condition before command.</strong> Give the condition, the requirement or the
+  precaution before the action.<ul>
+<li>Not: "Press <strong>Run</strong> after you test the connection."</li>
+<li>Write: "Test the connection. Then click <strong>Run</strong>." or "When the test passes, click <strong>Run</strong>."</li>
+</ul>
+</li>
+</ul>
+<h3 id="section-6-descriptions">Section 6: Descriptions<a class="headerlink" href="#section-6-descriptions" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 6.1: Not more than six sentences in a paragraph.</strong> Do not put descriptive text and
+  numbered steps in the same block. Put the description first, then the procedure.</li>
+</ul>
+<h3 id="section-7-safety-messages">Section 7: Safety messages<a class="headerlink" href="#section-7-safety-messages" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 7.1: Mark each risk clearly, and isolate it.</strong> Start with the condition or the action,
+  then give the risk.<ul>
+<li>Use <code>!!! danger "Warning"</code> when there is a risk of data loss, of lockout from a server, or of
+  exposure of a private service or a secret.</li>
+<li>Use <code>!!! warning "Caution"</code> when there is a risk of an interruption of service or of a failed
+  operation.</li>
+<li>Use <code>!!! note</code> for information that is not a risk, and <code>!!! tip</code> for a shortcut.</li>
+<li>Example: "If you restrict SSH with <code>ssh_allow_from</code> and your public IP address changes,
+  the orchestrator cannot connect to the node."</li>
+</ul>
+</li>
+</ul>
+<h3 id="sections-8-and-9-punctuation-and-completeness">Sections 8 and 9: Punctuation and completeness<a class="headerlink" href="#sections-8-and-9-punctuation-and-completeness" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Rule 8.1: Do not drop words.</strong> Keep "the", "a" and "an". Keep verbs. No telegraphic text,
+  also in table cells and list items that are sentences.</li>
+<li><strong>Rule 8.2: No semicolons.</strong> Make two sentences.</li>
+</ul>
+<hr />
+<h2 id="part-2-word-list-one-word-one-meaning">Part 2: Word list (one word, one meaning)<a class="headerlink" href="#part-2-word-list-one-word-one-meaning" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Do not use</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>begin, commence, initiate</td>
+<td><strong>start</strong></td>
+</tr>
+<tr>
+<td>utilize, employ, leverage</td>
+<td><strong>use</strong></td>
+</tr>
+<tr>
+<td>terminate, halt, conclude (as general verbs)</td>
+<td><strong>stop</strong> or <strong>end</strong></td>
+</tr>
+<tr>
+<td>perform, execute, carry out</td>
+<td>the specific verb (<strong>do</strong>, <strong>run</strong>, <strong>check</strong>, <strong>install</strong>)</td>
+</tr>
+<tr>
+<td>frequently, periodically</td>
+<td>the exact interval ("every 60 seconds") or <strong>often</strong></td>
+</tr>
+<tr>
+<td>verify, ascertain, ensure</td>
+<td><strong>make sure</strong> or <strong>check</strong></td>
+</tr>
+<tr>
+<td>permit, allow (as general verbs)</td>
+<td><strong>let</strong>, or say what a person <strong>can</strong> do</td>
+</tr>
+<tr>
+<td>set up</td>
+<td><strong>configure</strong> or <strong>prepare</strong> (and the noun <strong>setup</strong>)</td>
+</tr>
+<tr>
+<td>take down</td>
+<td><strong>stop</strong> or <strong>remove</strong></td>
+</tr>
+<tr>
+<td>in order to</td>
+<td><strong>to</strong></td>
+</tr>
+<tr>
+<td>via</td>
+<td><strong>through</strong> or <strong>with</strong></td>
+</tr>
+<tr>
+<td>e.g., i.e.</td>
+<td>"for example", "that is"</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Technical names (TN) and technical verbs.</strong> Keep words that are names of HomeGAP, Pangolin,
+Traefik, Bunny, Docker or Linux things, also if STE does not approve them. Examples: "orchestrator",
+"node", "front door", "passthrough", "terminate" (the TLS mode), "provision", "reconcile",
+"deploy", "label", "router", "middleware", "allowlist", "replica", "primary", "switchover",
+"failover", "connector", "tunnel", "blueprint". Write a name the same way every time.</p>
+<p><strong>Literal text is outside these rules.</strong> Code blocks, inline code, label names, config keys,
+commands, log lines, error messages and UI labels stay exactly as the source shows them. Quote a UI
+label in bold (<strong>Add node</strong>) and a value or key in code (<code>homegap.tls</code>).</p>
+<hr />
+<h2 id="part-3-examples">Part 3: Examples<a class="headerlink" href="#part-3-examples" title="Permanent link">&para;</a></h2>
+<h3 id="example-1-no-passive-voice-no-hedging">Example 1: No passive voice, no hedging<a class="headerlink" href="#example-1-no-passive-voice-no-hedging" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Input:</strong> "It should be ensured that the interface cover is periodically checked by the
+  maintenance crew to prevent any accumulating dust from causing a system malfunction."</li>
+<li><strong>STE:</strong> "The maintenance crew must check the interface cover every week. Dust can cause a
+  system failure."</li>
+<li>The passive "It should be ensured" and the hedge "should" are gone. The "-ing" form
+  "accumulating" is gone. There are two short sentences, each with one idea.</li>
+</ul>
+<h3 id="example-2-no-noun-clusters-no-phrasal-verbs">Example 2: No noun clusters, no phrasal verbs<a class="headerlink" href="#example-2-no-noun-clusters-no-phrasal-verbs" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Input:</strong> "Before carrying out the automated backup system software configuration update,
+  verify that the primary storage drive is completely empty."</li>
+<li><strong>STE:</strong> "Check the primary storage drive. Make sure that it is empty. Then, update the
+  configuration of the software for the automated backup system."</li>
+<li>The condition comes first. A preposition breaks the noun cluster. The phrasal verb "carrying
+  out" is gone.</li>
+</ul>
+<h3 id="example-3-homegap-text">Example 3: HomeGAP text<a class="headerlink" href="#example-3-homegap-text" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Input:</strong> "Once you've set up the tunnels container, HomeGAP will automatically start routing
+  your traffic through the nearest healthy node, which should give you seamless failover."</li>
+<li><strong>STE:</strong> "When the <code>tunnels</code> container runs, Bunny DNS sends each viewer to the nearest healthy
+  node. If a node fails its health check, Bunny removes it from the answers."</li>
+</ul>
+<hr />
+<h2 id="part-4-a-human-voice">Part 4: A human voice<a class="headerlink" href="#part-4-a-human-voice" title="Permanent link">&para;</a></h2>
+<p>STE limits the grammar. It does not make the text robotic. Write as an experienced engineer who
+explains the system to a colleague.</p>
+<ul>
+<li><strong>Be concrete.</strong> Give the real value, the real path and the real result. "The node returns a
+  503 page about 15 seconds after it loses the homelab" is better than "the system degrades
+  gracefully".</li>
+<li><strong>Explain why, once.</strong> If a rule exists for a reason, give the reason in one sentence. Do not
+  repeat it on the page.</li>
+<li><strong>Use "you" for the reader</strong> and the imperative for steps. Use "HomeGAP" or "the orchestrator"
+  for the software, not "we", except in "We recommend".</li>
+<li><strong>Vary the sentence length</strong> inside the limits. Not every sentence has 20 words.</li>
+<li><strong>Use prose for explanations</strong> and lists for real lists (options, steps, items to check). A
+  page that is only bullets is not acceptable.</li>
+<li><strong>Bold is for UI labels and for the first use of a defined term.</strong> Do not start each list item
+  with a bold phrase.</li>
+</ul>
+<h3 id="do-not-use-these-patterns">Do not use these patterns<a class="headerlink" href="#do-not-use-these-patterns" title="Permanent link">&para;</a></h3>
+<p>They show that a text is generated, and they give no information:</p>
+<ul>
+<li>Marketing words: <em>seamless(ly)</em>, <em>robust</em>, <em>powerful</em>, <em>effortless(ly)</em>, <em>cutting-edge</em>,
+  <em>game-changer</em>, <em>supercharge</em>, <em>unlock</em>, <em>elevate</em>, <em>streamline</em>, <em>empower</em>, <em>harness</em>,
+  <em>delve</em>, <em>dive into</em>, <em>journey</em>, <em>landscape</em>, <em>realm</em>, <em>tapestry</em>, <em>crucial</em>, <em>vital</em>,
+  <em>pivotal</em>, <em>essential</em> (as filler), <em>comprehensive</em>, <em>simply</em>, <em>just</em>, <em>easily</em>, <em>of course</em>,
+  <em>it's worth noting</em>, <em>it's important to note</em>, <em>note that</em>.</li>
+<li>Openers and closers: "In this guide, ...", "Let's ...", "Whether you're ... or ...",
+  "Welcome to ...", "In summary", "In conclusion", "That's it!", "Happy hosting!".</li>
+<li>Rhetorical questions as headings or openers ("Why does this matter?").</li>
+<li>Groups of three adjectives or three parallel phrases for rhythm only.</li>
+<li>"Not only ... but also ...", "It's not X, it's Y".</li>
+<li>Em dashes. Use a period, a comma, a colon or parentheses.</li>
+<li>Emoji, exclamation marks.</li>
+<li>A summary at the end of a page that repeats the page.</li>
+<li>Headings with a colon and a slogan ("Failover: Peace of Mind").</li>
+</ul>
+<hr />
+<h2 id="part-5-page-format-zensical">Part 5: Page format (Zensical)<a class="headerlink" href="#part-5-page-format-zensical" title="Permanent link">&para;</a></h2>
+<ul>
+<li>One <code>#</code> heading at the top: the page title, in sentence case. Then one or two sentences that
+  tell what the page is for.</li>
+<li><code>##</code> for sections, <code>###</code> for subsections. Do not go deeper than <code>####</code>.</li>
+<li>Code blocks have a language: <code>yaml</code>, <code>bash</code>, <code>text</code>, <code>json</code>. Commands that a reader runs are in
+  <code>bash</code> blocks, one command per line, without a <code>$</code> prompt.</li>
+<li>Admonitions: see Rule 7.1. Use <code>???</code> (a closed block) for long optional detail.</li>
+<li>Use content tabs (<code>=== "Standalone"</code> / <code>=== "Cluster"</code>) when one step is different in the two
+  modes.</li>
+<li>Links between pages are relative paths to the <code>.md</code> file (<code>../cluster/index.md#the-vote</code>).</li>
+<li>Tables for reference data (labels, config keys, ports, API routes). Each cell that is a
+  sentence follows the rules above.</li>
+<li>The <code>hg_version</code> variable (in double braces) gives the version of the docs. Pages go through
+  Jinja: text that has double braces or a brace with a percent sign (for example Go templates)
+  goes in a Jinja <code>raw</code> block.</li>
+<li>A screenshot that the maintainer must add is an HTML comment on its own line:
+  <code>&lt;!-- SCREENSHOT: docs/img/&lt;page&gt;/&lt;nn&gt;-&lt;what&gt;.png | what the image shows --&gt;</code>.</li>
+</ul>
+<hr />
+<h2 id="part-6-process-for-each-page">Part 6: Process for each page<a class="headerlink" href="#part-6-process-for-each-page" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Isolate.</strong> Divide the brief into descriptions and procedures.</li>
+<li><strong>Draft.</strong> Write the page in the order of the brief.</li>
+<li><strong>Lint.</strong> Find and replace the forbidden words, passive voice, "-ing" forms, hedges,
+   semicolons and the patterns in Part 4.</li>
+<li><strong>Measure.</strong> Make each sentence fit the word limits. Make each paragraph six sentences or
+   fewer.</li>
+<li><strong>Check the facts.</strong> Compare each statement with the brief or the source. Remove each statement
+   that you cannot connect to a fact.</li>
+<li><strong>Report.</strong> After you write the files, report the files that you wrote, each <code>FACT-CHECK</code>
+   comment and each fact in the brief that you think is wrong or unclear. Do not explain your
+   edits.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../documentation/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Documentation">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-arrow-left" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7M19 12H5"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Documentation
+              </div>
+            </div>
+          </a>
+        
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 HomeGAP Maintainers
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/DrewCarlson/HomeGAP" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M216.5 362.5c-66-8-112.5-55.5-112.5-117 0-25 9-52 24-70-6.5-16.5-5.5-51.5 2-66 20-2.5 47 8 63 22.5 19-6 39-9 63.5-9s44.5 3 62.5 8.5c15.5-14 43-24.5 63-22 7 13.5 8 48.5 1.5 65.5 16 19 24.5 44.5 24.5 70.5 0 61.5-46.5 108-113.5 116.5 17 11 28.5 35 28.5 62.5v52c0 15 12.5 23.5 27.5 17.5C441 459.5 512 369 512 257 512 115.5 397 0 255.5 0S0 115.5 0 257c0 111 70.5 203 165.5 237.5 13.5 5 26.5-4 26.5-17.5v-40c-7 3-16 5-24 5-33 0-52.5-18-66.5-51.5-5.5-13.5-11.5-21.5-23-23-6-.5-8-3-8-6 0-6 10-10.5 20-10.5 14.5 0 27 9 40 27.5 10 14.5 20.5 21 33 21s20.5-4.5 32-16c8.5-8.5 15-16 21-21"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/DrewCarlson/HomeGAP/pkgs/container/homegap" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M349.9 236.3h-66.1v-59.4h66.1zm0-204.3h-66.1v60.7h66.1zm78.2 144.8H362v59.4h66.1zm-156.3-72.1h-66.1v60.1h66.1zm78.1 0h-66.1v60.1h66.1zm276.8 100c-14.4-9.7-47.6-13.2-73.1-8.4-3.3-24-16.7-44.9-41.1-63.7l-14-9.3-9.3 14c-18.4 27.8-23.4 73.6-3.7 103.8-8.7 4.7-25.8 11.1-48.4 10.7H2.4c-8.7 50.8 5.8 116.8 44 162.1 37.1 43.9 92.7 66.2 165.4 66.2 157.4 0 273.9-72.5 328.4-204.2 21.4.4 67.6.1 91.3-45.2 1.5-2.5 6.6-13.2 8.5-17.1zm-511.1-27.9h-66v59.4h66.1v-59.4zm78.1 0h-66.1v59.4h66.1zm78.1 0h-66.1v59.4h66.1zm-78.1-72.1h-66.1v60.1h66.1z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.action.edit","content.code.copy","content.tabs.link","navigation.sections","navigation.top","navigation.footer","navigation.indexes","search.highlight","toc.follow"],"redirect":null,"search":"../../assets/javascripts/workers/search.719e0d91.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"default":"latest","provider":"mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d31f0ffa.min.js"></script>
+      
+    
+  </body>
+</html>
