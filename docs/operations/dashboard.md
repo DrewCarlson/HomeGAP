@@ -53,7 +53,7 @@ The **Add node** button opens the wizard. See [Add a node](../getting-started/ad
 
 ### DNS
 
-"Bunny DNS records managed by HomeGAP". The page shows the records, the state of their monitors and if they match the desired state.
+"Bunny DNS records managed by HomeGAP". The page shows the records, the state of their monitors and if they match the desired state. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them.
 
 <img src="../img/dashboard/dns.png" alt="The DNS page with the records and the monitor state">
 

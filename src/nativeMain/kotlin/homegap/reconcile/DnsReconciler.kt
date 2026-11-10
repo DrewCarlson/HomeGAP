@@ -14,7 +14,12 @@ import kotlinx.coroutines.ensureActive
  * Bunny drops offline members of a record set and returns every member when all are offline
  * (fail-open), which is exactly the failover behaviour the platform relies on.
  */
-class DnsReconciler(private val ctx: ReconcileContext, private val bunny: BunnyClient?) {
+class DnsReconciler(
+    private val ctx: ReconcileContext,
+    private val bunny: BunnyClient?,
+    /** Asks the zone's nameservers whether they serve what the API reports; null skips it. */
+    private val nameservers: NameserverCheck? = null,
+) {
     private val domain = "dns"
 
     data class Observed(val record: BunnyRecord, val desired: DesiredDnsRecord?, val inSync: Boolean, val diff: String?)
@@ -103,8 +108,32 @@ class DnsReconciler(private val ctx: ReconcileContext, private val bunny: BunnyC
             ctx.log.change(domain, "deleted ${a.typeName} ${a.name.ifEmpty { "@" }} -> ${a.value} ($why)")
         }
 
-        lastObserved = observed
-        return observed
+        val served = checkNameservers(zone.nameservers, observed)
+        lastObserved = served
+        return served
+    }
+
+    /**
+     * Marks records the API reports as in sync but a nameserver does not serve yet: until it
+     * does, some lookups still get the old answer (for a new name, the wildcard's).
+     */
+    private suspend fun checkNameservers(zoneNameservers: List<String>, observed: List<Observed>): List<Observed> {
+        val check = nameservers ?: return observed
+        if (ctx.dryRun) return observed
+        val records = observed.filter { it.inSync }.mapNotNull { it.desired }
+        val result = check.check(zoneNameservers, records)
+        for (r in result.changed) {
+            val problem = result.problems[r]
+            if (problem != null) {
+                ctx.log.warn(domain, "${r.type} ${r.fqdn} -> ${r.value} is not on every nameserver yet: $problem", r.nodeId)
+            } else {
+                ctx.log.info(domain, "${r.type} ${r.fqdn} -> ${r.value} is now on every nameserver", r.nodeId)
+            }
+        }
+        return observed.map { o ->
+            val problem = o.desired?.let { result.problems[it] } ?: return@map o
+            o.copy(inSync = false, diff = "$NOT_ON_EVERY_NAMESERVER: $problem")
+        }
     }
 
     private fun toRecord(d: DesiredDnsRecord, typeCode: Int): BunnyRecord {
@@ -147,6 +176,11 @@ class DnsReconciler(private val ctx: ReconcileContext, private val bunny: BunnyC
         if (a.disabled) out += "enabled"
         if (a.comment != w.comment) out += "ownership tag"
         return out.takeIf { it.isNotEmpty() }?.joinToString(", ")
+    }
+
+    companion object {
+        /** How [Observed.diff] starts for a record the API has but a nameserver does not serve yet. */
+        const val NOT_ON_EVERY_NAMESERVER = "not on every nameserver"
     }
 
     private fun close(a: Double, b: Double) = kotlin.math.abs(a - b) < 0.0001

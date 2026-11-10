@@ -12,7 +12,14 @@ data class DesiredState(
     val frontDoor: ServiceSpec?,
     val nodes: Map<String, NodeDesired>,
     val dns: List<DesiredDnsRecord>,
-)
+) {
+    /**
+     * The addresses this plan publishes for [nodeId]'s management host (its A and AAAA records),
+     * the same values the DNS domain writes to Bunny.
+     */
+    fun managementAddresses(nodeId: String): List<String> =
+        dns.filter { it.purpose == "management" && it.nodeId == nodeId }.map { it.value }
+}
 
 data class LabelIssue(val container: String, val message: String)
 
@@ -158,65 +165,98 @@ object Planner {
             r.errors.forEach { errors += LabelIssue(c.name, it) }
             r.warnings.forEach { warnings += LabelIssue(c.name, it) }
             for (parsedSpec in r.specs) {
-            var spec = parsedSpec
-            val where = spec.name?.let { "services.$it: " } ?: ""
-            spec.privateMiddleware?.let { mw ->
-                // Names from the routers of this Traefik that use the middleware (its API).
-                val routers = traefikRouters[spec.traefikApi]
-                if (routers == null) {
-                    errors += LabelIssue(c.name, where + "${Labels.PRIVATE_MIDDLEWARE}: the Traefik API at ${spec.traefikApi} has not answered; set ${Labels.TRAEFIK_API} if it is elsewhere")
-                    return@let
-                }
-                val (hosts, unreadable) = routerHosts(routers, mw)
-                val (inside, outside) = hosts.partition { it == spec.hostname || it.endsWith(".${spec.hostname}") }
-                outside.forEach { warnings += LabelIssue(c.name, where + "$it uses $mw but is outside ${spec.hostname}: not given a private path") }
-                unreadable.forEach {
-                    warnings += LabelIssue(c.name, where + "router $it uses $mw but its names can't be read from its rule (HostRegexp or no Host); list them in ${Labels.PRIVATE_HOSTS}")
-                }
-                spec = spec.copy(privateHosts = (spec.privateHosts + inside).distinct())
-            }
-            spec.privateNetwork?.let { net ->
-                // Compose prefixes a project's networks with the project name.
-                val (onPrivate, others) = c.networkSettings.networks.entries.filter { it.value.ipAddress.isNotEmpty() }
-                    .partition { (name, _) -> name == net || name.endsWith("_$net") }
-                val ip = onPrivate.singleOrNull()?.value?.ipAddress
-                if (ip == null) {
-                    // Public traffic is unaffected: only the private path is left out.
-                    errors += LabelIssue(c.name, where + "${Labels.PRIVATE_NETWORK}: the container has no address on a network named '$net'")
-                    spec = spec.copy(privateNetwork = null, privateHosts = emptyList())
-                    return@let
-                }
-                // Public traffic must not reach it over the private network: by name, Docker may
-                // answer with that address (the tunnels container is on both), and the service
-                // would see public traffic come from the private range. So it goes to the
-                // address on its other network, unless homegap.host names one.
-                if (Labels.HOST !in c.labels) {
-                    when (others.size) {
-                        1 -> spec = spec.copy(targetHost = others.single().value.ipAddress)
-                        0 -> errors += LabelIssue(c.name, where + "${Labels.PRIVATE_NETWORK}: the container is only on '$net'; public traffic needs another network shared with the tunnels")
-                        else -> errors += LabelIssue(
+                var spec = parsedSpec
+                val where = spec.name?.let { "services.$it: " }.orEmpty()
+                spec.privateMiddleware?.let { mw ->
+                    // Names from the routers of this Traefik that use the middleware (its API).
+                    val routers = traefikRouters[spec.traefikApi]
+                    if (routers == null) {
+                        errors += LabelIssue(
                             c.name,
-                            "${Labels.PRIVATE_NETWORK}: the container is on several other networks (${others.joinToString { it.key }}); set ${Labels.HOST} to its address on the one shared with the tunnels, or public traffic may arrive over '$net'",
+                            where + "${Labels.PRIVATE_MIDDLEWARE}: the Traefik API at ${spec.traefikApi} has not answered; set ${Labels.TRAEFIK_API} if it is elsewhere"
+                        )
+                        return@let
+                    }
+                    val (hosts, unreadable) = routerHosts(routers, mw)
+                    val (inside, outside) = hosts.partition { it == spec.hostname || it.endsWith(".${spec.hostname}") }
+                    outside.forEach {
+                        warnings += LabelIssue(
+                            c.name,
+                            where + "$it uses $mw but is outside ${spec.hostname}: not given a private path"
                         )
                     }
+                    unreadable.forEach {
+                        warnings += LabelIssue(
+                            c.name,
+                            where + "router $it uses $mw but its names can't be read from its rule (HostRegexp or no Host); list them in ${Labels.PRIVATE_HOSTS}"
+                        )
+                    }
+                    spec = spec.copy(privateHosts = (spec.privateHosts + inside).distinct())
                 }
-                // A client resolves every name an alias covers into the tunnel, its own Pangolin
-                // address too: it would lose the cluster on its next reconnect.
-                val reserved = listOfNotNull(config.clientHost) + config.nodes.map { it.managementHost(config.domain) }
-                val (clash, ok) = spec.privateHosts.partition { alias -> reserved.any { aliasCovers(alias, it) } }
-                clash.forEach { alias ->
-                    errors += LabelIssue(c.name, where + "${Labels.PRIVATE_HOSTS}: '$alias' covers ${reserved.first { aliasCovers(alias, it) }}, which Pangolin clients must reach directly; name the services instead")
+                spec.privateNetwork?.let { net ->
+                    // Compose prefixes a project's networks with the project name.
+                    val (onPrivate, others) = c.networkSettings.networks.entries.filter { it.value.ipAddress.isNotEmpty() }
+                        .partition { (name, _) -> name == net || name.endsWith("_$net") }
+                    val ip = onPrivate.singleOrNull()?.value?.ipAddress
+                    if (ip == null) {
+                        // Public traffic is unaffected: only the private path is left out.
+                        errors += LabelIssue(
+                            c.name,
+                            where + "${Labels.PRIVATE_NETWORK}: the container has no address on a network named '$net'"
+                        )
+                        spec = spec.copy(privateNetwork = null, privateHosts = emptyList())
+                        return@let
+                    }
+                    // Public traffic must not reach it over the private network: by name, Docker may
+                    // answer with that address (the tunnels container is on both), and the service
+                    // would see public traffic come from the private range. So it goes to the
+                    // address on its other network, unless homegap.host names one.
+                    if (Labels.HOST !in c.labels) {
+                        when (others.size) {
+                            1 -> spec = spec.copy(targetHost = others.single().value.ipAddress)
+                            0 -> errors += LabelIssue(
+                                c.name,
+                                where + "${Labels.PRIVATE_NETWORK}: the container is only on '$net'; public traffic needs another network shared with the tunnels"
+                            )
+
+                            else -> errors += LabelIssue(
+                                c.name,
+                                "${Labels.PRIVATE_NETWORK}: the container is on several other networks (${others.joinToString { it.key }}); set ${Labels.HOST} to its address on the one shared with the tunnels, or public traffic may arrive over '$net'",
+                            )
+                        }
+                    }
+                    // A client resolves every name an alias covers into the tunnel, its own Pangolin
+                    // address too: it would lose the cluster on its next reconnect.
+                    val reserved =
+                        listOfNotNull(config.clientHost) + config.nodes.map { it.managementHost(config.domain) }
+                    val (clash, ok) = spec.privateHosts.partition { alias -> reserved.any { aliasCovers(alias, it) } }
+                    clash.forEach { alias ->
+                        errors += LabelIssue(
+                            c.name,
+                            where + "${Labels.PRIVATE_HOSTS}: '$alias' covers ${
+                                reserved.first {
+                                    aliasCovers(
+                                        alias,
+                                        it
+                                    )
+                                }
+                            }, which Pangolin clients must reach directly; name the services instead"
+                        )
+                    }
+                    spec = spec.copy(privateHost = ip, privateHosts = ok)
                 }
-                spec = spec.copy(privateHost = ip, privateHosts = ok)
-            }
-            val unknown = spec.regions?.filter { it !in nodeIds }.orEmpty()
-            if (unknown.isNotEmpty()) warnings += LabelIssue(c.name, where + "regions reference unknown node(s): ${unknown.joinToString()}")
-            parsed += spec.copy(paused = spec.paused || spec.key in pausedServices)
+                val unknown = spec.regions?.filter { it !in nodeIds }.orEmpty()
+                if (unknown.isNotEmpty()) warnings += LabelIssue(
+                    c.name,
+                    where + "regions reference unknown node(s): ${unknown.joinToString()}"
+                )
+                parsed += spec.copy(paused = spec.paused || spec.key in pausedServices)
             }
         }
 
         val services = claim(parsed, errors)
-        val frontDoor = services.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC && !it.protocol.isRaw }
+        val frontDoor =
+            services.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC && !it.protocol.isRaw }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
 
         val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, frontDoor) }
@@ -234,11 +274,20 @@ object Planner {
     private fun claim(parsed: List<ServiceSpec>, errors: MutableList<LabelIssue>): List<ServiceSpec> {
         val kept = mutableListOf<ServiceSpec>()
         for (s in parsed) {
-            fun refuse(why: String) { errors += LabelIssue(s.containerName, (s.name?.let { "services.$it: " } ?: "") + why) }
+            fun refuse(why: String) {
+                errors += LabelIssue(s.containerName, (s.name?.let { "services.$it: " }.orEmpty()) + why)
+            }
+
             val byHost = kept.filter { it.hostname == s.hostname }
             val httpOwner = byHost.firstOrNull { !it.protocol.isRaw }
-            if (!s.protocol.isRaw && httpOwner != null) { refuse("hostname ${s.hostname} is already claimed by ${httpOwner.label}"); continue }
-            kept.firstOrNull { it.key == s.key }?.let { refuse("hostname ${s.hostname} is already claimed by ${it.label}; give this service a name under ${Labels.SERVICES_PREFIX}"); continue }
+            if (!s.protocol.isRaw && httpOwner != null) {
+                refuse("hostname ${s.hostname} is already claimed by ${httpOwner.label}"); continue
+            }
+            kept.firstOrNull { it.key == s.key }
+                ?.let {
+                    refuse("hostname ${s.hostname} is already claimed by ${it.label}; give this service a name under ${Labels.SERVICES_PREFIX}")
+                    continue
+                }
             if (s.access == Access.PUBLIC) {
                 val mine = s.publicPorts()
                 val clash = kept.filter { o -> o.access == Access.PUBLIC && overlaps(o.regions, s.regions) }
@@ -268,7 +317,12 @@ object Planner {
         if (s.name == null && s.ports.size == 1 && m.protocols.size == 1) "$NICE_PREFIX${s.key}-${proto.label}"
         else "$NICE_PREFIX${s.key}-${m.publicPort}-${proto.label}"
 
-    private fun planNode(config: AppConfig, node: NodeConfig, services: List<ServiceSpec>, frontDoor: ServiceSpec?): NodeDesired {
+    private fun planNode(
+        config: AppConfig,
+        node: NodeConfig,
+        services: List<ServiceSpec>,
+        frontDoor: ServiceSpec?
+    ): NodeDesired {
         val site = config.siteNiceId(node.id)
         val mgmt = node.managementHost(config.domain)
         val mine = services.filter { it.servesNode(node.id) }
@@ -305,21 +359,43 @@ object Planner {
                     resourceNiceId = FRONTDOOR_TCP,
                     // The per-node speed test and status names ride the front door to the homelab;
                     // the shared ones are answered by the node itself.
-                    exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts.drop(1) + listOfNotNull(spNode),
+                    exactHosts = listOf(fd.hostname) + if (fd.wildcard) emptyList() else stHosts.drop(1) + listOfNotNull(
+                        spNode
+                    ),
                     wildcardOf = if (fd.wildcard) fd.hostname else null,
-                    excludeHosts = (listOfNotNull(mgmt, config.clientHost, spAuto, stHosts.firstOrNull()) + terminateDedicated).distinct().sorted(),
+                    excludeHosts = (listOfNotNull(
+                        mgmt,
+                        config.clientHost,
+                        spAuto,
+                        stHosts.firstOrNull()
+                    ) + terminateDedicated).distinct().sorted(),
                     priority = 100,
                 )
                 redirects += fd.hostname
                 if (fd.wildcard) wildcardRedirect = fd.hostname
             } else {
                 publicRes += httpResource(NICE_PREFIX + fd.key, fd, fd.hostname, method)
-                if (fd.wildcard) publicRes += httpResource(NICE_PREFIX + "wildcard-" + fd.key, fd, "*." + fd.hostname, method)
+                if (fd.wildcard) publicRes += httpResource(
+                    NICE_PREFIX + "wildcard-" + fd.key,
+                    fd,
+                    "*." + fd.hostname,
+                    method
+                )
                 if (st != null) {
-                    publicRes += httpResource(perNode(config, SPEEDTEST, node.id), fd, stHosts[1], method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
+                    publicRes += httpResource(
+                        perNode(config, SPEEDTEST, node.id),
+                        fd,
+                        stHosts[1],
+                        method
+                    ).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
                 }
                 if (spNode != null) {
-                    publicRes += httpResource(perNode(config, STATUS, node.id), fd, spNode, method).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
+                    publicRes += httpResource(
+                        perNode(config, STATUS, node.id),
+                        fd,
+                        spNode,
+                        method
+                    ).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
                 }
             }
         }
@@ -331,24 +407,42 @@ object Planner {
                         val nice = NICE_PREFIX + s.key
                         passthroughKeys += nice
                         publicRes += PublicResource(
-                            niceId = nice, serviceKey = s.key, mode = ResourceMode.TCP, fullDomain = null, proxyPort = 0,
-                            ssl = false, target = Target(s.targetHost, s.port, null), healthcheck = s.healthcheck, paused = s.paused,
+                            niceId = nice,
+                            serviceKey = s.key,
+                            mode = ResourceMode.TCP,
+                            fullDomain = null,
+                            proxyPort = 0,
+                            ssl = false,
+                            target = Target(s.targetHost, s.port, null),
+                            healthcheck = s.healthcheck,
+                            paused = s.paused,
                             proxyProtocol = s.proxyProtocol,
                         )
                         sni += SniRoute("homegap-${s.key}", nice, listOf(s.hostname), null, emptyList(), 200)
                         redirects += s.hostname
                     } else {
-                        publicRes += httpResource(NICE_PREFIX + s.key, s, s.hostname, if (s.protocol == Protocol.HTTPS) "https" else "http")
+                        publicRes += httpResource(
+                            NICE_PREFIX + s.key,
+                            s,
+                            s.hostname,
+                            if (s.protocol == Protocol.HTTPS) "https" else "http"
+                        )
                     }
                 }
+
                 Protocol.TCP, Protocol.UDP, Protocol.TCP_UDP -> for (m in s.ports) for (proto in m.protocols.sortedBy { it.ordinal }) {
                     val tcp = proto == Protocol.TCP
                     raw += RawPort(m.publicPort, proto.label)
                     publicRes += PublicResource(
-                        niceId = rawNiceId(s, m, proto), serviceKey = s.key,
+                        niceId = rawNiceId(s, m, proto),
+                        serviceKey = s.key,
                         mode = if (tcp) ResourceMode.TCP else ResourceMode.UDP,
-                        fullDomain = null, proxyPort = m.publicPort, ssl = false, target = Target(s.targetHost, m.port, null),
-                        healthcheck = s.healthcheck?.takeIf { tcp }, paused = s.paused,
+                        fullDomain = null,
+                        proxyPort = m.publicPort,
+                        ssl = false,
+                        target = Target(s.targetHost, m.port, null),
+                        healthcheck = s.healthcheck?.takeIf { tcp },
+                        paused = s.paused,
                         proxyProtocol = s.proxyProtocol && tcp,
                     )
                 }
@@ -357,7 +451,9 @@ object Planner {
 
         // Stable internal proxy ports for passthrough TCP resources (never published).
         val ports = allocatePorts(passthroughKeys, config.pangolin.passthroughPortBase, raw.map { it.port }.toSet())
-        val withPorts = publicRes.map { r -> if (r.niceId in ports) r.copy(proxyPort = ports.getValue(r.niceId)) else r }.toMutableList()
+        val withPorts =
+            publicRes.map { r -> if (r.niceId in ports) r.copy(proxyPort = ports.getValue(r.niceId)) else r }
+                .toMutableList()
 
         // Health resource: lets Bunny's port-80 monitor observe node -> tunnel -> origin.
         val healthTarget = fd ?: dedicated.firstOrNull { it.isHttpLike() }
@@ -369,14 +465,18 @@ object Planner {
             withPorts += PublicResource(
                 niceId = healthNice, serviceKey = healthTarget.key, mode = ResourceMode.HTTP,
                 fullDomain = "homegap-health-${node.id}.${config.domain}", proxyPort = null, ssl = false,
-                target = Target(healthTarget.targetHost, healthTarget.port, if (healthTarget.protocol == Protocol.HTTPS) "https" else "http"),
+                target = Target(
+                    healthTarget.targetHost,
+                    healthTarget.port,
+                    if (healthTarget.protocol == Protocol.HTTPS) "https" else "http"
+                ),
                 hostHeader = healthTarget.hostname,
                 tlsServerName = healthTarget.hostname.takeIf { healthTarget.protocol == Protocol.HTTPS },
             )
         }
 
         val privateRes = mine.filter { it.access == Access.PRIVATE }.map { privateResource(it, site) } +
-            mine.filter { it.access == Access.PUBLIC && it.privateHost != null }.flatMap { privatePath(it, site) }
+                mine.filter { it.access == Access.PUBLIC && it.privateHost != null }.flatMap { privatePath(it, site) }
 
         return NodeDesired(
             node = node,
@@ -409,12 +509,22 @@ object Planner {
      * when the destination is an IP address, so it is the address, not a name.)
      */
     private fun privatePath(s: ServiceSpec, site: String): List<PrivateResource> {
-        val ports = (listOf(s.port) + if (s.protocol == Protocol.HTTPS && s.port != 80) listOf(80) else emptyList()).sorted().joinToString(",")
+        val ports =
+            (listOf(s.port) + if (s.protocol == Protocol.HTTPS && s.port != 80) listOf(80) else emptyList()).sorted()
+                .joinToString(",")
         return s.privateHosts.map { alias ->
             PrivateResource(
                 // "--" never occurs in a service key, so these never collide with a service's own.
-                niceId = PRIVATE_PATH_PREFIX + slug(alias), serviceKey = s.key, name = "$alias (private)", siteNiceId = site,
-                destination = s.privateHost!!, alias = alias, tcpPorts = ports, udpPorts = "", roles = s.roles, paused = s.paused,
+                niceId = PRIVATE_PATH_PREFIX + slug(alias),
+                serviceKey = s.key,
+                name = "$alias (private)",
+                siteNiceId = site,
+                destination = s.privateHost!!,
+                alias = alias,
+                tcpPorts = ports,
+                udpPorts = "",
+                roles = s.roles,
+                paused = s.paused,
             )
         }
     }
@@ -425,12 +535,25 @@ object Planner {
         val tcp = if (s.protocol.isRaw) on(Protocol.TCP) else s.port.toString()
         val udp = if (s.protocol.isRaw) on(Protocol.UDP) else ""
         return PrivateResource(
-            niceId = NICE_PREFIX + s.key, serviceKey = s.key, name = s.hostname, siteNiceId = site,
-            destination = s.targetHost, alias = s.hostname, tcpPorts = tcp, udpPorts = udp, roles = s.roles, paused = s.paused,
+            niceId = NICE_PREFIX + s.key,
+            serviceKey = s.key,
+            name = s.hostname,
+            siteNiceId = site,
+            destination = s.targetHost,
+            alias = s.hostname,
+            tcpPorts = tcp,
+            udpPorts = udp,
+            roles = s.roles,
+            paused = s.paused,
         )
     }
 
-    private fun planDns(config: AppConfig, nodes: List<NodeConfig>, services: List<ServiceSpec>, frontDoor: ServiceSpec?): List<DesiredDnsRecord> {
+    private fun planDns(
+        config: AppConfig,
+        nodes: List<NodeConfig>,
+        services: List<ServiceSpec>,
+        frontDoor: ServiceSpec?
+    ): List<DesiredDnsRecord> {
         val out = mutableListOf<DesiredDnsRecord>()
         val zone = config.bunny.zone
         fun rel(fqdn: String) = if (fqdn == zone) "" else fqdn.removeSuffix(".$zone")
@@ -442,10 +565,36 @@ object Planner {
             for (n in eligible) {
                 val loc = n.effectiveLocation()
                 n.ipv4()?.let { ip ->
-                    out += DesiredDnsRecord(rel(fqdn), fqdn, "A", ip, n.id, geo, loc?.latitude, loc?.longitude, n.latencyZone, config.bunny.monitor, config.bunny.ttl, purpose)
+                    out += DesiredDnsRecord(
+                        rel(fqdn),
+                        fqdn,
+                        "A",
+                        ip,
+                        n.id,
+                        geo,
+                        loc?.latitude,
+                        loc?.longitude,
+                        n.latencyZone,
+                        config.bunny.monitor,
+                        config.bunny.ttl,
+                        purpose
+                    )
                 }
                 n.publicIpv6?.let { ip ->
-                    out += DesiredDnsRecord(rel(fqdn), fqdn, "AAAA", ip, n.id, geo, loc?.latitude, loc?.longitude, n.latencyZone, config.bunny.monitor, config.bunny.ttl, purpose)
+                    out += DesiredDnsRecord(
+                        rel(fqdn),
+                        fqdn,
+                        "AAAA",
+                        ip,
+                        n.id,
+                        geo,
+                        loc?.latitude,
+                        loc?.longitude,
+                        n.latencyZone,
+                        config.bunny.monitor,
+                        config.bunny.ttl,
+                        purpose
+                    )
                 }
             }
         }
@@ -459,7 +608,12 @@ object Planner {
         // every node that serves any of them. The front door's own name already has its set.
         services.filter { it != frontDoor && it.access == Access.PUBLIC && it.hostname != frontDoor?.hostname }
             .groupBy { it.hostname }
-            .forEach { (host, group) -> geoSet(host, "service:${group.first().key}", nodes.filter { n -> group.any { it.servesNode(n.id) } }) }
+            .forEach { (host, group) ->
+                geoSet(
+                    host,
+                    "service:${group.first().key}",
+                    nodes.filter { n -> group.any { it.servesNode(n.id) } })
+            }
         if (frontDoor != null && config.speedtest.enabled) {
             val eligible = nodes.filter { frontDoor.servesNode(it.id) }
             val st = config.speedtest
@@ -467,8 +621,38 @@ object Planner {
             if (!frontDoor.wildcard) geoSet(st.autoHost(config.domain), "speedtest", eligible)
             for (n in eligible) {
                 val h = st.nodeHost(config.domain, n.id)
-                n.ipv4()?.let { out += DesiredDnsRecord(rel(h), h, "A", it, n.id, false, null, null, null, "none", config.bunny.ttl, "speedtest") }
-                n.publicIpv6?.let { out += DesiredDnsRecord(rel(h), h, "AAAA", it, n.id, false, null, null, null, "none", config.bunny.ttl, "speedtest") }
+                n.ipv4()?.let {
+                    out += DesiredDnsRecord(
+                        rel(h),
+                        h,
+                        "A",
+                        it,
+                        n.id,
+                        false,
+                        null,
+                        null,
+                        null,
+                        "none",
+                        config.bunny.ttl,
+                        "speedtest"
+                    )
+                }
+                n.publicIpv6?.let {
+                    out += DesiredDnsRecord(
+                        rel(h),
+                        h,
+                        "AAAA",
+                        it,
+                        n.id,
+                        false,
+                        null,
+                        null,
+                        null,
+                        "none",
+                        config.bunny.ttl,
+                        "speedtest"
+                    )
+                }
             }
         }
         if (frontDoor != null && config.statusPage.enabled) {
@@ -478,16 +662,76 @@ object Planner {
             geoSet(sp.autoHost(config.domain), "status", eligible)
             for (n in eligible) {
                 val h = sp.nodeHost(config.domain, n.id)
-                n.ipv4()?.let { out += DesiredDnsRecord(rel(h), h, "A", it, n.id, false, null, null, null, "none", config.bunny.ttl, "status") }
-                n.publicIpv6?.let { out += DesiredDnsRecord(rel(h), h, "AAAA", it, n.id, false, null, null, null, "none", config.bunny.ttl, "status") }
+                n.ipv4()?.let {
+                    out += DesiredDnsRecord(
+                        rel(h),
+                        h,
+                        "A",
+                        it,
+                        n.id,
+                        false,
+                        null,
+                        null,
+                        null,
+                        "none",
+                        config.bunny.ttl,
+                        "status"
+                    )
+                }
+                n.publicIpv6?.let {
+                    out += DesiredDnsRecord(
+                        rel(h),
+                        h,
+                        "AAAA",
+                        it,
+                        n.id,
+                        false,
+                        null,
+                        null,
+                        null,
+                        "none",
+                        config.bunny.ttl,
+                        "status"
+                    )
+                }
             }
         }
         // Every node serves the cluster's login pages and client API.
         config.clientHost?.let { geoSet(it, "client", nodes) }
         for (n in nodes) {
             val mgmt = n.managementHost(config.domain)
-            n.ipv4()?.let { out += DesiredDnsRecord(rel(mgmt), mgmt, "A", it, n.id, false, null, null, null, "none", config.bunny.ttl, "management") }
-            n.publicIpv6?.let { out += DesiredDnsRecord(rel(mgmt), mgmt, "AAAA", it, n.id, false, null, null, null, "none", config.bunny.ttl, "management") }
+            n.ipv4()?.let {
+                out += DesiredDnsRecord(
+                    rel(mgmt),
+                    mgmt,
+                    "A",
+                    it,
+                    n.id,
+                    false,
+                    null,
+                    null,
+                    null,
+                    "none",
+                    config.bunny.ttl,
+                    "management"
+                )
+            }
+            n.publicIpv6?.let {
+                out += DesiredDnsRecord(
+                    rel(mgmt),
+                    mgmt,
+                    "AAAA",
+                    it,
+                    n.id,
+                    false,
+                    null,
+                    null,
+                    null,
+                    "none",
+                    config.bunny.ttl,
+                    "management"
+                )
+            }
         }
         return out.sortedWith(compareBy({ it.name }, { it.type }, { it.nodeId }))
     }
@@ -502,7 +746,9 @@ object Planner {
         val avoid = nodes.values.flatMap { n -> n.rawPorts.map { it.port } }.toSet()
         val ports = allocatePorts(keys, config.pangolin.passthroughPortBase, avoid)
         return nodes.mapValues { (_, n) ->
-            n.copy(publicResources = n.publicResources.map { r -> ports[r.niceId]?.let { r.copy(proxyPort = it) } ?: r })
+            n.copy(publicResources = n.publicResources.map { r ->
+                ports[r.niceId]?.let { r.copy(proxyPort = it) } ?: r
+            })
         }
     }
 

@@ -18,8 +18,6 @@ import kotlin.io.encoding.Base64
 import kotlin.test.*
 
 class ReconcilerTest {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
-
     private fun ctx(http: HttpClient, dryRun: Boolean = false, state: StateStore = StateStore(tmpPath("state"))) =
         ReconcileContext(testConfig(), state, ReconcileLog(), SshPool(tmpPath("ssh"), tmpPath("kh")), http, http, dryRun, DiffCollector())
 
@@ -92,6 +90,27 @@ class ReconcilerTest {
         val onlyMgmt = Planner.plan(c.config, emptyList()).dns
         DnsReconciler(c, BunnyClient(http, "https://bunny.invalid", "k")).reconcile(onlyMgmt, emptySet())
         assertEquals(onlyMgmt.size, bunny.records.count { it.comment?.startsWith(DesiredDnsRecord.OWNER_TAG) == true })
+    }
+
+    @Test
+    fun dnsReportsRecordsANameserverDoesNotServeYet() = runTest {
+        val bunny = FakeBunny()
+        val http = HttpClient(bunny.engine)
+        val c = ctx(http)
+        val desired = Planner.plan(c.config, listOf(TRAEFIK)).dns
+        val records = desired.groupBy({ it.fqdn to homegap.clients.DnsWire.typeCode(it.type) }, { it.value })
+        // coco has not picked up na1's management record and answers with the wildcard's node.
+        val probe = NameserverProbe { ns, name, type ->
+            if (ns == "coco.bunny.net" && name == "pangolin-na1.test.example.net") listOf("198.51.100.20") else records[name to type].orEmpty()
+        }
+        val check = NameserverCheck(probe)
+        val obs = DnsReconciler(c, BunnyClient(http, "https://bunny.invalid", "k"), check).reconcile(desired, emptySet())
+
+        val lagging = obs.filter { !it.inSync }
+        assertEquals(listOf("pangolin-na1.test.example.net"), lagging.map { it.desired?.fqdn })
+        assertEquals("${DnsReconciler.NOT_ON_EVERY_NAMESERVER}: coco.bunny.net still answers 198.51.100.20", lagging.single().diff)
+        assertTrue(c.log.recent().any { it.message.contains("is not on every nameserver yet") })
+        assertTrue(obs.filter { it.desired?.geo == true }.all { it.inSync }, "geo sets are not compared")
     }
 
     @Test

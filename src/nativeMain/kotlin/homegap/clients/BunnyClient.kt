@@ -8,6 +8,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 
 class BunnyApiException(val status: Int, message: String) : Exception(message)
@@ -17,7 +18,17 @@ data class BunnyZone(
     @SerialName("Id") val id: Long,
     @SerialName("Domain") val domain: String,
     @SerialName("Records") val records: List<BunnyRecord> = emptyList(),
-)
+    @SerialName("Nameserver1") val nameserver1: String? = null,
+    @SerialName("Nameserver2") val nameserver2: String? = null,
+) {
+    /** The zone's nameservers (Bunny's own unless the zone uses custom ones). */
+    val nameservers: List<String>
+        get() = listOfNotNull(nameserver1, nameserver2).filter { it.isNotBlank() }.ifEmpty { DEFAULT_NAMESERVERS }
+
+    companion object {
+        val DEFAULT_NAMESERVERS = listOf("kiki.bunny.net", "coco.bunny.net")
+    }
+}
 
 @Serializable
 data class BunnyZoneList(@SerialName("Items") val items: List<BunnyZone> = emptyList())
@@ -60,7 +71,11 @@ open class BunnyClient(
     private val baseUrl: String,
     private val apiKey: String,
 ) {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        explicitNulls = false
+    }
 
     private suspend fun call(method: HttpMethod, path: String, body: String? = null): HttpResponse {
         val resp = http.request("$baseUrl$path") {
@@ -87,7 +102,7 @@ open class BunnyClient(
 
     /** Write payload: drops the read-only fields (Id on create, MonitorStatus). */
     private fun writeBody(r: BunnyRecord, includeId: Boolean): String {
-        val obj = json.encodeToJsonElement(BunnyRecord.serializer(), r).jsonObject
+        val obj = json.encodeToJsonElement(r).jsonObject
         return JsonObject(obj.filterKeys { it != "MonitorStatus" && (includeId || it != "Id") }).toString()
     }
 

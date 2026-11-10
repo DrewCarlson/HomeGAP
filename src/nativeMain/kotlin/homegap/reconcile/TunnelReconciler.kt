@@ -13,8 +13,11 @@ import homegap.tunnels.TunnelSpec
 class TunnelReconciler(private val ctx: ReconcileContext) {
     private val domain = "tunnels"
 
-    /** Ensures the homelab site exists on the node; returns its niceId when ready. */
-    suspend fun reconcile(ready: ReadyNode, slot: Int): PangolinSite? {
+    /**
+     * Ensures the homelab site exists on the node; returns its niceId when ready. [addresses] are
+     * the management host's addresses from the plan's DNS records, pinned for the connector.
+     */
+    suspend fun reconcile(ready: ReadyNode, slot: Int, addresses: List<String>): PangolinSite? {
         val node = ready.node
         val org = ctx.config.pangolin.orgId
         val siteNice = ctx.config.siteNiceId(node.id)
@@ -63,6 +66,7 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
             mtu = ctx.config.tunnels.mtu,
             // Interface names are limited to 15 characters; the permanent slot keeps them unique.
             nativeInterface = if (ctx.config.tunnels.native) TunnelSlots.interfaceName(liveSlot) else null,
+            addresses = addresses,
         )
         writeSpec(spec)
         return site
@@ -104,7 +108,7 @@ class TunnelReconciler(private val ctx: ReconcileContext) {
 
     private fun writeSpec(spec: TunnelSpec) {
         val path = TunnelFiles.specPath(ctx.tunnelsDir, spec.nodeId)
-        val text = TunnelFiles.json.encodeToString(TunnelSpec.serializer(), spec)
+        val text = TunnelFiles.json.encodeToString(spec)
         if (Files.readTextOrNull(path) == text) return
         Files.mkdirs(ctx.tunnelsDir)
         Files.writeAtomic(path, text, "600".toInt(8))

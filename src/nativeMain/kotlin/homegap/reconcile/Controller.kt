@@ -25,6 +25,7 @@ import homegap.model.DesiredState
 import homegap.model.Planner
 import homegap.model.isHttpLike
 import homegap.platform.nowMillis
+import homegap.platform.queryNameserver
 import homegap.provision.CertMaterial
 import homegap.provision.Certificates
 import homegap.provision.ClusterProxy
@@ -171,6 +172,9 @@ class Controller(
     /** Desired-records hash and time of the last successful DNS sync (see the DNS step). */
     private var dnsKey: String? = null
     private var dnsSyncedAt = 0L
+
+    /** Whether each zone nameserver serves the records yet; remembers matches across passes. */
+    private val nameserverCheck = NameserverCheck({ ns, name, type -> queryNameserver(ns, name, type) })
 
     data class NodeObservation(
         val reachable: Boolean,
@@ -405,7 +409,9 @@ class Controller(
                         var site: PangolinSite? = null
                         var resources: List<PangolinResource> = emptyList()
                         if (ready != null) {
-                            site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, slot) }
+                            // The same addresses the DNS domain publishes for the management host.
+                            val pins = effective.managementAddresses(node.id)
+                            site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, slot, pins) }
                             if (clustered) {
                                 if (site != null) synchronizedPut(readyNodes, node.id, ready to site)
                                 runDomain("exits", node.id) { exitRec.reconcile(ready) }?.let { synchronizedPut(exitSites, node.id, it) }
@@ -482,9 +488,11 @@ class Controller(
                 // The zone download is the pass's only external API call: skip it while the desired
                 // records are unchanged and the last sync succeeded recently.
                 val key = homegap.platform.Crypto.fnv64(records.toString() + pausedKeys.sorted() + state.snapshot().pauses + cfg.bunny)
-                val fresh = key == dnsKey && nowMillis() - dnsSyncedAt < cfg.reconcile.dnsCheck.inWholeMilliseconds
+                // A record a nameserver does not serve yet is checked again every pass until it does.
+                val waitingForNameservers = dnsObs.any { it.diff?.startsWith(DnsReconciler.NOT_ON_EVERY_NAMESERVER) == true }
+                val fresh = key == dnsKey && !waitingForNameservers && nowMillis() - dnsSyncedAt < cfg.reconcile.dnsCheck.inWholeMilliseconds
                 if (!fresh || trigger.contains("dashboard")) {
-                    val obs = runDomain("dns", null) { DnsReconciler(ctx, bunny).reconcile(records, pausedKeys) }
+                    val obs = runDomain("dns", null) { DnsReconciler(ctx, bunny, nameserverCheck).reconcile(records, pausedKeys) }
                     if (obs != null) {
                         dnsObs = obs
                         if (bunny != null) { dnsKey = key; dnsSyncedAt = nowMillis() }
@@ -620,7 +628,7 @@ class Controller(
                         }
                         checks += CheckDto(parts[1], h, "$status${if (hc != "none") " ($hc)" else ""}")
                     }
-                    "D" -> checks += CheckDto("docker", if (parts.getOrNull(1) == "none") Health.DOWN else Health.OK, parts.getOrNull(1) ?: "")
+                    "D" -> checks += CheckDto("docker", if (parts.getOrNull(1) == "none") Health.DOWN else Health.OK, parts.getOrNull(1).orEmpty())
                     "U" -> checks += CheckDto("gerbil-udp", if (parts.getOrNull(1) == "ok") Health.OK else Health.DOWN, "51820/udp")
                     "P" -> {
                         val csv = parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { runCatching { Base64.decode(it).decodeToString() }.getOrNull() }
@@ -643,7 +651,7 @@ class Controller(
                             }
                             val dto = CertificateDto(subject, if (epoch > 0) epochToIso(epoch) else null, days, which, h)
                             if (which == "mgmt") cert = dto
-                            checks += CheckDto("tls-$which", h, "$subject${days?.let { ", $it days left" } ?: ""}")
+                            checks += CheckDto("tls-$which", h, "$subject${days?.let { ", $it days left" }.orEmpty()}")
                         }
                     }
                 }
@@ -675,7 +683,7 @@ class Controller(
                 else -> CheckDto("ee-license", Health.UNKNOWN, "not activated")
             }
         }
-        checks += CheckDto("tunnel", when (site?.online) { true -> Health.OK; false -> Health.DOWN; null -> Health.UNKNOWN }, site?.let { "site ${it.niceId}${it.newtVersion?.let { v -> ", newt $v" } ?: ""}" } ?: "no site")
+        checks += CheckDto("tunnel", when (site?.online) { true -> Health.OK; false -> Health.DOWN; null -> Health.UNKNOWN }, site?.let { "site ${it.niceId}${it.newtVersion?.let { v -> ", newt $v" }.orEmpty()}" } ?: "no site")
         return NodeObservation(reachable, checks, cert, apiOk)
     }
 
@@ -721,10 +729,10 @@ class Controller(
             } ?: Health.UNKNOWN
             NodeStatusDto(
                 id = id,
-                region = n?.region ?: "",
-                provider = n?.provider ?: "",
-                host = n?.host ?: "",
-                managementHost = n?.managementHost(cfg.domain) ?: "",
+                region = n?.region.orEmpty(),
+                provider = n?.provider.orEmpty(),
+                host = n?.host.orEmpty(),
+                managementHost = n?.managementHost(cfg.domain).orEmpty(),
                 health = if (ns?.lastProvisionOk == false) Health.DOWN else worst,
                 reachable = o?.reachable ?: false,
                 checks = o?.checks ?: emptyList(),
@@ -857,7 +865,7 @@ class Controller(
                 plan.dns.forEach { d -> add("${d.type} ${d.fqdn} -> ${d.value} [${d.nodeId}] ${d.purpose}${if (d.geo) " geo" else ""} monitor=${d.monitor}") }
             }
         }
-        return PRETTY_JSON.encodeToString(JsonObject.serializer(), obj)
+        return PRETTY_JSON.encodeToString(obj)
     }
 
     // ------------------------------------------------------------------ speed tests
@@ -908,7 +916,7 @@ class Controller(
                 client = "node $nodeId (newt mtu ${cfg.tunnels.mtu ?: "default"}${if (cfg.tunnels.native) ", kernel wireguard" else ""})",
             )
             speedStore.add(result)
-            log.info("speedtest", "tunnel: ping ${p.pingMs?.let { fmt1(it) } ?: "-"} ms, jitter ${p.jitterMs?.let { fmt1(it) } ?: "-"} ms, down ${p.downMbps?.let { fmt1(it) } ?: "-"} Mbps, up ${p.upMbps?.let { fmt1(it) } ?: "-"} Mbps ($n streams)${err?.let { " ($it)" } ?: ""}", nodeId)
+            log.info("speedtest", "tunnel: ping ${p.pingMs?.let { fmt1(it) } ?: "-"} ms, jitter ${p.jitterMs?.let { fmt1(it) } ?: "-"} ms, down ${p.downMbps?.let { fmt1(it) } ?: "-"} Mbps, up ${p.upMbps?.let { fmt1(it) } ?: "-"} Mbps ($n streams)${err?.let { " ($it)" }.orEmpty()}", nodeId)
             return result
         } finally {
             speedTokens.revoke(token)
@@ -933,9 +941,9 @@ class Controller(
             }
             else -> throw IllegalArgumentException("scope must be global|node|service")
         }
-        log.change("controller", "${if (paused) "paused" else "resumed"} $scope${id?.let { " $it" } ?: ""}")
+        log.change("controller", "${if (paused) "paused" else "resumed"} $scope${id?.let { " $it" }.orEmpty()}")
         if (!paused) trigger("resume")
-        return "${if (paused) "Paused" else "Resumed"} $scope${id?.let { " $it" } ?: ""}"
+        return "${if (paused) "Paused" else "Resumed"} $scope${id?.let { " $it" }.orEmpty()}"
     }
 
     suspend fun addNode(node: NodeConfig): String {
@@ -961,7 +969,7 @@ class Controller(
         ConfigLoader.save(configPath, next)
         config = next
         revision.value++
-        log.change("controller", if (location == null) "cleared the homelab's location" else "set the homelab's location${location.name?.let { " to $it" } ?: ""}")
+        log.change("controller", if (location == null) "cleared the homelab's location" else "set the homelab's location${location.name?.let { " to $it" }.orEmpty()}")
         return if (location == null) "Homelab location cleared" else "Homelab location saved"
     }
 
@@ -988,7 +996,7 @@ class Controller(
         val ns = state.node(id)
         val host = ns.facts["cfg.host"]
         if (host != null && !dryRun) {
-            val n = NodeConfig(id = id, host = host, sshUser = ns.facts["cfg.user"] ?: "root", sshPort = ns.facts["cfg.port"]?.toIntOrNull() ?: 22, sshKeyFile = ns.facts["cfg.key"] ?: "", publicIpv4 = "0.0.0.0")
+            val n = NodeConfig(id = id, host = host, sshUser = ns.facts["cfg.user"] ?: "root", sshPort = ns.facts["cfg.port"]?.toIntOrNull() ?: 22, sshKeyFile = ns.facts["cfg.key"].orEmpty(), publicIpv4 = "0.0.0.0")
             val ctx = ReconcileContext(config, state, log, ssh, localHttp, externalHttp, dryRun, DiffCollector())
             runCatching {
                 NodeReconciler(ctx).decommission(n)

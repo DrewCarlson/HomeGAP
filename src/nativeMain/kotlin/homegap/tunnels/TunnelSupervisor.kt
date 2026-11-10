@@ -32,7 +32,19 @@ data class TunnelSpec(
     val mtu: Int? = null,
     /** Kernel WireGuard interface name for the main tunnel; null = Newt's userspace stack. */
     val nativeInterface: String? = null,
-)
+    /**
+     * The endpoint host's addresses, as the orchestrator publishes them in its DNS records. The
+     * supervisor pins them in the hosts file, so the connector reaches the right node even while
+     * public DNS still has an older answer (a new record not yet on every nameserver, a cache).
+     */
+    val addresses: List<String> = emptyList(),
+) {
+    /** The endpoint's host name, which [addresses] are pinned for. */
+    val host: String get() = endpoint.substringAfter("://").substringBefore('/').substringBefore(':')
+
+    /** The spec as the running connector sees it: pins live in the hosts file, not in Newt. */
+    fun withoutPins(): TunnelSpec = copy(addresses = emptyList())
+}
 
 /** Written by the supervisor next to each spec, read by the orchestrator for observability. */
 @Serializable
@@ -53,11 +65,15 @@ object TunnelFiles {
     val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     fun specPath(dir: String, nodeId: String) = "$dir/$nodeId.tunnel.json"
     fun statusPath(dir: String, nodeId: String) = "$dir/$nodeId.status.json"
-    fun readSpecs(dir: String): List<TunnelSpec> = Files.list(dir).filter { it.endsWith(".tunnel.json") }.mapNotNull { f ->
-        runCatching { json.decodeFromString(TunnelSpec.serializer(), Files.readText("$dir/$f")) }.getOrNull()
-    }
+    fun readSpecs(dir: String): List<TunnelSpec> =
+        Files.list(dir)
+        .filter { it.endsWith(".tunnel.json") }
+        .mapNotNull { f ->
+            runCatching { json.decodeFromString<TunnelSpec>(Files.readText("$dir/$f")) }.getOrNull()
+        }
     fun readStatus(dir: String, nodeId: String): TunnelStatus? =
-        Files.readTextOrNull(statusPath(dir, nodeId))?.let { runCatching { json.decodeFromString(TunnelStatus.serializer(), it) }.getOrNull() }
+        Files.readTextOrNull(statusPath(dir, nodeId))
+            ?.let { runCatching { json.decodeFromString<TunnelStatus>(it) }.getOrNull() }
 }
 
 /**
@@ -74,13 +90,16 @@ object TunnelFiles {
 class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
     private val dir = options.dir
     private val newtBinary = options.newtBinary
+    private val hostsFile = options.hostsFile
     private val logger = KotlinLogging.logger("homegap.tunnels")
 
     private class Proc(
-        val spec: TunnelSpec,
+        var spec: TunnelSpec,
         val child: Subprocess.Child,
         val startedAt: Long,
         var logOffset: Long,
+        /** Logins answered by another server since the last successful connection (see [checkLogs]). */
+        var loginRejections: Int = 0,
         val exited: CompletableDeferred<Int> = CompletableDeferred(),
     )
 
@@ -97,6 +116,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
     private val lastExit = mutableMapOf<String, String>()
     private val metrics = mutableMapOf<String, Metrics?>()
     private val published = mutableMapOf<String, Pair<TunnelStatus, Long>>()
+    private var hostsWarned = false
 
     suspend fun run() = coroutineScope {
         Files.mkdirs(dir)
@@ -112,7 +132,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             try {
                 when (e) {
                     Event.Rescan -> reconcileSpecs(this)
-                    Event.Tick -> { checkNativeFailures(); scrapeAll(); publish(force = false) }
+                    Event.Tick -> { checkLogs(); scrapeAll(); publish(force = false) }
                     is Event.Exited -> onExit(this, e)
                 }
             } catch (ex: Exception) {
@@ -128,9 +148,13 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
 
     private suspend fun reconcileSpecs(scope: CoroutineScope) {
         val specs = specs()
+        // Pins first, so a connector started below already resolves its endpoint to them.
+        syncHosts(specs.values)
         // Stop removed / changed first, so their interfaces and ports are free before starts.
         for ((id, p) in procs.toMap()) {
             val spec = specs[id]
+            // New pins need no restart: the hosts file changes under the running connector.
+            if (spec != null && spec != p.spec && spec.withoutPins() == p.spec.withoutPins()) p.spec = spec
             if (spec == null || spec != p.spec) {
                 logger.info { if (spec == null) "stopping tunnel $id (spec removed)" else "restarting tunnel $id (spec changed)" }
                 stop(id, p)
@@ -222,25 +246,57 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         }
     }
 
-    /** Kernel interface creation can fail; Newt then stays up without a tunnel, so restart it. */
-    private suspend fun checkNativeFailures() {
+    /**
+     * Restarts connectors that stay up without working, as seen in their logs:
+     * - the kernel interface could not be created (Newt then runs without a tunnel);
+     * - the login keeps reaching another server (a 404, or a reply that is not Pangolin's). Newt
+     *   retries on the same open connection, so one made before the endpoint's address was right
+     *   never moves. A new process looks the name up again (through the pins, see [syncHosts]).
+     */
+    private suspend fun checkLogs() {
         for ((id, p) in procs.toMap()) {
-            if (p.spec.nativeInterface == null) continue
             val log = "$dir/logs/$id.log"
             val size = Files.size(log)
             if (size < p.logOffset) p.logOffset = 0
             if (size == p.logOffset) continue
             val fresh = Files.readFrom(log, p.logOffset, 262_144)
             p.logOffset = size
-            if (NATIVE_FAILURES.any { it in fresh }) {
-                logger.warn { "newt for $id could not create kernel interface ${p.spec.nativeInterface}; restarting" }
-                stop(id, p)
-                lastExit[id] = "kernel interface ${p.spec.nativeInterface} could not be created"
-                val n = (restartCounts[id] ?: 0) + 1
-                restartCounts[id] = n
-                backoffUntil[id] = nowMillis() + backoff(n).inWholeMilliseconds
-                events.send(Event.Rescan)
-            }
+            val reason = when {
+                p.spec.nativeInterface != null && NATIVE_FAILURES.any { it in fresh } ->
+                    "kernel interface ${p.spec.nativeInterface} could not be created"
+                else -> {
+                    p.loginRejections = loginRejections(fresh, p.loginRejections)
+                    if (p.loginRejections >= LOGIN_REJECTIONS_BEFORE_RESTART) {
+                        "${p.loginRejections} logins to ${p.spec.endpoint} were answered by another server, not its Pangolin"
+                    } else {
+                        null
+                    }
+                }
+            } ?: continue
+            logger.warn { "newt for $id: $reason; restarting" }
+            stop(id, p)
+            lastExit[id] = reason
+            val n = (restartCounts[id] ?: 0) + 1
+            restartCounts[id] = n
+            backoffUntil[id] = nowMillis() + backoff(n).inWholeMilliseconds
+            events.send(Event.Rescan)
+        }
+    }
+
+    /** Writes the endpoint pins of [specs] into the hosts file when they changed. */
+    private fun syncHosts(specs: Collection<TunnelSpec>) {
+        val current = Files.readTextOrNull(hostsFile) ?: ""
+        val next = HostsPins.render(current, HostsPins.entries(specs))
+        if (next == current) return
+        try {
+            Files.writeAtomic(hostsFile, next, "644".toInt(8))
+            hostsWarned = false
+            logger.info { "pinned ${HostsPins.entries(specs).size} endpoint address(es) in $hostsFile" }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            // Connectors still work through public DNS; say so once rather than every rescan.
+            if (!hostsWarned) logger.warn { "could not write endpoint pins to $hostsFile (${e.message}); connectors use public DNS" }
+            hostsWarned = true
         }
     }
 
@@ -270,7 +326,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             val prev = published[id]
             if (!force && prev != null && prev.first == status && now - prev.second < HEARTBEAT.inWholeMilliseconds) continue
             published[id] = status to now
-            Files.writeAtomic(TunnelFiles.statusPath(dir, id), TunnelFiles.json.encodeToString(TunnelStatus.serializer(), status.copy(updatedAt = now)), "644".toInt(8))
+            Files.writeAtomic(TunnelFiles.statusPath(dir, id), TunnelFiles.json.encodeToString(status.copy(updatedAt = now)), "644".toInt(8))
         }
     }
 
@@ -299,6 +355,31 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
 
         /** Newt log lines meaning the kernel WireGuard tunnel was not set up. */
         val NATIVE_FAILURES = listOf("Failed to create native main TUN device")
+
+        /**
+         * Newt's lines for a login answered by something other than this node's Pangolin: a 404
+         * (a Traefik with no route for the name) or a reply that is not Pangolin's JSON (another
+         * service behind that name there). A refused secret (401) is not one of them.
+         */
+        val WRONG_SERVER = listOf(
+            "failed to get token with status code: 404",
+            "failed to get token: failed to decode token response",
+        )
+
+        /** Newt's line once its control connection is up. */
+        const val CONNECTED = "Websocket connected"
+
+        /** About 15 s of Newt's 3 s retries; a few while a node starts up are not stuck. */
+        const val LOGIN_REJECTIONS_BEFORE_RESTART = 5
+
+        /** Login rejections after reading [fresh] log text, starting from [before]; a connection resets the count. */
+        fun loginRejections(fresh: String, before: Int): Int {
+            var n = before
+            for (line in fresh.lineSequence()) {
+                if (WRONG_SERVER.any { it in line }) n++ else if (CONNECTED in line) n = 0
+            }
+            return n
+        }
 
         fun parseMetrics(text: String): Metrics {
             var inBytes = 0.0
