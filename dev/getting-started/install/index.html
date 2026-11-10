@@ -2628,15 +2628,22 @@
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span><span class="nt">homegap.tls</span><span class="p">:</span><span class="w"> </span><span class="s">"passthrough"</span>
 </code></pre></div>
     If the HTTPS entrypoint of Traefik does not listen on 443 inside its container, also add <code>homegap.port: "&lt;that port&gt;"</code>.</li>
-<li>Recreate the Traefik container, so that it gets the labels.</li>
+<li>Add the HTTP provider of HomeGAP to the static configuration of your homelab Traefik. With it, Traefik answers 421 for the names that only the nodes serve. See <a href="../../services/traffic-paths/#when-a-browser-uses-one-connection-for-two-names">When a browser uses one connection for two names</a>.
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">providers</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">http</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://orchestrator:8088/api/traefik/homelab</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">pollInterval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+</code></pre></div>
+    Keep your other providers. Traefik can use the file provider and the HTTP provider at the same time. The address is the dashboard of the orchestrator, on the <code>traefik</code> network. The dashboard must listen on that network: <code>dashboard.bind: 0.0.0.0:8088</code>, as in the example config. Traefik does not need the dashboard token for this address. The orchestrator accepts a request from the front door container that Traefik did not forward for another client.</li>
+<li>Recreate the Traefik container, so that it gets the labels and the provider.</li>
 <li>Start the services:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div></li>
 <li>Look at the log of the orchestrator:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>orchestrator
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>logs<span class="w"> </span>-f<span class="w"> </span>orchestrator
 </code></pre></div></li>
 <li>Check the config:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>validate
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>validate
 </code></pre></div>
     The command prints <code>OK: N node(s), domain ..., zone ...</code>, or the list of errors.</li>
 </ol>
@@ -2649,11 +2656,11 @@
 <ol>
 <li>On the <code>homegap-mesh</code> service, add <code>ports: ["127.0.0.1:8088:8088"]</code>.</li>
 <li>Recreate the service:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
 </code></pre></div>
     Docker also restarts the containers that share the namespace of <code>homegap-mesh</code>.</li>
 <li>On your workstation, open the SSH tunnel:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8088</span>:127.0.0.1:8088<span class="w"> </span>&lt;homelab&gt;
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8088</span>:127.0.0.1:8088<span class="w"> </span>&lt;homelab&gt;
 </code></pre></div></li>
 <li>Open <code>http://localhost:8088</code> in your browser. If you set a token, the dashboard asks for it.</li>
 </ol>
@@ -2675,7 +2682,7 @@
 <li>The config key <code>reconcile.dry_run: true</code>.</li>
 </ul>
 <p>To see what a set of labels produces without Docker, use <code>homegap plan</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>homegap<span class="w"> </span>plan<span class="w"> </span>--labels<span class="w"> </span>labels.json
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>homegap<span class="w"> </span>plan<span class="w"> </span>--labels<span class="w"> </span>labels.json
 </code></pre></div>
 <p>The file <code>labels.json</code> is a JSON map of container names to labels.</p>
 <p>If you make an edit to the config that is not valid, the orchestrator writes the error to the log. The last good config stays in effect.</p>

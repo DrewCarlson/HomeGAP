@@ -777,6 +777,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#when-a-browser-uses-one-connection-for-two-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a browser uses one connection for two names
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#comparison" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2355,6 +2366,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#when-a-browser-uses-one-connection-for-two-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a browser uses one connection for two names
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#comparison" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2422,6 +2444,15 @@
 <p>The health resource goes to the front door. If there is no front door, it goes to the first dedicated <code>http</code> or <code>https</code> service. The request has the host header of that service and the path from its <code>homegap.healthcheck</code> (default <code>/</code>). The Bunny monitor on port 80 reaches this resource.</p>
 <h2 id="when-the-homelab-is-down">When the homelab is down<a class="headerlink" href="#when-the-homelab-is-down" title="Permanent link">&para;</a></h2>
 <p>For passthrough names, the node shows a "back shortly" page with HTTP status 503. The page starts approximately 15 seconds after the node loses the homelab. Raw ports and resources that the node terminates fail.</p>
+<h2 id="when-a-browser-uses-one-connection-for-two-names">When a browser uses one connection for two names<a class="headerlink" href="#when-a-browser-uses-one-connection-for-two-names" title="Permanent link">&para;</a></h2>
+<p>The names on a node have the same IP address, and one wildcard certificate is valid for all of them. Thus a browser can use one connection for two names. For example, Firefox opens <code>pangolin.example.net</code> and then sends the requests for <code>app.example.net</code> on the same connection. But the node ends TLS for <code>pangolin.example.net</code> and passes <code>app.example.net</code> through to the homelab. Without a correction, the wrong Traefik gets the request and answers 404.</p>
+<p>HomeGAP makes each Traefik answer 421 (Misdirected Request) for these requests. The browser then opens a new connection for the name, and the request goes to the correct location.</p>
+<ul>
+<li>On each node, the route <code>homegap-misdirected</code> matches the names that the node passes through. HomeGAP writes it in the routes file of the node.</li>
+<li>On the homelab, the route <code>homegap-misdirected</code> matches the names that only the nodes serve: the management host of each node, the client address, and the shared names of the status page and the speed test. Traefik gets this route from the orchestrator through its HTTP provider. See step 14 of <a href="../../getting-started/install/">Install on the homelab</a>. HomeGAP does not include a name that your homelab Traefik routes itself, when it can read the routes of your Traefik. If it cannot read them, it does not include the shared name of the speed test.</li>
+</ul>
+<p>Each of these routes uses its own TLS options, <code>homegap-elsewhere</code>. Traefik answers 421 when the TLS options of the route are different from the TLS options of the connection. On a connection for the correct name, no other route matches, and the request goes to its usual route.</p>
+<p>A service that ends TLS itself, with no Traefik in front of it, cannot answer 421. If a browser uses the connection of such a service for another name, the service gets the request.</p>
 <h2 id="comparison">Comparison<a class="headerlink" href="#comparison" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
