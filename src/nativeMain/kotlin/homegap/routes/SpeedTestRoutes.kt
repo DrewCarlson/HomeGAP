@@ -20,6 +20,8 @@ class SpeedTestRoutes(private val controller: Controller) : RoutingController {
     override fun init(parent: Route) {
         parent.route("/speedtest") {
             get { getOverview() }
+            // The running homelab ↔ node test; 204 when none runs.
+            get("/live") { controller.speedLive()?.let { call.respond(it) } ?: call.respond(io.ktor.http.HttpStatusCode.NoContent) }
             post("/link") { createLink() }
             post("/nodes/{id}") { runTunnelTest() }
         }

@@ -62,21 +62,58 @@ fun SpeedTestScreen(model: SpeedTestScreenModel) {
 @Composable
 private fun TunnelTests(model: SpeedTestScreenModel.Ready) {
     Panel("Homelab ↔ node", TUNNEL_PATH, flush = false) {
-        Div({ classes("stream-picker") }) {
-            Span({ classes("muted") }) { Text("Parallel streams") }
-            Segmented(
-                options = model.streamChoices,
-                selected = model.streams,
-                label = { "$it" },
-                enabled = model.canStart,
-                onSelect = model.onSelectStreams
-            )
+        Div({ classes("tunnel-actions") }) {
+            Div({ classes("stream-picker") }) {
+                Span({ classes("muted") }) { Text("Parallel streams") }
+                Segmented(
+                    options = model.streamChoices,
+                    selected = model.streams,
+                    label = { "$it" },
+                    enabled = model.canStart,
+                    onSelect = model.onSelectStreams
+                )
+            }
+            ActionButton(model.allButtonText, style = ButtonStyle.Primary, small = true, enabled = model.canStart, onClick = model.onRunAll)
         }
+        model.live?.let { LiveTest(it) }
         Div({ classes("node-tests") }) {
             model.nodeTests.forEach { test ->
                 key(test.nodeId) {
                     NodeTest(test, model.canStart) { model.onRunTest(test.nodeId) }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LiveTest(live: LiveTestModel) {
+    Div({ classes("live-test") }) {
+        Div {
+            Div({
+                classes("gauge")
+                style { property("--p", live.fraction.toString()) }
+            }) {
+                Div({ classes("gauge-arc") })
+                Div({ classes("gauge-text") }) {
+                    Div({ classes("gauge-value") }) { Text(live.value) }
+                    Div({ classes("gauge-unit") }) { Text(live.unit) }
+                }
+            }
+            Div({ classes("gauge-scale") }) {
+                Span { Text("0") }
+                Span { Text(live.scaleMax) }
+            }
+        }
+        Div({ classes("live-side") }) {
+            Div({ classes("live-phase") }) { Text("${live.title} · ${live.phase}") }
+            Div({ classes("bars") }) {
+                live.bars.forEach { h ->
+                    Span({ style { property("height", "${(h * 100).coerceAtLeast(4.0)}%") } })
+                }
+            }
+            Div({ classes("metrics") }) {
+                live.metrics.forEach { Metric(it) }
             }
         }
     }

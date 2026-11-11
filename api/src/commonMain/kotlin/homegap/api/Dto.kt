@@ -304,6 +304,26 @@ data class SpeedTestOverview(
     val streams: Int = 4,
 )
 
+/**
+ * A homelab ↔ node test while it runs, as the speed test origin sees it: the pings arriving one
+ * after another (each gap is about one round trip) and the bytes it sends and receives.
+ */
+@Serializable
+data class SpeedTestLiveDto(
+    val nodeId: String,
+    /** ping, download, upload */
+    val phase: String,
+    /** Each ping's round trip so far (ms). */
+    val pingSamples: List<Double> = emptyList(),
+    val pingMs: Double? = null,
+    val jitterMs: Double? = null,
+    /** The current phase's rate (Mbps), over the last second. */
+    val mbps: Double? = null,
+    /** The current phase's rate, four samples a second. */
+    val mbpsSamples: List<Double> = emptyList(),
+    val downMbps: Double? = null,
+)
+
 @Serializable
 data class SpeedTestLinkDto(
     /** Plain-HTTP entry link: the node DNS picks redirects to its own hostname. */

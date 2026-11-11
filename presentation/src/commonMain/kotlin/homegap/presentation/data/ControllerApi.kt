@@ -25,6 +25,9 @@ interface ControllerApi {
     suspend fun speedLink(): SpeedTestLinkDto
     suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto
 
+    /** The homelab ↔ node test running now; null when none runs. */
+    suspend fun speedLive(): homegap.api.SpeedTestLiveDto?
+
     suspend fun testConnection(login: SshLoginDto): ConnectionTestDto
     suspend fun createKey(request: SshKeyRequestDto): SshKeyDto
     suspend fun startSetup(request: NodeSetupRequestDto): SetupJobDto

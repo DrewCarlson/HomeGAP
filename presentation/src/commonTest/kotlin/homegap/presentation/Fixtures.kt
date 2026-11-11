@@ -69,6 +69,9 @@ class FakeControllerApi(
         return SpeedTestResultDto("r", NOW, "tunnel", node, downMbps = 250.0, upMbps = 40.0, pingMs = 170.0, streams = streams)
     }
 
+    var liveValue: homegap.api.SpeedTestLiveDto? = null
+    override suspend fun speedLive() = liveValue
+
     var accessValue = AccessOverviewDto(available = false, note = "no cluster")
     var lastCreate: CreateAccessUserRequest? = null
     override suspend fun access() = accessValue

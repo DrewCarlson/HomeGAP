@@ -25,6 +25,8 @@ import kotlinx.serialization.json.*
 
 /** Short-lived bearer tokens for the public speed test endpoints (in memory only). */
 class SpeedTestTokens {
+    /** The homelab ↔ node test running now (its token is one of these). */
+    val live = SpeedTestLive()
     private val lock = SynchronizedObject()
     private val tokens = mutableMapOf<String, Long>()
 
@@ -116,7 +118,25 @@ class SpeedTestServer(
             }?.id
     }
 
+    /**
+     * Whether [origin] is one of the speed test's own pages (the shared name or a node's), which
+     * may call every node's endpoints: "Test all nodes" measures each node from one page.
+     */
+    fun speedTestOrigin(origin: String): Boolean {
+        val cfg = config()
+        val hosts = listOf(cfg.speedtest.autoHost(cfg.domain)) + cfg.nodes.map { cfg.speedtest.nodeHost(cfg.domain, it.id) }
+        return hosts.any { origin.equals("https://$it", ignoreCase = true) }
+    }
+
     fun Application.module() {
+        install(createApplicationPlugin("SpeedTestCors") {
+            onCall { call ->
+                val origin = call.request.header(HttpHeaders.Origin) ?: return@onCall
+                if (!call.request.path().startsWith("/speedtest/") || !speedTestOrigin(origin)) return@onCall
+                call.response.header(HttpHeaders.AccessControlAllowOrigin, origin)
+                call.response.header(HttpHeaders.Vary, HttpHeaders.Origin)
+            }
+        })
         install(ContentNegotiation) {
             json(Json {
                 explicitNulls = false
@@ -173,13 +193,24 @@ class SpeedTestServer(
             }
             route("/speedtest") {
                 install(NoStore)
+                // The browser's CORS preflight for another node's endpoints (it carries no token).
+                options("{path...}") {
+                    if (!speedTestOrigin(call.request.header(HttpHeaders.Origin).orEmpty())) return@options call.respond(HttpStatusCode.Forbidden)
+                    call.response.header(HttpHeaders.AccessControlAllowMethods, "GET, POST, PUT")
+                    call.response.header(HttpHeaders.AccessControlAllowHeaders, "$TOKEN_HEADER, Content-Type")
+                    call.response.header(HttpHeaders.AccessControlMaxAge, "600")
+                    call.respond(HttpStatusCode.NoContent)
+                }
                 authenticate(LINK_AUTH) { measurementRoutes() }
             }
         }
     }
 
     private fun Route.measurementRoutes() {
-        get("/ping") { call.respond(HttpStatusCode.NoContent) }
+        get("/ping") {
+            tokens.live.ping(call.request.header(TOKEN_HEADER))
+            call.respond(HttpStatusCode.NoContent)
+        }
         get("/info") { info() }
         get("/down") { download() }
         post("/up") { receiveUpload() }
@@ -206,10 +237,12 @@ class SpeedTestServer(
         val seconds =
             (call.request.queryParameters["seconds"]?.toIntOrNull() ?: config().speedtest.phaseSeconds).coerceIn(1, 30)
         val end = nowMillis() + seconds * 1000L
+        val token = call.request.header(TOKEN_HEADER)
         call.respondBytesWriter(ContentType.Application.OctetStream) {
             while (nowMillis() < end) {
                 writeFully(payload, 0, payload.size)
                 flush()
+                tokens.live.bytes(token, upload = false, n = payload.size)
             }
         }
     }
@@ -279,10 +312,12 @@ class SpeedTestServer(
         val buf = ByteArray(256 * 1024)
         val start = nowMillis()
         var total = 0L
+        val token = call.request.header(TOKEN_HEADER)
         while (true) {
             val n = ch.readAvailable(buf, 0, buf.size)
             if (n < 0) break
             total += n
+            tokens.live.bytes(token, upload = true, n = n)
             if (nowMillis() - start > 120_000) break
         }
         val ms = (nowMillis() - start).coerceAtLeast(1)

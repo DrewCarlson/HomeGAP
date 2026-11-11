@@ -251,6 +251,41 @@ class PresenterTest {
     }
 
     @Test
+    fun speedTestRunsEveryNodeInTurnAndShowsTheRunningTest() = runTest {
+        val g = graph
+        g.api.speedtestValue = SpeedTestOverview(enabled = true, nodes = listOf("a1", "b1"), streams = 4)
+        g.api.liveValue = homegap.api.SpeedTestLiveDto("a1", "download", pingMs = 170.0, mbps = 180.0, mbpsSamples = listOf(90.0, 180.0))
+        val models = present(g.speedTest, SpeedTestScreenProps(NOW))
+        val ready = models.first { it is SpeedTestScreenModel.Ready } as SpeedTestScreenModel.Ready
+        assertEquals("Test all nodes", ready.allButtonText)
+        assertNull(ready.live)
+        ready.onRunAll()
+        g.actions.toast.first { it?.text == "Tested all 2 nodes" }
+        assertEquals(listOf("test a1 4", "test b1 4"), g.api.calls)
+    }
+
+    @Test
+    fun theLiveGaugeShowsTheCurrentPhase() {
+        assertEquals(250.0, homegap.presentation.speedtest.gaugeScale(180.0))
+        assertEquals(10.0, homegap.presentation.speedtest.gaugeScale(0.0))
+        assertEquals(10000.0, homegap.presentation.speedtest.gaugeScale(1e9))
+        val starting = homegap.presentation.speedtest.liveTestModel("a1", null, 1 to 2)
+        assertEquals("Testing a1 (1 of 2)", starting.title)
+        assertEquals("Starting…", starting.phase)
+        assertEquals(0.0, starting.fraction)
+        val ping = homegap.presentation.speedtest.liveTestModel("a1", homegap.api.SpeedTestLiveDto("a1", "ping", pingSamples = listOf(20.0, 40.0), pingMs = 30.0, jitterMs = 20.0), null)
+        assertEquals("40.0", ping.value)
+        assertEquals("ms", ping.unit)
+        assertEquals("50 ms", ping.scaleMax)
+        assertEquals(listOf(0.5, 1.0), ping.bars)
+        val down = homegap.presentation.speedtest.liveTestModel("a1", homegap.api.SpeedTestLiveDto("a1", "download", pingMs = 30.0, mbps = 180.0, mbpsSamples = listOf(90.0, 180.0)), null)
+        assertEquals("Download", down.phase)
+        assertEquals("180", down.value)
+        assertEquals(180.0 / 250.0, down.fraction)
+        assertEquals(listOf("30.0 ms", "—", "180 Mbps", "—"), down.metrics.map { it.value })
+    }
+
+    @Test
     fun accessCreatesUsersWithAPasswordOrAnInviteLink() = runTest {
         val unavailable = present(graph.access, AccessScreenProps).first { it != AccessScreenModel.Loading }
         assertEquals(AccessScreenModel.Unavailable("no cluster", null), unavailable)

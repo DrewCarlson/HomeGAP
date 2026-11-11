@@ -19,6 +19,12 @@ sealed interface SpeedTestScreenModel : ScreenModel {
         val history: List<HistoryRowModel>,
         val onSelectStreams: (Int) -> Unit,
         val onRunTest: (nodeId: String) -> Unit,
+        /** Runs every node's test in turn. */
+        val onRunAll: () -> Unit = {},
+        /** "Test all nodes", or how far a run of them has got. */
+        val allButtonText: String = "Test all nodes",
+        /** The running test as it goes; null when none runs. */
+        val live: LiveTestModel? = null,
         /** The homelab and the nodes with their latest results; empty without locations. */
         val map: homegap.presentation.map.MapModel = homegap.presentation.map.MapModel(),
     ) : SpeedTestScreenModel
@@ -32,6 +38,24 @@ data class NodeTestModel(
     /** Ping, jitter, down, up; null before the first result. */
     val metrics: List<MetricModel>?,
     val note: String?,
+)
+
+/**
+ * The running test: a gauge for the current phase (ping in ms, then download and upload in
+ * Mbps) on a scale that only grows, and one bar per sample.
+ */
+@Immutable
+data class LiveTestModel(
+    val title: String,
+    val phase: String,
+    val value: String,
+    val unit: String,
+    /** How full the gauge is, 0..1. */
+    val fraction: Double,
+    val scaleMax: String,
+    /** Bar heights, 0..1. */
+    val bars: List<Double>,
+    val metrics: List<MetricModel>,
 )
 
 @Immutable

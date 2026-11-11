@@ -910,6 +910,9 @@ class Controller(
     }
 
     /** Measures homelab <-> node through the tunnel, driven from the node over SSH. */
+    /** The homelab ↔ node test running now, as far as it has got; null when none runs. */
+    fun speedLive(): homegap.api.SpeedTestLiveDto? = speedTokens.live.snapshot()
+
     suspend fun runTunnelSpeedTest(nodeId: String, streams: Int? = null): SpeedTestResultDto {
         val cfg = config
         require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
@@ -917,6 +920,7 @@ class Controller(
         check(!dryRun) { "speed tests need remote access (dry-run is on)" }
         check(speedRunning.add(nodeId)) { "a speed test for $nodeId is already running" }
         val (token, _) = speedTokens.issue(5 * 60_000L)
+        speedTokens.live.start(token, nodeId)
         try {
             val host = cfg.speedtest.nodeHost(cfg.domain, nodeId)
             val secs = cfg.speedtest.phaseSeconds
@@ -934,6 +938,7 @@ class Controller(
             log.info("speedtest", "tunnel: ping ${p.pingMs?.let { fmt1(it) } ?: "-"} ms, jitter ${p.jitterMs?.let { fmt1(it) } ?: "-"} ms, down ${p.downMbps?.let { fmt1(it) } ?: "-"} Mbps, up ${p.upMbps?.let { fmt1(it) } ?: "-"} Mbps ($n streams)${err?.let { " ($it)" }.orEmpty()}", nodeId)
             return result
         } finally {
+            speedTokens.live.stop(token)
             speedTokens.revoke(token)
             speedRunning.remove(nodeId)
         }

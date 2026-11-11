@@ -6,6 +6,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.SpeedTestLinkDto
 import homegap.api.SpeedTestOverview
+import homegap.api.SpeedTestLiveDto
 import homegap.api.SpeedTestResultDto
 import homegap.presentation.core.Presenter
 import homegap.presentation.core.rememberEventTrigger
@@ -17,6 +18,7 @@ import homegap.presentation.format.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 data class SpeedTestScreenProps(val now: Long, val status: homegap.api.StatusSnapshot? = null)
@@ -48,24 +50,58 @@ class SpeedTestScreenPresenter(
         val streams = chosenStreams ?: current.streams
         val currentStreams by rememberUpdatedState(streams)
 
-        val onRunTest = remember<(String) -> Unit> {
-            { nodeId ->
-                // On the app scope: a test takes ~30 s and should finish even if the user navigates away.
-                running = nodeId
-                appScope.launch {
-                    try {
-                        runCatchingCancellable { api.runTunnelTest(nodeId, currentStreams) }
-                            .onSuccess { result ->
-                                val error = result.error
-                                if (error != null) actions.notify("$nodeId: $error", isError = true)
-                                else actions.notify("$nodeId: ${result.summary()}")
-                            }
-                            .onFailure { actions.notify("Speed test on $nodeId failed: ${it.message}", isError = true) }
-                    } finally {
-                        running = null
-                        reload++
-                    }
+        // How far "Test all nodes" has got: (current, of).
+        var allProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+        val nodeIds by rememberUpdatedState(current.nodes)
+
+        // One test; on the app scope, since a test takes ~30 s and should finish even if the user
+        // navigates away. Returns the result's error, or null.
+        suspend fun runOne(nodeId: String, notify: Boolean): String? {
+            running = nodeId
+            try {
+                val result = runCatchingCancellable { api.runTunnelTest(nodeId, currentStreams) }.getOrElse { e ->
+                    actions.notify("Speed test on $nodeId failed: ${e.message}", isError = true)
+                    return "${e.message}"
                 }
+                val error = result.error
+                if (error != null) actions.notify("$nodeId: $error", isError = true)
+                else if (notify) actions.notify("$nodeId: ${result.summary()}")
+                return error
+            } finally {
+                running = null
+                reload++
+            }
+        }
+        val onRunTest = remember<(String) -> Unit> {
+            { nodeId -> appScope.launch { runOne(nodeId, notify = true) } }
+        }
+        val onRunAll = remember<() -> Unit> {
+            {
+                appScope.launch {
+                    val ids = nodeIds
+                    var failed = 0
+                    try {
+                        ids.forEachIndexed { i, id ->
+                            allProgress = i + 1 to ids.size
+                            if (runOne(id, notify = false) != null) failed++
+                        }
+                    } finally {
+                        allProgress = null
+                    }
+                    actions.notify(
+                        if (failed == 0) "Tested all ${ids.size} nodes" else "Tested ${ids.size} nodes, $failed failed",
+                        isError = failed > 0,
+                    )
+                }
+            }
+        }
+        // The running test as the speed test origin sees it, a few times a second.
+        val live by produceState<SpeedTestLiveDto?>(null, running) {
+            value = null
+            if (running == null) return@produceState
+            while (true) {
+                runCatchingCancellable { api.speedLive() }.onSuccess { value = it }
+                delay(LIVE_REFRESH)
             }
         }
         val createLink = appScope.rememberEventTrigger {
@@ -78,6 +114,9 @@ class SpeedTestScreenPresenter(
             streamChoices = STREAM_CHOICES,
             streams = streams,
             canStart = running == null,
+            onRunAll = onRunAll,
+            allButtonText = allProgress?.let { (i, n) -> "Testing $i of $n…" } ?: "Test all nodes",
+            live = running?.let { liveTestModel(it, live?.takeIf { l -> l.nodeId == it }, allProgress) },
             nodeTests = remember(current, running, props.now) { nodeTests(current, running, props.now) },
             device = DeviceTestModel(
                 buttonText = if (link == null) "Create test link" else "Create new link",
@@ -174,6 +213,7 @@ class SpeedTestScreenPresenter(
     private companion object {
         val STREAM_CHOICES = listOf(1, 4, 8)
         val REFRESH = 10.seconds
+        val LIVE_REFRESH = 400.milliseconds
 
         fun SpeedTestResultDto.summary(): String =
             "${formatMbps(downMbps)} down, ${formatMbps(upMbps)} up, ${formatMillis(pingMs)} ping"
@@ -186,4 +226,39 @@ class SpeedTestScreenPresenter(
             return " · $count streams$perStream"
         }
     }
+}
+
+private val GAUGE_STEPS = listOf(10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0)
+
+/** The gauge's full scale: the first step above [v] with a little room. */
+internal fun gaugeScale(v: Double): Double = GAUGE_STEPS.firstOrNull { it >= v * 1.1 } ?: GAUGE_STEPS.last()
+
+/** The gauge and bars for [nodeId]'s running test; before its first figures, an empty gauge. */
+internal fun liveTestModel(nodeId: String, live: SpeedTestLiveDto?, all: Pair<Int, Int>?): LiveTestModel {
+    val title = "Testing $nodeId" + (all?.let { (i, n) -> " ($i of $n)" } ?: "")
+    val ping = live?.phase == "ping"
+    val samples = if (live == null) emptyList() else if (ping) live.pingSamples else live.mbpsSamples
+    val value = if (live == null) null else if (ping) live.pingSamples.lastOrNull() else live.mbps
+    val scale = gaugeScale(samples.maxOrNull() ?: value ?: 0.0)
+    val top = samples.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+    return LiveTestModel(
+        title = title,
+        phase = when (live?.phase) {
+            null -> "Starting…"
+            "ping" -> "Ping"
+            "download" -> "Download"
+            else -> "Upload"
+        },
+        value = value?.let { if (ping) formatMillis(it).removeSuffix(" ms") else formatMbps(it).removeSuffix(" Mbps") } ?: "—",
+        unit = if (ping || live == null) "ms" else "Mbps",
+        fraction = ((value ?: 0.0) / scale).coerceIn(0.0, 1.0),
+        scaleMax = "${scale.toInt()} ${if (ping || live == null) "ms" else "Mbps"}",
+        bars = samples.takeLast(48).map { it / top },
+        metrics = listOf(
+            MetricModel("Ping", formatMillis(live?.pingMs)),
+            MetricModel("Jitter", formatMillis(live?.jitterMs)),
+            MetricModel("Down", formatMbps(if (live?.phase == "download") live.mbps else live?.downMbps)),
+            MetricModel("Up", formatMbps(if (live?.phase == "upload") live.mbps else null)),
+        ),
+    )
 }

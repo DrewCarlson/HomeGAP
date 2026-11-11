@@ -84,6 +84,11 @@ class FetchControllerApi(
             parameter("streams", streams)
         }.body()
 
+    override suspend fun speedLive(): SpeedTestLiveDto? {
+        val r = http.get("/api/speedtest/live")
+        return if (r.status.value == 204) null else r.body()
+    }
+
     override suspend fun testConnection(login: SshLoginDto): ConnectionTestDto =
         http.post("/api/setup/test") { setBody(login) }.body()
 
