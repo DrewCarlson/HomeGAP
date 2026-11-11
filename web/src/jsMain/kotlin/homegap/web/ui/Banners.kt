@@ -4,10 +4,7 @@ import androidx.compose.runtime.Composable
 import homegap.presentation.app.BannerKind
 import homegap.presentation.app.BannerModel
 import homegap.presentation.app.RolloutModel
-import homegap.presentation.app.TokenPromptModel
-import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.dom.Div
-import org.jetbrains.compose.web.dom.Section
 import org.jetbrains.compose.web.dom.Span
 import org.jetbrains.compose.web.dom.Text
 
@@ -59,28 +56,6 @@ fun RolloutBanner(rollout: RolloutModel) {
                     onClick = { rollout.onSkip(nodeId) },
                 )
             }
-        }
-    }
-}
-
-/** Shown when the API asks for a dashboard token (or cannot be reached). */
-@Composable
-fun TokenBox(prompt: TokenPromptModel) {
-    Section({ classes("figure") }) {
-        Div({ classes("figure-body", "token-box") }) {
-            TextField(
-                label = "Dashboard token",
-                value = prompt.value,
-                placeholder = "Paste HOMEGAP_DASHBOARD_TOKEN",
-                type = InputType.Password,
-                onChange = prompt.onChange,
-            )
-            ActionButton(
-                text = "Save",
-                style = ButtonStyle.Primary,
-                mutates = false,
-                onClick = prompt.onSave,
-            )
         }
     }
 }

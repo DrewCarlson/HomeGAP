@@ -46,6 +46,7 @@ import homegap.presentation.search.toHit
 import homegap.presentation.core.runCatchingCancellable
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 import homegap.presentation.ui.ConfirmModel
 import homegap.presentation.ui.anyDown
 import homegap.presentation.ui.location
@@ -99,6 +100,11 @@ class AppPresenter(
     private val addNode: AddNodeScreenPresenter,
     private val shareLinks: ShareLinksScreenPresenter,
 ) : Presenter<AppProps, AppModel> {
+    private companion object {
+        /** How long the controller must stay out of reach before the dashboard says so. */
+        val LOST_GRACE = 5.seconds
+    }
+
     @Composable
     override fun model(props: AppProps): AppModel {
         LaunchedEffect(Unit) { session.follow() }
@@ -127,7 +133,12 @@ class AppPresenter(
                 )
             },
             header = snapshot?.let { header(it, busy, now, readOnly) },
-            connection = problem?.let { connection(it) },
+            connection = problem?.let {
+                connection(
+                    problem = it,
+                    lastUpdate = snapshot?.generatedAt,
+                )
+            },
             banners = remember(snapshot) { snapshot?.banners().orEmpty() },
             rollout = snapshot?.let { rollout(it, now) },
             screen = snapshot?.let {
@@ -422,8 +433,13 @@ class AppPresenter(
         )
     }
 
+    /**
+     * The token prompt for [ConnectionProblem.Unauthorized]; for a failure, the lost-connection
+     * dialog once it has lasted [LOST_GRACE] (null before, so a blip after waking a tab shows
+     * nothing).
+     */
     @Composable
-    private fun connection(problem: ConnectionProblem): ConnectionModel {
+    private fun connection(problem: ConnectionProblem, lastUpdate: Long?): ConnectionModel? {
         var draft by remember { mutableStateOf(tokens.token.orEmpty()) }
         // A saved token that still gets 401 was not accepted (a token remembered from before too).
         var rejected by remember { mutableStateOf(tokens.token != null) }
@@ -458,11 +474,44 @@ class AppPresenter(
                 linkExpired = tokens.viewToken != null,
             )
 
-            is ConnectionProblem.Failed -> ConnectionModel(
-                message = problem.message,
-                tokenPrompt = prompt,
-            )
+            is ConnectionProblem.Failed -> lostConnection(
+                problem = problem,
+                lastUpdate = lastUpdate,
+            )?.let { lost ->
+                ConnectionModel(
+                    message = problem.message,
+                    tokenPrompt = prompt,
+                    lost = lost,
+                )
+            }
         }
+    }
+
+    @Composable
+    private fun lostConnection(problem: ConnectionProblem.Failed, lastUpdate: Long?): LostConnectionModel? {
+        val now by clock.rememberNow(period = 1.seconds)
+        val failingSince = remember { clock.now().toEpochMilliseconds() }
+        val attempts by session.failedAttempts.collectAsState()
+        // Each failed attempt starts a wait; the countdown runs from when it was seen.
+        val waitStartedAt = remember(attempts) { clock.now().toEpochMilliseconds() }
+        var reconnectAt by remember { mutableStateOf<Int?>(null) }
+        if (now - failingSince < LOST_GRACE.inWholeMilliseconds) {
+            return null
+        }
+        val retryAt = waitStartedAt + ControllerSession.retryDelayAfter(attempts).inWholeMilliseconds
+        val secondsLeft = (retryAt - now + 999) / 1000
+        val reconnecting = attempts == 0 || reconnectAt == attempts || secondsLeft <= 0
+        return LostConnectionModel(
+            error = problem.message,
+            retry = if (reconnecting) "Trying now…" else "Trying again in $secondsLeft s",
+            attempts = attempts.takeIf { it > 0 }?.let { plural(it, "attempt") + " failed" },
+            lastUpdate = lastUpdate?.let { "Last update ${ago(it, now)}" },
+            reconnecting = reconnecting,
+            onReconnect = {
+                reconnectAt = attempts
+                session.reconnect()
+            },
+        )
     }
 
     @Composable

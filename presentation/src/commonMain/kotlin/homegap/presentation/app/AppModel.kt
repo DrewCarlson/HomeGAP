@@ -99,6 +99,25 @@ data class ConnectionModel(
     val signInRequired: Boolean = false,
     /** The share link this tab opened no longer works; [message] says so. */
     val linkExpired: Boolean = false,
+    /** The controller can't be reached (rather than refusing the token). */
+    val lost: LostConnectionModel? = null,
+)
+
+/**
+ * The controller has been out of reach for a few seconds: what failed, when it tries again,
+ * and a way to try now. The data on the page behind it is the last that arrived.
+ */
+@Immutable
+data class LostConnectionModel(
+    val error: String,
+    /** "Trying again in 4 s", or "Trying now…" while an attempt runs. */
+    val retry: String,
+    /** "3 attempts failed", or null before the first one finished. */
+    val attempts: String?,
+    /** "Last update 2m ago", or null when nothing has arrived yet. */
+    val lastUpdate: String?,
+    val reconnecting: Boolean,
+    val onReconnect: () -> Unit,
 )
 
 /** The token field; [rejected] when the token that was tried wasn't accepted. */

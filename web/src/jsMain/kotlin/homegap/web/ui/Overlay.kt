@@ -6,10 +6,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import kotlinx.browser.document
 import kotlinx.browser.window
+import org.jetbrains.compose.web.dom.Div
 import org.jetbrains.compose.web.dom.ElementBuilder
 import org.jetbrains.compose.web.dom.TagElement
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
+import org.w3c.dom.pointerevents.PointerEvent
 
 /** How an overlay sits on the page; the caller picks it from the [Viewport]. */
 enum class OverlayStyle(val className: String) {
@@ -90,9 +92,77 @@ fun Overlay(
                 PageScrollLock.release()
             }
         }
+        if (style == OverlayStyle.Sheet) {
+            dismiss?.let { SheetGrip(onDismiss = it) }
+        }
         content()
     }
 }
+
+/**
+ * The grip at the top of a bottom sheet: dragging it down moves the sheet with the finger, and
+ * releasing past a third of the sheet's height (or after a quick flick) dismisses it; anything
+ * less springs back. It is hidden from screen readers, which use the sheet's own Close or Cancel.
+ */
+@Composable
+private fun SheetGrip(onDismiss: () -> Unit) {
+    val dismiss by rememberUpdatedState(onDismiss)
+    Div({
+        classes("sheet-grip")
+        attr("aria-hidden", "true")
+    }) {
+        DisposableEffect(Unit) {
+            val grip = scopeElement
+            val sheet = grip.parentElement as HTMLElement
+            var dragging = false
+            var startY = 0.0
+            var startTime = 0.0
+            var offset = 0.0
+            val onDown: (Event) -> Unit = { event ->
+                val pointer = event as PointerEvent
+                dragging = true
+                startY = pointer.clientY.toDouble()
+                startTime = pointer.timeStamp.toDouble()
+                offset = 0.0
+                grip.setPointerCapture(pointer.pointerId)
+                sheet.style.transition = "none"
+            }
+            val onMove: (Event) -> Unit = { event ->
+                if (dragging) {
+                    offset = ((event as PointerEvent).clientY - startY).coerceAtLeast(0.0)
+                    sheet.style.transform = "translateY(${offset}px)"
+                }
+            }
+            val onUp: (Event) -> Unit = { event ->
+                if (dragging) {
+                    dragging = false
+                    val elapsed = (event.timeStamp.toDouble() - startTime).coerceAtLeast(1.0)
+                    val flick = offset > SHEET_FLICK_MIN_PX && offset / elapsed > SHEET_FLICK_PX_PER_MS
+                    sheet.style.transition = "transform .18s ease-out"
+                    if (flick || offset > sheet.offsetHeight / 3.0) {
+                        dismiss()
+                    } else {
+                        sheet.style.transform = ""
+                    }
+                }
+            }
+            grip.addEventListener("pointerdown", onDown)
+            grip.addEventListener("pointermove", onMove)
+            grip.addEventListener("pointerup", onUp)
+            grip.addEventListener("pointercancel", onUp)
+            onDispose {
+                grip.removeEventListener("pointerdown", onDown)
+                grip.removeEventListener("pointermove", onMove)
+                grip.removeEventListener("pointerup", onUp)
+                grip.removeEventListener("pointercancel", onUp)
+            }
+        }
+    }
+}
+
+/** A flick: at least this far, at least this fast. */
+private const val SHEET_FLICK_MIN_PX = 40.0
+private const val SHEET_FLICK_PX_PER_MS = 0.5
 
 /**
  * Stops the page scrolling while any overlay is open, as Bootstrap's modal does: the root's

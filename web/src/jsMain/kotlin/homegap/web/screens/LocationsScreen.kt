@@ -110,18 +110,24 @@ fun LocationsScreen(model: LocationsScreenModel) {
         }
     }
 
+    Panel(title = "All known locations") {
+        WorldMap(
+            model = model.map,
+            heightPx = 320,
+        )
+    }
     Panel(
-        "Known locations",
-        "${model.total} data-center cities, offered when adding a node. Shipped ones can be edited or hidden.",
+        title = "Known locations",
+        subtitle = "${model.total} data-center cities, offered when adding a node. Shipped ones can be edited or hidden.",
         actions = {
             ActionButton(
                 text = "Add location",
                 style = ButtonStyle.Primary,
-                small = true
-            ) {
-                send(LocationsEvent.Add)
-            }
-        }) {
+                small = true,
+                onClick = { send(LocationsEvent.Add) },
+            )
+        },
+    ) {
         Div({ classes("figure-body") }) {
             Input(InputType.Search) {
                 value(model.query)
@@ -133,7 +139,7 @@ fun LocationsScreen(model: LocationsScreenModel) {
         DataTable(
             headers = KNOWN_LOCATIONS_HEADERS,
             emptyText = empty,
-            isEmpty = model.rows.isEmpty()
+            isEmpty = model.rows.isEmpty(),
         ) {
             model.rows.forEach { r ->
                 key(r.id) {
@@ -178,8 +184,15 @@ fun LocationsScreen(model: LocationsScreenModel) {
                 }
             }
         }
+        if (model.rows.size < model.matching) {
+            Div({ classes("figure-body", "show-all") }) {
+                ActionButton(
+                    text = "Show all ${model.matching}",
+                    onClick = { send(LocationsEvent.ShowAll) },
+                )
+            }
+        }
     }
-    Panel("All known locations") { WorldMap(model.map, heightPx = 320) }
 }
 
 /** Locations over the Config page: a wide dialog on desktops, a drawer on tablets, full screen on phones. */

@@ -162,17 +162,21 @@ private fun Shell(model: AppModel) {
             }
         }
     }
-    model.connection?.takeIf { it.signInRequired }?.let { connection ->
-        SignInDialog(connection)
+    model.connection?.let { connection ->
+        if (connection.signInRequired) {
+            SignInDialog(connection)
+        }
+        connection.lost?.let { lost ->
+            LostConnectionDialog(
+                lost = lost,
+                tokenPrompt = connection.tokenPrompt,
+            )
+        }
     }
 }
 
 @Composable
 private fun Content(model: AppModel, viewport: Viewport) {
-    model.connection?.takeIf { !it.signInRequired }?.let { connection ->
-        Div({ classes("banner", "error") }) { Text(connection.message) }
-        connection.tokenPrompt?.let { TokenBox(it) }
-    }
     if (model.isLoading) {
         Div({ classes("loading") }) { Text("Loading…") }
         return

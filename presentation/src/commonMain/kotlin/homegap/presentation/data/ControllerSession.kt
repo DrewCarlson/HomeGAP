@@ -15,7 +15,8 @@ import homegap.api.patched
 import homegap.api.snapshotFields
 import homegap.api.snapshotOf
 import homegap.presentation.core.runCatchingCancellable
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.FlowPreview
 import kotlinx.serialization.json.JsonObject
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
 /** Why the controller is not reachable, as far as the dashboard can tell. */
@@ -52,6 +54,17 @@ class ControllerSession(
 
     private val _problem = MutableStateFlow<ConnectionProblem?>(null)
     val problem: StateFlow<ConnectionProblem?> = _problem.asStateFlow()
+
+    private val _failedAttempts = MutableStateFlow(0)
+
+    /**
+     * Attempts to reach the controller that failed since it was last reached; 0 while connected.
+     * Each one is followed by the wait [retryDelayAfter] gives, unless [reconnect] cuts it short.
+     */
+    val failedAttempts: StateFlow<Int> = _failedAttempts.asStateFlow()
+
+    /** Wakes the retry loop early (the Reconnect button). */
+    private val retryNow = Channel<Unit>(Channel.CONFLATED)
 
     /** Recent log entries, newest first. */
     private val _log = MutableStateFlow<List<LogEntryDto>>(emptyList())
@@ -125,8 +138,19 @@ class ControllerSession(
                 .collect()
             // The stream ended or dropped: poll once to stay current, then reconnect.
             refresh()
-            delay(if (_problem.value != null) 5.seconds else 2.seconds)
+            val failing = _problem.value != null
+            if (failing) {
+                _failedAttempts.value += 1
+            }
+            withTimeoutOrNull(if (failing) retryDelayAfter(_failedAttempts.value) else RETRY_AFTER_DROP) {
+                retryNow.receive()
+            }
         }
+    }
+
+    /** Tries to reach the controller now instead of at the end of the current wait. */
+    fun reconnect() {
+        retryNow.trySend(Unit)
     }
 
     suspend fun refresh() {
@@ -136,7 +160,7 @@ class ControllerSession(
                     loadSession()
                 }
                 setSnapshot(it)
-                _problem.value = null
+                connected()
             }
             .onFailure {
                 _problem.value = (it as? ApiException)?.toProblem()
@@ -148,7 +172,7 @@ class ControllerSession(
         when (event) {
             is ServerEvent.Status -> {
                 setSnapshot(event.snapshot)
-                _problem.value = null
+                connected()
             }
 
             is ServerEvent.Patch -> {
@@ -223,6 +247,11 @@ class ControllerSession(
         _metrics.value = updated
     }
 
+    private fun connected() {
+        _problem.value = null
+        _failedAttempts.value = 0
+    }
+
     private fun setSnapshot(snapshot: StatusSnapshot) {
         fields = snapshotFields(snapshot)
         _status.value = snapshot
@@ -244,10 +273,22 @@ class ControllerSession(
             ConnectionProblem.Failed(message ?: "HTTP $status")
         }
 
-    private companion object {
-        const val MAX_LOG_ENTRIES = 1000
-        const val METRICS_RANGE_SECONDS = 3600L
-        val HIDDEN_GRACE = 30.seconds
+    companion object {
+        /**
+         * The wait after the [attempt]th failed try in a row: short at first, so a blip (a phone
+         * waking a tab) clears before anyone sees it, then every 5 s.
+         */
+        fun retryDelayAfter(attempt: Int): Duration = when (attempt) {
+            1, 2 -> 1.seconds
+            3 -> 2.seconds
+            else -> 5.seconds
+        }
+
+        /** The wait before reopening a stream that ended while the controller was fine. */
+        private val RETRY_AFTER_DROP = 2.seconds
+        private const val MAX_LOG_ENTRIES = 1000
+        private const val METRICS_RANGE_SECONDS = 3600L
+        private val HIDDEN_GRACE = 30.seconds
     }
 }
 

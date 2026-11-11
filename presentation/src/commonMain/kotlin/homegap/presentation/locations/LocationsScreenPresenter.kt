@@ -73,6 +73,8 @@ data class HomelabLocationModel(
 
 sealed interface LocationsEvent {
     data class Search(val query: String) : LocationsEvent
+    /** Lists every match instead of the first [LocationsScreenPresenter.FIRST_ROWS]. */
+    data object ShowAll : LocationsEvent
     data object Add : LocationsEvent
     data class Edit(val id: String) : LocationsEvent
     data class Change(val field: LocationField, val value: String) : LocationsEvent
@@ -92,7 +94,10 @@ sealed interface LocationsEvent {
 data class LocationsScreenModel(
     val loading: Boolean,
     val query: String,
+    /** The matching locations shown: the first few until the user asks for all of them. */
     val rows: List<LocationRowModel>,
+    /** How many locations match [query]; more than [rows] when the list is cut short. */
+    val matching: Int,
     val total: Int,
     val editor: LocationEditorModel?,
     val homelab: HomelabLocationModel,
@@ -108,6 +113,11 @@ class LocationsScreenPresenter(
     private val actions: ActionRunner,
     private val confirmations: Confirmations,
 ) : Presenter<LocationsScreenProps, LocationsScreenModel> {
+    companion object {
+        /** Locations listed before "Show all", so the page stays short on phones; search reaches the rest. */
+        const val FIRST_ROWS = 12
+    }
+
     @Composable
     override fun model(props: LocationsScreenProps): LocationsScreenModel {
         var reload by remember { mutableIntStateOf(0) }
@@ -123,6 +133,7 @@ class LocationsScreenPresenter(
             }
         }
         var query by remember { mutableStateOf("") }
+        var showAll by remember { mutableStateOf(false) }
         var editor by remember { mutableStateOf<LocationEditorModel?>(null) }
         var homeQuery by remember { mutableStateOf("") }
         var homePending by remember { mutableStateOf<PlaceDto?>(null) }
@@ -136,7 +147,12 @@ class LocationsScreenPresenter(
         val onEvent: (LocationsEvent) -> Unit = remember {
             { event ->
                 when (event) {
-                    is LocationsEvent.Search -> query = event.query
+                    is LocationsEvent.Search -> {
+                        query = event.query
+                        showAll = false
+                    }
+
+                    LocationsEvent.ShowAll -> showAll = true
                     LocationsEvent.Add -> editor = LocationEditorModel(true, emptyMap(), null, null)
                     is LocationsEvent.Edit -> latestAll.firstOrNull { it.id == event.id }
                         ?.let { editor = it.toEditor() }
@@ -252,7 +268,8 @@ class LocationsScreenPresenter(
         return LocationsScreenModel(
             loading = data == null,
             query = query,
-            rows = shown.map { it.toRow() },
+            rows = (if (showAll) shown else shown.take(FIRST_ROWS)).map { it.toRow() },
+            matching = shown.size,
             total = all.size,
             editor = editor,
             homelab = HomelabLocationModel(

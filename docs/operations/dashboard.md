@@ -9,7 +9,7 @@ The orchestrator serves a dashboard on `dashboard.bind`. This page tells you how
 
 An optional bearer token protects `/api`. Set it with `dashboard.auth_token_env` or `dashboard.auth_token_file`. When a token is set, the dashboard asks for it in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.
 
-The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back.
+The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back. If the orchestrator can't be reached for more than 5 seconds, a dialog says so. It shows the error, counts down to the next try and has **Reconnect now**. It closes by itself when the orchestrator answers again. Until then the page shows the last data it received.
 
 ## Share a read-only view
 
@@ -42,7 +42,7 @@ The box at the bottom of the menu shows the last pass, and two controls:
 
 Each page starts with a headline that states the answer, for example "5 of 6 edges healthy.". Under it, a status line shows the most important message. When there are more, **+N more** opens all of them.
 
-Select a node, a service or another item to open it in the **Inspector**. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it.
+Select a node, a service or another item to open it in the **Inspector**. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.
 
 Press ⌘K, Ctrl+K or `/` to search everything: nodes, services, DNS records, tunnels, pages, actions such as **Resync now**, and on the orchestrator the log, the config keys and the secrets. The search shows the names of config keys and secrets, never their values.
 

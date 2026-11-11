@@ -39,9 +39,6 @@ fun InspectorHost(
             onDismiss = onClose,
         ) {
             Div({ classes("overlay-panel", "inspector") }) {
-                if (viewport == Viewport.Phone) {
-                    Div({ classes("sheet-handle") })
-                }
                 InspectorContent(
                     inspector = inspector,
                     onClose = onClose,
