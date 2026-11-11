@@ -13,12 +13,14 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - 'mkdocs.embedded.yml'
+      - 'overrides/**'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
       - 'mkdocs.embedded.yml'
+      - 'overrides/**'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 

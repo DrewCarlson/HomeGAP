@@ -39,6 +39,7 @@ RUN grep -v '^mike' /src/docs/requirements.txt > /tmp/requirements.txt \
     && pip install --no-cache-dir -r /tmp/requirements.txt
 COPY mkdocs.yml mkdocs.embedded.yml /src/
 COPY docs /src/docs
+COPY overrides /src/overrides
 RUN cd /src && VERSION="$VERSION" zensical build --strict -f mkdocs.embedded.yml && mv site-embedded /site
 
 FROM docker.io/library/ubuntu:24.04
