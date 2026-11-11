@@ -83,7 +83,8 @@ With `bunny.api_key_env: BUNNY_API_KEY` and no `BUNNY_API_KEY` variable, HomeGAP
 HomeGAP creates some secrets itself:
 
 - The secrets of each node: the Pangolin server secret, the admin credentials, the setup token and the CrowdSec bouncer key. They come from the CSPRNG of the kernel. HomeGAP sends them over SSH to `<install_dir>/secrets/node.json` on the node, with mode 0600.
-- The cluster passwords, in `cluster/secrets.json` in the data directory.
+- The cluster passwords, in `cluster/secrets.json` in the data directory. HomeGAP creates them one time and never replaces them. Keep a backup of this file.
+- The dashboard token, in `dashboard-token` in the data directory, if the config gives none.
 - The SSH keys that the add-node wizard generates, in `<data dir>/ssh/`, with mode 0600.
 
 The file `node.json` on the node is the source of truth. The local state file `/data/state.json` (mode 0600) is only a cache. If you lose it, HomeGAP reads the credentials from the nodes again.

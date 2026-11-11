@@ -8,12 +8,12 @@ The orchestrator holds every SSH key and every API key. Thus:
 
 - Run it on a minimal host.
 - Mount the secrets. Do not put them in the image.
-- Keep the dashboard private, and set a token with `dashboard.auth_token_env`.
+- Keep the dashboard private. Every `/api` route needs the dashboard token. Set your own token with `dashboard.auth_token_env`.
 
 !!! danger "Warning"
     If somebody gets access to the dashboard or to the orchestrator host, that person has control of every node.
 
-A [share link](../operations/dashboard.md#share-a-read-only-view) gives a read-only view of the dashboard. The orchestrator refuses each change from a share link, and it does not show people's email addresses and devices to it. The orchestrator keeps only a hash of each share link token.
+A [share link](../operations/dashboard.md#share-a-read-only-view) gives a read-only view of the dashboard. The orchestrator refuses each change from a share link. It also refuses the data that contains people's email addresses and devices: the **Access** page, the activity log, and the logs and diagnostics of the nodes. The PIN of a service is never in the data that the dashboard shows. The orchestrator keeps only a hash of each share link token.
 
 ## Secrets
 
@@ -33,7 +33,16 @@ The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. The 
 
 ## The homelab
 
-The orchestrator mounts the Docker socket read-only, and it only reads labels. The tunnels run in a separate container. Thus the orchestrator never carries traffic.
+The orchestrator reads only the container list, the events and the image data from Docker. The tunnels run in a separate container. Thus the orchestrator never carries traffic.
+
+!!! danger "Warning"
+    The mount of the Docker socket gives the full Docker API, also with `:ro`. A person who controls the orchestrator container controls the Docker host.
+
+To limit the orchestrator to the data that it reads, put a socket proxy between it and the socket. Then set `DOCKER_HOST` and remove the socket mount. The compose file has an example.
+
+Only the orchestrator mounts the `homegap-data` volume, which holds the state cache, the SSH keys and the dashboard token. The cluster containers and the `tunnels` container each mount only their own volume.
+
+In cluster mode, each node is a member of the cluster database. A person with root on a node can therefore run commands in the cluster containers of the homelab. Those containers see the cluster database and their own config, and nothing else of the orchestrator.
 
 HomeGAP never publishes the IP address of the homelab. Every tunnel goes outbound from home. In cluster mode, the homelab dials the mesh. On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database.
 

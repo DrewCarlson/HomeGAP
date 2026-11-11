@@ -46,10 +46,16 @@ import kotlin.io.encoding.Base64
  *
  * Long-lived (one per controller): it keeps the switch-back timer and logs a persistent error once.
  */
-class ClusterReconciler(dataDir: String, private val http: HttpClient) {
+class ClusterReconciler(
+    dataDir: String,
+    private val http: HttpClient,
+    /** Where the homelab member's containers read their config (see `AppConfig.clusterConfigDir`). */
+    private val configDir: String = "$dataDir/cluster/config",
+    /** Whether the state shows a cluster that already runs (a node on the mesh, a bootstrapped Pangolin). */
+    private val inUse: () -> Boolean = { false },
+) {
     private val domain = "cluster"
     private val dir = "$dataDir/cluster"
-    private val configDir = "$dir/config"
     private val secretsFile = "$dir/secrets.json"
     /** Written once the database has had a leader; a later outage never sends nodes back to etcd only. */
     private val initializedFile = "$dir/initialized"
@@ -452,13 +458,34 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
 
     // ------------------------------------------------------------------ secrets and files
 
+    @Volatile private var loadedSecrets: ClusterSecrets? = null
+
+    /**
+     * The cluster's passwords. They are created once, before the database exists, and from then
+     * on only read: the database keeps the passwords it was created with, so a new set would lock
+     * every member out. A file that is missing or unreadable while the cluster is in use is an
+     * error, never a reason to create new passwords.
+     */
     fun secrets(): ClusterSecrets {
-        Files.readTextOrNull(secretsFile)?.let { return json.decodeFromString(it) }
+        loadedSecrets?.let { return it }
+        if (Files.exists(secretsFile)) {
+            val read = runCatching { json.decodeFromString<ClusterSecrets>(Files.readText(secretsFile)) }.getOrElse {
+                throw IllegalStateException(
+                    "The cluster secrets file $secretsFile cannot be read (${it.message}). HomeGAP does not replace it: " +
+                        "the cluster database keeps the passwords in that file.",
+                )
+            }
+            return read.also { loadedSecrets = it }
+        }
+        check(!Files.exists(initializedFile) && !inUse()) {
+            "The cluster secrets file $secretsFile is missing, but the cluster is in use. HomeGAP does not create new " +
+                "passwords: the cluster database keeps the old ones. Restore the file from a backup of the data directory."
+        }
         val created = ClusterSecrets(Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32))
         Files.mkdirs(dir)
         Files.chmodPath(dir, "700".toInt(8))
         Files.writeAtomic(secretsFile, json.encodeToString(created), "600".toInt(8))
-        return created
+        return created.also { loadedSecrets = it }
     }
 
     /** The homelab member's files. etcd's settings only matter on first start, so they are written once. */

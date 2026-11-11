@@ -1,5 +1,8 @@
 package homegap.reconcile
 
+import homegap.config.adoptSharedDirs
+import homegap.config.clusterConfigDir
+import homegap.config.tunnelsDir
 import homegap.provision.ExitNodes
 import homegap.provision.TunnelDns
 import homegap.VERSION
@@ -97,7 +100,14 @@ class Controller(
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
     private val meshRec by lazy { MeshReconciler(HomelabMesh("${config.dataDir}/mesh")) }
     @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
-    private val clusterRec by lazy { ClusterReconciler(config.dataDir, localHttp) }
+    private val clusterRec by lazy {
+        ClusterReconciler(
+            dataDir = config.dataDir,
+            http = localHttp,
+            configDir = config.clusterConfigDir,
+            inUse = { state.snapshot().let { s -> s.clusterPangolin?.bootstrapped == true || s.nodes.values.any { it.meshPublicKey != null } } },
+        )
+    }
     /** The cluster's reachable Pangolins as of the last pass, and which node each exit node is. */
     @kotlin.concurrent.Volatile private var clusterReady: Map<String, ReadyNode> = emptyMap()
     @kotlin.concurrent.Volatile private var exitNodes: Map<Int, String> = emptyMap()
@@ -217,7 +227,7 @@ class Controller(
     fun restartTunnel(nodeId: String): String {
         val cfg = config
         requireNotNull(cfg.node(nodeId)) { "unknown node $nodeId" }
-        val dir = cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"
+        val dir = cfg.tunnelsDir
         Files.writeAtomic(TunnelFiles.restartPath(dir, nodeId), nowMillis().toString())
         log.change("tunnels", "connector restart requested from the dashboard", nodeId)
         return "Restarting the $nodeId connector"
@@ -267,6 +277,9 @@ class Controller(
     }
 
     suspend fun run(scope: CoroutineScope, once: Boolean) {
+        if (!dryRun) {
+            runCatching { config.adoptSharedDirs() }.onFailure { log.error("controller", "could not bring the shared files to their new place: ${it.message}") }
+        }
         if (once) {
             reconcileOnce("startup")
             return
@@ -491,7 +504,7 @@ class Controller(
                                 if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()
                             }
                         } else if (dryRun) {
-                            val bp = resourceRec.buildBlueprint(nd.publicResources.filter { !it.paused }, nd.privateResources.filter { !it.paused }, cfg.siteNiceId(node.id))
+                            val bp = resourceRec.displayBlueprint(nd.publicResources.filter { !it.paused }, nd.privateResources.filter { !it.paused }, cfg.siteNiceId(node.id))
                             log.info("resources", "[dry-run] blueprint: $bp", node.id)
                             nd.publicResources.forEach { diff.add("resources", node.id, it.niceId, "unknown", "${it.mode.wire} ${it.fullDomain ?: ":${it.proxyPort}"} -> ${it.target.host}:${it.target.port}") }
                         }
@@ -840,7 +853,7 @@ class Controller(
             val n = cfg.node(id)
             val ns = st.nodes[id]
             val o = nodeObs[id]
-            val tunnel = TunnelFiles.readStatus(cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels", id)
+            val tunnel = TunnelFiles.readStatus(cfg.tunnelsDir, id)
             val worst = o?.checks?.map { it.health }?.let { hs ->
                 when {
                     hs.contains(Health.DOWN) -> Health.DOWN
@@ -936,7 +949,7 @@ class Controller(
                 changedAt = log.lastRecordChange(o.desired?.fqdn ?: o.record.name),
             )
         }
-        val tunnelsDir = cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"
+        val tunnelsDir = cfg.tunnelsDir
         val tunnels = cfg.nodes.map { n ->
             val t = TunnelFiles.readStatus(tunnelsDir, n.id)
             val fresh = t != null && nowMillis() - t.updatedAt < 60_000
@@ -988,7 +1001,7 @@ class Controller(
      */
     private suspend fun recordMetrics(cfg: AppConfig, snapshot: StatusSnapshot) {
         val now = nowMillis()
-        val tunnelsDir = cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"
+        val tunnelsDir = cfg.tunnelsDir
         val points = cfg.nodes.flatMap { node ->
             val api = nodeObs[node.id]?.checks?.firstOrNull { it.name == "pangolin-api" }
             val mesh = snapshot.mesh?.members
@@ -1065,7 +1078,7 @@ class Controller(
                 plan.nodes.forEach { (id, n) ->
                     putJsonObject(id) {
                         put("managementHost", n.managementHost)
-                        put("blueprint", rr.buildBlueprint(n.publicResources.filter { !it.paused }, n.privateResources.filter { !it.paused }, config.siteNiceId(id)))
+                        put("blueprint", rr.displayBlueprint(n.publicResources.filter { !it.paused }, n.privateResources.filter { !it.paused }, config.siteNiceId(id)))
                         putJsonArray("sniRoutes") { n.sniRoutes.forEach { add(homegap.provision.NodeTemplates.sniRule(it)) } }
                         putJsonArray("rawPorts") { n.rawPorts.forEach { add(it.entryPoint) } }
                     }

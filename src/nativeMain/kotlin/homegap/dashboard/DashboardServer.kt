@@ -28,8 +28,8 @@ import io.ktor.server.routing.routing
 
 /**
  * The dashboard: the REST API (route groups in `homegap.routes`, mounted by [RoutingControllers])
- * and the embedded SPA. Meant to be exposed only as a private Pangolin resource; an optional
- * bearer token adds defense in depth. Never returns secret values.
+ * and the embedded SPA. Meant to be exposed only as a private Pangolin resource; every
+ * `/api` route also needs the bearer token ([DashboardAuth]). Never returns secret values.
  */
 @SingleIn(AppScope::class)
 @Inject

@@ -155,6 +155,8 @@ If a node has a `region` but no `location`, HomeGAP uses a rough center of the r
 | `auth_token_file` | string | None. | A file with the bearer token. |
 | `allow_config_edits` | boolean | `true` | Lets the dashboard add and remove nodes. This writes the config file again. |
 
+Every `/api` route needs the bearer token. If neither key gives a token, HomeGAP creates one in `<data_dir>/dashboard-token`.
+
 ## speedtest
 
 | Key | Type | Default | What it does |
@@ -193,7 +195,9 @@ If a node has a `region` but no `location`, HomeGAP uses a rough center of the r
 | `HOMEGAP_CONFIG` | `/config/config.yml` | The path of the config file. |
 | `HOMEGAP_DRY_RUN` | None. | With `1`, `true` or `yes`, the orchestrator runs in dry run. |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | The path of the Docker socket. |
-| `HOMEGAP_TUNNELS_DIR` | `/data/tunnels` | The directory of the connector specs, for the tunnel supervisor. |
+| `DOCKER_HOST` | None. | The address of a Docker socket proxy, as `tcp://host:port`. With it, the orchestrator does not use the socket. |
+| `HOMEGAP_TUNNELS_DIR` | `<data_dir>/tunnels` | The directory of the connector specs, for the orchestrator and the tunnel supervisor. |
+| `HOMEGAP_CLUSTER_CONFIG_DIR` | `<data_dir>/cluster/config` | The directory where the orchestrator writes the config of the cluster containers of the homelab. |
 | `HOMEGAP_NEWT` | `/usr/local/bin/newt` | The path of the Newt binary, for the tunnel supervisor. |
 | `HOMEGAP_DEBUG` | None. | If set, prints stack traces on fatal errors. |
 | `HOMEGAP_DOCS_DIR` | `/usr/share/homegap/docs` | The directory where the dashboard finds these docs. |

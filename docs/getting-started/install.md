@@ -25,7 +25,7 @@ Put these files in one folder:
 | `homegap-mesh` | A busybox container that holds the network namespace of the orchestrator. Thus the cluster mesh interface (`hg-mesh`) stays up when the orchestrator restarts. |
 | `orchestrator` | The image `ghcr.io/drewcarlson/homegap:latest` with the command `run`. It uses `network_mode: service:homegap-mesh` and `cap_add: [NET_ADMIN]`, for the mesh in cluster mode. |
 | `homegap-etcd`, `homegap-db`, `homegap-valkey`, `homegap-sentinel` | The cluster member of the homelab. HomeGAP uses them only with `cluster:`. |
-| `tunnels` | The same image with the command `tunnels --dir /data/tunnels`. It keeps one Newt connector for each node. |
+| `tunnels` | The same image with the command `tunnels --dir /tunnels`. It keeps one Newt connector for each node. |
 
 ### `homegap-mesh`
 
@@ -39,23 +39,27 @@ The orchestrator reads these environment variables:
 
 - `BUNNY_API_KEY`. It is necessary.
 - `PANGOLIN_LICENSE_KEY`. It is optional.
+- `HOMEGAP_DASHBOARD_TOKEN`. The bearer token of the dashboard. If it is empty, HomeGAP creates a token.
+- `HOMEGAP_CLUSTER_CONFIG_DIR` and `HOMEGAP_TUNNELS_DIR`. The mount points of the two shared volumes.
 - `HOMEGAP_DRY_RUN`. It is optional.
 
 The orchestrator has these volumes:
 
-- `/var/run/docker.sock:/var/run/docker.sock:ro`. The Docker socket is read-only, because the orchestrator only reads labels.
+- `/var/run/docker.sock:/var/run/docker.sock:ro`. The orchestrator only reads the container list, the events and the image data. The mount gives the full Docker API, also with `:ro`. See [Security model](../reference/security.md#the-homelab).
 - `./config/config.yml:/config/config.yml`. This mount must be writable only if you enable config edits on the dashboard.
 - `./secrets/ssh:/secrets/ssh:ro`. The SSH keys of the nodes.
-- `homegap-data:/data`. The state cache, `known_hosts` and the tunnel specs.
+- `homegap-data:/data`. The state cache, `known_hosts`, the generated SSH keys and the dashboard token. No other container mounts this volume.
+- `homegap-cluster-config:/cluster-config`. The config that the orchestrator writes for the cluster containers. They mount it read-only.
+- `homegap-tunnels:/tunnels`. The connector specs. The `tunnels` container mounts the same volume.
 - Optional: the `acme.json` file of the homelab Traefik, read-only.
 
 ### The cluster member
 
-Without cluster mode, you can remove `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. In cluster mode, they wait until the orchestrator writes their config under `/data/cluster/config`. While they wait, their log shows "waiting for ... (written by the HomeGAP orchestrator)".
+Without cluster mode, you can remove `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. In cluster mode, they wait until the orchestrator writes their config to the `homegap-cluster-config` volume. While they wait, their log shows "waiting for ... (written by the HomeGAP orchestrator)".
 
 ### `tunnels`
 
-The tunnel supervisor is independent of the orchestrator. If the orchestrator stops, the tunnels stay up. It shares the `homegap-data` volume with the orchestrator.
+The tunnel supervisor is independent of the orchestrator. If the orchestrator stops, the tunnels stay up. It shares only the `homegap-tunnels` volume with the orchestrator.
 
 The `tunnels` service must share a Docker network with Traefik. It must also share a network with each service that HomeGAP exposes directly, that is raw TCP and UDP services and dedicated subdomains.
 
@@ -76,9 +80,9 @@ For `tunnels.native: true`, the service needs `cap_add: [NET_ADMIN]` and `device
     PANGOLIN_LICENSE_KEY=...
     HOMEGAP_DASHBOARD_TOKEN=...
     ```
-    `PANGOLIN_LICENSE_KEY` and `HOMEGAP_DASHBOARD_TOKEN` are optional. For the token, use a long random string.
-9. If you set a dashboard token, set `dashboard.auth_token_env: HOMEGAP_DASHBOARD_TOKEN` in the config.
-10. If you set a dashboard token, add `HOMEGAP_DASHBOARD_TOKEN` to the `environment` of the `orchestrator` service.
+    `PANGOLIN_LICENSE_KEY` is optional. For `HOMEGAP_DASHBOARD_TOKEN`, use a long random string.
+9. Make sure that the config has `dashboard.auth_token_env: HOMEGAP_DASHBOARD_TOKEN`. The example config has it.
+10. If you set no dashboard token, read the token that HomeGAP creates after the first start. See [Dashboard](../operations/dashboard.md#access).
 11. Make the file readable only by you:
     ```bash
     chmod 600 .env

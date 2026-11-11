@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 v() { docker compose exec -T viewer "$@"; }
 # A device test link's token, to read which node the speed test's shared name came through.
-TOKEN=$(curl -s -X POST http://127.0.0.1:18088/api/speedtest/link | sed -n 's/.*[#&]t=\([A-Za-z0-9_-]*\).*/\1/p')
+TOKEN=$(curl -s -X POST -H "Authorization: Bearer $(cat work/data/dashboard-token)" http://127.0.0.1:18088/api/speedtest/link | sed -n 's/.*[#&]t=\([A-Za-z0-9_-]*\).*/\1/p')
 for node in na1:172.30.0.10 as1:172.30.0.11; do
   id=${node%%:*}; ip=${node#*:}
   echo "================ $id ($ip)"

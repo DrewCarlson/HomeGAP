@@ -70,3 +70,13 @@ If the compose file has no cluster services, the script skips the cluster steps.
 After the upgrade, the cluster members on the nodes follow the cluster image of the homelab, pinned to its registry digest. HomeGAP updates one node in each pass, and only while every member serves and no maintenance runs. See [Cluster database](../cluster/database.md#updates-of-the-node-members).
 
 The script does not update the node stacks (the Pangolin images). They follow the config. See [Node updates and rollback](node-updates.md).
+
+## Move to the separate volumes
+
+Earlier compose files mount the `homegap-data` volume in the cluster containers and in the `tunnels` container. The current compose file gives them their own volumes, `homegap-cluster-config` and `homegap-tunnels`. Thus they cannot read the state cache, the SSH keys or the dashboard token.
+
+1. Replace your compose file with the current `deploy/homelab-compose.yml`. Keep your own changes.
+2. Run `./upgrade.sh --tunnels`.
+
+When the new orchestrator starts, it copies the cluster config and the connector specs to the new volumes. Then the script recreates the other containers with the new mounts. The `--tunnels` option makes the `tunnels` container use its new volume, so every node connects again one time.
+

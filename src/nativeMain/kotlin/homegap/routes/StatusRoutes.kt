@@ -43,7 +43,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-/** The status snapshot, the reconcile log, and the event stream that pushes both. */
+/** The status snapshot and the event stream that pushes it (and, to an admin, the reconcile log). */
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -56,7 +56,6 @@ class StatusRoutes(
     override fun init(parent: Route) {
         parent.get("/status") { getStatus() }
         parent.get("/events") { streamEvents() }
-        parent.get("/log") { getLog() }
         parent.get("/metrics") { getMetrics() }
     }
 
@@ -75,24 +74,11 @@ class StatusRoutes(
         call.respond(controller.snapshot())
     }
 
-    /** `?before=SEQ` pages back; `?domain=`, `?level=` and `?q=` filter. */
-    suspend fun RoutingContext.getLog() {
-        val parameters = call.request.queryParameters
-        val entries = controller.log.recent(
-            limit = (parameters["limit"]?.toIntOrNull() ?: 300).coerceIn(1, 1000),
-            domain = parameters["domain"]?.takeIf { it.isNotBlank() },
-            beforeSeq = parameters["before"]?.toLongOrNull(),
-            level = parameters["level"]?.let { level -> LogLevel.entries.firstOrNull { it.name.equals(level, ignoreCase = true) } },
-            query = parameters["q"],
-        )
-        call.respond(LogResponse(entries))
-    }
-
     /**
      * Server-sent events: `status` (the whole snapshot, first), then `patch` (only the top-level
-     * fields that changed) and `log` (entries after `?after=SEQ`). Tunnel status comes from files
-     * the supervisor writes, so the snapshot is also re-checked every few seconds without a
-     * change signal.
+     * fields that changed) and `log` (entries after `?after=SEQ`, for an admin only: the log
+     * names people). Tunnel status comes from files the supervisor writes, so the snapshot is
+     * also re-checked every few seconds without a change signal.
      */
     suspend fun RoutingContext.streamEvents() {
         var lastSeq = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
@@ -105,12 +91,13 @@ class StatusRoutes(
         call.respondBytesWriter(ContentType.Text.EventStream) {
             writeEvents(
                 afterSeq = lastSeq,
+                withLog = viewer == null,
                 allowed = { viewer == null || shareLinks.isLive(viewer.link.id) },
             )
         }
     }
 
-    private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long, allowed: () -> Boolean) = coroutineScope {
+    private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long, withLog: Boolean, allowed: () -> Boolean) = coroutineScope {
         var lastSeq = afterSeq
         var sentFields: JsonObject? = null
         var sentState: StatusSnapshot? = null
@@ -182,7 +169,7 @@ class StatusRoutes(
                     sentLive = live
                     lastWrite = nowMillis()
                 }
-                val entries = controller.log.since(lastSeq)
+                val entries = if (withLog) controller.log.since(lastSeq) else emptyList()
                 if (entries.isNotEmpty()) {
                     writeEvent(ServerEvent.Log(entries))
                     lastSeq = entries.last().seq
@@ -259,3 +246,31 @@ private fun MeshProbeDto.withoutLiveValues(): MeshProbeDto = copy(
     sent = 0,
     at = 0,
 )
+
+/**
+ * `GET /log`: the reconcile log. Admin only: its entries name people (invitations, users) and
+ * carry output from the nodes.
+ */
+@SingleIn(AppScope::class)
+@ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
+@Inject
+class LogRoutes(private val controller: Controller) : RoutingController {
+    override val adminOnly: Boolean get() = true
+
+    override fun init(parent: Route) {
+        parent.get("/log") { getLog() }
+    }
+
+    /** `?before=SEQ` pages back; `?domain=`, `?level=` and `?q=` filter. */
+    suspend fun RoutingContext.getLog() {
+        val parameters = call.request.queryParameters
+        val entries = controller.log.recent(
+            limit = (parameters["limit"]?.toIntOrNull() ?: 300).coerceIn(1, 1000),
+            domain = parameters["domain"]?.takeIf { it.isNotBlank() },
+            beforeSeq = parameters["before"]?.toLongOrNull(),
+            level = parameters["level"]?.let { level -> LogLevel.entries.firstOrNull { it.name.equals(level, ignoreCase = true) } },
+            query = parameters["q"],
+        )
+        call.respond(LogResponse(entries))
+    }
+}

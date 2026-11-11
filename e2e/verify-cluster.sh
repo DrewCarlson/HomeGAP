@@ -12,12 +12,14 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 DASH=http://127.0.0.1:18088/api
+# Every /api route needs the dashboard token; the harness uses the generated one.
+AUTH="Authorization: Bearer $(cat work/data/dashboard-token)"
 FAILS=0
 want() { [ -z "${ONLY:-}" ] || [[ " $ONLY " == *" $1 "* ]]; }
 pass() { echo "PASS  $*"; }
 fail() { echo "FAIL  $*"; FAILS=$((FAILS + 1)); }
 state() { python3 -c "import json,sys; s=json.load(open('work/data/state.json')); print(eval(sys.argv[1]))" "$1"; }
-cluster() { curl -s "$DASH/status" | python3 -c "import json,sys; c=json.load(sys.stdin)['cluster']; print(eval(sys.argv[1]))" "$1"; }
+cluster() { curl -s -H "$AUTH" "$DASH/status" | python3 -c "import json,sys; c=json.load(sys.stdin)['cluster']; print(eval(sys.argv[1]))" "$1"; }
 # Polls a python expression over the cluster status until it is True (or the timeout, in seconds).
 until_cluster() { local expr=$1 t=$2; for _ in $(seq 1 $((t / 5))); do [ "$(cluster "$expr" 2>/dev/null)" = True ] && return 0; sleep 5; done; return 1; }
 
@@ -39,9 +41,9 @@ if want 2; then
 echo "--- 2. a user from the dashboard signs in through every node"
 EMAIL="verify-$(date +%s)@test.example.net"
 UPW="Hg$(python3 -c 'import secrets; print(secrets.token_urlsafe(12))')9!"
-ROLE=$(curl -s "$DASH/access" | python3 -c "import json,sys; print(next(r['id'] for r in json.load(sys.stdin)['roles'] if not r['admin']))")
+ROLE=$(curl -s -H "$AUTH" "$DASH/access" | python3 -c "import json,sys; print(next(r['id'] for r in json.load(sys.stdin)['roles'] if not r['admin']))")
 created=$(python3 -c "import json,sys; print(json.dumps({'email': sys.argv[1], 'roleIds': [int(sys.argv[2])], 'password': sys.argv[3]}))" "$EMAIL" "$ROLE" "$UPW" \
-  | curl -s -X POST -H 'Content-Type: application/json' --data @- "$DASH/access/users")
+  | curl -s -X POST -H "$AUTH" -H 'Content-Type: application/json' --data @- "$DASH/access/users")
 echo "$created" | grep -q '"ok":true' && pass "created $EMAIL" || fail "create user: $created"
 for n in $NODES; do
   id=${n%%:*}; ip=${n#*:}
@@ -49,8 +51,8 @@ for n in $NODES; do
     | docker compose exec -T viewer sh -c "curl -s --cacert /certs/ca.pem --resolve pangolin.test.example.net:443:$ip -H 'X-CSRF-Token: x-csrf-protection' -H 'Content-Type: application/json' --data @- -o /dev/null -w '%{http_code}' https://pangolin.test.example.net/api/v1/auth/login")
   [ "$code" = 200 ] && pass "$EMAIL signs in at pangolin.test.example.net via $id" || fail "sign-in via $id: HTTP $code"
 done
-uid=$(curl -s "$DASH/access" | python3 -c "import json,sys; print(next(u['id'] for u in json.load(sys.stdin)['users'] if u['email'] == sys.argv[1]))" "$EMAIL")
-curl -s -X DELETE "$DASH/access/users/$uid" >/dev/null
+uid=$(curl -s -H "$AUTH" "$DASH/access" | python3 -c "import json,sys; print(next(u['id'] for u in json.load(sys.stdin)['users'] if u['email'] == sys.argv[1]))" "$EMAIL")
+curl -s -X DELETE -H "$AUTH" "$DASH/access/users/$uid" >/dev/null
 fi
 
 if want 3; then
@@ -73,7 +75,7 @@ if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
     OLM_ID=$OLM_ID OLM_SECRET=$OLM_SECRET CLIENT_NODE_IP=$ip docker compose --profile client up -d --force-recreate client >/dev/null 2>&1
     via=""
     for _ in $(seq 1 24); do
-      via=$(curl -s "$DASH/access" | python3 -c "import json,sys; print(next((d.get('viaNode') or '') for d in json.load(sys.stdin)['devices'] if d['id'] == int(sys.argv[1])))" "$CID" 2>/dev/null)
+      via=$(curl -s -H "$AUTH" "$DASH/access" | python3 -c "import json,sys; print(next((d.get('viaNode') or '') for d in json.load(sys.stdin)['devices'] if d['id'] == int(sys.argv[1])))" "$CID" 2>/dev/null)
       [ "$via" = "$id" ] && break; sleep 5
     done
     [ "$via" = "$id" ] && pass "the client relays through $id" || fail "client sent to $id relays through '${via}'"
@@ -87,7 +89,7 @@ if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
     case "$real" in 172.29.0.*) pass "test.example.net/grafana via $id arrives from the private network ($real)" ;; *) fail "test.example.net/grafana via $id: X-Real-Ip '$real'" ;; esac
   done
   docker compose --profile client rm -sf client >/dev/null 2>&1
-  curl -s -X POST "$DASH/access/devices/$CID/delete" >/dev/null
+  curl -s -X POST -H "$AUTH" "$DASH/access/devices/$CID/delete" >/dev/null
 fi
 fi
 

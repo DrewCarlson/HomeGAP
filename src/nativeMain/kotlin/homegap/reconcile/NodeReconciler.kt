@@ -577,7 +577,7 @@ class NodeReconciler(
             |  if curl -fsS -o /dev/null http://127.0.0.1:3000/api/v1/ 2>/dev/null; then ok=1; break; fi
             |  sleep 2
             |done
-            |if [ "$ok" != 1 ]; then echo "Pangolin did not become healthy" >&2; docker compose ps >&2; docker compose logs --tail 40 pangolin >&2; exit 1; fi
+            |if [ "$ok" != 1 ]; then echo "Pangolin did not become healthy (its log is on the Diagnostics page)" >&2; docker compose ps >&2; exit 1; fi
             """.trimMargin()
         )
     }

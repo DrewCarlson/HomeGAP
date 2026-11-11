@@ -312,11 +312,18 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
     fun buildBlueprint(publicRes: List<PublicResource>, privateRes: List<PrivateResource>, site: String = ctx.config.pangolin.siteName): JsonObject =
         buildBlueprint(publicRes.associateWith { listOf(site) }, privateRes.associateWith { listOf(it.siteNiceId) })
 
+    /**
+     * The blueprint as it is shown (the dashboard's diff, the dry-run log): the same as
+     * [buildBlueprint], but a PIN is never resolved, so no secret leaves the reconciler.
+     */
+    fun displayBlueprint(publicRes: List<PublicResource>, privateRes: List<PrivateResource>, site: String): JsonObject =
+        buildBlueprint(publicRes.associateWith { listOf(site) }, privateRes.associateWith { listOf(it.siteNiceId) }, display = true)
+
     /** [publicRes] and [privateRes] map each resource to the sites that serve it. */
-    fun buildBlueprint(publicRes: Map<PublicResource, List<String>>, privateRes: Map<PrivateResource, List<String>>): JsonObject {
+    fun buildBlueprint(publicRes: Map<PublicResource, List<String>>, privateRes: Map<PrivateResource, List<String>>, display: Boolean = false): JsonObject {
         return buildJsonObject {
             putJsonObject("public-resources") {
-                for ((r, sites) in publicRes) putJsonObject(r.niceId) { publicResource(r, sites) }
+                for ((r, sites) in publicRes) putJsonObject(r.niceId) { publicResource(r, sites, display) }
             }
             if (privateRes.isNotEmpty()) {
                 putJsonObject("private-resources") {
@@ -340,7 +347,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         }
     }
 
-    private fun JsonObjectBuilder.publicResource(r: PublicResource, sites: List<String>) {
+    private fun JsonObjectBuilder.publicResource(r: PublicResource, sites: List<String>, display: Boolean = false) {
         put("name", r.niceId)
         put("mode", r.mode.wire)
         put("enabled", true)
@@ -358,8 +365,9 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
                     }
                     AuthMode.PIN -> {
                         put("sso-enabled", false)
-                        val pin = r.pinEnv?.let { SecretRef("pin:${r.serviceKey}", it, null).resolve() }?.toIntOrNull()
-                        if (pin != null && pin in 100000..999999) put("pincode", pin)
+                        val pin = if (display) null else r.pinEnv?.let { SecretRef("pin:${r.serviceKey}", it, null).resolve() }?.toIntOrNull()
+                        if (display) put("pincode", "(from ${r.pinEnv ?: "no variable"})")
+                        else if (pin != null && pin in 100000..999999) put("pincode", pin)
                         else ctx.log.error(domain, "PIN for ${r.serviceKey} missing or not 6 digits (env ${r.pinEnv})")
                     }
                 }

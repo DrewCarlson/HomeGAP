@@ -7,13 +7,19 @@ The orchestrator serves a dashboard on `dashboard.bind`. This page tells you how
 
 ## Access
 
-An optional bearer token protects `/api`. Set it with `dashboard.auth_token_env` or `dashboard.auth_token_file`. When a token is set, the dashboard asks for it in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.
+A bearer token protects every `/api` route. Set it with `dashboard.auth_token_env` or `dashboard.auth_token_file`. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file `dashboard-token` in its data directory, with mode 0600. To read the token, run this command:
+
+```bash
+docker compose exec orchestrator cat /data/dashboard-token
+```
+
+The dashboard asks for the token in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.
 
 The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back. If the orchestrator can't be reached for more than 5 seconds, a dialog says so. It shows the error, counts down to the next try and has **Reconnect now**. It closes by itself when the orchestrator answers again. Until then the page shows the last data it received.
 
 ## Share a read-only view
 
-A share link lets a person see the dashboard without the dashboard token. That person can read every page except **Access**, and cannot change anything. Share links need a dashboard token. Without a token, everybody who can open the dashboard has full control already.
+A share link lets a person see the dashboard without the dashboard token. That person can read every page except **Access**, **Activity** and **Diagnostics**, and cannot change anything.
 
 To make a share link:
 
@@ -24,12 +30,12 @@ To make a share link:
 
 The dashboard shows the link only one time. The orchestrator keeps only a hash of the token in `share-links.json` in its data directory. The token is in the fragment of the link (`#view=`). The browser never sends the fragment to a server, so no log contains it.
 
-When a person opens the link, the dashboard opens in a read-only view in that browser tab. A banner tells them that they cannot change anything. Buttons that change something are off, and the orchestrator refuses each change from a share link. **Access** and **Share links** are not in a read-only view, because they show email addresses and devices. **Sign in as admin** closes the read-only view. Then the dashboard uses the dashboard token that the browser keeps, or it asks for the token.
+When a person opens the link, the dashboard opens in a read-only view in that browser tab. A banner tells them that they cannot change anything. Buttons that change something are off, and the orchestrator refuses each change from a share link. **Access**, **Activity**, **Diagnostics** and **Share links** are not in a read-only view. They show email addresses, devices and the logs of the nodes, and the orchestrator refuses their data to a share link. The search in a read-only view gives no log entries. **Sign in as admin** closes the read-only view. Then the dashboard uses the dashboard token that the browser keeps, or it asks for the token.
 
 To stop a link, select **Revoke** next to it on **Share links**. The link stops at once, also in a browser that has it open. An expired link stops too, and the person sees a message that asks for a new link.
 
 !!! warning "Caution"
-    A read-only view shows the other pages in full: the config file with the host names and SSH users of the nodes, the names of the secrets, the logs of the nodes, the activity log and the speed test results. Give a share link only to a person that you trust with this information.
+    A read-only view shows the other pages in full: the config file with the host names and SSH users of the nodes, the names of the secrets and the speed test results. Give a share link only to a person that you trust with this information.
 
 ## The layout
 

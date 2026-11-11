@@ -3,6 +3,7 @@ package homegap.di
 import dev.zacsweers.metro.*
 import homegap.config.AppConfig
 import homegap.config.ConfigLoader
+import homegap.dashboard.DashboardAuth
 import homegap.dashboard.DashboardServer
 import homegap.dashboard.ShareLinks
 import homegap.discovery.DockerClient
@@ -48,6 +49,7 @@ interface ControllerGraph {
     val config: AppConfig
     val controller: Controller
     val dashboard: DashboardServer
+    val dashboardAuth: DashboardAuth
     val speedTestServer: SpeedTestServer
 
     @Provides @SingleIn(AppScope::class)
@@ -78,7 +80,8 @@ interface ControllerGraph {
                 encodeDefaults = true
                 explicitNulls = false
             },
-            socketPath = env("DOCKER_SOCKET") ?: "/var/run/docker.sock"
+            socketPath = env("DOCKER_SOCKET") ?: "/var/run/docker.sock",
+            host = env("DOCKER_HOST"),
         )
 
     @Provides @SingleIn(AppScope::class)
@@ -95,6 +98,9 @@ interface ControllerGraph {
 
     @Provides @SingleIn(AppScope::class)
     fun speedStore(config: AppConfig): SpeedTestStore = SpeedTestStore("${config.dataDir}/speedtests.json")
+
+    @Provides @SingleIn(AppScope::class)
+    fun dashboardAuth(config: AppConfig): DashboardAuth = DashboardAuth.resolve(config)
 
     @Provides @SingleIn(AppScope::class)
     fun shareLinks(config: AppConfig): ShareLinks = ShareLinks("${config.dataDir}/share-links.json")

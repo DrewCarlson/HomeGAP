@@ -5,6 +5,7 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
+import homegap.dashboard.DashboardAuth
 import homegap.provision.HomelabTraefik
 import homegap.reconcile.Controller
 import io.ktor.http.ContentType
@@ -25,14 +26,14 @@ import io.ktor.server.routing.get
 @ContributesIntoSet(scope = AppScope::class, binding = binding<OpenRoutingController>())
 @Inject
 class TraefikRoutes(private val controller: Controller) : OpenRoutingController {
-    override fun init(parent: Route, token: String?) {
-        parent.get(PATH) { homelab(token) }
+    override fun init(parent: Route, auth: DashboardAuth) {
+        parent.get(PATH) { homelab(auth) }
     }
 
-    private suspend fun RoutingContext.homelab(token: String?) {
+    private suspend fun RoutingContext.homelab(auth: DashboardAuth) {
         val req = call.request
         val ok = allowed(
-            token = token,
+            auth = auth,
             authorization = req.headers[HttpHeaders.Authorization],
             peer = req.local.remoteAddress,
             forwarded = req.headers[HttpHeaders.XForwardedFor] != null || req.headers[HttpHeaders.Forwarded] != null,
@@ -52,15 +53,14 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
         const val PATH = "/api/traefik/homelab"
 
         /**
-         * Without a dashboard token, like the rest of `/api`, anyone may. With one: the request
-         * carries it, or it is the homelab Traefik's own poll. That is a request whose sender is
-         * the front door container ([peer] in [frontDoor]) and that Traefik did not forward for
-         * someone else: Traefik adds `X-Forwarded-For` to every request it forwards (the dashboard
-         * itself is published through it), and a client cannot remove it.
+         * The request carries the dashboard token, or it is the homelab Traefik's own poll. That
+         * is a request whose sender is the front door container ([peer] in [frontDoor]) and that
+         * Traefik did not forward for someone else: Traefik adds `X-Forwarded-For` to every
+         * request it forwards (the dashboard itself is published through it), and a client cannot
+         * remove it.
          */
-        fun allowed(token: String?, authorization: String?, peer: String, forwarded: Boolean, frontDoor: Set<String>): Boolean = when {
-            token == null -> true
-            authorization == "Bearer $token" -> true
+        fun allowed(auth: DashboardAuth, authorization: String?, peer: String, forwarded: Boolean, frontDoor: Set<String>): Boolean = when {
+            auth.matches(authorization?.removePrefix("Bearer ")?.takeIf { authorization.startsWith("Bearer ") }) -> true
             else -> !forwarded && peer in frontDoor
         }
     }

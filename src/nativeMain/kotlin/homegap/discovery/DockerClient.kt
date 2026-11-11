@@ -18,17 +18,24 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
 
-/** Read-only Docker Engine API client over the unix socket (the socket is mounted :ro). */
+/**
+ * Docker Engine API client that only reads (container list, events, image metadata). It talks to
+ * [host] when one is given (`tcp://name:port`, a filtering socket proxy), else to the unix socket.
+ * A socket mount gives the whole API whatever its mount mode, so the proxy is what limits it.
+ */
 class DockerClient(
     client: HttpClient,
     private val json: Json,
     socketPath: String = "/var/run/docker.sock",
+    host: String? = null,
 ) {
     private val logger = KotlinLogging.logger {}
     private val requestTimeout = 10.seconds
-    private val baseUrl = "http://localhost/v1.43"
+    private val tcp = host?.trim()?.takeIf { it.startsWith("tcp://") || it.startsWith("http://") }
+        ?.substringAfter("://")?.trimEnd('/')?.takeIf { it.isNotEmpty() }
+    private val baseUrl = "http://${tcp ?: "localhost"}/v1.43"
 
-    private val httpClient = client.config {
+    private val httpClient = if (tcp != null) client else client.config {
         defaultRequest { unixSocket(socketPath) }
     }
 

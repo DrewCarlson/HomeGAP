@@ -125,8 +125,9 @@ class AppPresenter(
         val attention = remember(snapshot) { snapshot?.attentionCounts().orEmpty() }
         return AppModel(
             route = props.route,
-            // People's details stay with admins: a read-only view has no Access page.
-            nav = Route.NAV.filter { !readOnly || it != Route.Access }.map { route ->
+            // People's details stay with admins: a read-only view has no Access, Activity or
+            // Diagnostics page (the log and the nodes' container logs name people).
+            nav = Route.NAV.filter { !readOnly || it !in VIEWER_HIDDEN }.map { route ->
                 NavItem(
                     route = route,
                     selected = route == props.route.navSection,
@@ -380,6 +381,16 @@ class AppPresenter(
                 )
             )
         }
+        Route.Activity if readOnly -> RestrictedScreenModel(
+            head = PageHeadModel(
+                caption = "Activity",
+                headline = "Only an admin can see this page.",
+            ),
+            empty = EmptyStateModel(
+                title = "Not part of the read-only view",
+                text = "The activity log names the people who were invited or removed, so a share link doesn't show it.",
+            ),
+        )
         Route.Activity -> activity.model(
             ActivityScreenProps(
                 now = now,
@@ -387,6 +398,16 @@ class AppPresenter(
             )
         )
         Route.Config -> config.model(ConfigScreenProps)
+        Route.Diagnostics if readOnly -> RestrictedScreenModel(
+            head = PageHeadModel(
+                caption = "Diagnostics",
+                headline = "Only an admin can see this page.",
+            ),
+            empty = EmptyStateModel(
+                title = "Not part of the read-only view",
+                text = "Container logs hold people's email addresses and client addresses, so a share link doesn't show them.",
+            ),
+        )
         Route.Diagnostics -> diagnostics.model(
             DiagnosticsScreenProps(
                 status = status,
@@ -606,7 +627,10 @@ internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
 }
 
 /** Pages a read-only view leaves out: people's details, and the wizard and links it can't use. */
-private val ADMIN_PAGES = setOf(Route.Access, Route.AddNode, Route.ShareLinks)
+private val ADMIN_PAGES = setOf(Route.Access, Route.Activity, Route.Diagnostics, Route.AddNode, Route.ShareLinks)
+
+/** Pages a read-only view has no menu entry for: the server refuses their data to a share link. */
+private val VIEWER_HIDDEN = setOf(Route.Access, Route.Activity, Route.Diagnostics)
 
 /** A page a read-only view may not see: its head and why. */
 @Immutable

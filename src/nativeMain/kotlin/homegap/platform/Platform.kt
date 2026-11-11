@@ -51,20 +51,65 @@ object Files {
         SystemFileSystem.delete(Path(path), mustExist = false)
     }
 
-    /** Writes via a temp file + rename so readers never observe a partial file. */
+    /**
+     * Writes via a temp file + rename so readers never observe a partial file. The temp file is
+     * created with [mode] (never wider, even for a moment) and synced to disk before the rename,
+     * so a power loss leaves the old content or the new, not an empty file.
+     */
     fun writeAtomic(path: String, content: String, mode: Int = "644".toInt(8)) {
         val parent = Path(path).parent
         if (parent != null) SystemFileSystem.createDirectories(parent)
+        val bytes = content.encodeToByteArray()
         val tmp = "$path.tmp-${Random.nextInt(0, Int.MAX_VALUE)}"
-        SystemFileSystem.sink(Path(tmp)).buffered().use { it.writeString(content) }
-        chmod(tmp, mode.convert())
+        writeSynced(tmp, bytes, mode, O_WRONLY or O_CREAT or O_EXCL)
         try {
             SystemFileSystem.atomicMove(Path(tmp), Path(path))
+            parent?.let { syncDirectory(it.toString()) }
         } catch (_: Exception) {
             // A single file bind-mounted into a container cannot be replaced by rename (EBUSY);
             // fall back to rewriting it in place.
             SystemFileSystem.delete(Path(tmp), mustExist = false)
-            SystemFileSystem.sink(Path(path)).buffered().use { it.writeString(content) }
+            writeSynced(path, bytes, mode, O_WRONLY or O_CREAT or O_TRUNC)
+        }
+    }
+
+    /** Opens [path] with [flags] and [mode], writes [bytes] and syncs them to disk. */
+    private fun writeSynced(path: String, bytes: ByteArray, mode: Int, flags: Int) {
+        val fd = open(path, flags, mode)
+        check(fd >= 0) { "cannot write $path (errno $errno)" }
+        try {
+            // The umask may have narrowed the mode, and an existing file keeps its own.
+            fchmod(fd, mode.convert())
+            var done = 0
+            bytes.usePinned { pinned ->
+                while (done < bytes.size) {
+                    val n = write(fd, pinned.addressOf(done), (bytes.size - done).convert())
+                    check(n > 0) { "cannot write $path (errno $errno)" }
+                    done += n.toInt()
+                }
+            }
+            fsync(fd)
+        } finally {
+            close(fd)
+        }
+    }
+
+    /** Syncs a directory, so a rename in it survives a power loss (best effort). */
+    private fun syncDirectory(path: String) {
+        val fd = open(path, O_RDONLY)
+        if (fd < 0) return
+        fsync(fd)
+        close(fd)
+    }
+
+    /** Copies each regular file of [from] that [to] does not have yet (mode 0600); no-op when they are the same place. */
+    fun copyMissing(from: String, to: String) {
+        if (from.trimEnd('/') == to.trimEnd('/') || !isDirectory(from)) return
+        for (name in list(from)) {
+            val source = "$from/$name"
+            val target = "$to/$name"
+            if (isDirectory(source) || exists(target) || ".tmp-" in name) continue
+            writeAtomic(target, readText(source), "600".toInt(8))
         }
     }
 

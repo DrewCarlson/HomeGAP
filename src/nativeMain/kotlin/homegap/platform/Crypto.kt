@@ -51,6 +51,15 @@ object Crypto {
     /** SHA-256 of [s] (UTF-8) as lowercase hex. */
     fun sha256Hex(s: String): String = s.encodeUtf8().sha256().hex()
 
+    /** Whether [a] and [b] are equal, in time that does not depend on where they differ. */
+    fun constantTimeEquals(a: String, b: String): Boolean {
+        val x = a.encodeToByteArray()
+        val y = b.encodeToByteArray()
+        var diff = x.size xor y.size
+        for (i in x.indices) diff = diff or (x[i].toInt() xor (if (y.isEmpty()) 0 else y[i % y.size].toInt()))
+        return diff == 0
+    }
+
     fun fnv64(s: String): String {
         var h = 0xcbf29ce484222325uL
         for (b in s.encodeToByteArray()) {

@@ -20,7 +20,14 @@ networks:
     external: true
 
 volumes:
+  # The orchestrator's own data: the state cache (every credential), the SSH keys it generates and
+  # the dashboard token. No other container mounts it.
   homegap-data:
+  # What the cluster containers read (the config the orchestrator writes for them), and what the
+  # tunnels container reads and writes (connector specs, status, logs). Each has its own volume,
+  # so those containers never see the orchestrator's data.
+  homegap-cluster-config:
+  homegap-tunnels:
   # The homelab's cluster member (only used when `cluster:` is configured).
   homegap-etcd:
   homegap-pgdata:
@@ -61,21 +68,45 @@ services:
     environment:
       BUNNY_API_KEY: ${BUNNY_API_KEY:?set BUNNY_API_KEY}
       PANGOLIN_LICENSE_KEY: ${PANGOLIN_LICENSE_KEY:-}
+      # The dashboard's bearer token (dashboard.auth_token_env). Without one, HomeGAP generates a
+      # token and keeps it in /data/dashboard-token.
+      HOMEGAP_DASHBOARD_TOKEN: ${HOMEGAP_DASHBOARD_TOKEN:-}
+      HOMEGAP_CLUSTER_CONFIG_DIR: /cluster-config
+      HOMEGAP_TUNNELS_DIR: /tunnels
       # HOMEGAP_DRY_RUN: "true"     # discovery + logged desired state, no writes
+      # DOCKER_HOST: tcp://docker-proxy:2375   # with the docker-proxy service below
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro   # read-only: labels are only read
+      # HomeGAP only lists containers and follows events, but a socket mount gives the whole
+      # Docker API whatever its mount mode (`:ro` does not limit it): whoever controls this
+      # container controls the Docker host. The docker-proxy service below limits it for real.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config/config.yml:/config/config.yml          # writable only if dashboard config edits are enabled
       - ./secrets/ssh:/secrets/ssh:ro                   # one private key per node
-      - homegap-data:/data                              # state cache, known_hosts, tunnel specs
+      - homegap-data:/data                              # state cache, known_hosts, generated keys
+      - homegap-cluster-config:/cluster-config          # written here, read by the cluster containers
+      - homegap-tunnels:/tunnels                        # connector specs, shared with the tunnels container
       # Optional: the homelab Traefik ACME store, so nodes get the same wildcard certificate.
       # - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
     # The dashboard must only be reachable privately (an SSH tunnel, or a *private* Pangolin
     # resource with alias e.g. homegap.<domain> -> orchestrator:8088), never publicly.
 
+  # Optional: a filtering proxy in front of the Docker socket, so the orchestrator can only read
+  # the container list, events and image metadata. To use it: enable this service, add the
+  # homegap-docker network (internal: true) to it and to homegap-mesh, set DOCKER_HOST on the
+  # orchestrator and remove its docker.sock mount. Adding a network recreates homegap-mesh once,
+  # which restarts the mesh and everything in its namespace: do it during a quiet period.
+  # docker-proxy:
+  #   image: tecnativa/docker-socket-proxy    # pin a released version
+  #   restart: unless-stopped
+  #   environment: { CONTAINERS: 1, IMAGES: 1, EVENTS: 1, POST: 0 }
+  #   volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
+  #   networks: [homegap-docker]
+
   # ---------------------------------------------------------------------------------------
   # The homelab's cluster member (only used when `cluster:` is configured; until then they wait).
-  # They share the mesh namespace and read the config the orchestrator writes under
-  # /data/cluster/config. The homelab holds the database primary by default; while it is down a
+  # They share the mesh namespace and read the config the orchestrator writes into the
+  # homegap-cluster-config volume. They mount nothing else of the orchestrator's: every node is a
+  # member of this database cluster, so treat these containers as reachable from the nodes. The homelab holds the database primary by default; while it is down a
   # node takes over, and the orchestrator switches it back once the homelab is caught up.
   homegap-etcd:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
@@ -83,8 +114,9 @@ services:
     restart: unless-stopped
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
-    environment: { HG_CONFIG: /data/cluster/config }
-    volumes: [homegap-data:/data:ro, homegap-etcd:/var/lib/etcd]
+    security_opt: ["no-new-privileges:true"]
+    environment: { HG_CONFIG: /cluster-config }
+    volumes: [homegap-cluster-config:/cluster-config:ro, homegap-etcd:/var/lib/etcd]
 
   homegap-db:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
@@ -94,11 +126,12 @@ services:
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     shm_size: 256m
     stop_grace_period: 60s
+    security_opt: ["no-new-privileges:true"]
     environment:
-      HG_CONFIG: /data/cluster/config
+      HG_CONFIG: /cluster-config
       HG_BACKUP_DIR: /backups          # nightly pg_dump, newest seven kept
     volumes:
-      - homegap-data:/data:ro
+      - homegap-cluster-config:/cluster-config:ro
       - homegap-pgdata:/var/lib/postgresql/data
       - ./backups:/backups
 
@@ -108,8 +141,9 @@ services:
     restart: unless-stopped
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
-    environment: { HG_CONFIG: /data/cluster/config, HG_VALKEY_DIR: /var/lib/valkey }
-    volumes: [homegap-data:/data:ro, homegap-valkey:/var/lib/valkey]
+    security_opt: ["no-new-privileges:true"]
+    environment: { HG_CONFIG: /cluster-config, HG_VALKEY_DIR: /var/lib/valkey }
+    volumes: [homegap-cluster-config:/cluster-config:ro, homegap-valkey:/var/lib/valkey]
 
   homegap-sentinel:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
@@ -117,14 +151,15 @@ services:
     restart: unless-stopped
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
-    environment: { HG_CONFIG: /data/cluster/config }
-    volumes: [homegap-data:/data:ro, homegap-sentinel:/var/lib/sentinel]
+    security_opt: ["no-new-privileges:true"]
+    environment: { HG_CONFIG: /cluster-config }
+    volumes: [homegap-cluster-config:/cluster-config:ro, homegap-sentinel:/var/lib/sentinel]
 
   # Keeps one Newt connector per regional node running. Independent of the orchestrator:
   # if the controller stops or restarts, tunnels stay up.
   tunnels:
     image: ghcr.io/drewcarlson/homegap:latest
-    command: ["tunnels", "--dir", "/data/tunnels"]
+    command: ["tunnels", "--dir", "/tunnels"]
     restart: unless-stopped
     # Kernel WireGuard (tunnels.native: true) needs these:
     # cap_add: [NET_ADMIN]
@@ -144,7 +179,7 @@ services:
       # will not start.
       # net.ipv4.tcp_congestion_control: bbr
     volumes:
-      - homegap-data:/data
+      - homegap-tunnels:/tunnels
     networks: [traefik]
     # For real client IPs and private-only services (homegap.proxy_protocol and
     # homegap.private_network on the front door), give it a fixed address to trust and a second

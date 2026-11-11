@@ -100,8 +100,9 @@ class MisdirectedTest {
     @Test
     fun onlyTheHomelabTraefiksOwnPollSkipsTheToken() {
         val frontDoor = setOf("172.30.0.14", "172.29.0.3")
-        fun allowed(peer: String, forwarded: Boolean, authorization: String? = null, token: String? = "t0ken") =
-            TraefikRoutes.allowed(token, authorization, peer, forwarded, frontDoor)
+        val auth = homegap.dashboard.DashboardAuth("t0ken", null)
+        fun allowed(peer: String, forwarded: Boolean, authorization: String? = null) =
+            TraefikRoutes.allowed(auth, authorization, peer, forwarded, frontDoor)
         assertTrue(allowed("172.30.0.14", forwarded = false), "Traefik's own poll")
         assertTrue(allowed("172.29.0.3", forwarded = false), "on any of its networks")
         // Everything Traefik forwards comes from its address too, with X-Forwarded-For: a visitor
@@ -110,7 +111,7 @@ class MisdirectedTest {
         assertFalse(allowed("172.30.0.99", forwarded = false), "another container")
         assertTrue(allowed("172.30.0.99", forwarded = true, authorization = "Bearer t0ken"), "the token always works")
         assertFalse(allowed("172.30.0.99", forwarded = false, authorization = "Bearer wrong"))
-        assertTrue(allowed("172.30.0.99", forwarded = true, token = null), "no token set: open, like the rest of /api")
-        assertFalse(TraefikRoutes.allowed("t0ken", null, "172.30.0.14", false, emptySet()), "front door not discovered yet")
+        assertFalse(allowed("172.30.0.99", forwarded = false, authorization = "t0ken"), "not a bearer header")
+        assertFalse(TraefikRoutes.allowed(auth, null, "172.30.0.14", false, emptySet()), "front door not discovered yet")
     }
 }

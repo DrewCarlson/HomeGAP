@@ -6,7 +6,7 @@ import dev.zacsweers.metro.SingleIn
 import homegap.api.ActionResponse
 import homegap.api.ApiJson
 import homegap.api.ShareLinkDto
-import homegap.config.AppConfig
+import homegap.dashboard.DashboardAuth
 import homegap.dashboard.ShareLinks
 import io.ktor.http.ContentType
 import io.ktor.http.HttpMethod
@@ -31,46 +31,39 @@ import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 
 /**
- * Mounts every [RoutingController] contributed to the graph under `/api`, behind the optional
- * dashboard bearer token (Ktor's `Authentication` with a `bearer` provider). An
+ * Mounts every [RoutingController] contributed to the graph under `/api`, behind the dashboard
+ * bearer token (Ktor's `Authentication` with a `bearer` provider). There is always a token (see
+ * [DashboardAuth]): the API gives control of every node, so it is never served without one. An
  * [OpenRoutingController] is mounted outside it and does its own check.
  *
- * With a token set, a [ShareLinks] token also signs in, as a [Viewer]: it may only read (GET), and
- * never the routes of a controller marked [RoutingController.adminOnly].
+ * A [ShareLinks] token also signs in, as a [Viewer]: it may only read (GET), and never the routes
+ * of a controller marked [RoutingController.adminOnly].
  */
 @SingleIn(AppScope::class)
 @Inject
 class RoutingControllers(
     private val controllers: Set<RoutingController>,
-    private val config: AppConfig,
+    private val auth: DashboardAuth,
     private val open: Set<OpenRoutingController>,
     private val shareLinks: ShareLinks,
 ) {
     fun init(application: Application) {
-        // Resolved once at startup, as the server is (changing the token needs a restart).
-        val token = config.dashboard.authToken()?.resolve()
-        if (token != null) {
-            application.install(Authentication) {
-                bearer(AUTH) {
-                    authenticate { credential ->
-                        when {
-                            credential.token == token -> UserIdPrincipal("dashboard")
-                            else -> shareLinks.verify(credential.token)?.let(::Viewer)
-                        }
+        application.install(Authentication) {
+            bearer(AUTH) {
+                authenticate { credential ->
+                    when {
+                        auth.matches(credential.token) -> UserIdPrincipal("dashboard")
+                        else -> shareLinks.verify(credential.token)?.let(::Viewer)
                     }
                 }
             }
         }
         application.routing {
             // Their own checks (the homelab Traefik polls without the token).
-            open.forEach { it.init(this, token) }
+            open.forEach { it.init(this, auth) }
             route("/api") {
-                if (token != null) {
-                    authenticate(AUTH) {
-                        install(ReadOnlyViewers)
-                        mount()
-                    }
-                } else {
+                authenticate(AUTH) {
+                    install(ReadOnlyViewers)
                     mount()
                 }
             }
@@ -137,9 +130,9 @@ interface RoutingController {
 }
 
 /**
- * Routes mounted outside the dashboard token, each with its own check; [token] is the dashboard
- * token, or null when none is set. Contributed with `@ContributesIntoSet`.
+ * Routes mounted outside the dashboard token, each with its own check against [DashboardAuth].
+ * Contributed with `@ContributesIntoSet`.
  */
 interface OpenRoutingController {
-    fun init(parent: Route, token: String?)
+    fun init(parent: Route, auth: DashboardAuth)
 }

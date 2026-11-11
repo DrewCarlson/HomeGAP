@@ -9,12 +9,14 @@ The data directory is `data_dir` (default `/data`), on the `homegap-data` volume
 | Path | Content |
 | --- | --- |
 | `state.json` | The state cache, with mode 0600. |
+| `state.json.bak` | A copy of the state cache from the last start. HomeGAP uses it if `state.json` is damaged. |
+| `dashboard-token` | The dashboard token that HomeGAP creates if the config gives none, with mode 0600. |
 | `known_hosts` | The SSH host keys of the nodes. |
 | `ssh/` | The SSH keys that the add-node wizard generates, with mode 0600. |
 | `ssh-askpass.sh` | A helper that gives the setup password to `ssh`. |
-| `tunnels/` | The connector specs, which the `tunnels` container also reads. |
+| `tunnels/` | The connector specs, which the `tunnels` container also reads. With the shipped compose file, this is the `homegap-tunnels` volume at `/tunnels`. |
 | `cluster/secrets.json` | The cluster passwords. |
-| `cluster/config/` | The configs of the homelab member, which the cluster containers read. |
+| `cluster/config/` | The configs of the homelab member, which the cluster containers read. With the shipped compose file, this is the `homegap-cluster-config` volume at `/cluster-config`. |
 | `cluster/maintenance` | The maintenance hold, in cluster mode. |
 | `mesh/` | The mesh state of the homelab. |
 | `locations.yml` | Your edits to the location catalog. |

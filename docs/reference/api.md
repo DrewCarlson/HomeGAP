@@ -4,7 +4,7 @@ The dashboard uses an HTTP API on the orchestrator. You can use the same API fro
 
 ## Basics
 
-The base URL is `http://<dashboard.bind>`. If you set `dashboard.auth_token_env` or `dashboard.auth_token_file`, every `/api/*` route needs the header `Authorization: Bearer <token>`.
+The base URL is `http://<dashboard.bind>`. Every `/api/*` route needs the header `Authorization: Bearer <token>`. The token comes from `dashboard.auth_token_env` or `dashboard.auth_token_file`. Without them, HomeGAP creates a token. See [Dashboard](../operations/dashboard.md#access).
 
 An action returns `{"ok": true, "message": "..."}`. An error returns `{"ok": false, "message": "..."}`, with one of these HTTP status codes:
 
@@ -29,7 +29,7 @@ These routes need no token:
 | `GET /docs/...` | These docs. |
 | `GET /...` | Any other path returns the dashboard app. |
 
-A [share link](../operations/dashboard.md#share-a-read-only-view) token also works as the bearer token, for `GET` routes only. The `/api/access` and `/api/share-links` routes refuse it.
+A [share link](../operations/dashboard.md#share-a-read-only-view) token also works as the bearer token, for `GET` routes only. These routes refuse it, because their data contains email addresses: `/api/access`, `/api/share-links`, `/api/log`, `/api/nodes/{id}/logs` and `/api/nodes/{id}/diagnostics`.
 
 ## Session and share links
 
@@ -45,8 +45,8 @@ A [share link](../operations/dashboard.md#share-a-read-only-view) token also wor
 | Route | What it does |
 | --- | --- |
 | `GET /api/status` | Returns the full status snapshot. |
-| `GET /api/events?after=SEQ` | Server-sent events. The `status` event sends the snapshot when it changes. The `log` event sends the new log entries after `SEQ`. |
-| `GET /api/log?domain=&limit=` | Returns the recent reconcile log. The default of `limit` is 300. |
+| `GET /api/events?after=SEQ` | Server-sent events. The `status` event sends the snapshot when it changes. The `log` event sends the new log entries after `SEQ`, to an admin only. |
+| `GET /api/log?domain=&limit=` | Returns the recent reconcile log. The default of `limit` is 300. Admin only. |
 
 ## Config
 
@@ -76,8 +76,8 @@ A [share link](../operations/dashboard.md#share-a-read-only-view) token also wor
 | `POST /api/nodes/{id}/update/retry` | Applies a held update to the node again. |
 | `POST /api/nodes/{id}/update/skip` | Leaves the node on its current stack, and continues the rollout. |
 | `POST /api/nodes/{id}/decommission?confirm={id}` | Stops the stack of a removed node and forgets the node. `confirm` must repeat the node id. |
-| `GET /api/nodes/{id}/logs?service=&since=&tail=` | Returns the logs of a container. See [Diagnostics and troubleshooting](../operations/troubleshooting.md#log-services). The default of `since` is `30m`. The default of `tail` is 300 lines, and the maximum is 5000. |
-| `GET /api/nodes/{id}/diagnostics` | Returns the read-only diagnostics bundle of the node: `{node, title, text, at}`. |
+| `GET /api/nodes/{id}/logs?service=&since=&tail=` | Returns the logs of a container. See [Diagnostics and troubleshooting](../operations/troubleshooting.md#log-services). The default of `since` is `30m`. The default of `tail` is 300 lines, and the maximum is 5000. Admin only. |
+| `GET /api/nodes/{id}/diagnostics` | Returns the read-only diagnostics bundle of the node: `{node, title, text, at}`. Admin only. |
 
 ## Node setup (the add-node wizard)
 

@@ -132,16 +132,36 @@ class StateStore(private val path: String) {
     private val mutex = Mutex()
     private var state: ControllerState = load()
 
+    /**
+     * No file is a first start (or a deliberate reset): an empty cache. A file that is there but
+     * cannot be read or parsed is not: an empty cache would drop every pause, hold and tunnel
+     * slot and let the next pass act on that, so the last good copy is used instead, and without
+     * one the orchestrator does not start.
+     */
     private fun load(): ControllerState {
-        val text = Files.readTextOrNull(path) ?: return ControllerState()
-        return try {
-            json.decodeFromString(text)
-        } catch (e: Exception) {
-            logger.error(e) { "State file $path is unreadable; starting from an empty cache (reality will be re-read)" }
-            Files.writeAtomic("$path.corrupt", text, "600".toInt(8))
-            ControllerState()
+        if (!Files.exists(path)) return ControllerState()
+        val loaded = runCatching { Files.readText(path) }.mapCatching { it to json.decodeFromString<ControllerState>(it) }
+        loaded.getOrNull()?.let { (text, parsed) ->
+            // The copy to fall back on, as of this start.
+            runCatching { Files.writeAtomic(backupPath, text, "600".toInt(8)) }
+                .onFailure { logger.warn { "could not keep a copy of $path at $backupPath: ${it.message}" } }
+            return parsed
         }
+        val reason = loaded.exceptionOrNull()?.message ?: "unreadable"
+        runCatching { Files.readText(path) }.onSuccess { Files.writeAtomic("$path.corrupt", it, "600".toInt(8)) }
+        val backup = if (Files.exists(backupPath)) runCatching { json.decodeFromString<ControllerState>(Files.readText(backupPath)) }.getOrNull() else null
+        if (backup != null) {
+            logger.error { "State file $path is unreadable ($reason); using the last good copy $backupPath" }
+            return backup
+        }
+        throw IllegalStateException(
+            "The state file $path is there but cannot be read ($reason), and there is no good copy at $backupPath. " +
+                "HomeGAP does not start from an empty state by itself: that drops every pause and every node's " +
+                "tunnel slot. Restore the file, or delete it to start from an empty state on purpose.",
+        )
     }
+
+    private val backupPath get() = "$path.bak"
 
     fun snapshot(): ControllerState = state
 

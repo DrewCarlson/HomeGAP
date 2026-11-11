@@ -36,7 +36,8 @@ Usage:
   homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
   homegap version
 
-Environment: HOMEGAP_CONFIG (default /config/config.yml), HOMEGAP_DRY_RUN, DOCKER_SOCKET."""
+Environment: HOMEGAP_CONFIG (default /config/config.yml), HOMEGAP_DRY_RUN, DOCKER_SOCKET, DOCKER_HOST,
+HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR."""
 
 fun main(args: Array<String>) {
     KotlinLoggingConfiguration.logStartupMessage = false
@@ -114,6 +115,9 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
     if (!once) {
         graph.dashboard.start(config.dashboard.host, config.dashboard.port)
         logger.info { "dashboard listening on ${config.dashboard.bind}" }
+        graph.dashboardAuth.generatedFile?.let {
+            logger.warn { "no dashboard token is available from the config (dashboard.auth_token_env): the dashboard uses the generated token in $it" }
+        }
         if (config.publicOriginEnabled) {
             graph.speedTestServer.start(config.speedtest.host, config.speedtest.port)
             val what = listOfNotNull("speed test".takeIf { config.speedtest.enabled }, "status page".takeIf { config.statusPage.enabled })
@@ -130,7 +134,7 @@ private fun runTunnels(dir: String, newt: String) = runBlocking {
 /** Asks the running orchestrator (same container, its dashboard API) to begin or end maintenance. */
 private fun maintenance(configPath: String, action: String, minutes: Int) = runBlocking {
     val config = ConfigLoader.load(configPath)
-    val token = config.dashboard.authToken()?.resolve()
+    val token = homegap.dashboard.DashboardAuth.current(config)
     val host = config.dashboard.host.let { if (it == "0.0.0.0" || it.isEmpty()) "127.0.0.1" else it }
     io.ktor.client.HttpClient(io.ktor.client.engine.cio.CIO) {
         install(io.ktor.client.plugins.HttpTimeout) { requestTimeoutMillis = 5 * 60_000L }

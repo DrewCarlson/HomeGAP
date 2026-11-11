@@ -117,5 +117,7 @@ status_page:
 
 dashboard:
   bind: 0.0.0.0:8088
-  # auth_token_env: HOMEGAP_DASHBOARD_TOKEN
+  # Every /api route needs this bearer token. If the variable is empty, HomeGAP generates a token
+  # and keeps it in <data_dir>/dashboard-token.
+  auth_token_env: HOMEGAP_DASHBOARD_TOKEN
   allow_config_edits: true

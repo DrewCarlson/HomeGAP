@@ -1,5 +1,6 @@
 package homegap.reconcile
 
+import homegap.config.tunnelsDir
 import homegap.api.DiffItemDto
 import homegap.clients.PangolinClient
 import homegap.clients.SshPool
@@ -25,7 +26,7 @@ class ReconcileContext(
     /** This one pass applies changes even under a global pause ("apply just this change"). */
     val applyOnce: Boolean = false,
 ) {
-    val tunnelsDir: String get() = config.tunnels.stateDir ?: "${config.dataDir}/tunnels"
+    val tunnelsDir: String get() = config.tunnelsDir
 
     /** The pauses in force for this pass: a global pause is lifted for an [applyOnce] pass. */
     fun pauses(): homegap.state.Pauses = state.snapshot().pauses.let { if (applyOnce) it.copy(global = false) else it }

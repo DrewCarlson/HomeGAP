@@ -1,6 +1,7 @@
 package homegap
 
 import homegap.config.ConfigLoader
+import homegap.dashboard.DashboardAuth
 import homegap.dashboard.ShareLinks
 import homegap.platform.Files
 import homegap.routes.OpenRoutingController
@@ -30,10 +31,26 @@ class RoutingControllersTest {
 
     @Test
     fun mountsEveryControllerUnderApi() = testApplication {
-        application { RoutingControllers(controllers, ConfigLoader.parse(TEST_CONFIG), emptySet(), ShareLinks(tmpPath("links"))).init(this) }
-        assertEquals("one", client.get("/api/one").bodyAsText())
-        assertEquals("two", client.get("/api/two").bodyAsText())
+        application { RoutingControllers(controllers, DashboardAuth("s3cret", null), emptySet(), ShareLinks(tmpPath("links"))).init(this) }
+        assertEquals("one", client.get("/api/one") { bearerAuth("s3cret") }.bodyAsText())
+        assertEquals("two", client.get("/api/two") { bearerAuth("s3cret") }.bodyAsText())
         assertEquals(HttpStatusCode.NotFound, client.get("/one").status)
+    }
+
+    @Test
+    fun withoutAConfiguredTokenOneIsGeneratedAndKept() {
+        val dir = tmpPath("data")
+        val config = ConfigLoader.parse(TEST_CONFIG.replace("/tmp/homegap-test", dir))
+        val first = DashboardAuth.resolve(config)
+        assertEquals(DashboardAuth.tokenFile(config), first.generatedFile)
+        assertEquals(40, first.token.length)
+        // The next start, and the CLI, use the same token.
+        assertEquals(first.token, DashboardAuth.resolve(config).token)
+        assertEquals(first.token, DashboardAuth.current(config))
+        // A token named in the config but not available does not open the API either.
+        val named = ConfigLoader.parse("${TEST_CONFIG.replace("/tmp/homegap-test", dir)}\ndashboard:\n  auth_token_file: $dir/missing\n")
+        assertEquals(first.token, DashboardAuth.resolve(named).token)
+        Files.delete(DashboardAuth.tokenFile(config))
     }
 
     @Test
@@ -43,11 +60,11 @@ class RoutingControllersTest {
         val config = ConfigLoader.parse("$TEST_CONFIG\ndashboard:\n  auth_token_file: $tokenFile\n")
         // A route with its own check stays reachable without the token; the others do not.
         val open = object : OpenRoutingController {
-            override fun init(parent: Route, token: String?) {
-                parent.get("/api/open") { call.respondText(if (token == "s3cret") "own check" else "no token") }
+            override fun init(parent: Route, auth: DashboardAuth) {
+                parent.get("/api/open") { call.respondText(if (auth.matches("s3cret")) "own check" else "no token") }
             }
         }
-        application { RoutingControllers(controllers, config, setOf(open), ShareLinks(tmpPath("links"))).init(this) }
+        application { RoutingControllers(controllers, DashboardAuth.resolve(config), setOf(open), ShareLinks(tmpPath("links"))).init(this) }
         assertEquals("own check", client.get("/api/open").bodyAsText())
 
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/one").status)
@@ -85,7 +102,7 @@ class RoutingControllersTest {
                 }
             },
         )
-        application { RoutingControllers(routes, config, emptySet(), links).init(this) }
+        application { RoutingControllers(routes, DashboardAuth.resolve(config), emptySet(), links).init(this) }
 
         assertEquals("one", client.get("/api/one") { bearerAuth(viewer) }.bodyAsText())
         assertEquals(HttpStatusCode.Forbidden, client.post("/api/one") { bearerAuth(viewer) }.status)
