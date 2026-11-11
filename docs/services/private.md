@@ -37,10 +37,10 @@ A private service is different from the private path of a public service. A priv
 !!! danger "Warning"
     If you publish the dashboard as a public service, everybody on the internet can reach the control of every node. Publish it only as a private resource.
 
-Put the labels on the `homegap-mesh` service, because it owns the networks of the orchestrator. It is on the `traefik` network. For example:
+Put the labels on the `orchestrator` service. It is on the `traefik` network. For example:
 
 ```yaml
-homegap-mesh:
+orchestrator:
   labels:
     homegap.expose: "homegap.example.net"
     homegap.access: "private"
@@ -49,7 +49,7 @@ homegap-mesh:
     homegap.host: "orchestrator"
 ```
 
-The destination of the private resource is `orchestrator`, the alias of `homegap-mesh` on the `traefik` network. The port is 8088.
+The destination of the private resource is `orchestrator`, the name of the service on the `traefik` network. The port is 8088.
 
 The dashboard must listen on an address that the `tunnels` container can reach. The example config uses `dashboard.bind: 0.0.0.0:8088`. The default `127.0.0.1:8088` is not reachable from other containers.
 

@@ -30,6 +30,7 @@ private const val USAGE = """homegap $VERSION — Home Global Access Platform or
 Usage:
   homegap [run] [--config PATH] [--dry-run] [--once]   Run the controller (default)
   homegap tunnels [--dir PATH] [--newt PATH]           Run the Newt tunnel supervisor
+  homegap mesh [--dir PATH]                            Run the homelab's mesh agent (cluster mode)
   homegap validate [--config PATH]                     Validate the config file
   homegap plan [--config PATH] [--labels FILE]         Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
@@ -37,7 +38,7 @@ Usage:
   homegap version
 
 Environment: HOMEGAP_CONFIG (default /config/config.yml), HOMEGAP_DRY_RUN, DOCKER_SOCKET, DOCKER_HOST,
-HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR."""
+HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR, HOMEGAP_MESH_DIR, HOMEGAP_MESH_HOST."""
 
 fun main(args: Array<String>) {
     KotlinLoggingConfiguration.logStartupMessage = false
@@ -86,6 +87,7 @@ fun main(args: Array<String>) {
                 println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
             }
             "maintenance" -> maintenance(configPath, rest.firstOrNull { it == "start" || it == "end" } ?: error("maintenance start|end"), opt("--minutes")?.toIntOrNull() ?: 30)
+            "mesh" -> runBlocking { homegap.mesh.MeshAgent(opt("--dir") ?: env("HOMEGAP_MESH_DIR") ?: "/data/mesh").run() }
             "tunnels" -> runTunnels(opt("--dir") ?: env("HOMEGAP_TUNNELS_DIR") ?: "/data/tunnels", opt("--newt") ?: env("HOMEGAP_NEWT") ?: "/usr/local/bin/newt")
             "run" -> runController(configPath, flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in setOf("1", "true", "yes"), flag("--once"))
             else -> {

@@ -16,13 +16,27 @@ The homelab can be behind NAT. It dials every node and keeps the paths open, so 
 
 The firewall of each node opens `cluster.mesh.port`/udp to anywhere. WireGuard authenticates every packet, and the address of the homelab can change.
 
-On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database. Thus the nodes reach only the cluster services of the homelab, and the dashboard stays private.
+On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database. Thus the nodes reach only the cluster services of the homelab.
 
 ## The interfaces
 
 On each node, `wg-quick` manages the interface, and it starts at boot. Changes to the peers apply in place. They do not drop the sessions.
 
-On the homelab, the interface is in the network namespace of the `homegap-mesh` container. The orchestrator joins this namespace with `NET_ADMIN`. Thus the interface stays up when the orchestrator restarts. `deploy/upgrade.sh` never recreates `homegap-mesh`.
+On the homelab, the interface is in the network namespace of the `homegap-mesh` container. The cluster containers of the homelab share this namespace. The orchestrator is not in it. `deploy/upgrade.sh` never recreates `homegap-mesh`, so the interface stays up during an upgrade.
+
+The `homegap-mesh-agent` container manages the interface. The orchestrator writes the description of the mesh to the `homegap-mesh` volume. The agent applies it and writes back its public key and the state of each peer. The private key of the homelab stays in that volume.
+
+## The isolation of the homelab member
+
+Each node is a member of the cluster database, so HomeGAP treats the namespace of `homegap-mesh` as reachable from the nodes. The agent keeps a firewall there that refuses everything except these connections:
+
+- Into the namespace: replies, ping and the ports of the cluster database.
+- Out of the namespace: the mesh, replies and WireGuard to the nodes.
+- Through the namespace: the orchestrator to the members on the mesh, and the replies.
+
+Thus a container in that namespace cannot open a connection to the orchestrator, to your other containers or to your home network. The agent installs the firewall before it starts the interface. If the firewall fails, the mesh stays down.
+
+The orchestrator reaches the members through this namespace. It adds a route for `cluster.mesh.subnet` through `homegap-mesh` on the `homegap-cluster` network. For that route it needs `NET_ADMIN`.
 
 ## Probes
 

@@ -31,6 +31,18 @@ Runs the tunnel supervisor. It keeps one Newt connector for each node.
 | `--dir PATH` | `/data/tunnels` | `HOMEGAP_TUNNELS_DIR` |
 | `--newt PATH` | `/usr/local/bin/newt` | `HOMEGAP_NEWT` |
 
+## mesh
+
+```text
+homegap mesh [--dir PATH]
+```
+
+Runs the mesh agent of the homelab. It keeps the mesh interface and the firewall of the namespace that it runs in. See [Cluster mesh](../cluster/mesh.md#the-interfaces).
+
+| Option | Default | Environment variable |
+| --- | --- | --- |
+| `--dir PATH` | `/data/mesh` | `HOMEGAP_MESH_DIR` |
+
 ## validate
 
 ```text

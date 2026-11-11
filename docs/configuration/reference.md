@@ -197,6 +197,8 @@ Every `/api` route needs the bearer token. If neither key gives a token, HomeGAP
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | The path of the Docker socket. |
 | `DOCKER_HOST` | None. | The address of the Docker socket proxy, as `tcp://host:port`. With it, the orchestrator does not use the socket. The shipped compose file sets it. |
 | `HOMEGAP_TUNNELS_DIR` | `<data_dir>/tunnels` | The directory of the connector specs, for the orchestrator and the tunnel supervisor. |
+| `HOMEGAP_MESH_DIR` | `<data_dir>/mesh` | The directory that the orchestrator and the mesh agent share. |
+| `HOMEGAP_MESH_HOST` | `homegap-mesh` | The name of the mesh namespace on the network that it shares with the orchestrator. |
 | `HOMEGAP_CLUSTER_CONFIG_DIR` | `<data_dir>/cluster/config` | The directory where the orchestrator writes the config of the cluster containers of the homelab. |
 | `HOMEGAP_NEWT` | `/usr/local/bin/newt` | The path of the Newt binary, for the tunnel supervisor. |
 | `HOMEGAP_DEBUG` | None. | If set, prints stack traces on fatal errors. |

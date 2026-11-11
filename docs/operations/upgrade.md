@@ -25,7 +25,7 @@ The script gives its arguments to every `docker compose` call. If your compose f
 ## What the script does
 
 1. It pulls the new images.
-2. It recreates the orchestrator. Traffic never goes through the orchestrator, so this does not stop access. The script waits up to 120 seconds for the orchestrator to start.
+2. It recreates the orchestrator. Traffic never goes through the orchestrator, so this does not stop access. The script waits up to 120 seconds for the orchestrator to start. Then it recreates the mesh agent.
 3. It moves the database primary and the Valkey primary to a node, and holds them there (`homegap maintenance start --minutes 30`).
 4. It recreates the cluster containers of the homelab one at a time. It waits up to 5 minutes for each container to serve again.
 5. It recreates the tunnel connectors, but only if their code or Newt is different.
@@ -37,7 +37,7 @@ If a cluster container does not serve after 5 minutes, the script stops. The pri
 
 ## The mesh container
 
-The script never recreates `homegap-mesh`. Everything in its network namespace restarts with it.
+The script never recreates `homegap-mesh`. The mesh and every container in its network namespace restart with it. The script does recreate `homegap-mesh-agent`. The mesh interface stays up without the agent.
 
 ## The tunnels container
 
@@ -70,18 +70,3 @@ If the compose file has no cluster services, the script skips the cluster steps.
 After the upgrade, the cluster members on the nodes follow the cluster image of the homelab, pinned to its registry digest. HomeGAP updates one node in each pass, and only while every member serves and no maintenance runs. See [Cluster database](../cluster/database.md#updates-of-the-node-members).
 
 The script does not update the node stacks (the Pangolin images). They follow the config. See [Node updates and rollback](node-updates.md).
-
-## Move to the separate volumes
-
-Earlier compose files mount the `homegap-data` volume in the cluster containers and in the `tunnels` container. The current compose file gives them their own volumes, `homegap-cluster-config` and `homegap-tunnels`. Thus they cannot read the state cache, the SSH keys or the dashboard token.
-
-The current compose file also adds the `docker-proxy` service and a network on `homegap-mesh`. A change to `homegap-mesh` recreates its network namespace, so use `docker compose up -d` for this step, not `upgrade.sh`.
-
-!!! warning "Caution"
-    This step restarts the mesh and each container in its namespace. In cluster mode, the database primary moves to a node during the restart.
-
-1. Replace your compose file with the current `deploy/homelab-compose.yml`. Keep your own changes.
-2. Run `docker compose up -d`.
-
-When the new orchestrator starts, it copies the cluster config and the connector specs to the new volumes.
-

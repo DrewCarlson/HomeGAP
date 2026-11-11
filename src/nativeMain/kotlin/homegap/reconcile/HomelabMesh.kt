@@ -4,109 +4,105 @@ import homegap.config.MeshConfig
 import homegap.platform.Files
 import homegap.platform.ProcessResult
 import homegap.platform.Subprocess
+import homegap.platform.env
+import homegap.platform.nowMillis
+import homegap.provision.ClusterTemplates
 import homegap.provision.Mesh
+import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * The homelab's end of the mesh: the `hg-mesh` interface in the orchestrator's network namespace
- * (shared with the long-lived `homegap-mesh` container, so it survives orchestrator restarts).
- * Needs Linux, kernel WireGuard and `NET_ADMIN`; [apply] explains which one is missing.
+ * The homelab's end of the mesh, as the orchestrator sees it. The `hg-mesh` interface and the
+ * homelab's cluster member live in their own network namespace (the `homegap-mesh` container),
+ * which the orchestrator is not part of: every node is a member of the cluster database, so what
+ * runs next to that database must reach nothing else at home.
  *
- * The private key is created once in [dir] (mode 0600) and never leaves it.
+ * The mesh agent (`homegap mesh`, in that namespace) owns the interface, its key and its firewall.
+ * The orchestrator tells it what the mesh is through [dir] ([Mesh.SPEC_FILE]) and reads back what
+ * it did ([Mesh.STATUS_FILE]). To reach the members itself (etcd, Patroni, Valkey), it routes the
+ * mesh subnet through that namespace over the network the two share.
  */
-class HomelabMesh(private val dir: String) {
-    private val keyFile = "$dir/${Mesh.INTERFACE}.key"
-    private val confFile = "$dir/${Mesh.INTERFACE}.conf"
+class HomelabMesh(
+    private val dir: String,
+    /** The mesh namespace's name on the network it shares with the orchestrator. */
+    private val gateway: String = env("HOMEGAP_MESH_HOST")?.takeIf { it.isNotBlank() } ?: "homegap-mesh",
+    private val now: () -> Long = ::nowMillis,
+) {
+    private val specFile = "$dir/${Mesh.SPEC_FILE}"
+    private val statusFile = "$dir/${Mesh.STATUS_FILE}"
+    private var routed: String? = null
 
-    /** The homelab's public key, creating the key pair on first use. */
-    suspend fun publicKey(): String {
-        Files.mkdirs(dir)
-        Files.chmodPath(dir, "700".toInt(8))
-        if (Files.readTextOrNull(keyFile).isNullOrBlank()) {
-            val key = wg("genkey").stdout.trim()
-            Files.writeAtomic(keyFile, key + "\n", "600".toInt(8))
-        }
-        return wg("pubkey", stdin = privateKey() + "\n").stdout.trim()
+    /** What the agent last reported, or null when it has not (or not for [MAX_AGE_MS]). */
+    fun status(): Mesh.AgentStatus? {
+        val text = Files.readTextOrNull(statusFile) ?: return null
+        val status = runCatching { json.decodeFromString<Mesh.AgentStatus>(text) }.getOrNull() ?: return null
+        return status.takeIf { now() - it.at < MAX_AGE_MS }
     }
 
-    /** Brings the interface to [address] with [peers]; peer changes apply in place. */
+    /** The homelab's public key, which the agent creates with its key pair. */
+    fun publicKey(): String {
+        val status = status() ?: throw IllegalStateException(
+            "the mesh agent has not reported (the homegap-mesh-agent container shares the homegap-mesh namespace and the mesh volume)",
+        )
+        return status.publicKey ?: throw IllegalStateException(status.error ?: "the mesh agent has no key yet")
+    }
+
+    /** Hands the agent the mesh ([address], [peers]) and routes the mesh subnet through its namespace. */
     suspend fun apply(mesh: MeshConfig, address: String, peers: List<Mesh.Peer>) {
-        val prefix = Mesh.parseSubnet(mesh.subnet).prefix
-        if (!run("ip", "link", "show", Mesh.INTERFACE).ok) {
-            val r = run("ip", "link", "add", Mesh.INTERFACE, "type", "wireguard")
-            if (!r.ok) throw IllegalStateException(explain(r))
+        val spec = Mesh.AgentSpec(
+            subnet = mesh.subnet,
+            port = mesh.port,
+            address = address,
+            peers = peers.sortedBy { it.id },
+            openPorts = ClusterTemplates.MESH_PORTS,
+        )
+        val text = json.encodeToString(spec)
+        if (Files.readTextOrNull(specFile) != text) {
+            Files.mkdirs(dir)
+            Files.writeAtomic(specFile, text, "600".toInt(8))
         }
-        Files.writeAtomic(confFile, Mesh.homelabConfig(mesh, privateKey(), peers), "600".toInt(8))
-        wg("syncconf", Mesh.INTERFACE, confFile)
-        val addresses = run("ip", "-4", "addr", "show", "dev", Mesh.INTERFACE).stdout
-        if ("inet $address/$prefix " !in addresses) {
-            run("ip", "-4", "addr", "flush", "dev", Mesh.INTERFACE)
-            check(run("ip", "addr", "add", "$address/$prefix", "dev", Mesh.INTERFACE).ok) { "could not set the mesh address $address" }
-        }
-        check(run("ip", "link", "set", Mesh.INTERFACE, "up").ok) { "could not bring ${Mesh.INTERFACE} up" }
-        guardInbound()
+        route(mesh.subnet)
+        status()?.error?.let { throw IllegalStateException(it) }
+    }
+
+    /** The interface's peers as the agent last saw them, or null before it applied the current mesh. */
+    fun peers(): List<Mesh.PeerStatus>? {
+        val status = status() ?: return null
+        val wanted = Files.readTextOrNull(specFile) ?: return null
+        return status.peers.takeIf { status.applied == Mesh.specHash(wanted) }
     }
 
     /**
-     * Nodes may not open connections to the homelab over the mesh (the dashboard and everything
-     * else listening here stay private): only replies to the homelab's own connections, and ping,
-     * come in. Services that must accept mesh connections are allowed explicitly ahead of the drop.
+     * Sends the mesh subnet through the mesh namespace. Its address there is looked up each time:
+     * it changes when that container is recreated.
      */
-    private suspend fun guardInbound() {
-        val wanted = INBOUND_RULES.map { listOf("-A", "INPUT", "-i", Mesh.INTERFACE) + it }
-        val current = run("iptables", "-S", "INPUT").stdout.lines().filter { " -i ${Mesh.INTERFACE} " in "$it " }
-        // iptables prints rules in its own normalized form; compare by re-adding in order when the
-        // set or order differs (the DROP must stay last).
-        if (current.size == wanted.size && current.zip(wanted).all { (have, want) -> normalize(have) == normalize(want.joinToString(" ")) }) return
-        for (line in current) run("iptables", *line.replaceFirst("-A ", "-D ").split(' ').filter { it.isNotEmpty() }.toTypedArray())
-        for (spec in wanted) {
-            val r = run("iptables", *spec.toTypedArray())
-            check(r.ok) { "could not set the mesh firewall (iptables ${spec.joinToString(" ")}): ${r.stderr.trim()}" }
+    private suspend fun route(subnet: String) {
+        val resolved = run("getent", "ahostsv4", gateway).stdout.lineSequence()
+            .map { it.substringBefore(' ').trim() }.firstOrNull { it.isNotEmpty() }
+            ?: throw IllegalStateException(
+                "the mesh namespace ($gateway) is not on a network the orchestrator shares (HOMEGAP_MESH_HOST)",
+            )
+        val wanted = "$subnet via $resolved"
+        if (routed == wanted && run("ip", "-4", "route", "show", subnet).stdout.contains("via $resolved ")) return
+        val r = run("ip", "-4", "route", "replace", subnet, "via", resolved)
+        if (!r.ok) {
+            val reason = if ("Operation not permitted" in r.stderr) "the orchestrator needs NET_ADMIN to route the mesh subnet (cap_add: [NET_ADMIN])"
+            else r.stderr.trim().ifEmpty { "exit ${r.exitCode}" }
+            throw IllegalStateException("could not route $subnet through $gateway: $reason")
         }
+        routed = wanted
     }
 
-    private fun normalize(rule: String) = rule.replace("RELATED,ESTABLISHED", "ESTABLISHED,RELATED").split(' ').filter { it.isNotEmpty() }.joinToString(" ")
-
-    /** Current peers, or null when the interface does not exist. */
-    suspend fun peers(): List<Mesh.PeerStatus>? {
-        val r = run("wg", "show", Mesh.INTERFACE, "dump")
-        return if (r.ok) Mesh.parseDump(r.stdout) else null
-    }
-
-    private companion object {
-        val INBOUND_RULES = listOf(
-            listOf("-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"),
-            listOf("-p", "icmp", "-j", "ACCEPT"),
-            // The homelab's cluster member (etcd, PostgreSQL, Patroni, Valkey, Sentinel).
-            listOf("-p", "tcp", "-m", "multiport", "--dports", homegap.provision.ClusterTemplates.MESH_PORTS.joinToString(","), "-j", "ACCEPT"),
-            listOf("-j", "DROP"),
-        )
-    }
-
-    private fun privateKey(): String = Files.readTextOrNull(keyFile)?.trim().orEmpty()
-
-    private suspend fun wg(vararg args: String, stdin: String = ""): ProcessResult {
-        val r = run("wg", *args, stdin = stdin)
-        if (!r.ok) throw IllegalStateException("wg ${args.first()}: ${r.stderr.trim().ifEmpty { "exit ${r.exitCode}" }}")
-        return r
-    }
-
-    private suspend fun run(vararg argv: String, stdin: String = ""): ProcessResult = try {
-        Subprocess.run(argv.toList(), stdin, 15.seconds)
+    private suspend fun run(vararg argv: String): ProcessResult = try {
+        Subprocess.run(argv.toList(), "", 15.seconds)
     } catch (e: IllegalStateException) {
-        // Subprocess reports a missing binary this way (wireguard-tools or iproute2 not installed).
+        // Subprocess reports a missing binary this way.
         ProcessResult(127, "", e.message ?: "not found")
     }
 
-    private fun explain(r: ProcessResult): String {
-        val err = r.stderr
-        return when {
-            "Operation not permitted" in err ->
-                "the orchestrator needs NET_ADMIN to create the mesh interface (cap_add: [NET_ADMIN])"
-            "Unknown device type" in err || "not supported" in err ->
-                "this host's kernel has no WireGuard support"
-            r.exitCode == 127 -> "the mesh needs Linux with iproute2 and wireguard-tools ($err)"
-            else -> err.trim().ifEmpty { "ip link add failed (exit ${r.exitCode})" }
-        }
+    private companion object {
+        /** The agent reports every few seconds; older than this, it is not running. */
+        const val MAX_AGE_MS = 45_000L
+        val json = Json { ignoreUnknownKeys = true }
     }
 }

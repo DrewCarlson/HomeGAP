@@ -31,8 +31,9 @@ Read the pages in this order. Each part builds on the part before it.
 
 - Two or more nodes. The vote needs a majority. With the homelab and only one node, the loss of either one stops all writes.
 - WireGuard in the kernel of the homelab host. It is part of Linux 5.6 and later.
-- `cap_add: [NET_ADMIN]` on the orchestrator.
-- The cluster containers of the homelab from `deploy/homelab-compose.yml`: `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. They share the network namespace of `homegap-mesh`.
+- The `homegap-mesh` and `homegap-mesh-agent` services from `deploy/homelab-compose.yml`. The agent needs `cap_add: [NET_ADMIN, NET_RAW]`.
+- `cap_add: [NET_ADMIN]` on the orchestrator, for its route to the mesh.
+- The cluster containers of the homelab from the same file: `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. They share the network namespace of `homegap-mesh`.
 
 ## Enable cluster mode
 

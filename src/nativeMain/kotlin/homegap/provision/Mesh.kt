@@ -1,5 +1,6 @@
 package homegap.provision
 
+import kotlinx.serialization.Serializable
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.MeshConfig
 
@@ -59,6 +60,7 @@ object Mesh {
     fun nodeAddress(mesh: MeshConfig, slot: Int): String = parseSubnet(mesh.subnet).host(NODE_HOST_BASE + slot)
 
     /** Another member as seen from one member: [endpoint] is null for the homelab (it dials out). */
+    @Serializable
     data class Peer(val id: String, val publicKey: String, val address: String, val endpoint: String?)
 
     /**
@@ -175,7 +177,81 @@ object Mesh {
             "ufw allow @PORT@/udp comment homegap >/dev/null; ufw allow in on $INTERFACE comment homegap >/dev/null; " +
             "ufw allow in on ${ClusterTemplates.BRIDGE} comment homegap >/dev/null; fi"
 
+    /** What the orchestrator writes for the homelab's mesh agent: the interface it keeps. */
+    const val SPEC_FILE = "mesh.json"
+
+    /** What the mesh agent writes back: its key, what it applied and the peers it sees. */
+    const val STATUS_FILE = "status.json"
+
+    /** The homelab's mesh as the agent applies it. [openPorts] are the member's ports others may reach. */
+    @Serializable
+    data class AgentSpec(
+        val subnet: String,
+        val port: Int,
+        val address: String,
+        val peers: List<Peer>,
+        val openPorts: List<Int>,
+    )
+
+    @Serializable
+    data class AgentStatus(
+        val publicKey: String? = null,
+        /** [specHash] of the spec that is in effect; null before the first one. */
+        val applied: String? = null,
+        val peers: List<PeerStatus>? = null,
+        val error: String? = null,
+        val at: Long = 0,
+    )
+
+    fun specHash(specText: String): String = homegap.platform.Crypto.fnv64(specText)
+
+    /** The built-in chains that pass through HomeGAP's own: table, chain, target. */
+    val FIREWALL_JUMPS = listOf(
+        Triple("filter", "INPUT", "HG-IN"),
+        Triple("filter", "OUTPUT", "HG-OUT"),
+        Triple("filter", "FORWARD", "HG-FWD"),
+        Triple("nat", "POSTROUTING", "HG-NAT"),
+    )
+
+    /**
+     * The firewall of the homelab's mesh namespace, as `iptables-restore --noflush` input (naming a
+     * chain there empties it, so the whole set is replaced in one step). Everything is refused
+     * except:
+     * - in: answers, ping, and the member's [AgentSpec.openPorts] (from the nodes over the mesh,
+     *   and from the orchestrator over the network the two share);
+     * - out: the mesh, answers, and WireGuard itself to the nodes. Nothing in the namespace can
+     *   open a connection to the orchestrator, another container or the home network;
+     * - through: the orchestrator reaching the members over the mesh (leaving as the homelab's
+     *   mesh address), and the answers. A node is never passed on to anything.
+     */
+    fun firewallRules(spec: AgentSpec): String = buildString {
+        val ports = spec.openPorts.joinToString(",")
+        appendLine("*filter")
+        appendLine(":HG-IN - [0:0]")
+        appendLine(":HG-OUT - [0:0]")
+        appendLine(":HG-FWD - [0:0]")
+        appendLine("-A HG-IN -i lo -j ACCEPT")
+        appendLine("-A HG-IN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        appendLine("-A HG-IN -p icmp -j ACCEPT")
+        if (ports.isNotEmpty()) appendLine("-A HG-IN -p tcp -m multiport --dports $ports -j ACCEPT")
+        appendLine("-A HG-IN -j DROP")
+        appendLine("-A HG-OUT -o lo -j ACCEPT")
+        appendLine("-A HG-OUT -o $INTERFACE -j ACCEPT")
+        appendLine("-A HG-OUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        appendLine("-A HG-OUT -p udp --dport ${spec.port} -j ACCEPT")
+        appendLine("-A HG-OUT -j DROP")
+        appendLine("-A HG-FWD ! -i $INTERFACE -o $INTERFACE -j ACCEPT")
+        appendLine("-A HG-FWD -i $INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        appendLine("-A HG-FWD -j DROP")
+        appendLine("COMMIT")
+        appendLine("*nat")
+        appendLine(":HG-NAT - [0:0]")
+        appendLine("-A HG-NAT -o $INTERFACE -j MASQUERADE")
+        appendLine("COMMIT")
+    }
+
     /** One peer line of `wg show <iface> dump`. [latestHandshake] is epoch seconds (0 = never). */
+    @Serializable
     data class PeerStatus(val publicKey: String, val endpoint: String?, val latestHandshake: Long, val rxBytes: Long, val txBytes: Long)
 
     /** Peers from `wg show <iface> dump` (the first line describes the interface itself). */

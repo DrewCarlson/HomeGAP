@@ -2,7 +2,7 @@
 # Generates throwaway SSH keys and a test CA + wildcard certificate for the e2e harness.
 set -euo pipefail
 cd "$(dirname "$0")"
-mkdir -p work/keys work/certs work/data work/homelab-certs
+mkdir -p work/keys work/certs work/data work/cluster-config work/tunnels work/homelab-certs
 [ -f work/keys/id_ed25519 ] || ssh-keygen -q -t ed25519 -N '' -f work/keys/id_ed25519 -C homegap-e2e
 cp work/keys/id_ed25519.pub work/keys/authorized_keys
 D=test.example.net

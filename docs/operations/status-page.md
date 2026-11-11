@@ -40,7 +40,7 @@ The status page needs a front door. The first activation needs a restart of the 
 
 ### Routing
 
-The status page uses the listener of the speed test, `speedtest.bind`. Thus route `status-<node>.<domain>` to port 8089 too. With both features on, one rule covers both. Put the labels on the `homegap-mesh` service:
+The status page uses the listener of the speed test, `speedtest.bind`. Thus route `status-<node>.<domain>` to port 8089 too. With both features on, one rule covers both. Put the labels on the `orchestrator` service:
 
 ```yaml
 labels:

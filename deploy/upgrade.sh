@@ -7,7 +7,8 @@
 #
 # Arguments are passed to every `docker compose` call. In order, it:
 #   1. pulls the new images;
-#   2. recreates the orchestrator (the control plane only: traffic never goes through it);
+#   2. recreates the orchestrator (the control plane only: traffic never goes through it) and
+#      the mesh agent (the mesh interface stays up without it);
 #   3. moves the database and Valkey primaries to a node and holds them there
 #      (`homegap maintenance start`);
 #   4. recreates the homelab's cluster containers one at a time, waiting for each to serve again;
@@ -15,16 +16,16 @@
 #   6. ends the hold (`homegap maintenance end`); the primaries return to the homelab once it has
 #      been caught up for the cluster's switch-back delay.
 #
-# The mesh container (homegap-mesh) is never recreated: everything in its network namespace
-# would restart with it.
+# The mesh container (homegap-mesh) is never recreated: the mesh and everything in its network
+# namespace would restart with it.
 #
 # The tunnels container restarts every Newt connector at once, so every node loses the homelab
 # for a few seconds. It is only recreated when the image's tunnels version differs from the one
 # it runs (the tunnel supervisor's code, its platform layer, dependency versions and Newt), or
 # with --tunnels. --no-pull uses the images already on the host. Until then it keeps running the previous image, so Docker keeps that image too.
 #
-# Service names can be overridden for merged compose projects: HG_ORCHESTRATOR, HG_TUNNELS and
-# HG_CLUSTER (space-separated service:role pairs, in restart order).
+# Service names can be overridden for merged compose projects: HG_ORCHESTRATOR, HG_MESH_AGENT,
+# HG_TUNNELS and HG_CLUSTER (space-separated service:role pairs, in restart order).
 set -euo pipefail
 
 FORCE_TUNNELS=no
@@ -40,6 +41,7 @@ for a in "$@"; do
 done
 
 ORCHESTRATOR=${HG_ORCHESTRATOR:-orchestrator}
+MESH_AGENT=${HG_MESH_AGENT:-homegap-mesh-agent}
 TUNNELS=${HG_TUNNELS:-tunnels}
 CLUSTER=${HG_CLUSTER:-homegap-etcd:etcd homegap-sentinel:sentinel homegap-valkey:valkey homegap-db:patroni}
 TUNNELS_VERSION_FILE=/usr/share/homegap/tunnels-version
@@ -71,6 +73,7 @@ for pair in $CLUSTER; do has "${pair%%:*}" && cluster_services+=("$pair"); done
 if [ "$PULL" = yes ]; then
   say "Pulling images"
   pull=("$ORCHESTRATOR")
+  has "$MESH_AGENT" && pull+=("$MESH_AGENT")
   has "$TUNNELS" && pull+=("$TUNNELS")
   for pair in ${cluster_services[@]+"${cluster_services[@]}"}; do pull+=("${pair%%:*}"); done
   dc pull "${pull[@]}"
@@ -79,6 +82,10 @@ fi
 say "Updating the orchestrator"
 dc up -d --no-deps "$ORCHESTRATOR"
 wait_until 120 dx "$ORCHESTRATOR" homegap version || die "the orchestrator did not start; see: docker compose logs $ORCHESTRATOR"
+if has "$MESH_AGENT"; then
+  say "Updating the mesh agent"
+  dc up -d --no-deps "$MESH_AGENT"
+fi
 
 held=no
 if [ ${#cluster_services[@]} -gt 0 ]; then

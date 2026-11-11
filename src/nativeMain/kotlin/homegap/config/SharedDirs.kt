@@ -12,6 +12,10 @@ import homegap.platform.env
 val AppConfig.clusterConfigDir: String
     get() = env("HOMEGAP_CLUSTER_CONFIG_DIR")?.takeIf { it.isNotBlank() } ?: "$dataDir/cluster/config"
 
+/** What the orchestrator and the homelab's mesh agent (`homegap mesh`) tell each other. */
+val AppConfig.meshDir: String
+    get() = env("HOMEGAP_MESH_DIR")?.takeIf { it.isNotBlank() } ?: "$dataDir/mesh"
+
 /** Connector specs and their status files, shared with the `tunnels` container. */
 val AppConfig.tunnelsDir: String
     get() = tunnels.stateDir ?: env("HOMEGAP_TUNNELS_DIR")?.takeIf { it.isNotBlank() } ?: "$dataDir/tunnels"

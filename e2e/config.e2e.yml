@@ -17,7 +17,6 @@ certificates:
   cert_file: /certs/wild.pem
   key_file: /certs/wild.key
 tunnels:
-  state_dir: /data/tunnels
   mtu: 1420
   native: true
 speedtest:

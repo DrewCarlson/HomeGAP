@@ -101,7 +101,7 @@ class ClusterReconciler(
 
         writeHomelab(ctx, cluster, homelab, members, secrets)
 
-        val etcd = EtcdClient(http, "http://127.0.0.1:${ClusterTemplates.ETCD_CLIENT_PORT}")
+        val etcd = EtcdClient(http, "http://${homelab.meshIp}:${ClusterTemplates.ETCD_CLIENT_PORT}")
         val patroni = PatroniClient(http, ClusterTemplates.REST_USER, secrets.rest)
         val etcdMembers = runCatching { etcd.members() }.getOrNull()
         report(ctx, "etcd", if (etcdMembers == null) "the homelab's etcd is not reachable yet" else null)
@@ -275,7 +275,7 @@ class ClusterReconciler(
         val master = sentinelMaster(valkey, members)
         if (master == offIp) {
             notePlannedMove()
-            check(valkey.sentinelFailover("127.0.0.1", ClusterTemplates.SCOPE)) { "Sentinel refused the Valkey failover" }
+            check(valkey.sentinelFailover(homelabIp(members), ClusterTemplates.SCOPE)) { "Sentinel refused the Valkey failover" }
             val moved = waitFor(60_000) { sentinelMaster(valkey, members).let { it != null && it != offIp } }
             check(moved) { "the Valkey primary did not move off $off within a minute" }
             notes += "Valkey primary moved to ${name(sentinelMaster(valkey, members))}"
@@ -689,7 +689,7 @@ class ClusterReconciler(
             val homelabLinked = valkey.replication(homelab.meshIp)?.get("master_link_status") == "up"
             if (master != null && master != homelab.meshIp && homelabLinked) {
                 notePlannedMove()
-                if (valkey.sentinelFailover("127.0.0.1", ClusterTemplates.SCOPE)) {
+                if (valkey.sentinelFailover(homelab.meshIp, ClusterTemplates.SCOPE)) {
                     ctx.log.change(domain, "switched the Valkey primary back to ${cluster.primary.preferred}")
                 }
             }
@@ -697,9 +697,12 @@ class ClusterReconciler(
         return decision.note
     }
 
+    /** The homelab member's address: its services are reached over the mesh, like every member's. */
+    private fun homelabIp(members: List<Member>): String = members.first { it.id == Mesh.HOMELAB }.meshIp
+
     private suspend fun sentinelMaster(valkey: ValkeyCli, members: List<Member>): String? {
-        valkey.sentinelMaster("127.0.0.1", ClusterTemplates.SCOPE)?.let { return it }
-        for (m in members) valkey.sentinelMaster(m.meshIp, ClusterTemplates.SCOPE)?.let { return it }
+        // The homelab's own Sentinel first (it is in members too), then the others.
+        for (m in members.sortedByDescending { it.id == Mesh.HOMELAB }) valkey.sentinelMaster(m.meshIp, ClusterTemplates.SCOPE)?.let { return it }
         return null
     }
 

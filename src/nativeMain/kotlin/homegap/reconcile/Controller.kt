@@ -2,6 +2,7 @@ package homegap.reconcile
 
 import homegap.config.adoptSharedDirs
 import homegap.config.clusterConfigDir
+import homegap.config.meshDir
 import homegap.config.tunnelsDir
 import homegap.provision.ExitNodes
 import homegap.provision.TunnelDns
@@ -98,7 +99,7 @@ class Controller(
     @Volatile private var serviceHealth: Map<String, Map<String, ServiceNodeHealthDto>> = emptyMap()
     @Volatile private var dnsObs: List<DnsReconciler.Observed> = emptyList()
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
-    private val meshRec by lazy { MeshReconciler(HomelabMesh("${config.dataDir}/mesh")) }
+    private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
     @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
     private val clusterRec by lazy {
         ClusterReconciler(

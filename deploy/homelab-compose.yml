@@ -21,6 +21,9 @@ networks:
   # Only the orchestrator and the Docker socket proxy: nothing else reaches the proxy.
   homegap-docker:
     internal: true
+  # Between the orchestrator and the cluster's own network namespace (homegap-mesh), and that
+  # namespace's way out to the nodes (WireGuard). Nothing else joins it.
+  homegap-cluster:
 
 volumes:
   # The orchestrator's own data: the state cache (every credential), the SSH keys it generates and
@@ -31,6 +34,8 @@ volumes:
   # so those containers never see the orchestrator's data.
   homegap-cluster-config:
   homegap-tunnels:
+  # What the orchestrator and the mesh agent tell each other, and the homelab's mesh key.
+  homegap-mesh:
   # The homelab's cluster member (only used when `cluster:` is configured).
   homegap-etcd:
   homegap-pgdata:
@@ -38,9 +43,11 @@ volumes:
   homegap-sentinel:
 
 services:
-  # Holds the orchestrator's network namespace, so the cluster mesh interface (hg-mesh, see
-  # `cluster:` in the config) outlives orchestrator restarts and upgrades. The orchestrator's
-  # networks, published ports and Traefik labels belong here.
+  # Holds the cluster's own network namespace: the mesh interface (hg-mesh, see `cluster:` in the
+  # config) and the homelab's cluster member live here, and nothing else does. Every node is a
+  # member of the cluster database, so this namespace is treated as reachable from the nodes: the
+  # orchestrator is not in it, and the mesh agent's firewall lets nothing in it open a connection
+  # to the orchestrator, to another container or to your home network.
   homegap-mesh:
     # A fixed image, never the HomeGAP one: recreating this container replaces the namespace
     # (and drops the mesh), so it must not change with HomeGAP updates. Everything sharing the
@@ -48,10 +55,34 @@ services:
     image: docker.io/library/busybox:1.37
     entrypoint: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait; done"]
     restart: unless-stopped
+    # The orchestrator reaches the nodes' members through this namespace.
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    networks: [homegap-cluster]
+
+  # Keeps the mesh interface and the namespace's firewall as the orchestrator describes them
+  # (only used when `cluster:` is configured; until then it waits). The only container in the
+  # namespace that can change its network.
+  homegap-mesh-agent:
+    image: ghcr.io/drewcarlson/homegap:latest
+    command: ["mesh"]
+    restart: unless-stopped
+    network_mode: service:homegap-mesh
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: { homegap-mesh: { condition: service_started, restart: true } }
+    environment: { HOMEGAP_MESH_DIR: /mesh }
+    volumes: [homegap-mesh:/mesh]
+
+  orchestrator:
+    image: ghcr.io/drewcarlson/homegap:latest
+    command: ["run"]
+    restart: unless-stopped
     networks:
-      traefik:
-        aliases: [orchestrator]
+      traefik: {}
       homegap-docker: {}
+      homegap-cluster: {}
     # Speed tests and the status page (speedtest.enabled, status_page.enabled): route their names
     # here on port 8089.
     # labels:
@@ -60,19 +91,12 @@ services:
     #   traefik.http.routers.homegap-speedtest.entrypoints: websecure
     #   traefik.http.routers.homegap-speedtest.tls: "true"
     #   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
-
-  orchestrator:
-    image: ghcr.io/drewcarlson/homegap:latest
-    command: ["run"]
-    restart: unless-stopped
-    network_mode: service:homegap-mesh
-    # Only what it needs: NET_ADMIN and NET_RAW for the cluster mesh interface, its firewall and
-    # ping; DAC_OVERRIDE to read the mounted keys and config whoever owns them.
+    # Only what it needs: NET_ADMIN for its route to the mesh, and DAC_OVERRIDE to read the
+    # mounted keys and config whoever owns them.
     cap_drop: [ALL]
-    cap_add: [NET_ADMIN, NET_RAW, DAC_OVERRIDE]
+    cap_add: [NET_ADMIN, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     depends_on:
-      homegap-mesh: { condition: service_started, restart: true }
       docker-proxy: { condition: service_started }
     environment:
       BUNNY_API_KEY: ${BUNNY_API_KEY:?set BUNNY_API_KEY}
@@ -82,6 +106,7 @@ services:
       HOMEGAP_DASHBOARD_TOKEN: ${HOMEGAP_DASHBOARD_TOKEN:-}
       HOMEGAP_CLUSTER_CONFIG_DIR: /cluster-config
       HOMEGAP_TUNNELS_DIR: /tunnels
+      HOMEGAP_MESH_DIR: /mesh
       # Docker is read through the docker-proxy service: the orchestrator has no Docker socket.
       DOCKER_HOST: tcp://docker-proxy:2375
       # HOMEGAP_DRY_RUN: "true"     # discovery + logged desired state, no writes
@@ -91,6 +116,7 @@ services:
       - homegap-data:/data                              # state cache, known_hosts, generated keys
       - homegap-cluster-config:/cluster-config          # written here, read by the cluster containers
       - homegap-tunnels:/tunnels                        # connector specs, shared with the tunnels container
+      - homegap-mesh:/mesh                              # the mesh description, shared with the mesh agent
       # Optional: the homelab Traefik ACME store, so nodes get the same wildcard certificate.
       # - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
     # The dashboard must only be reachable privately (an SSH tunnel, or a *private* Pangolin
@@ -113,9 +139,8 @@ services:
 
   # ---------------------------------------------------------------------------------------
   # The homelab's cluster member (only used when `cluster:` is configured; until then they wait).
-  # They share the mesh namespace and read the config the orchestrator writes into the
-  # homegap-cluster-config volume. They mount nothing else of the orchestrator's: every node is a
-  # member of this database cluster, so treat these containers as reachable from the nodes. The homelab holds the database primary by default; while it is down a
+  # They live in the homegap-mesh namespace and read the config the orchestrator writes into the
+  # homegap-cluster-config volume. They mount nothing else of the orchestrator's. The homelab holds the database primary by default; while it is down a
   # node takes over, and the orchestrator switches it back once the homelab is caught up.
   homegap-etcd:
     image: ghcr.io/drewcarlson/homegap-cluster:latest

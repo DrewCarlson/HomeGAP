@@ -22,26 +22,33 @@ Put these files in one folder:
 
 | Service | What it does |
 | --- | --- |
-| `homegap-mesh` | A busybox container that holds the network namespace of the orchestrator. Thus the cluster mesh interface (`hg-mesh`) stays up when the orchestrator restarts. |
-| `orchestrator` | The image `ghcr.io/drewcarlson/homegap:latest` with the command `run`. It uses `network_mode: service:homegap-mesh`. It drops all capabilities except `NET_ADMIN`, `NET_RAW` and `DAC_OVERRIDE`. |
+| `homegap-mesh` | A busybox container that holds the network namespace of the cluster. The mesh interface (`hg-mesh`) and the cluster containers of the homelab are in it. |
+| `homegap-mesh-agent` | The same image as the orchestrator, with the command `mesh`. It keeps the mesh interface and the firewall of that namespace. HomeGAP uses it only with `cluster:`. |
+| `orchestrator` | The image `ghcr.io/drewcarlson/homegap:latest` with the command `run`. It drops all capabilities except `NET_ADMIN` and `DAC_OVERRIDE`. |
 | `docker-proxy` | A filter in front of the Docker socket. The orchestrator reads the container list, the events and the image data through it. |
 | `homegap-etcd`, `homegap-db`, `homegap-valkey`, `homegap-sentinel` | The cluster member of the homelab. HomeGAP uses them only with `cluster:`. |
 | `tunnels` | The same image with the command `tunnels --dir /tunnels`. It keeps one Newt connector for each node. |
 
 ### `homegap-mesh`
 
-The networks, the published ports and the Traefik labels of the orchestrator go on this service, not on `orchestrator`. The service is on the `traefik` network with the alias `orchestrator`. It is also on the internal `homegap-docker` network, where the orchestrator reaches `docker-proxy`.
+The service holds a network namespace for the cluster only. The orchestrator is not in it. It is on one network, `homegap-cluster`, which it shares with the orchestrator. See [Cluster mesh](../cluster/mesh.md#the-interfaces).
 
 The service uses a fixed image. Do not recreate it when you update HomeGAP. A new container replaces the namespace and drops the mesh.
 
+### `homegap-mesh-agent`
+
+The agent is the only container in the namespace of `homegap-mesh` that can change the network. It has `NET_ADMIN` and `NET_RAW`. It shares the `homegap-mesh` volume with the orchestrator. Without `cluster:`, it waits.
+
 ### `orchestrator`
+
+The published ports and the Traefik labels of the dashboard go on this service. It is on three networks: `traefik`, `homegap-docker` (where it reaches `docker-proxy`) and `homegap-cluster` (where it reaches the cluster).
 
 The orchestrator reads these environment variables:
 
 - `BUNNY_API_KEY`. It is necessary.
 - `PANGOLIN_LICENSE_KEY`. It is optional.
 - `HOMEGAP_DASHBOARD_TOKEN`. The bearer token of the dashboard. If it is empty, HomeGAP creates a token.
-- `HOMEGAP_CLUSTER_CONFIG_DIR` and `HOMEGAP_TUNNELS_DIR`. The mount points of the two shared volumes.
+- `HOMEGAP_CLUSTER_CONFIG_DIR`, `HOMEGAP_TUNNELS_DIR` and `HOMEGAP_MESH_DIR`. The mount points of the three shared volumes.
 - `DOCKER_HOST`. The address of `docker-proxy`.
 - `HOMEGAP_DRY_RUN`. It is optional.
 
@@ -52,6 +59,7 @@ The orchestrator has these volumes:
 - `homegap-data:/data`. The state cache, `known_hosts`, the generated SSH keys and the dashboard token. No other container mounts this volume.
 - `homegap-cluster-config:/cluster-config`. The config that the orchestrator writes for the cluster containers. They mount it read-only.
 - `homegap-tunnels:/tunnels`. The connector specs. The `tunnels` container mounts the same volume.
+- `homegap-mesh:/mesh`. The description of the mesh, for the mesh agent.
 - Optional: the `acme.json` file of the homelab Traefik, read-only.
 
 The orchestrator does not mount the Docker socket. See [Security model](../reference/security.md#the-homelab).
@@ -134,12 +142,11 @@ For `tunnels.native: true`, the service needs `cap_add: [NET_ADMIN]` and `device
 
 For a first look, publish the dashboard only on the loopback address of the homelab. Then use an SSH tunnel from your workstation.
 
-1. On the `homegap-mesh` service, add `ports: ["127.0.0.1:8088:8088"]`.
+1. On the `orchestrator` service, add `ports: ["127.0.0.1:8088:8088"]`.
 2. Recreate the service:
     ```bash
     docker compose up -d
     ```
-    Docker also restarts the containers that share the namespace of `homegap-mesh`.
 3. On your workstation, open the SSH tunnel:
     ```bash
     ssh -L 8088:127.0.0.1:8088 <homelab>

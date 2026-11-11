@@ -95,7 +95,7 @@ fi
 
 if want 4; then
 echo "--- 4. the homelab cut off, then back"
-docker compose exec -T orchestrator sh -c 'iptables -I INPUT -i hg-mesh -j DROP; iptables -I OUTPUT -o hg-mesh -j DROP'
+docker compose exec -T mesh-agent sh -c 'iptables -I INPUT -i hg-mesh -j DROP; iptables -I OUTPUT -o hg-mesh -j DROP; iptables -I FORWARD -o hg-mesh -j DROP'
 write_via() {
   docker compose exec -T -e PW="$PGPW" "node-$1" sh -c 'docker run --rm --network homegap-cluster -e PGPASSWORD="$PW" -e PGCONNECT_TIMEOUT=5 --entrypoint psql homegap-cluster:e2e -h cluster-proxy -p 5433 -U pangolin -d pangolin -tAc "set statement_timeout = 5000; create table if not exists hg_verify(at timestamptz); insert into hg_verify values (now()) returning inet_server_addr()"' 2>/dev/null | tr -d '\r' | grep -E '^10\.' | head -1
 }
@@ -106,9 +106,17 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 [ -n "$promoted" ] && pass "a node took over: writes through na1 land on $promoted" || fail "no node took writes while the homelab was cut off"
-ro=$(docker compose exec -T cluster-db sh -c 'gosu postgres psql -h /var/run/postgresql -tAc "select pg_is_in_recovery()"' 2>/dev/null | tr -d '\r')
+# The cut-off homelab stops PostgreSQL to demote it, which waits for the replicas it can no longer
+# reach (up to wal_sender_timeout, a minute): until then it answers nothing, which is not a write
+# either. Wait for it to come back read-only.
+ro=""
+for _ in $(seq 1 24); do
+  ro=$(docker compose exec -T cluster-db sh -c 'gosu postgres psql -h /var/run/postgresql -tAc "select pg_is_in_recovery()"' 2>/dev/null | tr -d '\r')
+  [ "$ro" = t ] && break
+  sleep 5
+done
 [ "$ro" = t ] && pass "the cut-off homelab no longer takes writes" || fail "homelab in recovery: '$ro'"
-docker compose exec -T orchestrator sh -c 'iptables -D INPUT -i hg-mesh -j DROP; iptables -D OUTPUT -o hg-mesh -j DROP'
+docker compose exec -T mesh-agent sh -c 'iptables -D INPUT -i hg-mesh -j DROP; iptables -D OUTPUT -o hg-mesh -j DROP; iptables -D FORWARD -o hg-mesh -j DROP'
 if until_cluster "c['primary'] == c['preferred'] and c['history'] and c['history'][0]['cause'] == 'switch-back'" 420; then
   pass "after healing, HomeGAP switched the primary back to $(cluster "c['primary']")"
 else
