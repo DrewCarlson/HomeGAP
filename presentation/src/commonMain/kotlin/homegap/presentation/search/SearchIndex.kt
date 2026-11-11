@@ -81,7 +81,7 @@ fun searchIndex(
             )
         )
     }
-    (Route.NAV + Route.Locations + Route.AddNode).forEach { route ->
+    (Route.NAV + Route.Locations + Route.AddNode + Route.ShareLinks).forEach { route ->
         add(
             SearchHit(
                 kind = SearchKind.Page,

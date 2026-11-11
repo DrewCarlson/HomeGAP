@@ -4,6 +4,7 @@ import dev.zacsweers.metro.*
 import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardServer
+import homegap.dashboard.ShareLinks
 import homegap.discovery.DockerClient
 import homegap.platform.env
 import homegap.reconcile.Controller
@@ -94,6 +95,9 @@ interface ControllerGraph {
 
     @Provides @SingleIn(AppScope::class)
     fun speedStore(config: AppConfig): SpeedTestStore = SpeedTestStore("${config.dataDir}/speedtests.json")
+
+    @Provides @SingleIn(AppScope::class)
+    fun shareLinks(config: AppConfig): ShareLinks = ShareLinks("${config.dataDir}/share-links.json")
 
     @Provides @SingleIn(AppScope::class)
     fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer =

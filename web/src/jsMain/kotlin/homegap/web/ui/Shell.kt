@@ -10,6 +10,7 @@ import homegap.presentation.app.ConnectionModel
 import homegap.presentation.app.HeaderModel
 import homegap.presentation.app.NavItem
 import homegap.presentation.app.PassStatusModel
+import homegap.presentation.app.ReadOnlyModel
 import homegap.presentation.config.ConfigScreenModel
 import homegap.presentation.core.ScreenModel
 import homegap.presentation.diagnostics.DiagnosticsScreenModel
@@ -21,6 +22,7 @@ import homegap.presentation.routing.Location
 import homegap.presentation.routing.NavGroup
 import homegap.presentation.routing.Route
 import homegap.presentation.services.ServicesScreenModel
+import homegap.presentation.sharing.ShareLinksScreenModel
 import homegap.presentation.speedtest.SpeedTestScreenModel
 import homegap.presentation.tunnels.TunnelsScreenModel
 import homegap.web.routing.HashRouter
@@ -31,6 +33,7 @@ import org.jetbrains.compose.web.attributes.autoFocus
 import org.jetbrains.compose.web.attributes.onSubmit
 import org.jetbrains.compose.web.attributes.target
 import org.jetbrains.compose.web.dom.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import kotlinx.browser.document
 import org.w3c.dom.HTMLElement
@@ -41,6 +44,13 @@ import org.w3c.dom.HTMLElement
  */
 @Composable
 fun AppShell(model: AppModel) {
+    CompositionLocalProvider(LocalReadOnly provides (model.readOnly != null)) {
+        Shell(model)
+    }
+}
+
+@Composable
+private fun Shell(model: AppModel) {
     val viewport = rememberViewport()
     val inspector = model.screen?.inspector
     SearchShortcut(model.search)
@@ -60,7 +70,7 @@ fun AppShell(model: AppModel) {
                         label = "Search everything",
                         onClick = model.search.onOpen,
                     )
-                    model.header?.let { header ->
+                    model.header?.takeIf { !it.readOnly }?.let { header ->
                         PhoneActions(header)
                     }
                 }
@@ -112,6 +122,12 @@ fun AppShell(model: AppModel) {
             onClose = { model.onNavigate(Route.Config) },
         )
 
+        is ShareLinksScreenModel -> ShareLinksOverlay(
+            model = overlay,
+            viewport = viewport,
+            onClose = { model.onNavigate(Route.Access) },
+        )
+
         else -> Unit
     }
     if (model.search.isOpen) {
@@ -160,6 +176,9 @@ private fun Content(model: AppModel, viewport: Viewport) {
     if (model.isLoading) {
         Div({ classes("loading") }) { Text("Loading…") }
         return
+    }
+    model.readOnly?.let { readOnly ->
+        ReadOnlyBanner(readOnly)
     }
     model.banners.forEach { banner ->
         Banner(
@@ -227,7 +246,21 @@ private fun Screen(
         is ConfigScreenModel -> ConfigScreen(screen)
         is DiagnosticsScreenModel -> DiagnosticsScreen(screen)
         // Opened over their section by the shell, never as the screen itself.
-        is LocationsScreenModel, is AddNodeScreenModel -> Unit
+        is LocationsScreenModel, is AddNodeScreenModel, is ShareLinksScreenModel -> Unit
+    }
+}
+
+/** A share link's view: it can look, never change; an admin can sign in instead. */
+@Composable
+private fun ReadOnlyBanner(readOnly: ReadOnlyModel) {
+    Div({ classes("banner", "info", "read-only-banner") }) {
+        Span { Text(readOnly.text) }
+        ActionButton(
+            text = "Sign in as admin",
+            small = true,
+            mutates = false,
+            onClick = readOnly.onSignIn,
+        )
     }
 }
 
@@ -317,6 +350,9 @@ private fun ReconcileBox(header: HeaderModel) {
             pass = header.pass,
             paused = header.paused,
         )
+        if (header.readOnly) {
+            return@Div
+        }
         Div({ classes("reconcile-actions") }) {
             PauseButton(header)
             if (header.paused) {
@@ -419,6 +455,14 @@ private fun SignInDialog(connection: ConnectionModel) {
         }) {
             Img(src = "/emblem.svg", alt = "") { classes("sign-in-mark") }
             H2 { Text("Enter your dashboard token") }
+            if (connection.linkExpired) {
+                P({
+                    classes("banner", "warn")
+                    attr("role", "alert")
+                }) {
+                    Text(connection.message)
+                }
+            }
             P({ classes("sign-in-text") }) {
                 Text("It's the value of ")
                 Span({ classes("mono") }) { Text("HOMEGAP_DASHBOARD_TOKEN") }

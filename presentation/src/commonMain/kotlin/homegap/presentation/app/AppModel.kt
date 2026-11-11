@@ -31,9 +31,18 @@ data class AppModel(
     val onNavigate: (Route) -> Unit,
     /** Opens a page with an item selected (or none, which closes the Inspector). */
     val onOpen: (Location) -> Unit,
+    /** Present in a read-only view (a share link): nothing can be changed. */
+    val readOnly: ReadOnlyModel? = null,
 ) {
     val isLoading: Boolean get() = screen == null && connection == null
 }
+
+/** A read-only view: what the banner says, and a way to sign in as an admin instead. */
+@Immutable
+data class ReadOnlyModel(
+    val text: String,
+    val onSignIn: () -> Unit,
+)
 
 /** A navigation entry; [attention] counts the items in its section that need attention. */
 @Immutable
@@ -60,6 +69,8 @@ data class HeaderModel(
     val onTogglePause: () -> Unit,
     /** While paused: one pass that applies the waiting changes. */
     val onApplyOnce: () -> Unit = {},
+    /** A read-only view hides Pause and Resync. */
+    val readOnly: Boolean = false,
 )
 
 /** "Synced 12s ago" with a colored dot; details in the tooltip. */
@@ -86,6 +97,8 @@ data class ConnectionModel(
     val message: String,
     val tokenPrompt: TokenPromptModel?,
     val signInRequired: Boolean = false,
+    /** The share link this tab opened no longer works; [message] says so. */
+    val linkExpired: Boolean = false,
 )
 
 /** The token field; [rejected] when the token that was tried wasn't accepted. */

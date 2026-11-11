@@ -19,11 +19,13 @@ import homegap.api.name
 import homegap.api.StatusSnapshot
 import homegap.api.snapshotFields
 import homegap.api.snapshotPatch
+import homegap.dashboard.ShareLinks
 import homegap.platform.nowMillis
 import homegap.reconcile.Controller
 import homegap.setup.NodeSetupService
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.server.auth.principal
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
@@ -49,6 +51,7 @@ class StatusRoutes(
     private val controller: Controller,
     private val setup: NodeSetupService,
     private val access: AccessService,
+    private val shareLinks: ShareLinks,
 ) : RoutingController {
     override fun init(parent: Route) {
         parent.get("/status") { getStatus() }
@@ -97,10 +100,17 @@ class StatusRoutes(
         if (lastSeq > controller.log.revision.value) lastSeq = 0L
         call.response.header(HttpHeaders.CacheControl, "no-cache")
         call.response.header("X-Accel-Buffering", "no")
-        call.respondBytesWriter(ContentType.Text.EventStream) { writeEvents(lastSeq) }
+        // A share link that is revoked or expires ends its stream; reconnecting then fails.
+        val viewer = call.principal<Viewer>()
+        call.respondBytesWriter(ContentType.Text.EventStream) {
+            writeEvents(
+                afterSeq = lastSeq,
+                allowed = { viewer == null || shareLinks.isLive(viewer.link.id) },
+            )
+        }
     }
 
-    private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long) = coroutineScope {
+    private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long, allowed: () -> Boolean) = coroutineScope {
         var lastSeq = afterSeq
         var sentFields: JsonObject? = null
         var sentState: StatusSnapshot? = null
@@ -114,7 +124,7 @@ class StatusRoutes(
         var sentLive: SpeedTestLiveDto? = null
         val changes = merge(controller.changes, setup.changes, access.revision).conflate().produceIn(this)
         try {
-            while (true) {
+            while (allowed()) {
                 val snapshot = controller.snapshot()
                 val state = snapshot.withoutLiveValues()
                 val now = nowMillis()

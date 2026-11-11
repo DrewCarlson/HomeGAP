@@ -36,6 +36,7 @@ import kotlin.time.Clock
 @DependencyGraph(AppScope::class)
 interface WebAppGraph {
     val appPresenter: AppPresenter
+    val tokenStore: TokenStore
 
     @Provides
     @SingleIn(AppScope::class)
@@ -47,7 +48,7 @@ interface WebAppGraph {
         return HttpClient(Js) {
             defaultRequest {
                 headers {
-                    tokenStore.token?.let(::bearerAuth)
+                    tokenStore.active?.let(::bearerAuth)
                 }
             }
             install(JsonBodyContentType)

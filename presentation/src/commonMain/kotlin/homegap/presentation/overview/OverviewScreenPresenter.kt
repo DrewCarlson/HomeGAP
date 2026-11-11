@@ -107,6 +107,7 @@ class OverviewScreenPresenter(
                         label = "+ Add node",
                         style = ActionStyle.Primary,
                         location = Location(Route.AddNode),
+                        mutates = true,
                     ),
                 )
             } else {

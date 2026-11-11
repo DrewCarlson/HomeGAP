@@ -178,6 +178,7 @@ class ActivityScreenPresenter(
                 ActionModel(
                     label = "Show pass #$it",
                     onClick = onShowPass,
+                    mutates = false,
                 )
             },
         ),

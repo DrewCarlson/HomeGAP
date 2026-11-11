@@ -14,6 +14,7 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     Config("config", "Config", "Desired vs. actual state, secrets and the config file"),
     AddNode("add-node", "Add node", "Set up a fresh server from its initial login and provision it"),
     Locations("locations", "Locations", "Data-center cities for node locations, and where the homelab is"),
+    ShareLinks("share-links", "Share links", "Read-only links to this dashboard, for people who only look"),
     ;
 
     /** Where this route sits in the navigation: itself, or (for sub-pages) its section. */
@@ -21,6 +22,7 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
         get() = when (this) {
             AddNode -> Nodes
             Locations -> Config
+            ShareLinks -> Access
             else -> this
         }
 

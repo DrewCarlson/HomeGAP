@@ -11,6 +11,7 @@ An action returns `{"ok": true, "message": "..."}`. An error returns `{"ok": fal
 | Code | When |
 | --- | --- |
 | 400 | The input is not valid. |
+| 403 | A share link tried to change something, or to read an admin-only route. |
 | 409 | The request conflicts with the current state. |
 | 500 | Any other error. |
 
@@ -27,6 +28,17 @@ These routes need no token:
 | `GET /map/...` | The tiles of the map (with range requests), its scripts, its fonts and its icons. The public listener of the status page also serves them. |
 | `GET /docs/...` | These docs. |
 | `GET /...` | Any other path returns the dashboard app. |
+
+A [share link](../operations/dashboard.md#share-a-read-only-view) token also works as the bearer token, for `GET` routes only. The `/api/access` and `/api/share-links` routes refuse it.
+
+## Session and share links
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/session` | Returns the role of the token, `ADMIN` or `VIEWER`, and if share links are available. For a share link, it also returns its label and when it expires. |
+| `GET /api/share-links` | Returns the share links that did not expire. Admin only. |
+| `POST /api/share-links` | Makes a share link. Body: `{"label": "Sam", "expiresInDays": 7}`. A `null` value for `expiresInDays` makes a link that does not expire. The response holds the token, one time only. Admin only. |
+| `DELETE /api/share-links/{id}` | Revokes a share link. Admin only. |
 
 ## Status and log
 

@@ -35,7 +35,14 @@ object FakeTimeFormatter : TimeFormatter {
     override fun dateTime(epochMillis: Long): String = "d$epochMillis"
 }
 
-class FakeTokenStore(override var token: String? = null) : TokenStore
+class FakeTokenStore(
+    override var token: String? = null,
+    override var viewToken: String? = null,
+) : TokenStore
+
+object FakePageAddress : PageAddress {
+    override val origin: String = "https://dashboard.example.net"
+}
 
 class FakePreferences : Preferences {
     private val values = mutableMapOf<String, String>()
@@ -119,6 +126,16 @@ class FakeControllerApi(
     override suspend fun setUserRoles(id: String, roleIds: List<Int>) = ok("roles $id $roleIds")
     override suspend fun removeInvitation(id: String) = ok("remove-invite $id")
     override suspend fun deviceAction(id: Int, action: String) = ok("device $id $action")
+
+    var sessionValue = SessionDto(role = SessionRole.ADMIN, shareLinks = true)
+    var shareLinksValue = ShareLinksResponse(enabled = true, links = emptyList())
+    override suspend fun session() = sessionValue
+    override suspend fun shareLinks() = shareLinksValue
+    override suspend fun createShareLink(request: CreateShareLinkRequest): CreateShareLinkResponse {
+        calls += "share ${request.label} ${request.expiresInDays}"
+        return CreateShareLinkResponse(ShareLinkDto("l1", request.label, NOW), "hgv_token")
+    }
+    override suspend fun revokeShareLink(id: String) = ok("revoke-share $id")
 
     var connection = ConnectionTestDto(
         ok = true, hostKeyFingerprint = "SHA256:abc", os = "ubuntu", osVersion = "24.04", arch = "x86_64",

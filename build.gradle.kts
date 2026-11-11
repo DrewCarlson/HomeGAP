@@ -73,6 +73,7 @@ kotlin {
                 implementation(libs.kotlin.logging)
                 implementation(libs.kaml)
                 implementation(libs.ksubprocess)
+                implementation(libs.okio)
             }
         }
         val nativeTest by getting {

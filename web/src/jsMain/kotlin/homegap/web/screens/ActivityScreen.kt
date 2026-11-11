@@ -95,6 +95,7 @@ fun ActivityScreen(
                 ActionButton(
                     text = if (model.loadingOlder) "Loading…" else "Load older",
                     enabled = !model.loadingOlder,
+                    mutates = false,
                     onClick = model.onLoadOlder,
                 )
             }

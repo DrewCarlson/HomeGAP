@@ -1,6 +1,7 @@
 package homegap.platform
 
 import kotlinx.cinterop.*
+import okio.ByteString.Companion.encodeUtf8
 import platform.posix.*
 
 object Crypto {
@@ -46,6 +47,9 @@ object Crypto {
 
     /** Password satisfying Pangolin's policy (upper, lower, digit, symbol). */
     fun password(): String = token(28) + "-Aa1!"
+
+    /** SHA-256 of [s] (UTF-8) as lowercase hex. */
+    fun sha256Hex(s: String): String = s.encodeUtf8().sha256().hex()
 
     fun fnv64(s: String): String {
         var h = 0xcbf29ce484222325uL

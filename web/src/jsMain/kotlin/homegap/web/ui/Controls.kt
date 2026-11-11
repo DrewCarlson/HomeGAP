@@ -1,6 +1,7 @@
 package homegap.web.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.disabled
 import org.jetbrains.compose.web.attributes.placeholder
@@ -9,6 +10,13 @@ import org.jetbrains.compose.web.dom.*
 
 enum class ButtonStyle(val className: String?) { Default(null), Primary("primary"), Danger("danger") }
 
+/** True in a read-only view (a share link): buttons that change something are turned off. */
+val LocalReadOnly = staticCompositionLocalOf { false }
+
+/** Why a button is off in a read-only view. */
+const val READ_ONLY_TOOLTIP = "Read-only view: nothing can be changed here"
+
+/** A button; one that [mutates] is turned off in a read-only view. */
 @Composable
 fun ActionButton(
     text: String,
@@ -16,14 +24,16 @@ fun ActionButton(
     small: Boolean = false,
     enabled: Boolean = true,
     tooltip: String? = null,
+    mutates: Boolean = true,
     onClick: () -> Unit,
 ) {
+    val locked = mutates && LocalReadOnly.current
     Button({
         classes("btn")
         style.className?.let { classes(it) }
         if (small) classes("sm")
-        if (!enabled) disabled()
-        tooltip?.let { title(it) }
+        if (!enabled || locked) disabled()
+        (if (locked) READ_ONLY_TOOLTIP else tooltip)?.let { title(it) }
         onClick { onClick() }
     }) { Text(text) }
 }

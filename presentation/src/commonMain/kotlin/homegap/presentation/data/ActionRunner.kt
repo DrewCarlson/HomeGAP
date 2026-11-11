@@ -40,6 +40,10 @@ class ActionRunner(
 
     /** Runs [action], reports its message (or failure) and refreshes the status; then [onSuccess]. */
     fun run(label: String, onSuccess: () -> Unit = {}, action: suspend () -> ActionResponse) {
+        if (session.readOnly) {
+            notify(READ_ONLY)
+            return
+        }
         scope.launch {
             _busy.value = true
             try {
@@ -86,8 +90,10 @@ class ActionRunner(
         }
     }
 
-    private companion object {
-        val TOAST_DURATION = 5.seconds
-        val UNDO_TOAST_DURATION = 30.seconds
+    companion object {
+        /** Shown instead of running an action in a read-only view. */
+        const val READ_ONLY = "This is a read-only view. Nothing can be changed here."
+        private val TOAST_DURATION = 5.seconds
+        private val UNDO_TOAST_DURATION = 30.seconds
     }
 }

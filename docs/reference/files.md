@@ -19,6 +19,7 @@ The data directory is `data_dir` (default `/data`), on the `homegap-data` volume
 | `mesh/` | The mesh state of the homelab. |
 | `locations.yml` | Your edits to the location catalog. |
 | `speedtests.json` | The results of the speed tests. |
+| `share-links.json` | The read-only share links of the dashboard, with mode 0600. It holds only a hash of each token. |
 
 ## The config file
 

@@ -88,6 +88,13 @@ interface ControllerApi {
 
     /** `archive`, `unarchive`, `block`, `unblock` or `delete`. */
     suspend fun deviceAction(id: Int, action: String): ActionResponse
+
+    /** Whether the token in use is an admin's or a share link's. */
+    suspend fun session(): SessionDto
+
+    suspend fun shareLinks(): ShareLinksResponse
+    suspend fun createShareLink(request: CreateShareLinkRequest): CreateShareLinkResponse
+    suspend fun revokeShareLink(id: String): ActionResponse
 }
 
 /** What a pause request applies to (`PauseRequest.scope` on the wire). */
@@ -100,4 +107,5 @@ enum class PauseScope(val wire: String) {
 /** An error response from the API. */
 class ApiException(val status: Int, message: String) : Exception(message) {
     val unauthorized: Boolean get() = status == 401
+    val forbidden: Boolean get() = status == 403
 }

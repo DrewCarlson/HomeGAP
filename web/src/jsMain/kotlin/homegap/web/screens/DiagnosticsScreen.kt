@@ -81,12 +81,14 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
                     text = "Show logs",
                     style = ButtonStyle.Primary,
                     enabled = !model.loading && model.node != null,
+                    mutates = false,
                     onClick = model.onShowLogs
                 )
                 ActionButton(
                     text = "Run diagnostics",
                     enabled = !model.loading && model.node != null,
                     tooltip = "Containers, mesh, cluster proxy, firewall, NAT, ports and recent logs",
+                    mutates = false,
                     onClick = model.onRunDiagnostics,
                 )
             }
@@ -122,7 +124,7 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
         Panel(
             title = "${output.title} · ${output.node}",
             actions = {
-                ActionButton("Download", small = true) {
+                ActionButton("Download", small = true, mutates = false) {
                     val cleanTitle = output.title.substringBefore(' ').lowercase()
                     download(
                         "${output.node}-${cleanTitle}.txt",

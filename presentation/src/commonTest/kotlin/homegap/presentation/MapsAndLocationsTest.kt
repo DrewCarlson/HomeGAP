@@ -86,8 +86,9 @@ class MapsAndLocationsTest {
     @Test
     fun savingALocationAndTheHomelab() = runTest {
         val api = FakeControllerApi()
-        val actions = ActionRunner(ControllerSession(api, AlwaysVisible), api, backgroundScope)
-        val models = present(LocationsScreenPresenter(api, actions, homegap.presentation.data.Confirmations()), LocationsScreenProps)
+        val session = ControllerSession(api, AlwaysVisible)
+        val actions = ActionRunner(session, api, backgroundScope)
+        val models = present(LocationsScreenPresenter(api, actions, homegap.presentation.data.Confirmations(session, actions)), LocationsScreenProps)
         val loaded = models.first { !it.loading }
         assertEquals(3, loaded.rows.size)
         loaded.onEvent(LocationsEvent.Add)

@@ -29,6 +29,14 @@ fun Action(
     val location = action.location
     val href = action.href
     when {
+        // A link into something that changes things (the Add node wizard) is a button that is off.
+        location != null && action.mutates && LocalReadOnly.current -> ActionButton(
+            text = action.label,
+            style = style,
+            small = small,
+            onClick = {},
+        )
+
         location != null -> NavLink(
             href = HashRouter.href(location),
             onNavigate = { onOpen(location) },
@@ -51,6 +59,7 @@ fun Action(
             small = small,
             enabled = action.enabled,
             tooltip = action.tooltip,
+            mutates = action.mutates,
             onClick = { action.onClick?.invoke() },
         )
     }

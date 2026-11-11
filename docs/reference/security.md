@@ -13,6 +13,8 @@ The orchestrator holds every SSH key and every API key. Thus:
 !!! danger "Warning"
     If somebody gets access to the dashboard or to the orchestrator host, that person has control of every node.
 
+A [share link](../operations/dashboard.md#share-a-read-only-view) gives a read-only view of the dashboard. The orchestrator refuses each change from a share link, and it does not show people's email addresses and devices to it. The orchestrator keeps only a hash of each share link token.
+
 ## Secrets
 
 HomeGAP creates the secrets of each node from the CSPRNG of the kernel. These are the Pangolin server secret, the admin credentials, the setup token and the CrowdSec bouncer key. It sends them over SSH to `<install_dir>/secrets/node.json` (mode 0600). This file is the source of truth. The local state file `/data/state.json` (mode 0600) is only a cache. If you lose it, HomeGAP reads the credentials from the node again.

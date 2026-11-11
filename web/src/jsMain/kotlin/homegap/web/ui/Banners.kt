@@ -78,6 +78,7 @@ fun TokenBox(prompt: TokenPromptModel) {
             ActionButton(
                 text = "Save",
                 style = ButtonStyle.Primary,
+                mutates = false,
                 onClick = prompt.onSave,
             )
         }

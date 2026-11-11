@@ -694,3 +694,42 @@ data class SearchHitDto(
 
 @Serializable
 data class SearchResponse(val hits: List<SearchHitDto>)
+
+/** Who the dashboard's token belongs to: an admin, or a viewer with a share link. */
+@Serializable
+enum class SessionRole { ADMIN, VIEWER }
+
+/**
+ * `GET /api/session`. [shareLinks] is true when a dashboard token is set, which share links need.
+ * For a viewer, [label] and [expiresAt] describe the share link in use.
+ */
+@Serializable
+data class SessionDto(
+    val role: SessionRole,
+    val shareLinks: Boolean,
+    val label: String? = null,
+    val expiresAt: Long? = null,
+)
+
+/** A read-only share link. Its token is shown once, when the link is created. */
+@Serializable
+data class ShareLinkDto(
+    val id: String,
+    val label: String,
+    val createdAt: Long,
+    /** Null when the link never expires. */
+    val expiresAt: Long? = null,
+    val lastUsedAt: Long? = null,
+)
+
+/** `GET /api/share-links`, newest first. [enabled] is false without a dashboard token. */
+@Serializable
+data class ShareLinksResponse(val enabled: Boolean, val links: List<ShareLinkDto>)
+
+/** A new share link; [expiresInDays] null means it never expires. */
+@Serializable
+data class CreateShareLinkRequest(val label: String, val expiresInDays: Int? = null)
+
+/** The new link and its token, which is not stored and never returned again. */
+@Serializable
+data class CreateShareLinkResponse(val link: ShareLinkDto, val token: String)

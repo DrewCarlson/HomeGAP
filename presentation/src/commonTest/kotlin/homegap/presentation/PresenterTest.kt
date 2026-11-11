@@ -55,7 +55,7 @@ class PresenterTest {
         val actions = ActionRunner(session, api, scope)
         val tokens = FakeTokenStore()
         val preferences = FakePreferences()
-        val confirmations = Confirmations()
+        val confirmations = Confirmations(session, actions)
         val pausedGuard = homegap.presentation.data.PausedGuard(session, api, actions, confirmations)
         val nodeActions = NodeActions(api, actions, confirmations, pausedGuard)
         val serviceActions = ServiceActions(api, actions, confirmations)
@@ -86,6 +86,13 @@ class PresenterTest {
             diagnostics = homegap.presentation.diagnostics.DiagnosticsScreenPresenter(api),
             locations = homegap.presentation.locations.LocationsScreenPresenter(api, actions, confirmations),
             addNode = addNode,
+            shareLinks = homegap.presentation.sharing.ShareLinksScreenPresenter(
+                api = api,
+                actions = actions,
+                confirmations = confirmations,
+                address = FakePageAddress,
+                appScope = scope,
+            ),
         )
     }
 
@@ -137,6 +144,45 @@ class PresenterTest {
 
         ready.onNavigate(Route.Dns)
         assertEquals(listOf(Route.Dns), router.routes)
+    }
+
+    @Test
+    fun aReadOnlyViewHidesAccessAndRefusesActions() = runTest {
+        val g = graph
+        g.api.sessionValue = homegap.api.SessionDto(
+            role = homegap.api.SessionRole.VIEWER,
+            shareLinks = true,
+            label = "Friend",
+        )
+        g.session.loadSession()
+        g.session.refresh()
+        val model = present(g.app, AppProps(Route.Access, RecordingRouter())).first { it.screen != null }
+
+        assertTrue(model.nav.none { it.route == Route.Access })
+        assertIs<homegap.presentation.app.RestrictedScreenModel>(model.screen)
+        assertEquals(true, model.header?.readOnly)
+        assertTrue(model.readOnly?.text.orEmpty().contains("Friend"))
+
+        model.header?.onResync?.invoke()
+        assertEquals("This is a read-only view. Nothing can be changed here.", g.actions.toast.value?.text)
+        assertTrue(g.api.calls.isEmpty(), "nothing reached the API")
+        assertNull(present(g.app, AppProps(Route.ShareLinks, RecordingRouter())).first { it.screen != null }.overlay)
+    }
+
+    @Test
+    fun anAdminCreatesAShareLinkShownOnce() = runTest {
+        val g = graph
+        g.session.refresh()
+        val models = present(g.app, AppProps(Route.ShareLinks, RecordingRouter()))
+        val ready = models.first { it.overlay is homegap.presentation.sharing.ShareLinksScreenModel.Ready }
+        val form = ready.overlay as homegap.presentation.sharing.ShareLinksScreenModel.Ready
+        form.onEvent(homegap.presentation.sharing.ShareLinksEvent.Label("Friend"))
+        val labeled = models.first { (it.overlay as? homegap.presentation.sharing.ShareLinksScreenModel.Ready)?.canCreate == true }
+        (labeled.overlay as homegap.presentation.sharing.ShareLinksScreenModel.Ready).onEvent(homegap.presentation.sharing.ShareLinksEvent.Create)
+        val created = models.first { (it.overlay as? homegap.presentation.sharing.ShareLinksScreenModel.Ready)?.created != null }
+        val link = (created.overlay as homegap.presentation.sharing.ShareLinksScreenModel.Ready).created
+        assertEquals("https://dashboard.example.net/#view=hgv_token", link?.url)
+        assertEquals(listOf("share Friend 7"), g.api.calls)
     }
 
     @Test

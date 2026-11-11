@@ -5,6 +5,8 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.LogEntryDto
 import homegap.api.MetricPointDto
+import homegap.api.SessionDto
+import homegap.api.SessionRole
 import homegap.api.ServerEvent
 import homegap.api.SetupJobDto
 import homegap.api.SpeedTestLiveDto
@@ -72,6 +74,14 @@ class ControllerSession(
     /** The homelab ↔ node speed test running now; null when none runs. */
     val speedLive: StateFlow<SpeedTestLiveDto?> = _speedLive.asStateFlow()
 
+    private val _session = MutableStateFlow<SessionDto?>(null)
+
+    /** Who the token belongs to; null until known. */
+    val session: StateFlow<SessionDto?> = _session.asStateFlow()
+
+    /** Signed in with a share link: the dashboard may look, never change. */
+    val readOnly: Boolean get() = _session.value?.role == SessionRole.VIEWER
+
     private val _accessRevision = MutableStateFlow(0L)
 
     /** Changes when users, invitations or devices changed, so the Access page reloads. */
@@ -102,6 +112,7 @@ class ControllerSession(
      */
     private suspend fun stream() {
         while (true) {
+            loadSession()
             loadMetrics()
             // A fresh request each time, so a reconnect asks only for the log entries it missed.
             api.events(lastLogSeq)
@@ -121,6 +132,9 @@ class ControllerSession(
     suspend fun refresh() {
         runCatchingCancellable { api.status() }
             .onSuccess {
+                if (_session.value == null) {
+                    loadSession()
+                }
                 setSnapshot(it)
                 _problem.value = null
             }
@@ -160,6 +174,13 @@ class ControllerSession(
 
             is ServerEvent.Log -> appendLog(event.entries)
         }
+    }
+
+    /** Asks who the token belongs to; call again after the token changes. */
+    suspend fun loadSession() {
+        runCatchingCancellable { api.session() }
+            .onSuccess { _session.value = it }
+            .onFailure { _session.value = null }
     }
 
     /** Loads the last hour of graphs; on failure the graphs fill from the stream instead. */

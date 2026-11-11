@@ -11,6 +11,26 @@ An optional bearer token protects `/api`. Set it with `dashboard.auth_token_env`
 
 The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back.
 
+## Share a read-only view
+
+A share link lets a person see the dashboard without the dashboard token. That person can read every page except **Access**, and cannot change anything. Share links need a dashboard token. Without a token, everybody who can open the dashboard has full control already.
+
+To make a share link:
+
+1. Open **Access**, then select **Share links**.
+2. Type a label, for example the name of the person.
+3. Select when the link expires: after 1 day, 7 days or 30 days, or never.
+4. Select **Create link**, then **Copy link**.
+
+The dashboard shows the link only one time. The orchestrator keeps only a hash of the token in `share-links.json` in its data directory. The token is in the fragment of the link (`#view=`). The browser never sends the fragment to a server, so no log contains it.
+
+When a person opens the link, the dashboard opens in a read-only view in that browser tab. A banner tells them that they cannot change anything. Buttons that change something are off, and the orchestrator refuses each change from a share link. **Access** and **Share links** are not in a read-only view, because they show email addresses and devices. **Sign in as admin** closes the read-only view. Then the dashboard uses the dashboard token that the browser keeps, or it asks for the token.
+
+To stop a link, select **Revoke** next to it on **Share links**. The link stops at once, also in a browser that has it open. An expired link stops too, and the person sees a message that asks for a new link.
+
+!!! warning "Caution"
+    A read-only view shows the other pages in full: the config file with the host names and SSH users of the nodes, the names of the secrets, the logs of the nodes, the activity log and the speed test results. Give a share link only to a person that you trust with this information.
+
 ## The layout
 
 The menu has two groups: **Operate** (Overview, Nodes, Services, Access, Speed test) and **Plumbing** (DNS, Tunnels, Activity, Diagnostics, Config). A number next to a page is the count of items that need attention there. On a tablet the menu is a rail of icons. On a phone it is a grid of icons under the header, which gets smaller when you scroll.
