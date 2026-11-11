@@ -15,6 +15,7 @@ import org.jetbrains.compose.web.dom.Span
 import org.jetbrains.compose.web.dom.Text
 import org.jetbrains.compose.web.svg.Path
 import org.jetbrains.compose.web.svg.Svg
+import org.w3c.dom.Element
 import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
 import org.w3c.dom.pointerevents.PointerEvent
@@ -95,8 +96,12 @@ private fun ElementScope<HTMLElement>.ChartHover(chart: ChartModel) {
             val x = ((pointer.clientX - box.left) / box.width).coerceIn(0.0, 1.0)
             points.minByOrNull { abs(it.x - x) }?.let { point ->
                 window.clearTimeout(hideTimer)
-                val left = point.x * box.width
-                val top = (1 - point.y) * box.height
+                // The line is drawn in the SVG's content box (its bottom border excluded), so the
+                // dot is measured from there, not from the plot.
+                val svg = plot.querySelector("svg") as Element
+                val area = svg.getBoundingClientRect()
+                val left = area.left - box.left + point.x * svg.clientWidth
+                val top = area.top - box.top + (1 - point.y) * svg.clientHeight
                 guide.style.left = "${left}px"
                 dot.style.left = "${left}px"
                 dot.style.top = "${top}px"
