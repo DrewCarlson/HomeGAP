@@ -14,6 +14,7 @@ on:
       - 'mkdocs.yml'
       - 'mkdocs.embedded.yml'
       - 'overrides/**'
+      - 'tools/localize-docs-assets.py'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
@@ -21,6 +22,7 @@ on:
       - 'mkdocs.yml'
       - 'mkdocs.embedded.yml'
       - 'overrides/**'
+      - 'tools/localize-docs-assets.py'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -48,6 +50,7 @@ jobs:
       # strict: a broken link or a missing page fails the build.
       - run: zensical build --strict
       - run: zensical build --strict -f mkdocs.embedded.yml
+      - run: python3 tools/localize-docs-assets.py site-embedded
 
   publish:
     name: Publish
