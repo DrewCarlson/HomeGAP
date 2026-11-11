@@ -68,6 +68,8 @@ PostgreSQL runs without JIT compilation. Pangolin makes only small lookups, and 
 
 A change to the settings does not restart the database. Patroni reads `patroni.yml` again. The settings that need a restart of PostgreSQL show as pending. The `db` container of the homelab reads a changed file within ten seconds.
 
+Pangolin uses the database `pangolin` with the role `pangolin`, which owns that database and is not a superuser. The homelab member creates both when it creates the cluster. The superuser `postgres` can sign in only from inside a member. Replication uses the role `replicator`, and `pg_rewind` uses the role `rewinder`.
+
 HomeGAP creates the passwords one time and keeps them in `cluster/secrets.json` in the data directory. The database keeps the passwords from its creation, so HomeGAP never creates new ones for a cluster that runs. If the file is gone or damaged, the cluster part of each pass fails until you restore the file. Keep a backup of it.
 
 The homelab member writes a nightly `pg_dump` to `./backups`, next to the homelab compose file (`HG_BACKUP_DIR: /backups`). It keeps the newest seven.

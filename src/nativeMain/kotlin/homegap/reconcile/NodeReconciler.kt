@@ -451,7 +451,7 @@ class NodeReconciler(
 
     fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, certs: CertMaterial?, slot: Int): List<RenderedFile> {
         val link = ctx.config.cluster?.let { c ->
-            val db = if (ctx.dryRun || cluster == null) ClusterSecrets("<generated>", "<generated>", "<generated>", "<generated>") else cluster.secrets()
+            val db = if (ctx.dryRun || cluster == null) ClusterSecrets("<generated>", "<generated>", "<generated>", "<generated>", "<generated>", "<generated>") else cluster.secrets()
             ClusterLink(Mesh.nodeAddress(c.mesh, slot), db)
         }
         val files = NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts, slot, link).toMutableList()
@@ -900,7 +900,7 @@ class NodeReconciler(
             |if [ -n "$CUR" ] && [ "$CUR" != $${shQuote(image)} ]; then
             |  $${pgEnvFile()}
             |  docker run --rm --network $${ClusterTemplates.NETWORK} --env-file "$B/pg.env" -v "$B:/backup" --entrypoint pg_dump $${shQuote(ctx.config.cluster!!.image)} \
-            |    -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U postgres -Fc -f /backup/cluster.dump postgres
+            |    -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U $${ClusterTemplates.PANGOLIN_USER} -Fc -f /backup/cluster.dump $${ClusterTemplates.PANGOLIN_DB}
             |  rm -f "$B/pg.env"
             |  echo "DBSNAP $CUR"
             |fi
@@ -914,7 +914,7 @@ class NodeReconciler(
             |  docker compose stop pangolin >/dev/null 2>&1 || true
             |  $${pgEnvFile()}
             |  docker run --rm --network $${ClusterTemplates.NETWORK} --env-file "$B/pg.env" -v "$B:/backup:ro" --entrypoint pg_restore $${shQuote(ctx.config.cluster!!.image)} \
-            |    -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U postgres --clean --if-exists --single-transaction -d postgres /backup/cluster.dump
+            |    -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U $${ClusterTemplates.PANGOLIN_USER} --clean --if-exists --single-transaction -d $${ClusterTemplates.PANGOLIN_DB} /backup/cluster.dump
             |  rm -f "$B/pg.env"
             |  echo "restored the cluster database from before the upgrade"
             |fi
@@ -923,7 +923,7 @@ class NodeReconciler(
 
     /** The database password in a private file (never in a command line). */
     private fun pgEnvFile(): String =
-        "(umask 077; printf 'PGPASSWORD=%s\\n' ${shQuote(cluster!!.secrets().postgres)} > \"\$B/pg.env\")"
+        "(umask 077; printf 'PGPASSWORD=%s\\n' ${shQuote(cluster!!.secrets().pangolin)} > \"\$B/pg.env\")"
 
     /** Post-provision checks; returns the ones that failed. */
     private suspend fun verify(node: NodeConfig, ssh: SshSession): List<String> {

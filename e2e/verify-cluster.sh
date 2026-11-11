@@ -26,7 +26,7 @@ until_cluster() { local expr=$1 t=$2; for _ in $(seq 1 $((t / 5))); do [ "$(clus
 NODES="na1:172.30.0.10 as1:172.30.0.11"
 ADMIN_EMAIL=$(state "s['clusterPangolin']['adminEmail']")
 ADMIN_PW=$(state "s['clusterPangolin']['adminPassword']")
-PGPW=$(python3 -c "import json; print(json.load(open('work/data/cluster/secrets.json'))['postgres'])")
+PGPW=$(python3 -c "import json; print(json.load(open('work/data/cluster/secrets.json'))['pangolin'])")
 
 if want 1; then
 echo "--- 1. database"
@@ -97,7 +97,7 @@ if want 4; then
 echo "--- 4. the homelab cut off, then back"
 docker compose exec -T orchestrator sh -c 'iptables -I INPUT -i hg-mesh -j DROP; iptables -I OUTPUT -o hg-mesh -j DROP'
 write_via() {
-  docker compose exec -T -e PW="$PGPW" "node-$1" sh -c 'docker run --rm --network homegap-cluster -e PGPASSWORD="$PW" -e PGCONNECT_TIMEOUT=5 --entrypoint psql homegap-cluster:e2e -h cluster-proxy -p 5433 -U postgres -tAc "set statement_timeout = 5000; create table if not exists hg_verify(at timestamptz); insert into hg_verify values (now()) returning inet_server_addr()"' 2>/dev/null | tr -d '\r' | grep -E '^10\.' | head -1
+  docker compose exec -T -e PW="$PGPW" "node-$1" sh -c 'docker run --rm --network homegap-cluster -e PGPASSWORD="$PW" -e PGCONNECT_TIMEOUT=5 --entrypoint psql homegap-cluster:e2e -h cluster-proxy -p 5433 -U pangolin -d pangolin -tAc "set statement_timeout = 5000; create table if not exists hg_verify(at timestamptz); insert into hg_verify values (now()) returning inet_server_addr()"' 2>/dev/null | tr -d '\r' | grep -E '^10\.' | head -1
 }
 promoted=""
 for _ in $(seq 1 24); do

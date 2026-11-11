@@ -4,7 +4,7 @@
 # until it exists, the role waits, so the containers can be started before the orchestrator has
 # rendered anything. Passwords stay in files, never in process arguments.
 set -eu
-ROLE=${1:?usage: hg-member etcd|patroni|valkey|sentinel|haproxy|haproxy-reload|ready ROLE}
+ROLE=${1:?usage: hg-member etcd|patroni|valkey|sentinel|haproxy|haproxy-reload|post-bootstrap|ready ROLE}
 CONFIG=${HG_CONFIG:-/config}
 
 wait_for() {
@@ -20,7 +20,7 @@ backup_loop() {
   sleep 300
   while true; do
     out="$HG_BACKUP_DIR/homegap-$(date -u +%Y%m%dT%H%M%SZ).dump"
-    if gosu postgres pg_dump -h /var/run/postgresql -U postgres -Fc -f "$out.part" postgres; then
+    if gosu postgres pg_dump -h /var/run/postgresql -U postgres -Fc -f "$out.part" pangolin; then
       mv "$out.part" "$out"
       ls -1t "$HG_BACKUP_DIR"/homegap-*.dump 2>/dev/null | tail -n +8 | xargs -r rm -f
     else
@@ -57,7 +57,7 @@ PY
 
 # Services bind the member's mesh address, which exists only once the mesh interface is up (the
 # homelab's after the orchestrator configures it, a node's after wg-quick at boot).
-case "$ROLE" in haproxy|haproxy-reload|ready) ;; *)
+case "$ROLE" in haproxy|haproxy-reload|post-bootstrap|ready) ;; *)
   wait_for "$CONFIG/mesh.env"
   . "$CONFIG/mesh.env"
   until python3 -c "import socket,sys; socket.socket().bind((sys.argv[1], 0))" "$HG_MESH_IP" 2>/dev/null; do
@@ -77,8 +77,10 @@ case "$ROLE" in
     ;;
   patroni)
     wait_for "$CONFIG/patroni.yml"
+    wait_for "$CONFIG/roles.sql"
     install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/data
     install -o postgres -g postgres -m 0600 "$CONFIG/patroni.yml" /tmp/patroni.yml
+    install -o postgres -g postgres -m 0600 "$CONFIG/roles.sql" /tmp/roles.sql
     if [ -n "${HG_BACKUP_DIR:-}" ]; then backup_loop & fi
     # Settings changes apply without a restart: Patroni (PID 1 below) re-reads its copy on SIGHUP.
     (
@@ -152,6 +154,12 @@ case "$ROLE" in
       sentinel) [ -n "$(valkey-cli -h 127.0.0.1 -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1)" ] ;;
       *) echo "usage: hg-member ready etcd|patroni|valkey|sentinel" >&2; exit 64 ;;
     esac
+    ;;
+  post-bootstrap)
+    # Run by Patroni (bootstrap.post_bootstrap) as the postgres user, once, on the member that
+    # creates the database cluster: Pangolin gets its own role and database, so no node ever
+    # holds the superuser. Uses the local socket; the address Patroni passes is not needed.
+    exec psql -v ON_ERROR_STOP=1 -h /var/run/postgresql -U postgres -d postgres -f /tmp/roles.sql
     ;;
   haproxy-reload)
     # Run by the orchestrator (docker compose exec) right after it writes a new config.

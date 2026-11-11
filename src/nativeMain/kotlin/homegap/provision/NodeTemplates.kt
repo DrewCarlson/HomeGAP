@@ -349,7 +349,7 @@ object NodeTemplates {
     }, HEADER)
 
     private fun postgresUrl(cluster: ClusterLink, host: String, port: Int) =
-        "postgresql://postgres:${cluster.db.postgres}@$host:$port/postgres"
+        "postgresql://${ClusterTemplates.PANGOLIN_USER}:${cluster.db.pangolin}@$host:$port/${ClusterTemplates.PANGOLIN_DB}"
 
     /** The Traefik service Pangolin generates for a resource, as HomeGAP's routes reference it. */
     fun pangolinService(resourceId: Int, niceId: String, cluster: Boolean) =

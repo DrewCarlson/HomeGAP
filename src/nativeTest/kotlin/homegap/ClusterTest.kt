@@ -24,7 +24,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ClusterTest {
-    private val secrets = ClusterSecrets("pgpass", "replpass", "valkeypass", "restpass")
+    private val secrets = ClusterSecrets("pgpass", "replpass", "valkeypass", "restpass", "pangolinpass", "rewindpass")
     private val homelab = Member("homelab", "10.77.0.1")
     private val na1 = Member("na1", "10.77.0.10")
     private val eu1 = Member("eu1", "10.77.0.11")
@@ -47,7 +47,13 @@ class ClusterTest {
         assertTrue("hosts: 127.0.0.1:2379" in yml, "a member cut off from the vote loses etcd and demotes itself")
         assertTrue("listen: 10.77.0.10,127.0.0.1:5432" in yml)
         assertTrue("listen: 10.77.0.10:8008" in yml)
-        assertTrue("host all all 10.77.0.0/24 scram-sha-256" in yml)
+        assertTrue("host pangolin pangolin 10.77.0.0/24 scram-sha-256" in yml)
+        // The superuser signs in only from inside the member, never over the mesh.
+        assertTrue("host all postgres 127.0.0.1/32 scram-sha-256" in yml)
+        assertFalse("host all all" in yml)
+        assertTrue("rewind: { username: rewinder, password: \"rewindpass\" }" in yml)
+        assertTrue("post_bootstrap: /usr/local/bin/hg-member post-bootstrap" in yml)
+        assertTrue("CREATE DATABASE pangolin OWNER pangolin;" in ClusterTemplates.rolesSql(secrets))
         assertTrue("password: \"restpass\"" in yml && "use_pg_rewind: true" in yml)
     }
 
@@ -155,8 +161,8 @@ class ClusterTest {
         assertTrue("\"./config/traefik/dynamic:/var/dynamic\"" in compose)
 
         val pangolin = files.getValue("config/config.yml").content
-        assertTrue("postgresql://postgres:pgpass@cluster-proxy:5433/postgres" in pangolin, "writes go to the primary")
-        assertTrue("postgresql://postgres:pgpass@10.77.0.10:5432/postgres" in pangolin, "reads stay on the node")
+        assertTrue("postgresql://pangolin:pangolinpass@cluster-proxy:5433/pangolin" in pangolin, "writes go to the primary")
+        assertTrue("postgresql://pangolin:pangolinpass@10.77.0.10:5432/pangolin" in pangolin, "reads stay on the node")
         assertTrue("file_mode: true" in pangolin && "router_config.yml" in pangolin)
         assertTrue("disable_local_sites: true" in pangolin)
 

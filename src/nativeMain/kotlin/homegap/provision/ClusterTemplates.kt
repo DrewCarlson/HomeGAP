@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 /** Passwords the cluster's services share; generated once and kept in the data directory. */
 @Serializable
 data class ClusterSecrets(
-    /** PostgreSQL superuser (`postgres`), also used for pg_rewind. */
+    /** PostgreSQL superuser (`postgres`). Only used inside a member, never over the mesh. */
     val postgres: String,
     /** PostgreSQL streaming replication (`replicator`). */
     val replication: String,
@@ -14,6 +14,10 @@ data class ClusterSecrets(
     val valkey: String,
     /** Patroni's REST API, for the unsafe endpoints (switchover, reload). */
     val rest: String,
+    /** Pangolin's own role (`pangolin`): owns the `pangolin` database and nothing else. */
+    val pangolin: String,
+    /** The role pg_rewind connects with (`rewinder`). */
+    val rewind: String,
 )
 
 /**
@@ -86,6 +90,11 @@ object ClusterTemplates {
     /** Reloads HAProxy in the running haproxy container with the config just written. */
     const val HAPROXY_RELOAD = "hg-member haproxy-reload"
 
+    /** Pangolin's database and the role that owns it. */
+    const val PANGOLIN_DB = "pangolin"
+    const val PANGOLIN_USER = "pangolin"
+    const val REWIND_USER = "rewinder"
+
     const val PATRONI_RELOAD =
         "install -o postgres -g postgres -m 0600 \"\${HG_CONFIG:-/config}/patroni.yml\" /tmp/patroni.yml && kill -HUP 1"
 
@@ -115,6 +124,8 @@ object ClusterTemplates {
         |  initdb:
         |    - encoding: UTF8
         |    - data-checksums
+        |  # Creates Pangolin's role and database, once, on the member that creates the cluster.
+        |  post_bootstrap: /usr/local/bin/hg-member post-bootstrap
         |postgresql:
         |  listen: ${member.meshIp},127.0.0.1:$POSTGRES_PORT
         |  connect_address: ${member.meshIp}:$POSTGRES_PORT
@@ -126,15 +137,29 @@ object ClusterTemplates {
         |  authentication:
         |    superuser: { username: postgres, password: "${secrets.postgres}" }
         |    replication: { username: replicator, password: "${secrets.replication}" }
-        |    rewind: { username: postgres, password: "${secrets.postgres}" }
+        |    rewind: { username: $REWIND_USER, password: "${secrets.rewind}" }
+        |  # The superuser never signs in over the mesh: a node holds only Pangolin's role (its own
+        |  # database), the replication role and the rewind role.
         |  pg_hba:
         |    - local all all trust
-        |    - host all all 127.0.0.1/32 scram-sha-256
-        |    - host all all ${mesh.subnet} scram-sha-256
+        |    - host all postgres 127.0.0.1/32 scram-sha-256
+        |    - host $PANGOLIN_DB $PANGOLIN_USER 127.0.0.1/32 scram-sha-256
+        |    - host $PANGOLIN_DB $PANGOLIN_USER ${mesh.subnet} scram-sha-256
         |    # Containers on the same node (HAProxy, Pangolin) reach the member from Docker networks.
-        |    - host all all 172.16.0.0/12 scram-sha-256
+        |    - host $PANGOLIN_DB $PANGOLIN_USER 172.16.0.0/12 scram-sha-256
+        |    - host postgres $REWIND_USER ${mesh.subnet} scram-sha-256
         |    - host replication replicator ${mesh.subnet} scram-sha-256
         |    - host replication replicator 127.0.0.1/32 scram-sha-256
+        |""".trimMargin()
+
+    /**
+     * What `hg-member post-bootstrap` runs as the superuser, once, right after the database
+     * cluster is created: Pangolin's role and the database it owns. The password is alphanumeric.
+     */
+    fun rolesSql(secrets: ClusterSecrets): String = """
+        |CREATE ROLE $PANGOLIN_USER LOGIN PASSWORD '${secrets.pangolin}';
+        |CREATE DATABASE $PANGOLIN_DB OWNER $PANGOLIN_USER;
+        |REVOKE ALL ON DATABASE $PANGOLIN_DB FROM PUBLIC;
         |""".trimMargin()
 
     /**

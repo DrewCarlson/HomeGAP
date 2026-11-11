@@ -8,6 +8,9 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+  # Only the orchestrator and the Docker socket proxy, as in deploy/homelab-compose.yml.
+  e2e-docker:
+    internal: true
   # Only the tunnels and the homelab Traefik: Pangolin clients' traffic arrives from here, so the
   # homelab Traefik can tell it from public traffic (homegap.private_network).
   e2e-private:
@@ -174,6 +177,7 @@ services:
     networks:
       e2e:
         aliases: [orchestrator]
+      e2e-docker: {}
 
   # The homelab's cluster member (etcd, PostgreSQL with Patroni, Valkey, Sentinel) in the mesh
   # namespace, reading the config the orchestrator writes under /data/cluster/config.
@@ -212,18 +216,30 @@ services:
     environment: { HG_CONFIG: /data/cluster/config }
     volumes: ["./work/data:/data:ro", "cluster-sentinel:/var/lib/sentinel"]
 
+  # The orchestrator reads Docker only through this proxy (container list, events, images).
+  docker-proxy:
+    image: docker.io/tecnativa/docker-socket-proxy:v0.5.0
+    environment: { CONTAINERS: 1, IMAGES: 1, EVENTS: 1, POST: 0 }
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
+    networks: [e2e-docker]
+
   orchestrator:
     image: homegap:e2e
     command: ["run"]
     network_mode: service:mesh
-    cap_add: [NET_ADMIN]
-    depends_on: { mesh: { condition: service_started, restart: true } }
+    # The same privileges as deploy/homelab-compose.yml, so the harness proves they are enough.
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, NET_RAW, DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      mesh: { condition: service_started, restart: true }
+      docker-proxy: { condition: service_started }
     environment:
       BUNNY_API_KEY: e2e-bunny-key
+      DOCKER_HOST: tcp://docker-proxy:2375
       # Optional EE license, exported by run.sh from the repository's untracked .env.
       PANGOLIN_LICENSE_KEY: ${PANGOLIN_LICENSE_KEY:-}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config.e2e.yml:/config/config.yml
       - ./work/keys:/keys:ro
       - ./work/certs:/certs:ro

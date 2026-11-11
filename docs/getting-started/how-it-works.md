@@ -35,7 +35,7 @@ The work has six independent domains. A failure in one domain never stops the ot
 
 | Domain | What it does |
 | --- | --- |
-| Discovery | Reads the `homegap.*` labels from the Docker socket (a read-only mount). If discovery fails, the orchestrator skips the Resources and DNS domains for that pass. An empty view can never delete anything. |
+| Discovery | Reads the `homegap.*` labels from Docker, through a proxy that lets only read requests through. If discovery fails, the orchestrator skips the Resources and DNS domains for that pass. An empty view can never delete anything. |
 | Nodes | Uses SSH to change a bare Ubuntu VPS into a Pangolin node. The steps are preflight, Docker, `ufw`, the compose stack, the secrets, a health wait, the bootstrap and a final check. |
 | Tunnels | Keeps a Pangolin site for the homelab on each node. Writes one Newt connector spec for each node, for the tunnel supervisor. The spec has the addresses of the node's management host, the same values as its DNS records. The supervisor pins them in the hosts file of the `tunnels` container, so a connector does not depend on public DNS. |
 | Resources | Creates the Pangolin resources through blueprints, one for each resource, with fixed `hg-*` niceIds. Writes the Traefik routes of each node: SNI passthrough, health and the management API. |

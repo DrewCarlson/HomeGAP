@@ -195,7 +195,7 @@ Every `/api` route needs the bearer token. If neither key gives a token, HomeGAP
 | `HOMEGAP_CONFIG` | `/config/config.yml` | The path of the config file. |
 | `HOMEGAP_DRY_RUN` | None. | With `1`, `true` or `yes`, the orchestrator runs in dry run. |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | The path of the Docker socket. |
-| `DOCKER_HOST` | None. | The address of a Docker socket proxy, as `tcp://host:port`. With it, the orchestrator does not use the socket. |
+| `DOCKER_HOST` | None. | The address of the Docker socket proxy, as `tcp://host:port`. With it, the orchestrator does not use the socket. The shipped compose file sets it. |
 | `HOMEGAP_TUNNELS_DIR` | `<data_dir>/tunnels` | The directory of the connector specs, for the orchestrator and the tunnel supervisor. |
 | `HOMEGAP_CLUSTER_CONFIG_DIR` | `<data_dir>/cluster/config` | The directory where the orchestrator writes the config of the cluster containers of the homelab. |
 | `HOMEGAP_NEWT` | `/usr/local/bin/newt` | The path of the Newt binary, for the tunnel supervisor. |

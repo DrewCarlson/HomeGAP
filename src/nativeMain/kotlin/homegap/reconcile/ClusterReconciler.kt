@@ -420,10 +420,10 @@ class ClusterReconciler(
         val base = "${ctx.config.pangolin.installDir}/cluster"
         val script = $$"""
             |B=$${shQuote(base)}
-            |(umask 077; printf 'PGPASSWORD=%s\n' $${shQuote(secrets().postgres)} > "$B/pg.env")
+            |(umask 077; printf 'PGPASSWORD=%s\n' $${shQuote(secrets().pangolin)} > "$B/pg.env")
             |trap 'rm -f "$B/pg.env"' EXIT
             |docker run --rm --network $${ClusterTemplates.NETWORK} --env-file "$B/pg.env" --entrypoint psql $${shQuote(ctx.config.cluster!!.image)} \
-            |  -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U postgres -At -F ' ' -c $${shQuote(sql)} postgres
+            |  -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U $${ClusterTemplates.PANGOLIN_USER} -At -F ' ' -c $${shQuote(sql)} $${ClusterTemplates.PANGOLIN_DB}
         """.trimMargin()
         val out = ctx.ssh.session(ready.node).runScriptOrThrow("exit-nodes", script, 120)
         exitPrunedAt = nowMillis()
@@ -481,7 +481,7 @@ class ClusterReconciler(
             "The cluster secrets file $secretsFile is missing, but the cluster is in use. HomeGAP does not create new " +
                 "passwords: the cluster database keeps the old ones. Restore the file from a backup of the data directory."
         }
-        val created = ClusterSecrets(Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32))
+        val created = ClusterSecrets(Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32))
         Files.mkdirs(dir)
         Files.chmodPath(dir, "700".toInt(8))
         Files.writeAtomic(secretsFile, json.encodeToString(created), "600".toInt(8))
@@ -497,6 +497,8 @@ class ClusterReconciler(
             write("$configDir/etcd.env", ClusterTemplates.etcdEnv(homelab, listOf(homelab), "new"))
             ctx.log.change(domain, "started the cluster vote (first etcd member)", Mesh.HOMELAB)
         }
+        // Before patroni.yml: the db container starts once that file is there, and needs this one.
+        write("$configDir/roles.sql", ClusterTemplates.rolesSql(secrets))
         // The homelab's db container notices a changed patroni.yml itself and has Patroni re-read it.
         if (write("$configDir/patroni.yml", ClusterTemplates.patroni(homelab, cluster.mesh, secrets))) {
             ctx.log.change(domain, "updated Patroni settings (applied by reload within seconds)", Mesh.HOMELAB)
@@ -557,6 +559,7 @@ class ClusterReconciler(
             appendLine(fileStep("$base/config/etcd.env", ClusterTemplates.etcdEnv(member, initial, "existing"), writeOnce = true))
             // Patroni settings are reloaded, never a reason to restart the database.
             appendLine("PATRONI=no")
+            appendLine(fileStep("$base/config/roles.sql", ClusterTemplates.rolesSql(secrets)).replace("CHANGED=yes", ":"))
             appendLine(fileStep("$base/config/patroni.yml", patroniYml).replace("CHANGED=yes", "CHANGED=yes; PATRONI=yes"))
             appendLine(fileStep("$base/config/valkey.env", valkeyEnv))
             appendLine(fileStep("$base/config/sentinel.conf", sentinelConf))

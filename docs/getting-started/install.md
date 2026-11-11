@@ -23,13 +23,14 @@ Put these files in one folder:
 | Service | What it does |
 | --- | --- |
 | `homegap-mesh` | A busybox container that holds the network namespace of the orchestrator. Thus the cluster mesh interface (`hg-mesh`) stays up when the orchestrator restarts. |
-| `orchestrator` | The image `ghcr.io/drewcarlson/homegap:latest` with the command `run`. It uses `network_mode: service:homegap-mesh` and `cap_add: [NET_ADMIN]`, for the mesh in cluster mode. |
+| `orchestrator` | The image `ghcr.io/drewcarlson/homegap:latest` with the command `run`. It uses `network_mode: service:homegap-mesh`. It drops all capabilities except `NET_ADMIN`, `NET_RAW` and `DAC_OVERRIDE`. |
+| `docker-proxy` | A filter in front of the Docker socket. The orchestrator reads the container list, the events and the image data through it. |
 | `homegap-etcd`, `homegap-db`, `homegap-valkey`, `homegap-sentinel` | The cluster member of the homelab. HomeGAP uses them only with `cluster:`. |
 | `tunnels` | The same image with the command `tunnels --dir /tunnels`. It keeps one Newt connector for each node. |
 
 ### `homegap-mesh`
 
-The networks, the published ports and the Traefik labels of the orchestrator go on this service, not on `orchestrator`. The service is on the `traefik` network with the alias `orchestrator`.
+The networks, the published ports and the Traefik labels of the orchestrator go on this service, not on `orchestrator`. The service is on the `traefik` network with the alias `orchestrator`. It is also on the internal `homegap-docker` network, where the orchestrator reaches `docker-proxy`.
 
 The service uses a fixed image. Do not recreate it when you update HomeGAP. A new container replaces the namespace and drops the mesh.
 
@@ -41,17 +42,23 @@ The orchestrator reads these environment variables:
 - `PANGOLIN_LICENSE_KEY`. It is optional.
 - `HOMEGAP_DASHBOARD_TOKEN`. The bearer token of the dashboard. If it is empty, HomeGAP creates a token.
 - `HOMEGAP_CLUSTER_CONFIG_DIR` and `HOMEGAP_TUNNELS_DIR`. The mount points of the two shared volumes.
+- `DOCKER_HOST`. The address of `docker-proxy`.
 - `HOMEGAP_DRY_RUN`. It is optional.
 
 The orchestrator has these volumes:
 
-- `/var/run/docker.sock:/var/run/docker.sock:ro`. The orchestrator only reads the container list, the events and the image data. The mount gives the full Docker API, also with `:ro`. See [Security model](../reference/security.md#the-homelab).
 - `./config/config.yml:/config/config.yml`. This mount must be writable only if you enable config edits on the dashboard.
 - `./secrets/ssh:/secrets/ssh:ro`. The SSH keys of the nodes.
 - `homegap-data:/data`. The state cache, `known_hosts`, the generated SSH keys and the dashboard token. No other container mounts this volume.
 - `homegap-cluster-config:/cluster-config`. The config that the orchestrator writes for the cluster containers. They mount it read-only.
 - `homegap-tunnels:/tunnels`. The connector specs. The `tunnels` container mounts the same volume.
 - Optional: the `acme.json` file of the homelab Traefik, read-only.
+
+The orchestrator does not mount the Docker socket. See [Security model](../reference/security.md#the-homelab).
+
+### `docker-proxy`
+
+The service mounts the Docker socket and lets through only `GET` requests for containers, images and events. It is only on the `homegap-docker` network, so no other container can reach it.
 
 ### The cluster member
 

@@ -4,7 +4,7 @@ This page tells you how HomeGAP publishes the services of your homelab, and when
 
 ## Labels are the source of truth
 
-The orchestrator reads the `homegap.*` labels of your containers through the Docker socket. The socket mount is read-only, and the orchestrator never writes labels. When a container starts, stops or changes, the Docker event starts a pass at once. The debounce is `reconcile.debounce` (default `2s`).
+The orchestrator reads the `homegap.*` labels of your containers from Docker. It reads through the `docker-proxy` service, which refuses each request that changes something. The orchestrator never writes labels. When a container starts, stops or changes, the Docker event starts a pass at once. The debounce is `reconcile.debounce` (default `2s`).
 
 ## Most services need no labels
 

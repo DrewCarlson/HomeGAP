@@ -33,16 +33,18 @@ The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. The 
 
 ## The homelab
 
-The orchestrator reads only the container list, the events and the image data from Docker. The tunnels run in a separate container. Thus the orchestrator never carries traffic.
+The orchestrator has no Docker socket. It reads Docker through the `docker-proxy` service, which lets through only `GET` requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries traffic.
+
+The orchestrator runs with three capabilities: `NET_ADMIN` and `NET_RAW` for the mesh, and `DAC_OVERRIDE` to read the mounted keys and config.
 
 !!! danger "Warning"
-    The mount of the Docker socket gives the full Docker API, also with `:ro`. A person who controls the orchestrator container controls the Docker host.
-
-To limit the orchestrator to the data that it reads, put a socket proxy between it and the socket. Then set `DOCKER_HOST` and remove the socket mount. The compose file has an example.
+    Do not mount the Docker socket in the orchestrator. A socket mount gives the full Docker API, also with `:ro`. A person who controls that container then controls the Docker host.
 
 Only the orchestrator mounts the `homegap-data` volume, which holds the state cache, the SSH keys and the dashboard token. The cluster containers and the `tunnels` container each mount only their own volume.
 
-In cluster mode, each node is a member of the cluster database. A person with root on a node can therefore run commands in the cluster containers of the homelab. Those containers see the cluster database and their own config, and nothing else of the orchestrator.
+In cluster mode, Pangolin on each node uses its own database role, `pangolin`. This role owns the `pangolin` database and is not a superuser. The superuser `postgres` can sign in only from inside a member, never over the mesh.
+
+Each node is also a voting member of the cluster database. Patroni members share their config, so a person with root on a node can still run commands in the cluster containers of the homelab. Those containers see the cluster database and their own config, and nothing else of the orchestrator.
 
 HomeGAP never publishes the IP address of the homelab. Every tunnel goes outbound from home. In cluster mode, the homelab dials the mesh. On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database.
 
