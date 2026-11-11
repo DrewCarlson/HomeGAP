@@ -2447,6 +2447,7 @@
 <p class="admonition-title">Warning</p>
 <p>If somebody gets access to the dashboard or to the orchestrator host, that person has control of every node.</p>
 </div>
+<p>A <a href="../../operations/dashboard/#share-a-read-only-view">share link</a> gives a read-only view of the dashboard. The orchestrator refuses each change from a share link, and it does not show people's email addresses and devices to it. The orchestrator keeps only a hash of each share link token.</p>
 <h2 id="secrets">Secrets<a class="headerlink" href="#secrets" title="Permanent link">&para;</a></h2>
 <p>HomeGAP creates the secrets of each node from the CSPRNG of the kernel. These are the Pangolin server secret, the admin credentials, the setup token and the CrowdSec bouncer key. It sends them over SSH to <code>&lt;install_dir&gt;/secrets/node.json</code> (mode 0600). This file is the source of truth. The local state file <code>/data/state.json</code> (mode 0600) is only a cache. If you lose it, HomeGAP reads the credentials from the node again.</p>
 <p>The add-node wizard keeps a setup password in memory for the job only. It never stores it. HomeGAP writes generated node keys to the data directory with mode 0600.</p>

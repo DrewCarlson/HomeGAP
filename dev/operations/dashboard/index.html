@@ -1533,6 +1533,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#share-a-read-only-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Share a read-only view
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-layout" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2427,6 +2438,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#share-a-read-only-view" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Share a read-only view
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-layout" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2630,7 +2652,23 @@
 </div>
 <h2 id="access">Access<a class="headerlink" href="#access" title="Permanent link">&para;</a></h2>
 <p>An optional bearer token protects <code>/api</code>. Set it with <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. When a token is set, the dashboard asks for it in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.</p>
-<p>The dashboard updates live. It uses one server-sent event stream (<code>/api/events</code>). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back.</p>
+<p>The dashboard updates live. It uses one server-sent event stream (<code>/api/events</code>). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back. If the orchestrator can't be reached for more than 5 seconds, a dialog says so. It shows the error, counts down to the next try and has <strong>Reconnect now</strong>. It closes by itself when the orchestrator answers again. Until then the page shows the last data it received.</p>
+<h2 id="share-a-read-only-view">Share a read-only view<a class="headerlink" href="#share-a-read-only-view" title="Permanent link">&para;</a></h2>
+<p>A share link lets a person see the dashboard without the dashboard token. That person can read every page except <strong>Access</strong>, and cannot change anything. Share links need a dashboard token. Without a token, everybody who can open the dashboard has full control already.</p>
+<p>To make a share link:</p>
+<ol>
+<li>Open <strong>Access</strong>, then select <strong>Share links</strong>.</li>
+<li>Type a label, for example the name of the person.</li>
+<li>Select when the link expires: after 1 day, 7 days or 30 days, or never.</li>
+<li>Select <strong>Create link</strong>, then <strong>Copy link</strong>.</li>
+</ol>
+<p>The dashboard shows the link only one time. The orchestrator keeps only a hash of the token in <code>share-links.json</code> in its data directory. The token is in the fragment of the link (<code>#view=</code>). The browser never sends the fragment to a server, so no log contains it.</p>
+<p>When a person opens the link, the dashboard opens in a read-only view in that browser tab. A banner tells them that they cannot change anything. Buttons that change something are off, and the orchestrator refuses each change from a share link. <strong>Access</strong> and <strong>Share links</strong> are not in a read-only view, because they show email addresses and devices. <strong>Sign in as admin</strong> closes the read-only view. Then the dashboard uses the dashboard token that the browser keeps, or it asks for the token.</p>
+<p>To stop a link, select <strong>Revoke</strong> next to it on <strong>Share links</strong>. The link stops at once, also in a browser that has it open. An expired link stops too, and the person sees a message that asks for a new link.</p>
+<div class="admonition warning">
+<p class="admonition-title">Caution</p>
+<p>A read-only view shows the other pages in full: the config file with the host names and SSH users of the nodes, the names of the secrets, the logs of the nodes, the activity log and the speed test results. Give a share link only to a person that you trust with this information.</p>
+</div>
 <h2 id="the-layout">The layout<a class="headerlink" href="#the-layout" title="Permanent link">&para;</a></h2>
 <p>The menu has two groups: <strong>Operate</strong> (Overview, Nodes, Services, Access, Speed test) and <strong>Plumbing</strong> (DNS, Tunnels, Activity, Diagnostics, Config). A number next to a page is the count of items that need attention there. On a tablet the menu is a rail of icons. On a phone it is a grid of icons under the header, which gets smaller when you scroll.</p>
 <p>The box at the bottom of the menu shows the last pass, and two controls:</p>
@@ -2639,7 +2677,7 @@
 <li><strong>Pause</strong> stops all changes everywhere. HomeGAP then only observes, and every page shows a banner with <strong>Resume</strong>. While changes are paused, the box offers <strong>Run one pass</strong>: one pass that applies changes, after which HomeGAP is paused again. A re-provision or a switch of the primary while paused asks if you want to apply just that change or resume everything.</li>
 </ul>
 <p>Each page starts with a headline that states the answer, for example "5 of 6 edges healthy.". Under it, a status line shows the most important message. When there are more, <strong>+N more</strong> opens all of them.</p>
-<p>Select a node, a service or another item to open it in the <strong>Inspector</strong>. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it.</p>
+<p>Select a node, a service or another item to open it in the <strong>Inspector</strong>. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.</p>
 <p>Press ⌘K, Ctrl+K or <code>/</code> to search everything: nodes, services, DNS records, tunnels, pages, actions such as <strong>Resync now</strong>, and on the orchestrator the log, the config keys and the secrets. The search shows the names of config keys and secrets, never their values.</p>
 <p>Actions that are risky ask first. To remove a node or a person, you type its name. After you remove a node or a person, a message with <strong>Undo</strong> shows for 30 seconds. A removed person stays until then, and <strong>Undo</strong> keeps them. <strong>Undo</strong> on a removed node adds it back with its config.</p>
 <h2 id="the-pages">The pages<a class="headerlink" href="#the-pages" title="Permanent link">&para;</a></h2>
@@ -2656,7 +2694,7 @@
 <p><img src="../../img/dashboard/overview.png" alt="The Overview page with the gauges, Needs attention and the traffic path"></p>
 <h3 id="nodes">Nodes<a class="headerlink" href="#nodes" title="Permanent link">&para;</a></h3>
 <p>The fleet table shows each node's health, its checks, its Pangolin API probe over the last hour, its tunnel, its certificate, its stack and its drift. While a stack update runs or is held, a strip above the table shows each node's part in the rollout.</p>
-<p>Select a node to open it in the Inspector. The Inspector shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its checks, its system facts, its stack and its last 10 provisioning runs. While a job runs, the stack column shows its step, for example "writing the stack (4 of 7)". The actions on a node are <strong>Re-provision</strong>, <strong>Pause</strong> or <strong>Resume</strong>, <strong>Diagnostics</strong>, <strong>Speed test</strong> and <strong>Remove</strong>. After a removal, the action is <strong>Decommission</strong>. During a held rollout, the node also has <strong>Retry update</strong> and <strong>Skip update</strong>. See <a href="../nodes/">Manage nodes</a> and <a href="../node-updates/">Node updates and rollback</a>.</p>
+<p>Select a node to open it in the Inspector. The Inspector shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its checks, its system facts, its stack and its last 10 provisioning runs. While a job runs, the stack column shows its step, for example "writing the stack (4 of 7)". The actions on a node are <strong>Re-provision</strong>, <strong>Pause</strong> or <strong>Resume</strong>, <strong>Diagnostics</strong>, <strong>Speed test</strong>, <strong>Change location</strong> and <strong>Remove</strong>. <strong>Change location</strong> moves the node to a known city or a point on the map. Geo DNS and the maps use the new place from the next pass. After a removal, the action is <strong>Decommission</strong>. During a held rollout, the node also has <strong>Retry update</strong> and <strong>Skip update</strong>. See <a href="../nodes/">Manage nodes</a> and <a href="../node-updates/">Node updates and rollback</a>.</p>
 <p><strong>+ Add node</strong> opens the wizard over the page. When a run fails, <strong>Retry from step N</strong> runs it again from the step that failed and keeps the user that it already made. See <a href="../../getting-started/add-node/">Add a node</a>. In cluster mode, the page also has the <strong>Cluster database</strong> and <strong>Cluster mesh</strong> panels. See <a href="../../cluster/mesh/">Cluster mesh</a> and <a href="../../cluster/database/">Cluster database</a>.</p>
 <p><img src="../../img/dashboard/nodes.png" alt="The Nodes page with the fleet table and a node in the Inspector"></p>
 <h3 id="services">Services<a class="headerlink" href="#services" title="Permanent link">&para;</a></h3>
