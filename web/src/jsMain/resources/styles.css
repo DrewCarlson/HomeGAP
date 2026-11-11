@@ -346,13 +346,19 @@ table.data tr.empty:hover td { background: none; }
 .figure .map-box:last-child { border-radius: 0 0 var(--radius) var(--radius); }
 .location-search { position: relative; margin-bottom: 14px; }
 .location-search input { width: 100%; }
-.location-results { list-style: none; margin: 6px 0 0; padding: 4px; border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--panel-raised); max-height: 300px; overflow: auto; }
+/* The matches: a popover placed under the input by LocationSearchBox; it scrolls inside. */
+.location-results {
+  position: fixed; inset: auto; margin: 0; padding: 4px; list-style: none; overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--panel-raised); color: var(--ink);
+  box-shadow: var(--shadow-lg);
+}
+.location-results:popover-open { animation: menu-in .12s ease-out; }
 .location-results li.muted { padding: 8px 10px; font-size: 13px; }
 .location-results button {
-  display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--radius);
-  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+  display: flex; justify-content: space-between; gap: 12px; width: 100%; min-height: 40px; padding: 7px 10px; border: 0; border-radius: var(--radius);
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; align-items: center;
 }
-.location-results button:hover, .location-results button:focus-visible { background: var(--accent-soft); outline: none; }
+.location-results button:hover, .location-results button:focus-visible { background: #141A4A; outline: none; }
 .location-results .location-name { font-weight: 600; }
 .location-results .muted { color: var(--muted); font-size: 12px; text-align: right; }
 .map-error { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
