@@ -2,6 +2,7 @@ package homegap.presentation.ui
 
 import androidx.compose.runtime.Immutable
 import homegap.presentation.data.Samples
+import homegap.presentation.format.ago
 import homegap.presentation.format.oneDecimal
 import kotlin.math.ceil
 import kotlin.math.log10
@@ -26,8 +27,13 @@ data class ChartModel(
     val empty: String? = null,
 )
 
+/** A sample in the unit square, with what a hover over it says: "427 ms · 12m ago". */
 @Immutable
-data class ChartPoint(val x: Double, val y: Double)
+data class ChartPoint(
+    val x: Double,
+    val y: Double,
+    val label: String,
+)
 
 /** Colors carry meaning: cyan for healthy, amber over a threshold, violet and white for speed tests. */
 enum class ChartTone {
@@ -69,6 +75,8 @@ fun chartOf(
             start = start,
             rangeSeconds = rangeSeconds,
             top = top,
+            unit = unit,
+            nowSeconds = nowSeconds,
         ),
         threshold = threshold?.let { it / top },
         empty = when {
@@ -85,6 +93,8 @@ internal fun segmentsOf(
     start: Long,
     rangeSeconds: Long,
     top: Double,
+    unit: String,
+    nowSeconds: Long,
 ): List<List<ChartPoint>> {
     if (pairs.isEmpty() || top <= 0) return emptyList()
     val steps = pairs.zipWithNext { a, b -> b.first - a.first }.filter { it > 0 }.sorted()
@@ -102,6 +112,7 @@ internal fun segmentsOf(
             current += ChartPoint(
                 x = ((time - start).toDouble() / rangeSeconds).coerceIn(0.0, 1.0),
                 y = (value / top).coerceIn(0.0, 1.0),
+                label = "${formatMeasure(value, unit)} $unit · ${ago(time * 1000, nowSeconds * 1000)}",
             )
         }
         previousTime = time

@@ -147,7 +147,7 @@ p { margin: 0; }
 /* One column that may shrink below its content (minmax(0, 1fr)): a long value inside a figure
    wraps or scrolls there instead of widening the whole page. Long unbroken words (hostnames,
    keys, URLs) break rather than overflow, here, in the Inspector and in overlays. */
-.page { flex: 1; min-width: 0; padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; max-width: 1440px; }
+.page { flex: 1; min-width: 0; padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1384px); gap: 20px; align-content: start; }
 .page, .inspector, .overlay-panel { overflow-wrap: break-word; }
 .page-head h1 { margin-top: 6px; font-size: 28px; font-weight: 500; letter-spacing: -.03em; line-height: 1.2; }
 .page-sub { margin-top: 4px; color: var(--ink-dim); font-size: 13px; }
@@ -514,12 +514,32 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .sparkline-line, .sparkline-dot { fill: none; stroke: currentColor; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; stroke-linecap: round; }
 .sparkline-dot { stroke-width: 4; }
 .sparkline-threshold { stroke: var(--amber); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; opacity: .7; }
-.chart.tone-cyan .sparkline { color: var(--cyan); }
-.chart.tone-amber .sparkline, .chart.tone-amber .chart-now { color: var(--amber); }
-.chart.tone-violet .sparkline { color: var(--violet); }
-.chart.tone-white .sparkline { color: #FFFFFF; }
+/* The reading under the pointer (ChartHover): a guide, a dot on the nearest sample, its label. */
+.chart-plot { position: relative; min-width: 0; touch-action: pan-y; cursor: crosshair; }
+.chart-guide, .chart-dot, .chart-tip { position: absolute; pointer-events: none; opacity: 0; transition: opacity .12s; }
+.chart-plot.hovering .chart-guide, .chart-plot.hovering .chart-dot, .chart-plot.hovering .chart-tip { opacity: 1; }
+.chart-guide { top: 0; bottom: 0; width: 1px; background: var(--rule-strong); }
+.chart-dot { width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px var(--panel); }
+.chart-tip {
+  bottom: calc(100% + 6px); z-index: 2; transform: translateX(-50%); padding: 3px 7px; white-space: nowrap;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--panel-raised); color: var(--ink);
+  font: 11px var(--mono); box-shadow: 0 6px 16px rgba(0, 0, 0, .4);
+}
+.chart.tone-cyan .chart-plot { color: var(--cyan); }
+.chart.tone-amber .chart-plot, .chart.tone-amber .chart-now { color: var(--amber); }
+.chart.tone-violet .chart-plot { color: var(--violet); }
+.chart.tone-white .chart-plot { color: #FFFFFF; }
 .chart-empty { padding: 12px 0; font-size: 12.5px; color: var(--ink-faint); border-bottom: 1px dashed var(--rule); }
 .chart.compact .sparkline { height: 40px; }
+
+/* Tablets and desktops: the menu, the page and the Inspector column each scroll on their own,
+   and none hands its scroll on to another. Phones scroll the window (see the phone rules). */
+@media (min-width: 600px) {
+  .shell { height: 100vh; height: 100dvh; overflow: hidden; }
+  .nav { height: 100%; overscroll-behavior: contain; }
+  .page { height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+  .inspector-column { position: static; height: 100%; }
+}
 
 /* ---------------------------------------------------------------- inspector */
 .inspector { display: flex; flex-direction: column; min-height: 0; }
@@ -532,7 +552,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .inspector-head { display: flex; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--rule); }
 .inspector-head h2 { margin-top: 6px; font-size: 20px; font-weight: 600; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .inspector-status { margin-top: 4px; font: 12px var(--mono); }
-.inspector-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; display: grid; gap: 18px; align-content: start; }
+.inspector-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 14px 16px; display: grid; gap: 18px; align-content: start; }
 .inspector-charts { display: grid; gap: 16px; }
 .inspector-section { display: grid; gap: 8px; }
 .inspector-note { font-size: 13px; line-height: 1.5; }

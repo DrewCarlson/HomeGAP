@@ -9,10 +9,10 @@ import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
 
 /**
- * Marks this element's hidden content: while it can scroll (sideways first, else down) and
- * hasn't been, a round arrow at that edge points the way and nudges now and then. A tap scrolls
- * most of a screen that way. Once the element has scrolled a little the arrow fades out for
- * good. It is decoration for sighted users; the content itself stays reachable as before.
+ * Marks this element's hidden content: while it can scroll (sideways first, else down) and sits
+ * at its start, a round arrow at that edge points the way and nudges now and then. A tap scrolls
+ * most of a screen that way. Scrolling a little fades the arrow out; scrolling back to the start
+ * brings it back. It is decoration for sighted users; the content stays reachable as before.
  */
 @Composable
 fun ElementScope<HTMLElement>.ScrollHint() {
@@ -25,11 +25,9 @@ fun ElementScope<HTMLElement>.ScrollHint() {
         hint.innerHTML = ARROW_SVG
         host?.classList?.add("scroll-hint-host")
         host?.appendChild(hint)
-        var done = false
         var direction: String? = null
 
         fun update() {
-            if (done) return
             direction = when {
                 box.scrollWidth - box.clientWidth > OVERFLOW_PX && box.scrollLeft < OVERFLOW_PX -> "right"
                 box.scrollHeight - box.clientHeight > OVERFLOW_PX && box.scrollTop < OVERFLOW_PX -> "down"
@@ -53,8 +51,9 @@ fun ElementScope<HTMLElement>.ScrollHint() {
 
         val onScroll: (Event) -> Unit = {
             if (box.scrollLeft > SCROLLED_PX || box.scrollTop > SCROLLED_PX) {
-                done = true
                 hint.classList.remove("shown")
+            } else {
+                update()
             }
         }
         val onTap: (Event) -> Unit = {
@@ -78,6 +77,19 @@ fun ElementScope<HTMLElement>.ScrollHint() {
             hint.removeEventListener("click", onTap)
             hint.remove()
         }
+    }
+}
+
+/**
+ * Returns this element to its start (top and left) whenever [key] changes: a new tab, item or
+ * page should not open part-way through the last one's scroll.
+ */
+@Composable
+fun ElementScope<HTMLElement>.ScrollReset(key: Any?) {
+    DisposableEffect(key) {
+        scopeElement.scrollTop = 0.0
+        scopeElement.scrollLeft = 0.0
+        onDispose {}
     }
 }
 

@@ -69,6 +69,7 @@ private fun InspectorContent(
     }
     Div({ classes("inspector-body") }) {
         ScrollHint()
+        ScrollReset(inspector.kind to inspector.title)
         inspector.sections.forEach { section ->
             Section(section)
         }

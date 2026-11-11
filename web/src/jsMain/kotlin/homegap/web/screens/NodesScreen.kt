@@ -231,6 +231,7 @@ private fun Mesh(mesh: MeshMatrixModel) {
     ) {
         Div({ classes("matrix-wrap") }) {
             ScrollHint()
+            ScrollReset(mesh.mode)
             Table({ classes("matrix", "mesh") }) {
                 Thead {
                     Tr {

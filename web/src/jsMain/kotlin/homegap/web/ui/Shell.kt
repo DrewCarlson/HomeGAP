@@ -86,6 +86,8 @@ private fun Shell(model: AppModel) {
             }
         }
         Main({ classes("page") }) {
+            // Tablets and desktops scroll the page here, not the window; a new section starts at the top.
+            ScrollReset(model.route)
             val head = model.screen?.head
             if (head != null) {
                 PageHead(

@@ -19,7 +19,8 @@ class HashRouter : Router {
     init {
         window.addEventListener("hashchange", {
             val next = Location.fromPath(window.location.hash)
-            // Opening or closing an item keeps the page where it is; a new section starts at the top.
+            // Opening or closing an item keeps the page where it is; a new section starts at the top
+            // (phones scroll the window; wider screens scroll the page element, see Shell).
             if (next.route != location.route) {
                 window.scrollTo(0.0, 0.0)
             }
