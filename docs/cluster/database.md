@@ -19,6 +19,24 @@ Thus each node runs five cluster containers plus the probe, and the homelab runs
 
 Each node member is its own compose project in `/opt/homegap/cluster`, under `pangolin.install_dir`. It is separate from the Pangolin stack, so a stack update never restarts the database. When you remove a node, HomeGAP removes its member from the vote and deletes its data. The Valkey Sentinels never forget a member by themselves. While one still knows a removed member, it uses a full CPU core, so HomeGAP has it forget the member (`SENTINEL RESET`), one Sentinel at a time and at least 30 seconds apart. The log then shows "Sentinel forgot departed" and the member's address.
 
+## The homelab as a vote only
+
+By default, the homelab is a full member. It holds a copy of the database and is the primary when it can.
+
+With `cluster.homelab_role: vote`, the homelab only votes. It runs etcd and Valkey Sentinel, and it runs no PostgreSQL and no Valkey. The `homegap-db` and `homegap-valkey` containers wait and do nothing. The database and Valkey are on the nodes only:
+
+- The nodes elect the primary between them. The vote of the homelab gives two nodes a majority when one node fails.
+- There is no preferred member and no switch-back. The primary stays where the vote puts it.
+- Once a day, HomeGAP makes a dump of the database on a node. It keeps the newest seven in `cluster/backups` in the data directory of the orchestrator.
+- `homegap maintenance start` moves nothing, because the homelab holds no primary.
+
+Each node is a member of the database, and members share their settings. Thus a person with root on a node can run commands in each container that runs a database member. In this mode, no such container is on the homelab. Use it if you do not trust your nodes as much as your homelab. The price is that the live data is on the nodes, not at home.
+
+!!! warning "Caution"
+    Set `homelab_role` before the first start of the cluster. HomeGAP records the role when it creates the cluster. If you change the value later, the cluster part of each pass fails until you set it back.
+
+With this role, use two or more nodes. With one node, the database has no second copy.
+
 ## The primary
 
 The homelab is the primary. It starts the cluster. The nodes then join one at a time: first the vote, then as `streaming` replicas.

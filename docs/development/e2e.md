@@ -64,3 +64,19 @@ The script has these sections:
 5. Exit nodes: a client that selects `Exit via <node>` or `Exit via homelab` reaches the internet through that exit. This section needs internet access.
 
 To run only some sections, set `ONLY`, for example `ONLY="3 5"`.
+
+### The homelab as a vote only
+
+To test `cluster.homelab_role: vote`, start a new harness with `E2E_HOMELAB_ROLE=vote`. The role does not change on a cluster that runs, so use a different project name and an empty `e2e/work` folder:
+
+```bash
+COMPOSE_PROJECT_NAME=homegap-e2e-vote E2E_HOMELAB_ROLE=vote E2E_NO_ENV=1 e2e/run.sh
+COMPOSE_PROJECT_NAME=homegap-e2e-vote e2e/verify-cluster.sh
+```
+
+`E2E_NO_ENV=1` makes `run.sh` ignore the `.env` file, so the harness does not activate a license key on the new database. In this mode, section 1 also checks that the database containers of the homelab are idle and that a dump is at home. Section 4 cuts off the homelab, then stops the database of the primary node.
+
+Two harnesses cannot run at the same time, because they use the same addresses and ports. Run `docker compose down` in `e2e/` for the first one before you start the second.
+
+!!! note
+    If you recreate a node container of the harness, recreate the `gerbil`, `traefik` and `maintenance` containers in it, and the connector in `/opt/homegap/exit`. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.

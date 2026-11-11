@@ -145,9 +145,12 @@ case "$ROLE" in
     case "${2:-}" in
       etcd) etcdctl --endpoints=http://127.0.0.1:2379 --command-timeout=3s endpoint health >/dev/null 2>&1 ;;
       patroni)
+        # No config: this member only votes (cluster.homelab_role: vote), so there is nothing to wait for.
+        [ -s "$CONFIG/patroni.yml" ] || exit 0
         curl -fsS -m 3 "http://$HG_MESH_IP:8008/primary" >/dev/null 2>&1 ||
           curl -fsS -m 3 "http://$HG_MESH_IP:8008/replica?lag=16MB" >/dev/null 2>&1 ;;
       valkey)
+        [ -s "$CONFIG/valkey.env" ] || exit 0
         . "$CONFIG/valkey.env"
         info=$(REDISCLI_AUTH=$HG_PASSWORD valkey-cli -h 127.0.0.1 info replication 2>/dev/null) || exit 1
         echo "$info" | grep -q '^role:master' || echo "$info" | grep -q '^master_link_status:up' ;;

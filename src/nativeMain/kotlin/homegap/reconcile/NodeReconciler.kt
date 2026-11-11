@@ -568,6 +568,13 @@ class NodeReconciler(
         }
         appendLine(SshSession.ownInstallDir(dir))
         appendLine("cd $d")
+        // A Pangolin that started before its database could be reached (a node reboot, while the
+        // cluster member was still coming up) gives up on its migrations and never listens.
+        // `up` leaves a running container alone, so it is started again here.
+        appendLine(
+            "if [ \"\$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' pangolin 2>/dev/null)\" = unhealthy ]; then " +
+                "docker compose restart pangolin >/dev/null 2>&1 || true; echo \"CHANGED restarted Pangolin (it was running but not answering)\"; fi",
+        )
         appendLine("docker compose up -d --remove-orphans --quiet-pull 2>&1 | tail -n 20")
         appendLine($$"for s in $(echo $RESTART | tr ' ' '\\n' | sort -u); do docker compose restart \"$s\" >/dev/null 2>&1 || true; done")
         appendLine(

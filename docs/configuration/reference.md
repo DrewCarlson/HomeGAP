@@ -100,8 +100,9 @@ The `cluster` section is optional. Without it, HomeGAP runs in standalone mode. 
 | `mesh.subnet` | string | `10.77.0.0/24` | The IPv4 subnet of the mesh. It must not overlap `100.64.0.0/10`. Use /26 or larger. |
 | `mesh.port` | integer | `51821` | The UDP port of the mesh on each node. It must not be 51820 or 21820. |
 | `image` | string | `ghcr.io/drewcarlson/homegap-cluster:latest` | The image of the cluster members. |
+| `homelab_role` | string | `database` | The role of the homelab in the cluster: `database` or `vote`. Set it before the first start of the cluster. See [The homelab as a vote only](../cluster/database.md#the-homelab-as-a-vote-only). |
 | `primary.preferred` | string | `homelab` | The location of the database primary. `homelab` is the only accepted value. |
-| `primary.switch_back_after` | duration | `10m` | The time that the homelab must stay caught up before it becomes the primary again. |
+| `primary.switch_back_after` | duration | `10m` | The time that the homelab must stay caught up before it becomes the primary again. HomeGAP does not use it with `homelab_role: vote`. |
 | `client_hostname` | string | `pangolin` | The first label of the client address, `<client_hostname>.<domain>`. |
 | `exit_nodes.nodes` | boolean | `false` | Offers an exit through each node. |
 | `exit_nodes.homelab` | boolean | `false` | Offers an exit through the homelab. |

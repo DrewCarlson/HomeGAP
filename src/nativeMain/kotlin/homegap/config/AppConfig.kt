@@ -153,6 +153,13 @@ data class CertificatesConfig(
 data class ClusterConfig(
     val mesh: MeshConfig = MeshConfig(),
     val primary: PrimaryConfig = PrimaryConfig(),
+    /**
+     * What the homelab is in the cluster. `database` (the default): a full member, holding a copy
+     * of the database and Valkey, and the preferred primary. `vote`: it only votes (etcd and
+     * Sentinel), and the database and Valkey live on the nodes alone, so nothing a node controls
+     * runs a database process at home. Chosen before the cluster is created.
+     */
+    @SerialName("homelab_role") val homelabRole: String = "database",
     /** The cluster image every member runs (PostgreSQL with Patroni, etcd, Valkey, HAProxy). */
     val image: String = "ghcr.io/drewcarlson/homegap-cluster:latest",
     /**
@@ -165,6 +172,9 @@ data class ClusterConfig(
     /** DNS resolvers the Pangolin apps can reach through the tunnel, without an exit node. */
     @SerialName("tunnel_dns") val tunnelDns: TunnelDnsConfig = TunnelDnsConfig(),
 )
+
+/** The homelab only votes: it runs no PostgreSQL and no Valkey (`cluster.homelab_role: vote`). */
+val ClusterConfig.homelabVotesOnly: Boolean get() = homelabRole == "vote"
 
 /**
  * The Pangolin apps' "DNS over tunnel" sends their own DNS lookups through the tunnel to their

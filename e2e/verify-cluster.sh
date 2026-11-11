@@ -28,9 +28,22 @@ ADMIN_EMAIL=$(state "s['clusterPangolin']['adminEmail']")
 ADMIN_PW=$(state "s['clusterPangolin']['adminPassword']")
 PGPW=$(python3 -c "import json; print(json.load(open('work/data/cluster/secrets.json'))['pangolin'])")
 
+# What the homelab is in this cluster: a full member (the default), or only a vote.
+HOMELAB_ROLE=$(cluster "'vote' if c.get('preferred') is None else 'database'")
+if [ "$HOMELAB_ROLE" = vote ]; then export E2E_CONFIG=./work/config.vote.yml; fi
+
 if want 1; then
-echo "--- 1. database"
-if until_cluster "c['primary'] == c['preferred'] and c.get('quorum') and all(m.get('role') == 'leader' or m.get('state') == 'streaming' for m in c['members'])" 120; then
+echo "--- 1. database (homelab role: $HOMELAB_ROLE)"
+if [ "$HOMELAB_ROLE" = vote ]; then
+  if until_cluster "c['primary'] not in (None, 'homelab') and c.get('quorum') and all(m.get('voteOnly') or m.get('role') == 'leader' or m.get('state') == 'streaming' for m in c['members'])" 180; then
+    pass "primary on $(cluster "c['primary']"), every node streaming, the homelab only votes, the vote has a majority"
+  else
+    fail "database not healthy: $(cluster "[(m['id'], m.get('role'), m.get('state'), m.get('voteOnly')) for m in c['members']]")"
+  fi
+  idle=$(docker compose logs --tail 3 cluster-db cluster-valkey 2>&1 | grep -c "waiting for")
+  [ "$idle" -ge 2 ] && pass "the homelab's database and Valkey containers are idle" || fail "the homelab's database or Valkey container is not idle"
+  ls work/data/cluster/backups/homegap-*.dump >/dev/null 2>&1 && pass "a dump of the database is kept at home" || fail "no dump of the database at home yet"
+elif until_cluster "c['primary'] == c['preferred'] and c.get('quorum') and all(m.get('role') == 'leader' or m.get('state') == 'streaming' for m in c['members'])" 120; then
   pass "primary on $(cluster "c['primary']"), every member streaming, the vote has a majority"
 else
   fail "database not healthy: $(cluster "[(m['id'], m.get('role'), m.get('state')) for m in c['members']]")"
@@ -93,7 +106,34 @@ if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
 fi
 fi
 
-if want 4; then
+if want 4 && [ "$HOMELAB_ROLE" = vote ]; then
+echo "--- 4. the homelab cut off, then a node's database stopped (the homelab only votes)"
+write_any() {
+  docker compose exec -T -e PW="$PGPW" "node-$1" sh -c 'docker run --rm --network homegap-cluster -e PGPASSWORD="$PW" -e PGCONNECT_TIMEOUT=5 --entrypoint psql homegap-cluster:e2e -h cluster-proxy -p 5433 -U pangolin -d pangolin -tAc "set statement_timeout = 5000; create table if not exists hg_verify(at timestamptz); insert into hg_verify values (now()) returning inet_server_addr()"' 2>/dev/null | tr -d '\r' | head -n 1
+}
+before=$(cluster "c['primary']")
+docker compose exec -T mesh-agent sh -c 'iptables -I INPUT -i hg-mesh -j DROP; iptables -I OUTPUT -o hg-mesh -j DROP; iptables -I FORWARD -o hg-mesh -j DROP'
+sleep 45
+# The two nodes still have a majority of the vote without the homelab: nothing moves.
+ok=yes
+for n in na1 as1; do [ -n "$(write_any "$n")" ] || ok=no; done
+[ "$ok" = yes ] && pass "with the homelab cut off, writes still land through every node" || fail "writes failed while the homelab was cut off"
+docker compose exec -T mesh-agent sh -c 'iptables -D INPUT -i hg-mesh -j DROP; iptables -D OUTPUT -o hg-mesh -j DROP; iptables -D FORWARD -o hg-mesh -j DROP'
+until_cluster "c.get('quorum') and c['primary'] == '$before'" 120 && pass "after healing, the primary is still on $before" || fail "the primary moved: $(cluster "c['primary']")"
+# Now the primary's own database stops: the other node takes over, with the homelab's vote.
+docker compose exec -T "node-$before" sh -c 'cd /opt/homegap/cluster && docker compose stop db' >/dev/null 2>&1
+# The database moves within seconds; the dashboard shows it after the orchestrator's next pass, which
+# can take a few minutes while Pangolin on the stopped node settles.
+if until_cluster "c['primary'] not in (None, '$before', 'homelab')" 300; then
+  pass "with $before's database stopped, $(cluster "c['primary']") took over"
+else
+  fail "no node took over from $before: primary $(cluster "c['primary']")"
+fi
+docker compose exec -T "node-$before" sh -c 'cd /opt/homegap/cluster && docker compose start db' >/dev/null 2>&1
+until_cluster "all(m.get('voteOnly') or m.get('role') == 'leader' or m.get('state') == 'streaming' for m in c['members'])" 240 && pass "$before rejoined as a replica" || fail "$before did not rejoin: $(cluster "[(m['id'], m.get('role'), m.get('state')) for m in c['members']]")"
+fi
+
+if want 4 && [ "$HOMELAB_ROLE" = database ]; then
 echo "--- 4. the homelab cut off, then back"
 docker compose exec -T mesh-agent sh -c 'iptables -I INPUT -i hg-mesh -j DROP; iptables -I OUTPUT -o hg-mesh -j DROP; iptables -I FORWARD -o hg-mesh -j DROP'
 write_via() {

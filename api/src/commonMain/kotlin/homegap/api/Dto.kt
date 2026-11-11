@@ -555,8 +555,8 @@ data class ClusterStatusDto(
     val primary: String? = null,
     /** The member holding the Valkey primary. */
     val valkeyPrimary: String? = null,
-    /** Where the primary belongs (`homelab`). */
-    val preferred: String = "homelab",
+    /** Where the primary belongs (`homelab`); null when the homelab only votes and holds no database. */
+    val preferred: String? = "homelab",
     /** What the switch-back is waiting for, when the primary is away from [preferred]. */
     val switchBack: String? = null,
     /** When the switch-back is due (epoch ms), once [preferred] is caught up and the hold runs. */
@@ -606,6 +606,8 @@ data class ClusterMemberDto(
     val valkeyRole: String? = null,
     /** The member's etcd answers its health check (it is part of a working majority). */
     val etcdHealthy: Boolean? = null,
+    /** The member only votes (the homelab with `cluster.homelab_role: vote`): no database, no Valkey. */
+    val voteOnly: Boolean = false,
     /**
      * How far behind the primary this replica's replay is, in milliseconds: the time since it
      * replayed the last transaction. Only set while [lagBytes] is above zero, since an idle primary

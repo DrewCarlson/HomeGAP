@@ -125,6 +125,7 @@ object ConfigLoader {
             }
         }
         c.cluster?.let { cl ->
+            if (cl.homelabRole !in setOf("database", "vote")) errors += "cluster.homelab_role must be database or vote"
             if (cl.primary.preferred != "homelab") errors += "cluster.primary.preferred must be homelab"
             try {
                 cl.primary.switchBackDelay

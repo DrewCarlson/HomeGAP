@@ -53,6 +53,10 @@ certificates:
 #     subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
 #     port: 51821            # udp, opened in each node's firewall
 #   image: ghcr.io/drewcarlson/homegap-cluster:latest
+#   # What the homelab is in the cluster. Set it before the cluster first starts; it does not change later.
+#   #   database (default): the homelab holds a copy of the database and is the primary whenever it can.
+#   #   vote: the homelab only votes. The database lives on the nodes, with a daily dump kept at home.
+#   homelab_role: database
 #   primary:
 #     preferred: homelab     # where the database primary lives whenever it can
 #     switch_back_after: 10m # how long the homelab must be caught up before it takes over again

@@ -51,6 +51,8 @@ Each node is also a voting member of the cluster database. Patroni members share
 
 See [Cluster mesh](../cluster/mesh.md#the-isolation-of-the-homelab-member).
 
+To keep every database member off the homelab, set `cluster.homelab_role: vote`. Then the homelab only votes, and the database is on the nodes. See [The homelab as a vote only](../cluster/database.md#the-homelab-as-a-vote-only).
+
 HomeGAP never publishes the IP address of the homelab. Every tunnel goes outbound from home. In cluster mode, the homelab dials the mesh. On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database.
 
 ## Traffic

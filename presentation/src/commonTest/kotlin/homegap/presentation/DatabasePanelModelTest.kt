@@ -12,6 +12,21 @@ import kotlin.test.assertTrue
 
 class DatabasePanelModelTest {
     @Test
+    fun aVoteOnlyHomelabIsNotAProblem() {
+        val model = ClusterStatusDto(
+            primary = "na1", valkeyPrimary = "na1", preferred = null, quorum = true,
+            members = listOf(
+                homegap.api.ClusterMemberDto(id = "homelab", address = "10.77.0.1", vote = "voter", voteOnly = true),
+                homegap.api.ClusterMemberDto(id = "na1", address = "10.77.0.10", vote = "voter", role = "leader", state = "running", valkeyRole = "master"),
+            ),
+        ).toPanelModel()
+        // No preferred member: the primary is fine on a node, and the homelab's empty roles are expected.
+        kotlin.test.assertEquals(homegap.api.Health.OK, model.primary.health)
+        kotlin.test.assertEquals("vote only", model.members.first().database.text)
+        kotlin.test.assertEquals(homegap.api.Health.OK, model.members.first().valkey.health)
+    }
+
+    @Test
     fun showsTheSwitchBackCountdownHistoryAndWhoCanTakeOver() {
         val now = 1_000_000L
         val status = ClusterStatusDto(

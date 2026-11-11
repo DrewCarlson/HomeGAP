@@ -32,11 +32,18 @@ object ClusterAlerts {
                 out += ClusterAlertDto(Health.DEGRADED, "${m.id}'s database is ${lag / (1024 * 1024)} MiB behind the primary.")
             }
         }
-        val nodes = cluster.members.count { it.id != cluster.preferred }
-        if (nodes < 2) {
+        val preferred = cluster.preferred
+        val nodes = cluster.members.count { !it.voteOnly && it.id != preferred }
+        if (nodes < 2 && preferred != null) {
             out += ClusterAlertDto(
                 Health.UNKNOWN,
-                "With ${if (nodes == 0) "no nodes" else "one node"}, the cluster can't elect a primary without the ${cluster.preferred}: add a second node to keep sign-ins working while it's down.",
+                "With ${if (nodes == 0) "no nodes" else "one node"}, the cluster can't elect a primary without the $preferred: add a second node to keep sign-ins working while it's down.",
+            )
+        }
+        if (nodes < 2 && preferred == null) {
+            out += ClusterAlertDto(
+                Health.UNKNOWN,
+                "With ${if (nodes == 0) "no nodes" else "one node"}, the database has no second copy: add a second node to keep sign-ins working when a node is down.",
             )
         }
         when {

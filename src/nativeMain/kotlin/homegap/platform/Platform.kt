@@ -56,10 +56,13 @@ object Files {
      * created with [mode] (never wider, even for a moment) and synced to disk before the rename,
      * so a power loss leaves the old content or the new, not an empty file.
      */
-    fun writeAtomic(path: String, content: String, mode: Int = "644".toInt(8)) {
+    fun writeAtomic(path: String, content: String, mode: Int = "644".toInt(8)) =
+        writeAtomicBytes(path, content.encodeToByteArray(), mode)
+
+    /** [writeAtomic] for binary content. */
+    fun writeAtomicBytes(path: String, bytes: ByteArray, mode: Int = "644".toInt(8)) {
         val parent = Path(path).parent
         if (parent != null) SystemFileSystem.createDirectories(parent)
-        val bytes = content.encodeToByteArray()
         val tmp = "$path.tmp-${Random.nextInt(0, Int.MAX_VALUE)}"
         writeSynced(tmp, bytes, mode, O_WRONLY or O_CREAT or O_EXCL)
         try {

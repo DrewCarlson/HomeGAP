@@ -8,6 +8,9 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
+          # Containers without a fixed address get theirs from the upper half, so one of them
+          # never takes a node's fixed address before that node starts.
+          ip_range: 172.30.0.128/25
   # Only the orchestrator and the Docker socket proxy, as in deploy/homelab-compose.yml.
   e2e-docker:
     internal: true
@@ -263,7 +266,8 @@ services:
       # Optional EE license, exported by run.sh from the repository's untracked .env.
       PANGOLIN_LICENSE_KEY: ${PANGOLIN_LICENSE_KEY:-}
     volumes:
-      - ./config.e2e.yml:/config/config.yml
+      # run.sh points E2E_CONFIG at a generated copy for E2E_HOMELAB_ROLE=vote.
+      - ${E2E_CONFIG:-./config.e2e.yml}:/config/config.yml
       - ./work/keys:/keys:ro
       - ./work/certs:/certs:ro
       - ./work/data:/data

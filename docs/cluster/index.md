@@ -30,6 +30,7 @@ Read the pages in this order. Each part builds on the part before it.
 ## Requirements
 
 - Two or more nodes. The vote needs a majority. With the homelab and only one node, the loss of either one stops all writes.
+- A decision about the role of the homelab, before the first start. The homelab can hold a copy of the database (the default) or only vote. See [The homelab as a vote only](database.md#the-homelab-as-a-vote-only).
 - WireGuard in the kernel of the homelab host. It is part of Linux 5.6 and later.
 - The `homegap-mesh` and `homegap-mesh-agent` services from `deploy/homelab-compose.yml`. The agent needs `cap_add: [NET_ADMIN, NET_RAW]`.
 - `cap_add: [NET_ADMIN]` on the orchestrator, for its route to the mesh.

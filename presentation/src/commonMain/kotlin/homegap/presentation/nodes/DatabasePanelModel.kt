@@ -39,9 +39,10 @@ data class DatabaseMemberRow(
 data class PrimaryChangeRow(val time: String, val change: String, val cause: Badge)
 
 fun ClusterStatusDto.toPanelModel(now: Long = 0): DatabasePanelModel {
-    fun where(member: String?, what: String) = when (member) {
-        null -> Badge(Health.DOWN, "none", "No member holds the $what primary right now")
-        preferred -> Badge(Health.OK, member)
+    fun where(member: String?, what: String) = when {
+        member == null -> Badge(Health.DOWN, "none", "No member holds the $what primary right now")
+        // With no preferred member (the homelab only votes), the primary belongs wherever it is.
+        preferred == null || member == preferred -> Badge(Health.OK, member)
         else -> Badge(Health.DEGRADED, member, "Away from $preferred until it is back and caught up")
     }
     return DatabasePanelModel(
@@ -82,12 +83,13 @@ fun ClusterStatusDto.toPanelModel(now: Long = 0): DatabasePanelModel {
                     else -> Badge(Health.UNKNOWN, m.vote)
                 },
                 database = when {
+                    m.voteOnly -> Badge(Health.OK, "vote only", "This member only votes: it holds no database")
                     m.role == null -> Badge(Health.DOWN, "not running")
                     m.role == "leader" -> Badge(Health.OK, "primary")
                     m.state == "streaming" -> Badge(Health.OK, "replica")
                     else -> Badge(Health.DEGRADED, listOfNotNull(m.role, m.state).joinToString(" · "))
                 },
-                valkey = when (m.valkeyRole) {
+                valkey = if (m.voteOnly) Badge(Health.OK, "vote only", "This member only votes: it holds no Valkey") else when (m.valkeyRole) {
                     "master" -> Badge(Health.OK, "primary")
                     "slave", "replica" -> Badge(Health.OK, "replica")
                     null -> Badge(Health.DOWN, "not answering")

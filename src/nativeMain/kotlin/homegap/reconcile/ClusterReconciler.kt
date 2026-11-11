@@ -1,5 +1,6 @@
 package homegap.reconcile
 
+import homegap.config.homelabVotesOnly
 import homegap.api.ClusterMemberDto
 import homegap.api.ClusterStatusDto
 import homegap.api.PrimaryChangeDto
@@ -59,6 +60,12 @@ class ClusterReconciler(
     private val secretsFile = "$dir/secrets.json"
     /** Written once the database has had a leader; a later outage never sends nodes back to etcd only. */
     private val initializedFile = "$dir/initialized"
+    private val roleFile = "$dir/homelab-role"
+    private val backupDir = "$dir/backups"
+    private var backupTriedAt = 0L
+
+    /** The homelab only votes (`cluster.homelab_role: vote`), as of the last pass. */
+    @Volatile private var voteOnly = false
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     private val lastErrors = mutableMapOf<String, String>()
     private var preferredCaughtUpSince: Long? = null
@@ -91,6 +98,8 @@ class ClusterReconciler(
      */
     suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>, image: MemberImage? = null): ClusterStatusDto? {
         val cluster = ctx.config.cluster ?: return null
+        voteOnly = cluster.homelabVotesOnly
+        keepRole(cluster)
         val secrets = secrets()
         val homelab = Member(Mesh.HOMELAB, Mesh.homelabAddress(cluster.mesh))
         // Nodes take part once they have joined the mesh.
@@ -99,24 +108,26 @@ class ClusterReconciler(
             .mapNotNull { n -> slots[n.id]?.let { n to Member(n.id, Mesh.nodeAddress(cluster.mesh, it)) } }
         val members = listOf(homelab) + nodeMembers.map { it.second }
 
+        // Every member votes; the database and Valkey are on [data] (without the homelab when it only votes).
+        val data = data(members)
         writeHomelab(ctx, cluster, homelab, members, secrets)
 
         val etcd = EtcdClient(http, "http://${homelab.meshIp}:${ClusterTemplates.ETCD_CLIENT_PORT}")
         val patroni = PatroniClient(http, ClusterTemplates.REST_USER, secrets.rest)
         val etcdMembers = runCatching { etcd.members() }.getOrNull()
         report(ctx, "etcd", if (etcdMembers == null) "the homelab's etcd is not reachable yet" else null)
-        val pg = databaseView(patroni, members)
+        val pg = databaseView(patroni, data)
         if (pg != null) ready = pg.filter { (it.role == "leader" && it.state == "running") || it.state == "streaming" }.map { it.name }.toSet()
         // Recorded now, not after the node syncs below (which can take minutes, e.g. while a node
         // pulls an image): planned maintenance needs only this view.
-        if (pg != null) lastView = members to pg
+        if (pg != null) lastView = data to pg
         val initialized = Files.exists(initializedFile) ||
             (pg?.any { it.role == "leader" } == true).also { if (it) Files.writeAtomic(initializedFile, "") }
 
         // A node's member moves to a new image only while the whole cluster is healthy (every
         // member in the vote and serving the database) and no maintenance is under way, and only
         // one node per pass, so at most one member is ever restarting.
-        val notServing = members.map { it.id }.filter { it !in ready }
+        val notServing = data.map { it.id }.filter { it !in ready }
         var imageWait: String? = when {
             maintenanceUntil() != null -> "planned maintenance of the homelab is under way"
             pg == null -> "the database can't be read"
@@ -148,7 +159,9 @@ class ClusterReconciler(
                             if (promoted) ctx.log.change(domain, "joined the cluster vote", node.id)
                         }
                         else -> {
-                            val services = if (initialized) listOf("etcd", "db", "valkey", "sentinel", "haproxy", MeshProbe.SERVICE) else listOf("etcd")
+                            // The homelab creates the database when it holds one; otherwise the nodes do
+                            // (Patroni lets exactly one of them, the others follow it).
+                            val services = if (initialized || voteOnly) listOf("etcd", "db", "valkey", "sentinel", "haproxy", MeshProbe.SERVICE) else listOf("etcd")
                             syncNode(ctx, node, cluster, member, members, secrets, etcdInitial(etcdMembers, members), services, nodeImage(ctx, node, cluster))
                             if (image != null && initialized) {
                                 if (updateNodeImage(ctx, node, cluster, member, members, secrets, etcdInitial(etcdMembers, members), image, imageWait)) {
@@ -167,7 +180,9 @@ class ClusterReconciler(
 
         if (initialized) forgetDeparted(ctx, ValkeyCli(secrets.valkey), members)
         if (pg != null) recordPrimary(pg)
-        val switchBack = switchBack(ctx, cluster, patroni, pg, homelab, members, secrets)
+        // Without a database at home there is nowhere to switch back to: the primary stays where it is elected.
+        val switchBack = if (voteOnly) null else switchBack(ctx, cluster, patroni, pg, homelab, members, secrets)
+        if (voteOnly && initialized) backupHome(ctx, cluster, nodeMembers.map { it.first }, secrets)
         return status(cluster, members, etcdMembers, pg, secrets, switchBack)
     }
 
@@ -220,6 +235,7 @@ class ClusterReconciler(
      * up for the configured delay.
      */
     suspend fun beginMaintenance(cluster: ClusterConfig, holdMs: Long): String {
+        if (cluster.homelabVotesOnly) return "Maintenance: the homelab only votes, so there is no primary to move off it."
         val start = nowMillis()
         Files.writeAtomic(maintenanceFile, (start + holdMs).toString(), "644".toInt(8))
         preferredCaughtUpSince = null
@@ -275,7 +291,7 @@ class ClusterReconciler(
         val master = sentinelMaster(valkey, members)
         if (master == offIp) {
             notePlannedMove()
-            check(valkey.sentinelFailover(homelabIp(members), ClusterTemplates.SCOPE)) { "Sentinel refused the Valkey failover" }
+            check(members.any { valkey.sentinelFailover(it.meshIp, ClusterTemplates.SCOPE) }) { "Sentinel refused the Valkey failover" }
             val moved = waitFor(60_000) { sentinelMaster(valkey, members).let { it != null && it != offIp } }
             check(moved) { "the Valkey primary did not move off $off within a minute" }
             notes += "Valkey primary moved to ${name(sentinelMaster(valkey, members))}"
@@ -497,6 +513,14 @@ class ClusterReconciler(
             write("$configDir/etcd.env", ClusterTemplates.etcdEnv(homelab, listOf(homelab), "new"))
             ctx.log.change(domain, "started the cluster vote (first etcd member)", Mesh.HOMELAB)
         }
+        if (voteOnly) {
+            // Only the vote: etcd above, and a Sentinel once a node's Valkey exists for it to watch.
+            // No database or Valkey config is written, so those containers stay idle.
+            data(members).firstOrNull()?.let { first ->
+                write("$configDir/sentinel.conf", ClusterTemplates.sentinel(homelab, first.meshIp, secrets))
+            }
+            return
+        }
         // Before patroni.yml: the db container starts once that file is there, and needs this one.
         write("$configDir/roles.sql", ClusterTemplates.rolesSql(secrets))
         // The homelab's db container notices a changed patroni.yml itself and has Patroni re-read it.
@@ -532,11 +556,13 @@ class ClusterReconciler(
         image: String,
         rolling: Boolean = false,
     ) {
-        val homelabIp = members.first { it.id == Mesh.HOMELAB }.meshIp
+        // Where Valkey starts when no Sentinel knows a primary yet: the homelab, or the first node
+        // when the homelab only votes.
+        val initialMaster = data(members).first().meshIp
         val patroniYml = ClusterTemplates.patroni(member, cluster.mesh, secrets)
-        val valkeyEnv = ClusterTemplates.valkeyEnv(member, secrets, NODE_PRIORITY, homelabIp, members.map { it.meshIp })
-        val sentinelConf = ClusterTemplates.sentinel(member, homelabIp, secrets)
-        val haproxyCfg = ClusterTemplates.haproxy(members, secrets, member.id)
+        val valkeyEnv = ClusterTemplates.valkeyEnv(member, secrets, NODE_PRIORITY, initialMaster, members.map { it.meshIp })
+        val sentinelConf = ClusterTemplates.sentinel(member, initialMaster, secrets)
+        val haproxyCfg = ClusterTemplates.haproxy(data(members), secrets, member.id)
         val probeTargets = MeshProbe.targets(member.id, members)
         val compose = ClusterTemplates.nodeCompose(
             image,
@@ -697,8 +723,63 @@ class ClusterReconciler(
         return decision.note
     }
 
-    /** The homelab member's address: its services are reached over the mesh, like every member's. */
-    private fun homelabIp(members: List<Member>): String = members.first { it.id == Mesh.HOMELAB }.meshIp
+    /** The members that hold the database and Valkey: all of them, or the nodes when the homelab only votes. */
+    private fun data(members: List<Member>): List<Member> = if (voteOnly) members.filter { it.id != Mesh.HOMELAB } else members
+
+    /**
+     * The homelab's role is fixed when the cluster is created: changing it later would leave a
+     * database at home that the nodes no longer follow (or expect one that was never there).
+     */
+    private fun keepRole(cluster: ClusterConfig) {
+        val recorded = Files.readTextOrNull(roleFile)?.trim().orEmpty()
+        if (recorded.isEmpty()) {
+            Files.mkdirs(dir)
+            Files.writeAtomic(roleFile, cluster.homelabRole + "\n", "600".toInt(8))
+            return
+        }
+        check(recorded == cluster.homelabRole) {
+            "cluster.homelab_role is '${cluster.homelabRole}', but this cluster was created with '$recorded'. " +
+                "HomeGAP does not change the role of a cluster that runs: set it back to '$recorded'."
+        }
+    }
+
+    /**
+     * With no database at home, a copy of it still is: once a day a dump is taken on a node and
+     * kept in the orchestrator's data directory (the newest [BACKUPS_KEPT]). A failed attempt is
+     * retried after a few minutes.
+     */
+    private suspend fun backupHome(ctx: ReconcileContext, cluster: ClusterConfig, nodes: List<NodeConfig>, secrets: ClusterSecrets) {
+        val now = nowMillis()
+        val dumps = Files.list(backupDir).filter { it.startsWith(BACKUP_PREFIX) && it.endsWith(".dump") }
+        val newest = dumps.mapNotNull { it.removePrefix(BACKUP_PREFIX).removeSuffix(".dump").toLongOrNull() }.maxOrNull() ?: 0L
+        if (now - newest < BACKUP_EVERY_MS || now - backupTriedAt < BACKUP_RETRY_MS) return
+        val node = nodes.firstOrNull { !ctx.nodePaused(it.id) && memberReady(it.id) } ?: return
+        backupTriedAt = now
+        val base = "${ctx.config.pangolin.installDir}/cluster"
+        val script = $$"""
+            |B=$${shQuote(base)}
+            |(umask 077; printf 'PGPASSWORD=%s\n' $${shQuote(secrets.pangolin)} > "$B/pg.env")
+            |trap 'rm -f "$B/pg.env"' EXIT
+            |docker run --rm --network $${ClusterTemplates.NETWORK} --env-file "$B/pg.env" --entrypoint pg_dump $${shQuote(cluster.image)} \
+            |  -h $${ClusterTemplates.PROXY_HOST} -p $${ClusterTemplates.PROXY_POSTGRES_PORT} -U $${ClusterTemplates.PANGOLIN_USER} -Fc $${ClusterTemplates.PANGOLIN_DB} | base64 -w0
+        """.trimMargin()
+        try {
+            val out = ctx.ssh.session(node).runScriptOrThrow("backup", script, 600)
+            val bytes = Base64.decode(out.trim())
+            check(bytes.size > 100) { "the dump is empty" }
+            Files.mkdirs(backupDir)
+            Files.chmodPath(backupDir, "700".toInt(8))
+            Files.writeAtomicBytes("$backupDir/$BACKUP_PREFIX$now.dump", bytes, "600".toInt(8))
+            for (old in Files.list(backupDir).filter { it.startsWith(BACKUP_PREFIX) && it.endsWith(".dump") }.sortedDescending().drop(BACKUPS_KEPT)) {
+                Files.delete("$backupDir/$old")
+            }
+            ctx.log.change(domain, "saved a dump of the cluster database at home (${bytes.size / 1024} KiB, taken on ${node.id})")
+            report(ctx, "backup", null)
+        } catch (e: Exception) {
+            if (e is CancellationException) currentCoroutineContext().ensureActive()
+            report(ctx, "backup", "the daily dump of the cluster database failed: ${e.message?.take(300)}")
+        }
+    }
 
     private suspend fun sentinelMaster(valkey: ValkeyCli, members: List<Member>): String? {
         // The homelab's own Sentinel first (it is in members too), then the others.
@@ -741,7 +822,7 @@ class ClusterReconciler(
         return ClusterStatusDto(
             primary = pg?.firstOrNull { it.role == "leader" }?.name,
             valkeyPrimary = members.firstOrNull { it.meshIp == valkeyMaster }?.id ?: valkeyMaster,
-            preferred = cluster.primary.preferred,
+            preferred = cluster.primary.preferred.takeUnless { voteOnly },
             switchBack = switchBack,
             switchBackAt = switchBackDue,
             quorum = quorum,
@@ -765,6 +846,7 @@ class ClusterReconciler(
                     timeline = p?.timeline,
                     valkeyRole = probes[m.id]?.second,
                     etcdHealthy = probes[m.id]?.first,
+                    voteOnly = voteOnly && m.id == Mesh.HOMELAB,
                 )
             },
         )
@@ -775,11 +857,11 @@ class ClusterReconciler(
         when {
             error != null && error != previous -> {
                 lastErrors[id] = error
-                ctx.log.error(domain, error, id.takeIf { it != "etcd" })
+                ctx.log.error(domain, error, id.takeIf { it != "etcd" && it != "backup" })
             }
             error == null && previous != null -> {
                 lastErrors.remove(id)
-                ctx.log.info(domain, "recovered", id.takeIf { it != "etcd" })
+                ctx.log.info(domain, "recovered", id.takeIf { it != "etcd" && it != "backup" })
             }
         }
     }
@@ -796,6 +878,11 @@ class ClusterReconciler(
         const val PULL_RETRY_MS = 30 * 60_000L
 
         /** Restart order for an image update, with how each is checked: an hg-member role, `proxy`, or `-`. */
+        const val BACKUP_PREFIX = "homegap-"
+        const val BACKUPS_KEPT = 7
+        const val BACKUP_EVERY_MS = 24 * 3_600_000L
+        /** Soon enough that the first dump of a new cluster does not wait long for a proxy that was not ready. */
+        const val BACKUP_RETRY_MS = 5 * 60_000L
         val ROLL_ORDER = listOf("etcd" to "etcd", "sentinel" to "sentinel", "valkey" to "valkey", "db" to "patroni", "haproxy" to "proxy", MeshProbe.SERVICE to "-")
 
         /**
