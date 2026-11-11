@@ -61,7 +61,7 @@ private fun InspectorContent(
     Div({ classes("inspector-head") }) {
         Div({ classes("inspector-titles") }) {
             Div({ classes("caption") }) { Text("Inspector · ${inspector.kind}") }
-            H2({ id("inspector-title") }) { Text(inspector.title) }
+            H2({ id("inspector-title") }) { HostName(inspector.title) }
             Div({ classes("inspector-status", inspector.health.toneClass) }) { Text(inspector.status) }
         }
         IconButton(

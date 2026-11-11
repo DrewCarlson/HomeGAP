@@ -8,7 +8,8 @@ import org.jetbrains.compose.web.dom.Text
 
 /**
  * A blueprint panel: a mono [caption] ("Fig. 01 · Network"), an optional [title], [actions] on
- * the right, and a [flush] (edge to edge, for tables) or padded body.
+ * the right, and a [flush] (edge to edge, for tables) or padded body. Without [content] the
+ * figure is its head alone.
  */
 @Composable
 fun Figure(
@@ -16,7 +17,7 @@ fun Figure(
     title: String? = null,
     flush: Boolean = false,
     actions: @Composable () -> Unit = {},
-    content: @Composable () -> Unit,
+    content: (@Composable () -> Unit)? = null,
 ) {
     Section({ classes("figure") }) {
         Div({ classes("figure-head") }) {
@@ -26,6 +27,8 @@ fun Figure(
             }
             Div({ classes("figure-actions") }) { actions() }
         }
-        Div({ classes(if (flush) "figure-flush" else "figure-body") }) { content() }
+        content?.let { body ->
+            Div({ classes(if (flush) "figure-flush" else "figure-body") }) { body() }
+        }
     }
 }

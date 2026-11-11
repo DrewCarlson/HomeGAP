@@ -17,9 +17,12 @@ fun ConfigScreen(model: ConfigScreenModel) {
         actions = {
             A(
                 href = HashRouter.href(Route.Locations),
-                { classes("btn", "sm") }) { Text("Manage locations") }
+                attrs = { classes("btn", "sm") },
+            ) {
+                Text("Manage locations")
+            }
         },
-    ) {}
+    )
     Figure(
         caption = "Fig. 01 · Desired vs. actual · from the last reconcile pass",
         flush = true,
@@ -55,7 +58,9 @@ fun ConfigScreen(model: ConfigScreenModel) {
         flush = true,
     ) {
         DataTable(
-            headers = remember { listOf("Secret", "Used by", "Source", "Present") }
+            headers = remember { listOf("Secret", "Used by", "Source", "Present") },
+            emptyText = "The config references no secrets.",
+            isEmpty = model.secrets.isEmpty(),
         ) {
             model.secrets.forEach { secret ->
                 key(secret.name, secret.usedBy) {
