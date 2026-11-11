@@ -520,6 +520,7 @@ private fun SignInDialog(connection: ConnectionModel) {
 /**
  * Marks the menu `compact` while the top of the page is scrolled out of view, so the phone's icon
  * grid becomes a single row; tapping the header brings the labels back. Only CSS reads the class.
+ * It also keeps `--nav-space`, the full menu height the phone layout reserves above the page.
  */
 @Composable
 private fun ElementScope<HTMLElement>.ShrinkOnScroll() {
@@ -530,6 +531,10 @@ private fun ElementScope<HTMLElement>.ShrinkOnScroll() {
         if (sentinel != null) {
             observer.observe(sentinel)
         }
+        // The page keeps the full menu's height as its top gap (--nav-space), so shrinking the
+        // menu uncovers content instead of moving it.
+        val spacer = js("new ResizeObserver(function () { if (!menu.classList.contains('compact')) document.documentElement.style.setProperty('--nav-space', menu.offsetHeight + 'px'); })")
+        spacer.observe(menu)
         val expand: (org.w3c.dom.events.Event) -> Unit = { event ->
             val target = event.target as? HTMLElement
             if (target?.closest(".nav-head") != null && target.closest("button") == null) {
@@ -539,6 +544,7 @@ private fun ElementScope<HTMLElement>.ShrinkOnScroll() {
         menu.addEventListener("click", expand)
         onDispose {
             observer.disconnect()
+            spacer.disconnect()
             menu.removeEventListener("click", expand)
         }
     }

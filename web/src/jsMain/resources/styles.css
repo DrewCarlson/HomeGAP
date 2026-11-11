@@ -717,9 +717,11 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 
 /* ---------------------------------------------------------------- phone: below 600 px */
 @media (max-width: 599px) {
-  .shell { flex-direction: column; }
+  /* The menu is fixed and the page keeps its full height as a gap (set by ShrinkOnScroll), so
+     shrinking the menu never moves the content under it. */
+  .shell { flex-direction: column; padding-top: var(--nav-space, 0); }
   .nav {
-    position: sticky; top: 0; z-index: 10; width: auto; height: auto; overflow: visible;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10; width: auto; height: auto; overflow: visible;
     padding: 10px 12px; gap: 10px; border-right: 0; border-bottom: 1px solid var(--rule);
   }
   .nav-head { justify-content: space-between; flex-direction: row; }
