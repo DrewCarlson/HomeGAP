@@ -115,6 +115,42 @@ class ValkeyCli(private val password: String) {
     suspend fun sentinelFailover(host: String, name: String): Boolean =
         cli(host, 26379, "SENTINEL", "FAILOVER", name, auth = false)?.trim() == "OK"
 
+    /**
+     * The Sentinel's view of [name]: its master's flags and the addresses of the replicas and
+     * other Sentinels it knows (it never forgets one by itself). Null when unreachable.
+     */
+    suspend fun sentinelView(host: String, name: String): SentinelView? {
+        val master = cli(host, 26379, "SENTINEL", "MASTER", name, auth = false)?.let(::fields)?.firstOrNull() ?: return null
+        val replicas = cli(host, 26379, "SENTINEL", "REPLICAS", name, auth = false)?.let(::fields) ?: return null
+        val sentinels = cli(host, 26379, "SENTINEL", "SENTINELS", name, auth = false)?.let(::fields) ?: return null
+        return SentinelView(
+            flags = master["flags"].orEmpty().split(',').filter { it.isNotEmpty() }.toSet(),
+            known = (replicas + sentinels).mapNotNull { it["ip"] }.toSet(),
+        )
+    }
+
+    /** `SENTINEL RESET`: forgets every replica and Sentinel, then rediscovers the live ones. */
+    suspend fun sentinelReset(host: String, name: String): Boolean =
+        cli(host, 26379, "SENTINEL", "RESET", name, auth = false)?.trim() == "1"
+
+    data class SentinelView(val flags: Set<String>, val known: Set<String>)
+
+    companion object {
+        /**
+         * `redis-cli --raw` prints a list of maps as alternating key and value lines; a new map
+         * starts at each `name` key (always the first). Values never contain newlines here.
+         */
+        fun fields(raw: String): List<Map<String, String>> {
+            val lines = raw.lines().let { if (it.lastOrNull()?.isEmpty() == true) it.dropLast(1) else it }
+            val out = mutableListOf<MutableMap<String, String>>()
+            for (i in 0 until lines.size - 1 step 2) {
+                if (lines[i] == "name" || out.isEmpty()) out += mutableMapOf()
+                out.last()[lines[i]] = lines[i + 1]
+            }
+            return out
+        }
+    }
+
     /** `INFO replication` as key/value pairs, or null when unreachable. */
     suspend fun replication(host: String): Map<String, String>? =
         cli(host, 6379, "INFO", "replication", auth = true)?.lines()?.mapNotNull { l ->

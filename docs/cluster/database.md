@@ -17,7 +17,7 @@ The homelab and every node run one member of the database. The containers come f
 
 Thus each node runs five cluster containers plus the probe, and the homelab runs four.
 
-Each node member is its own compose project in `/opt/homegap/cluster`, under `pangolin.install_dir`. It is separate from the Pangolin stack, so a stack update never restarts the database. When you remove a node, HomeGAP removes its member from the vote and deletes its data.
+Each node member is its own compose project in `/opt/homegap/cluster`, under `pangolin.install_dir`. It is separate from the Pangolin stack, so a stack update never restarts the database. When you remove a node, HomeGAP removes its member from the vote and deletes its data. The Valkey Sentinels never forget a member by themselves. While one still knows a removed member, it uses a full CPU core, so HomeGAP has it forget the member (`SENTINEL RESET`), one Sentinel at a time and at least 30 seconds apart. The log then shows "Sentinel forgot departed" and the member's address.
 
 ## The primary
 

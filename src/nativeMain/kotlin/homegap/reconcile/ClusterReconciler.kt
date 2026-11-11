@@ -62,6 +62,8 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
     /** Why the next primary change happens, when HomeGAP asked for it (otherwise a failover). */
     private var pendingCause: String? = null
     private var switchBackDue: Long? = null
+    /** When a Sentinel was last told to forget departed members (epoch ms). */
+    private var sentinelResetAt = 0L
 
     /** When HomeGAP last moved a primary on purpose (epoch ms, the last hour), for the proxy check. */
     @Volatile var plannedMoves: List<Long> = emptyList()
@@ -157,6 +159,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
             }
         }
 
+        if (initialized) forgetDeparted(ctx, ValkeyCli(secrets.valkey), members)
         if (pg != null) recordPrimary(pg)
         val switchBack = switchBack(ctx, cluster, patroni, pg, homelab, members, secrets)
         return status(cluster, members, etcdMembers, pg, secrets, switchBack)
@@ -584,6 +587,25 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
         }
     }
 
+    /**
+     * Has a Sentinel that still knows a departed member forget it. Sentinels never forget a replica
+     * or Sentinel by themselves, and one whose mesh address has no WireGuard peer any more fails
+     * at once ("No route to host"); Valkey's Sentinel then spins at a full CPU. `SENTINEL RESET`
+     * forgets them all and rediscovers the live ones within seconds. One Sentinel at a time, at
+     * least [DepartedSentinels.SPACING_MS] apart and never during a failover, so the others always
+     * keep the quorum.
+     */
+    private suspend fun forgetDeparted(ctx: ReconcileContext, valkey: ValkeyCli, members: List<Member>) {
+        if (nowMillis() - sentinelResetAt < DepartedSentinels.SPACING_MS) return
+        val views = members.associateWith { valkey.sentinelView(it.meshIp, ClusterTemplates.SCOPE) }
+        if (views.values.any { it != null && "failover_in_progress" in it.flags }) return
+        val (member, departed) = DepartedSentinels.stale(members, views.mapKeys { it.key.id }) ?: return
+        if (valkey.sentinelReset(member.meshIp, ClusterTemplates.SCOPE)) {
+            sentinelResetAt = nowMillis()
+            ctx.log.change(domain, "Sentinel forgot departed ${departed.sorted().joinToString(", ")}", member.id.takeIf { it != Mesh.HOMELAB })
+        }
+    }
+
     // ------------------------------------------------------------------ switch-back and status
 
     /** The database as any reachable member sees it (the homelab first). */
@@ -771,6 +793,22 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
  * built (`Created`), which identifies it on any host (image ids differ between Docker's stores).
  */
 data class MemberImage(val ref: String, val created: String)
+
+/** Finds Sentinels that still know members which left the cluster (see `forgetDeparted`). */
+object DepartedSentinels {
+    /** Resets are this far apart, so a reset Sentinel has rediscovered the others first. */
+    const val SPACING_MS = 30_000L
+
+    /** The first member whose Sentinel knows addresses outside [members], with those addresses. */
+    fun stale(members: List<Member>, views: Map<String, ValkeyCli.SentinelView?>): Pair<Member, Set<String>>? {
+        val addresses = members.map { it.meshIp }.toSet()
+        for (m in members) {
+            val departed = views[m.id]?.known?.minus(addresses).orEmpty()
+            if (departed.isNotEmpty()) return m to departed
+        }
+        return null
+    }
+}
 
 /** When to hand the database primary back to the preferred member. */
 object SwitchBack {

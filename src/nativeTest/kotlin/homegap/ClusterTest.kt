@@ -1,6 +1,7 @@
 package homegap
 
 import homegap.clients.PatroniClient
+import homegap.clients.ValkeyCli
 import homegap.config.MeshConfig
 import homegap.config.ClusterConfig
 import homegap.config.NodeConfig
@@ -13,6 +14,7 @@ import homegap.provision.ClusterTemplates.Member
 import homegap.provision.FirewallRules
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
+import homegap.reconcile.DepartedSentinels
 import homegap.reconcile.ResourceReconciler
 import homegap.reconcile.SwitchBack
 import kotlin.test.Test
@@ -241,5 +243,25 @@ class ClusterTest {
         val yml = NodeTemplates.pangolinConfig(clusterCfg, node, NodeSecrets("t", "s", "a@b", "p", "k", true), 0, ClusterLink("10.77.0.10", secrets))
         assertTrue("dashboard_url: \"https://pangolin.test.example.net\"" in yml)
         assertTrue("https://pangolin-na1.test.example.net" in yml, "the management host stays an allowed origin")
+    }
+
+    @Test
+    fun sentinelOutputIsReadAsOneMapPerInstance() {
+        val raw = "name\nabc\nip\n10.77.0.12\nport\n26379\nflags\ns_down,sentinel\nname\ndef\nip\n10.77.0.10\nport\n26379\nflags\nsentinel\n"
+        val fields = ValkeyCli.fields(raw)
+        assertEquals(listOf("10.77.0.12", "10.77.0.10"), fields.map { it["ip"] })
+        assertEquals("s_down,sentinel", fields[0]["flags"])
+        assertTrue(ValkeyCli.fields("").isEmpty(), "no replicas or Sentinels")
+    }
+
+    @Test
+    fun aSentinelThatKnowsADepartedMemberIsReset() {
+        // fr1 left the cluster: its mesh peer is gone, but the Sentinels never forget it.
+        val members = listOf(homelab, na1, eu1)
+        fun view(vararg ips: String) = ValkeyCli.SentinelView(setOf("master"), ips.toSet())
+        val clean = mapOf("homelab" to view("10.77.0.10", "10.77.0.11"), "na1" to view("10.77.0.1", "10.77.0.11"), "eu1" to null)
+        assertNull(DepartedSentinels.stale(members, clean), "nothing outside the cluster, or unreachable")
+        val stale = clean + ("na1" to view("10.77.0.1", "10.77.0.11", "10.77.0.12"))
+        assertEquals(na1 to setOf("10.77.0.12"), DepartedSentinels.stale(members, stale))
     }
 }
