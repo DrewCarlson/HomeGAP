@@ -268,14 +268,16 @@ private fun ReadOnlyBanner(readOnly: ReadOnlyModel) {
 @Composable
 private fun RouteHead(route: Route) {
     Header({ classes("page-head") }) {
-        Div({ classes("caption") }) {
-            Text(route.navSection.title)
-            if (route.navSection != route) {
-                Text(" · ${route.title}")
+        Div({ classes("page-head-text") }) {
+            Div({ classes("caption") }) {
+                Text(route.navSection.title)
+                if (route.navSection != route) {
+                    Text(" · ${route.title}")
+                }
             }
+            H1 { Text(route.title) }
+            P({ classes("page-sub") }) { Text(route.subtitle) }
         }
-        H1 { Text(route.title) }
-        P({ classes("page-sub") }) { Text(route.subtitle) }
     }
 }
 

@@ -144,7 +144,11 @@ p { margin: 0; }
 .nav-foot .docs-link { color: var(--ink-dim); text-decoration: underline; word-break: normal; }
 .nav-foot .docs-link:hover { color: var(--ink); }
 
-.page { flex: 1; min-width: 0; padding: 24px 28px 48px; display: grid; gap: 20px; align-content: start; max-width: 1440px; }
+/* One column that may shrink below its content (minmax(0, 1fr)): a long value inside a figure
+   wraps or scrolls there instead of widening the whole page. Long unbroken words (hostnames,
+   keys, URLs) break rather than overflow, here, in the Inspector and in overlays. */
+.page { flex: 1; min-width: 0; padding: 24px 28px 48px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; max-width: 1440px; }
+.page, .inspector, .overlay-panel { overflow-wrap: break-word; }
 .page-head h1 { margin-top: 6px; font-size: 28px; font-weight: 500; letter-spacing: -.03em; line-height: 1.2; }
 .page-sub { margin-top: 4px; color: var(--ink-dim); font-size: 13px; }
 .caption { font: 500 11px/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-dim); }
@@ -434,8 +438,8 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .figure-titles { min-width: 0; }
 .figure-titles > h2:first-child { margin-top: 0; }
 .figure-sub { margin-top: 3px; color: var(--ink-dim); font-size: 12.5px; }
-.figure-actions { display: flex; align-items: center; gap: 8px; flex: none; }
-.figure-body { padding: 14px 16px; display: grid; gap: 14px; }
+.figure-actions { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+.figure-body { padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .figure-flush { overflow-x: auto; }
 .figure-note { padding: 10px 16px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-dim); }
 
@@ -518,9 +522,13 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .attention-mark { width: 14px; flex: none; text-align: center; }
 .attention-text { flex: 1; min-width: 0; }
 .attention-since { flex: none; font: 11.5px var(--mono); color: var(--ink-faint); }
-.segmented { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: var(--radius); overflow: hidden; }
-.segmented button { height: 30px; padding: 0 12px; border: 0; background: transparent; color: var(--ink-dim); font: 12.5px var(--sans); cursor: pointer; }
-.segmented button + button { border-left: 1px solid var(--rule-strong); }
+/* Options wrap onto more rows when the width runs out (phones, large text); the 1 px gap over the
+   rule color draws the dividers in every layout. */
+.segmented {
+  display: inline-flex; flex-wrap: wrap; gap: 1px; max-width: 100%;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius); overflow: hidden; background: var(--rule-strong);
+}
+.segmented button { flex: 1 0 auto; height: 30px; padding: 0 12px; border: 0; background: var(--panel); color: var(--ink-dim); font: 12.5px var(--sans); cursor: pointer; }
 .segmented button.active { background: var(--cyan-soft); color: var(--ground); font-weight: 600; }
 .path { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 0; padding: 16px; }
 .path-homelab { display: grid; align-content: center; gap: 4px; padding: 14px; border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--panel-raised); }
@@ -739,7 +747,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .brand-name { display: inline; }
   .status-first { font-size: 20px; }
   .gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .page-head { flex-direction: column; gap: 8px; }
+  .page-head { flex-direction: column; align-items: stretch; gap: 8px; }
   .page-head-actions { padding-top: 0; }
   .fleet thead { display: none; }
   .fleet, .fleet tbody, .fleet tr, .fleet td { display: block; width: 100%; }
