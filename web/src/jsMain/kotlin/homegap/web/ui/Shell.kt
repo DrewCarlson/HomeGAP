@@ -444,6 +444,7 @@ private fun SignInDialog(connection: ConnectionModel) {
     val prompt = connection.tokenPrompt ?: return
     Overlay(
         label = "Sign in",
+        titleId = "sign-in-title",
         style = OverlayStyle.Modal,
     ) {
         Form(attrs = {
@@ -454,7 +455,7 @@ private fun SignInDialog(connection: ConnectionModel) {
             }
         }) {
             Img(src = "/emblem.svg", alt = "") { classes("sign-in-mark") }
-            H2 { Text("Enter your dashboard token") }
+            H2({ id("sign-in-title") }) { Text("Enter your dashboard token") }
             if (connection.linkExpired) {
                 P({
                     classes("banner", "warn")

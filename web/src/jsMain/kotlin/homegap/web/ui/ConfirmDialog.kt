@@ -18,6 +18,7 @@ fun ConfirmDialog(
     val model = dialog.model
     Overlay(
         label = model.title,
+        titleId = "confirm-title",
         style = if (viewport == Viewport.Phone) OverlayStyle.Sheet else OverlayStyle.Modal,
         onDismiss = dialog.onCancel,
     ) {
@@ -27,7 +28,7 @@ fun ConfirmDialog(
                 classes("danger")
             }
         }) {
-            H2 { Text(model.title) }
+            H2({ id("confirm-title") }) { Text(model.title) }
             P({ classes("confirm-text") }) { Text(model.text) }
             if (model.consequences.isNotEmpty()) {
                 Ul({ classes("confirm-list") }) {

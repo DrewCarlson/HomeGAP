@@ -73,7 +73,7 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; }
+html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; color: var(--text);
   font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased;
@@ -192,11 +192,15 @@ input.invalid { border-color: var(--rose); }
 
 /* ---------------------------------------------------------------- overlays */
 /* Every overlay is a native <dialog>; its ::backdrop dims the page. */
-.overlay { padding: 0; border: 0; background: transparent; color: var(--ink); max-width: none; max-height: none; }
-/* While any overlay is open the page behind it stays put: drags outside a scrolling list must
-   not scroll the page, and lists inside don't hand their scroll on to it. */
-html:has(dialog.overlay[open]) { overflow: hidden; }
-.overlay { overscroll-behavior: contain; }
+/* The dialog is its own scroll container: content taller than the screen scrolls inside it, and
+   its scroll never carries on to the page. */
+.overlay {
+  padding: 0; border: 0; background: transparent; color: var(--ink); max-width: none; max-height: none;
+  overflow-y: auto; overscroll-behavior: contain;
+}
+/* While any overlay is open (Overlay's PageScrollLock) the page behind it stays put, and the
+   hidden scrollbar's width becomes padding so nothing shifts. */
+html.overlay-open { overflow: hidden; padding-right: var(--scrollbar-width, 0px); }
 .overlay::backdrop { background: rgba(4, 6, 20, .78); backdrop-filter: blur(3px); }
 .overlay-panel {
   box-sizing: border-box; border: 1px solid var(--rule-strong); border-radius: 10px;

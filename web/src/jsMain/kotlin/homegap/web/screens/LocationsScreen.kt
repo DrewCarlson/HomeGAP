@@ -191,6 +191,7 @@ fun LocationsOverlay(
 ) {
     Overlay(
         label = "Locations",
+        titleId = "locations-title",
         style = when (viewport) {
             Viewport.Phone -> OverlayStyle.FullScreen
             Viewport.Tablet -> OverlayStyle.Drawer
@@ -202,7 +203,7 @@ fun LocationsOverlay(
             Div({ classes("wizard-head") }) {
                 Div {
                     Div({ classes("caption") }) { Text("Config › Locations") }
-                    H2 { Text("Data-center cities and the homelab") }
+                    H2({ id("locations-title") }) { Text("Data-center cities and the homelab") }
                 }
                 IconButton(
                     iconPath = Icons.CLOSE,

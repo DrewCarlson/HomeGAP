@@ -247,6 +247,7 @@ private fun AddUser(
 ) {
     Overlay(
         label = "Add a user",
+        titleId = "add-user-title",
         style = when (viewport) {
             Viewport.Phone -> OverlayStyle.Sheet
             Viewport.Desktop -> OverlayStyle.Drawer
@@ -258,7 +259,7 @@ private fun AddUser(
             Div({ classes("wizard-head") }) {
                 Div {
                     Div({ classes("caption") }) { Text("New user") }
-                    H2 { Text("Add a user") }
+                    H2({ id("add-user-title") }) { Text("Add a user") }
                 }
                 IconButton(
                     iconPath = Icons.CLOSE,

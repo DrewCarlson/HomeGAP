@@ -22,6 +22,7 @@ fun AddNodeWizard(
 ) {
     Overlay(
         label = "Add a node",
+        titleId = "add-node-title",
         style = when (viewport) {
             Viewport.Phone -> OverlayStyle.FullScreen
             Viewport.Tablet -> OverlayStyle.Drawer
@@ -32,7 +33,7 @@ fun AddNodeWizard(
         Div({ classes("overlay-panel", "wizard") }) {
             Aside({ classes("wizard-aside") }) {
                 Div({ classes("caption") }) { Text("Nodes ›") }
-                H2 { Text("Add a node") }
+                H2({ id("add-node-title") }) { Text("Add a node") }
                 P({ classes("muted") }) { Text("Sets up a new server as an edge node. Nothing changes until you run it.") }
                 Stepper(model)
                 P({ classes("wizard-draft", "muted") }) { Text("Draft kept on this device.") }

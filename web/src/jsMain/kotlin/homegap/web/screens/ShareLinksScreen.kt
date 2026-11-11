@@ -21,6 +21,7 @@ fun ShareLinksOverlay(
 ) {
     Overlay(
         label = "Share links",
+        titleId = "share-links-title",
         style = when (viewport) {
             Viewport.Phone -> OverlayStyle.FullScreen
             Viewport.Tablet -> OverlayStyle.Drawer
@@ -32,7 +33,7 @@ fun ShareLinksOverlay(
             Div({ classes("wizard-head") }) {
                 Div {
                     Div({ classes("caption") }) { Text("Access › Share links") }
-                    H2 { Text("Read-only links to this dashboard") }
+                    H2({ id("share-links-title") }) { Text("Read-only links to this dashboard") }
                 }
                 IconButton(
                     iconPath = Icons.CLOSE,
