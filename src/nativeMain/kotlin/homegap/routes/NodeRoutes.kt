@@ -7,6 +7,7 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import homegap.api.ActionResponse
 import homegap.api.NodeConfigDto
+import homegap.api.SetNodeLocationRequest
 import homegap.reconcile.Controller
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
@@ -26,6 +27,7 @@ class NodeRoutes(private val controller: Controller) : RoutingController {
                 post("/update/retry") { retryUpdate() }
                 post("/update/skip") { skipUpdate() }
                 post("/decommission") { decommission() }
+                put("/location") { setLocation() }
             }
         }
     }
@@ -52,6 +54,12 @@ class NodeRoutes(private val controller: Controller) : RoutingController {
     }
 
     /** Removes the node from the config; DNS drains, the stack stays up until decommission. */
+    /** Moves the node on the maps and in geo DNS steering; rewrites its config entry. */
+    suspend fun RoutingContext.setLocation() {
+        val request = call.receive<SetNodeLocationRequest>()
+        call.respond(ActionResponse(true, controller.setNodeLocation(nodeId(), request.location)))
+    }
+
     suspend fun RoutingContext.removeNode() {
         val (message, undo) = controller.removeNode(nodeId())
         call.respond(ActionResponse(true, message, undo))

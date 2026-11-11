@@ -154,6 +154,11 @@ class FetchControllerApi(
             setBody(SetHomelabLocationRequest(place))
         }.body()
 
+    override suspend fun setNodeLocation(id: String, place: PlaceDto): ActionResponse =
+        http.put("/api/nodes/$id/location") {
+            setBody(SetNodeLocationRequest(place))
+        }.body()
+
     override suspend fun switchPrimary(to: String): ActionResponse =
         http.post("/api/cluster/switchover") {
             setBody(SwitchoverRequest(to))

@@ -58,6 +58,7 @@ fun ServicesScreen(
             P({ classes("figure-note") }) { Text("Nothing matches the filter.") }
         }
         Div({ classes("matrix-wrap") }) {
+            ScrollHint()
             Table({ classes("matrix", "services") }) {
                 Thead {
                     Tr {

@@ -77,6 +77,9 @@ interface ControllerApi {
     suspend fun deleteLocation(id: String, reset: Boolean): ActionResponse
     suspend fun setHomelabLocation(place: PlaceDto?): ActionResponse
 
+    /** Moves node [id] on the maps and in geo DNS steering. */
+    suspend fun setNodeLocation(id: String, place: PlaceDto): ActionResponse
+
     /** Makes cluster member [to] the database primary now. */
     suspend fun switchPrimary(to: String): ActionResponse
 

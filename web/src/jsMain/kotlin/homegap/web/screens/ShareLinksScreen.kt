@@ -42,6 +42,7 @@ fun ShareLinksOverlay(
                 )
             }
             Div({ classes("wide-panel-body") }) {
+                ScrollHint()
                 ShareLinksScreen(model)
             }
         }

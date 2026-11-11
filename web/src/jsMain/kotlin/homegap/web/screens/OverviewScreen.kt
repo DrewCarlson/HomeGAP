@@ -304,6 +304,7 @@ private fun Matrix(matrix: MatrixModel, onOpen: (Location) -> Unit) {
         },
     ) {
         Div({ classes("matrix-wrap") }) {
+            ScrollHint()
             Table({ classes("matrix") }) {
                 Thead {
                     Tr {

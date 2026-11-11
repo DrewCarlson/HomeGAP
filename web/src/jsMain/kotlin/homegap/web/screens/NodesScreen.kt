@@ -18,8 +18,15 @@ import org.jetbrains.compose.web.dom.*
 @Composable
 fun NodesScreen(
     model: NodesScreenModel,
+    viewport: Viewport,
     onOpen: (Location) -> Unit,
 ) {
+    model.relocation?.let { relocation ->
+        NodeLocationDialog(
+            model = relocation,
+            viewport = viewport,
+        )
+    }
     model.rollout?.let { RolloutStrip(it) }
     Fleet(
         rows = model.fleet,
@@ -161,10 +168,14 @@ private fun Database(
                         Span({ classes("mono") }) { Text("lag ${member.lag}") }
                         Span({ classes("db-action") }) {
                             if (member.canBecomePrimary) {
-                                ActionButton(
-                                    text = "Make primary…",
-                                    small = true,
-                                    onClick = { onSwitchPrimary(member.id) },
+                                KebabMenu(
+                                    label = "Actions for ${member.id}",
+                                    items = listOf(
+                                        MenuItem(
+                                            label = "Make primary…",
+                                            onClick = { onSwitchPrimary(member.id) },
+                                        ),
+                                    ),
                                 )
                             }
                         }
@@ -219,6 +230,7 @@ private fun Mesh(mesh: MeshMatrixModel) {
         },
     ) {
         Div({ classes("matrix-wrap") }) {
+            ScrollHint()
             Table({ classes("matrix", "mesh") }) {
                 Thead {
                     Tr {

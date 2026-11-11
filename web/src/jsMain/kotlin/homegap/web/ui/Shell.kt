@@ -223,6 +223,7 @@ private fun Screen(
         )
         is NodesScreenModel -> NodesScreen(
             model = screen,
+            viewport = viewport,
             onOpen = onOpen,
         )
         is ServicesScreenModel -> ServicesScreen(

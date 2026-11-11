@@ -182,18 +182,20 @@ private fun Invitations(
                         Span({ classes("mono") }) { Text(row.email) }
                         Span({ classes("muted", "small") }) { Text(row.roles) }
                         row.expires?.let { Span({ classes("muted", "small", "wide-only") }) { Text(it) } }
-                        Div({ classes("inline-row") }) {
-                            ActionButton(
-                                text = "New link",
-                                small = true,
-                                tooltip = "Create a new invite link; the old one stops working",
-                                onClick = { onReissue(row.id) },
-                            )
-                            ActionButton(
-                                text = "Revoke",
-                                style = ButtonStyle.Danger,
-                                small = true,
-                                onClick = { onRemove(row.id) },
+                        Span({ classes("row-menu") }) {
+                            KebabMenu(
+                                label = "Actions for the invitation to ${row.email}",
+                                items = listOf(
+                                    MenuItem(
+                                        label = "New link",
+                                        onClick = { onReissue(row.id) },
+                                    ),
+                                    MenuItem(
+                                        label = "Revoke",
+                                        danger = true,
+                                        onClick = { onRemove(row.id) },
+                                    ),
+                                ),
                             )
                         }
                     }
@@ -268,6 +270,7 @@ private fun AddUser(
                 )
             }
             Div({ classes("form-body") }) {
+                ScrollHint()
                 if (inviteLink != null) {
                     P { Text("Send this link to the person. It works for 7 days.") }
                     Div({ classes("copy-row") }) {

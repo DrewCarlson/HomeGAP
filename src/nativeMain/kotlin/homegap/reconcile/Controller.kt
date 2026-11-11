@@ -1236,6 +1236,23 @@ class Controller(
         return if (location == null) "Homelab location cleared" else "Homelab location saved"
     }
 
+    /**
+     * Sets where node [id] is: its coordinates steer geo DNS and place it on the maps. Rewrites
+     * its config entry and runs a pass so DNS follows.
+     */
+    fun setNodeLocation(id: String, place: homegap.api.PlaceDto): String {
+        require(config.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
+        require(place.latitude in -90.0..90.0 && place.longitude in -180.0..180.0) { "coordinates are out of range" }
+        val node = config.node(id) ?: throw IllegalArgumentException("unknown node $id")
+        val location = homegap.config.GeoLocation(place.latitude, place.longitude, place.name?.trim()?.ifBlank { null })
+        val next = config.copy(nodes = config.nodes.map { if (it.id == id) node.copy(location = location) else it })
+        ConfigLoader.save(configPath, next)
+        config = next
+        log.change("controller", "moved $id to ${location.name ?: "${location.latitude}, ${location.longitude}"}", id, fields = mapOf("node" to id))
+        trigger("config")
+        return "$id is now in ${location.name ?: "the picked place"}; DNS follows on the next pass"
+    }
+
     /** Things that can be undone for a while: an id each, with how to undo it. */
     private class Undoable(val expiresAt: Long, val undo: suspend () -> String)
 

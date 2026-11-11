@@ -164,20 +164,24 @@ fun LocationsScreen(model: LocationsScreenModel) {
                                 small = true
                             )
                         }
-                        Cell("", "actions") {
-                            ActionButton("Edit", small = true) {
-                                send(LocationsEvent.Edit(r.id))
-                            }
-                            if (r.source == "edited") {
-                                ActionButton("Restore", small = true) {
-                                    send(LocationsEvent.Reset(r.id))
-                                }
-                            }
-                            ActionButton(
-                                text = "Remove",
-                                style = ButtonStyle.Danger,
-                                small = true,
-                                onClick = { send(LocationsEvent.Delete(r.id)) },
+                        Cell("", "actions", "row-menu") {
+                            KebabMenu(
+                                label = "Actions for ${r.name}",
+                                items = listOfNotNull(
+                                    MenuItem(
+                                        label = "Edit",
+                                        onClick = { send(LocationsEvent.Edit(r.id)) },
+                                    ),
+                                    MenuItem(
+                                        label = "Restore the shipped version",
+                                        onClick = { send(LocationsEvent.Reset(r.id)) },
+                                    ).takeIf { r.source == "edited" },
+                                    MenuItem(
+                                        label = "Remove",
+                                        danger = true,
+                                        onClick = { send(LocationsEvent.Delete(r.id)) },
+                                    ),
+                                ),
                             )
                         }
                     }
@@ -225,6 +229,7 @@ fun LocationsOverlay(
                 )
             }
             Div({ classes("wide-panel-body") }) {
+                ScrollHint()
                 LocationsScreen(model)
             }
         }

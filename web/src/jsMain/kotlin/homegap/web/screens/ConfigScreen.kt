@@ -74,6 +74,16 @@ fun ConfigScreen(model: ConfigScreenModel) {
             }
         }
     }
-    Figure(caption = "Fig. 03 · Effective desired state") { Pre({ classes("code-text") }) { Text(model.desiredState) } }
-    Figure(caption = "Fig. 04 · Config file · ${model.configPath.orEmpty()}") { Pre({ classes("code-text") }) { Text(model.configYaml) } }
+    Figure(caption = "Fig. 03 · Effective desired state") {
+        Pre({ classes("code-text") }) {
+            ScrollHint()
+            Text(model.desiredState)
+        }
+    }
+    Figure(caption = "Fig. 04 · Config file · ${model.configPath.orEmpty()}") {
+        Pre({ classes("code-text") }) {
+            ScrollHint()
+            Text(model.configYaml)
+        }
+    }
 }

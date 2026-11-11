@@ -59,6 +59,7 @@ fun AddNodeWizard(
                     }
                 }
                 Div({ classes("wizard-body") }) {
+                    ScrollHint()
                     AddNodeContent(model)
                 }
             }

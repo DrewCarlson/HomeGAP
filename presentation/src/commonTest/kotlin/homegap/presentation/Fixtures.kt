@@ -114,6 +114,7 @@ class FakeControllerApi(
     override suspend fun saveLocation(location: LocationDto) = ok("save-location ${location.id} ${location.name}")
     override suspend fun deleteLocation(id: String, reset: Boolean) = ok("delete-location $id $reset")
     override suspend fun setHomelabLocation(place: PlaceDto?) = ok("homelab-location ${place?.name}")
+    override suspend fun setNodeLocation(id: String, place: PlaceDto) = ok("node-location $id ${place.name}")
     override suspend fun nodeLogs(node: String, service: String, since: String, tail: Int): NodeTextDto {
         calls += "logs $node $service $since $tail"
         return NodeTextDto(node, "$service logs", "line 1\nline 2", NOW)

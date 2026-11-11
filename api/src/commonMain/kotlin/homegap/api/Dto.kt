@@ -133,6 +133,10 @@ data class LocationsResponse(val locations: List<LocationDto>, val homelab: Plac
 @Serializable
 data class SetHomelabLocationRequest(val location: PlaceDto?)
 
+/** Where a node is, for geo DNS steering and the maps. */
+@Serializable
+data class SetNodeLocationRequest(val location: PlaceDto)
+
 @Serializable
 data class ReconcileSummaryDto(
     val startedAt: Long,

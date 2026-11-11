@@ -127,6 +127,7 @@ fun SearchOverlay(search: SearchModel, viewport: Viewport) {
                 classes("search-results")
                 attr("role", "listbox")
             }) {
+                ScrollHint()
                 if (search.count == 0 && search.query.isNotBlank()) {
                     P({ classes("search-none") }) { Text("Nothing matches “${search.query}”.") }
                 }

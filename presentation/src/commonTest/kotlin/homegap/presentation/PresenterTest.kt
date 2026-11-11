@@ -59,7 +59,7 @@ class PresenterTest {
         val pausedGuard = homegap.presentation.data.PausedGuard(session, api, actions, confirmations)
         val nodeActions = NodeActions(api, actions, confirmations, pausedGuard)
         val serviceActions = ServiceActions(api, actions, confirmations)
-        val nodes = NodesScreenPresenter(nodeActions, preferences)
+        val nodes = NodesScreenPresenter(nodeActions, preferences, api, actions)
         val speedTest = SpeedTestScreenPresenter(api, session, actions, FakeTimeFormatter, scope)
         val activity = ActivityScreenPresenter(session, api, FakeTimeFormatter)
         val addNode = AddNodeScreenPresenter(api, session, AddNodeWizardStore(preferences), actions, scope)
