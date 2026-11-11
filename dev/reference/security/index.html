@@ -53,6 +53,8 @@
       
     
     
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
     
       
@@ -1972,6 +1974,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#calls-to-outside-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Calls to outside services
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-public-can-see" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2364,6 +2377,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#calls-to-outside-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Calls to outside services
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-public-can-see" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2436,6 +2460,25 @@
 <p>HomeGAP never publishes the IP address of the homelab. Every tunnel goes outbound from home. In cluster mode, the homelab dials the mesh. On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database.</p>
 <h2 id="traffic">Traffic<a class="headerlink" href="#traffic" title="Permanent link">&para;</a></h2>
 <p>With <code>passthrough</code>, the nodes never see plaintext. <code>pangolin.crowdsec</code> gives abuse mitigation on the edge for terminated traffic only. It cannot examine passthrough streams.</p>
+<h2 id="calls-to-outside-services">Calls to outside services<a class="headerlink" href="#calls-to-outside-services" title="Permanent link">&para;</a></h2>
+<p>The software that HomeGAP runs makes no calls home of its own. HomeGAP turns off:</p>
+<ul>
+<li><strong>Pangolin:</strong> its usage data, the product news and newest-version notices on its dashboard, and the download of its AI model catalog. It reads an empty catalog from its config instead.</li>
+<li><strong>Traefik on the nodes:</strong> its version check and its usage data.</li>
+</ul>
+<p>Some calls have no setting. In the container that makes the call, HomeGAP resolves the name to <code>127.0.0.1</code>, so the call fails on the machine itself:</p>
+<ul>
+<li><strong>Newt</strong> asks <code>api.fossorial.io</code> for the newest version each time it starts. This affects the tunnels container on the homelab and each node's exit connector.</li>
+<li><strong>Pangolin</strong> looks up its public address at <code>checkip.amazonaws.com</code>, <code>ifconfig.io</code> and <code>api.ipify.org</code> each time it starts. The address only fills in a hint on the DNS records page of its dashboard, and HomeGAP publishes the DNS records of each node itself.</li>
+</ul>
+<p>The calls that remain are needed for the system to work:</p>
+<ul>
+<li>The nodes check the Pangolin EE license at <code>api.fossorial.io</code>.</li>
+<li>Traefik on the nodes downloads its plugins (Pangolin's <code>badger</code>, and the CrowdSec bouncer if enabled) from the Traefik plugin catalog when it starts.</li>
+<li>The nodes get certificates from Let's Encrypt.</li>
+<li>With <code>pangolin.crowdsec</code>, CrowdSec talks to its central API for the community blocklists.</li>
+</ul>
+<p>Your own Traefik on the homelab is configured by you. Set <code>global.checkNewVersion</code> and <code>global.sendAnonymousUsage</code> to <code>false</code> in its static configuration to turn off the same calls there.</p>
 <h2 id="what-the-public-can-see">What the public can see<a class="headerlink" href="#what-the-public-can-see" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The public status page never shows addresses or hostnames. It shows the homelab only as its region. See <a href="../../operations/status-page/">Status page</a>.</li>

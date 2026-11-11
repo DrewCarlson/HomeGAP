@@ -53,6 +53,8 @@
       
     
     
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
     
       
@@ -2646,7 +2648,7 @@
 </tbody>
 </table>
 <p>Thus each node runs five cluster containers plus the probe, and the homelab runs four.</p>
-<p>Each node member is its own compose project in <code>/opt/homegap/cluster</code>, under <code>pangolin.install_dir</code>. It is separate from the Pangolin stack, so a stack update never restarts the database. When you remove a node, HomeGAP removes its member from the vote and deletes its data.</p>
+<p>Each node member is its own compose project in <code>/opt/homegap/cluster</code>, under <code>pangolin.install_dir</code>. It is separate from the Pangolin stack, so a stack update never restarts the database. When you remove a node, HomeGAP removes its member from the vote and deletes its data. The Valkey Sentinels never forget a member by themselves. While one still knows a removed member, it uses a full CPU core, so HomeGAP has it forget the member (<code>SENTINEL RESET</code>), one Sentinel at a time and at least 30 seconds apart. The log then shows "Sentinel forgot departed" and the member's address.</p>
 <h2 id="the-primary">The primary<a class="headerlink" href="#the-primary" title="Permanent link">&para;</a></h2>
 <p>The homelab is the primary. It starts the cluster. The nodes then join one at a time: first the vote, then as <code>streaming</code> replicas.</p>
 <h3 id="failover">Failover<a class="headerlink" href="#failover" title="Permanent link">&para;</a></h3>

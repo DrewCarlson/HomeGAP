@@ -53,6 +53,8 @@
       
     
     
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
     
       
@@ -1163,6 +1165,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         What the app reaches
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dns-through-the-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        DNS through the tunnel
       </span>
     </span>
   </a>
@@ -2309,6 +2322,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#dns-through-the-tunnel" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        DNS through the tunnel
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#while-the-homelab-is-down" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2383,6 +2407,14 @@
 <li>The private services, by their hostnames. See <a href="../../services/private/">Private services</a>.</li>
 <li>The private paths of public services. See <a href="../../services/client-addresses/">Client addresses and private-only services</a>.</li>
 </ul>
+<h2 id="dns-through-the-tunnel">DNS through the tunnel<a class="headerlink" href="#dns-through-the-tunnel" title="Permanent link">&para;</a></h2>
+<p>The Pangolin app has the setting <strong>DNS over tunnel</strong>. With this setting, the app sends its DNS queries through the tunnel to its upstream DNS server. The default upstream server of the app is <code>8.8.8.8</code>. The app can send queries only to a server that is a Pangolin resource. Without such a resource, the app resolves only the names of your private services, and other sites do not open.</p>
+<p>HomeGAP makes each server in <code>cluster.tunnel_dns.resolvers</code> a private resource, <code>hg-dns-&lt;address&gt;</code>, on port 53 (TCP and UDP). The default is <code>8.8.8.8</code>, the default of the app, so the app needs no change. The roles in <code>cluster.tunnel_dns.roles</code> can use it.</p>
+<ul>
+<li>If <code>cluster.exit_nodes.nodes</code> is enabled, the resource is on the exit site of each node. The queries leave from the node that the device uses, the nearest node. Thus geo-steered names resolve to locations near the device.</li>
+<li>If not, the resource is on the homelab site of each node. The queries leave from your homelab.</li>
+</ul>
+<p>The resource works without an exit node. If you set another upstream server in the app, add its address to <code>cluster.tunnel_dns.resolvers</code>.</p>
 <h2 id="while-the-homelab-is-down">While the homelab is down<a class="headerlink" href="#while-the-homelab-is-down" title="Permanent link">&para;</a></h2>
 <p>The apps that are connected stay connected. New sign-ins work approximately 30 seconds later, when the nodes elect a database primary. Only the services on the homelab are not reachable.</p>
 

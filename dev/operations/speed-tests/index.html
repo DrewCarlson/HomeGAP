@@ -53,6 +53,8 @@
       
     
     
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
     <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
     
       
@@ -2453,7 +2455,8 @@
 <h3 id="homelab-node">Homelab ↔ node<a class="headerlink" href="#homelab-node" title="Permanent link">&para;</a></h3>
 <p>The orchestrator runs <code>curl</code> on the node over SSH, against port 443 of the node, with the speed test hostname of the node. Thus the traffic takes the production path through the tunnel.</p>
 <p>The test uses <code>speedtest.streams</code> parallel streams, and the rates are the sum. One stream shows what a single connection gets over the distance. Several streams show the capacity of the tunnel. You can select the number of streams for each run.</p>
-<p>To run the test, click <strong>Run test</strong>, or click a node on the map.</p>
+<p>To run the test, click <strong>Run test</strong>, or click a node on the map. <strong>Test all nodes</strong> runs the test on each node in turn.</p>
+<p>While a test runs, a gauge shows it live: the round trip of each ping, then the download rate, then the upload rate, with a bar for each sample. The speed test origin measures these as the traffic arrives. The final figures come from the node when the test ends.</p>
 <h3 id="your-device-node-homelab">Your device → node → homelab<a class="headerlink" href="#your-device-node-homelab" title="Permanent link">&para;</a></h3>
 <p>This test uses a short-lived link that you open on any device. The link is valid for <code>speedtest.link_ttl</code>.</p>
 <ol>
@@ -2462,6 +2465,7 @@
 <li>Open the link on the device.</li>
 </ol>
 <p><code>speedtest.&lt;domain&gt;</code> goes to the node that DNS selects for the device. That node answers the name itself and sends each request on to the homelab under its own name, <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>. The address bar keeps <code>speedtest.&lt;domain&gt;</code>. Thus the page shows the node, and each result belongs to a node. On HTTP, the node redirects to HTTPS on the same name.</p>
+<p>The page shows a gauge for each phase as it runs. <strong>Test all nodes</strong> tests each node in turn through its own name, <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>, from the same page. Each result belongs to its node. For this, the speed test origin accepts requests from its own pages under any of its names.</p>
 <p>The token is in the fragment of the URL. The browser never sends the fragment to a server, so no log contains the token.</p>
 <p><img src="../../img/dashboard/speedtest-results.png" alt="The Speed test page with a homelab to node result and a device link"></p>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
@@ -2482,6 +2486,10 @@
 <tr>
 <td><code>POST /api/speedtest/nodes/{id}</code></td>
 <td>Runs a test between the homelab and a node. The call returns when the test ends.</td>
+</tr>
+<tr>
+<td><code>GET /api/speedtest/live</code></td>
+<td>Returns the running homelab ↔ node test as far as it has got, or 204 when none runs.</td>
 </tr>
 <tr>
 <td><code>POST /api/speedtest/link</code></td>
