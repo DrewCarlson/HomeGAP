@@ -266,6 +266,8 @@ table.data tr.empty:hover td { background: none; }
 /* The running test: a half-ring gauge filled to --p (0..1) of its scale, and one bar per sample. */
 .live-test { border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px 14px; background: var(--surface-2); display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
 .live-side { flex: 1; min-width: 180px; display: grid; gap: 6px; }
+/* Centered once it wraps onto its own line (phones); beside the bars otherwise. */
+.gauge-box { margin: 0 auto; }
 .live-phase { font-weight: 600; }
 /* Gauge colors carry the phase: white for ping, cyan for download, violet for upload. */
 .gauge { position: relative; width: 180px; height: 100px; overflow: hidden; flex: none; --tone: #FFFFFF; }

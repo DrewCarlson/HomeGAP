@@ -31,19 +31,24 @@ main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
 h1 { font-size:22px; margin:0 0 4px; display:flex; align-items:center; gap:10px; }
 .hg-mark { width:28px; height:28px; flex:none; }
 .sub { color:var(--muted); margin:0 0 20px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
-.card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:4px; padding:14px 16px; }
 .label { color:var(--muted); font-size:13px; }
-.value { font-size:28px; font-weight:600; font-variant-numeric:tabular-nums; }
-.unit { font-size:14px; color:var(--muted); font-weight:400; margin-left:4px; }
-button { font:inherit; padding:10px 18px; border-radius:8px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; }
+/* The four figures: one strip, four across at every width, so the gauge and Start stay in view. */
+.stats { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); padding:0; }
+.stat { padding:10px 14px; min-width:0; }
+.stat + .stat { border-left:1px solid var(--line); }
+.value { font-size:24px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.2; }
+.unit { font-size:13px; color:var(--muted); font-weight:400; margin-left:4px; }
+button { font:inherit; padding:10px 18px; border-radius:4px; border:1px solid var(--accent); background:var(--accent); color:#070A1F; font-weight:600; cursor:pointer; }
 button:disabled { opacity:.5; cursor:default; }
 .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:20px 0; }
 #status { color:var(--muted); }
 .err { color:var(--bad); }
 ul { padding-left:18px; } a { color:var(--accent); }
 button.secondary { background:transparent; color:var(--accent); }
-.live { display:flex; gap:20px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+.live { display:flex; gap:12px 20px; align-items:center; flex-wrap:wrap; margin-top:12px; }
+/* Centered once it wraps onto its own line (phones); beside the bars otherwise. */
+.gauge-box { margin:0 auto; }
 .live-side { flex:1; min-width:200px; }
 .phase { font-weight:600; }
 /* A half-ring gauge: a conic arc filled to --p (0..1) of its scale. The phase picks the color:
@@ -59,26 +64,42 @@ body[data-phase="upload"] { --tone:#B388FF; }
 .gauge-unit { color:var(--muted); font-size:13px; }
 .gauge-scale { display:flex; justify-content:space-between; width:220px; color:var(--muted); font-size:11px; }
 .bars { display:flex; align-items:flex-end; gap:2px; height:48px; margin-top:8px; }
-.bars span { flex:1; min-width:2px; background:var(--accent); opacity:.75; border-radius:2px 2px 0 0; }
+.bars span { flex:1; min-width:2px; background:var(--tone); opacity:.75; border-radius:2px 2px 0 0; }
+.table-wrap { overflow-x:auto; margin:0 -16px; padding:0 16px; }
 table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
 th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+td:first-child { overflow-wrap:anywhere; }
+th:not(:first-child), td:not(:first-child) { text-align:right; white-space:nowrap; }
 th { color:var(--muted); font-weight:500; font-size:13px; }
 tr.now td { font-weight:600; }
 td .reason { display:block; font-size:13px; font-weight:400; }
+@media (max-width: 559px) {
+  main { padding:16px 16px 40px; }
+  h1 { font-size:19px; }
+  .sub { font-size:13px; margin-bottom:12px; }
+  .stat { padding:8px 10px; }
+  .stat .label { font-size:11px; }
+  .value { font-size:18px; }
+  .unit { display:block; margin:0; font-size:11px; }
+  .bars { height:36px; }
+  .row { margin:14px 0; }
+  .row button { flex:1; }
+  th, td { padding:6px 4px; font-size:13px; }
+}
 </style>
 </head>
 <body>
 <main>
   <h1>${Brand.MARK_SVG}HomeGAP speed test</h1>
   <p class="sub" id="via">Checking which node you are connected through&hellip;</p>
-  <div class="grid">
-    <div class="card"><div class="label">Ping</div><div class="value"><span id="ping">&ndash;</span><span class="unit">ms</span></div></div>
-    <div class="card"><div class="label">Jitter</div><div class="value"><span id="jitter">&ndash;</span><span class="unit">ms</span></div></div>
-    <div class="card"><div class="label">Download</div><div class="value"><span id="down">&ndash;</span><span class="unit">Mb/s</span></div></div>
-    <div class="card"><div class="label">Upload</div><div class="value"><span id="up">&ndash;</span><span class="unit">Mb/s</span></div></div>
+  <div class="card stats">
+    <div class="stat"><div class="label">Ping</div><div class="value"><span id="ping">&ndash;</span><span class="unit">ms</span></div></div>
+    <div class="stat"><div class="label">Jitter</div><div class="value"><span id="jitter">&ndash;</span><span class="unit">ms</span></div></div>
+    <div class="stat"><div class="label">Down</div><div class="value"><span id="down">&ndash;</span><span class="unit">Mb/s</span></div></div>
+    <div class="stat"><div class="label">Up</div><div class="value"><span id="up">&ndash;</span><span class="unit">Mb/s</span></div></div>
   </div>
   <div class="card live">
-    <div>
+    <div class="gauge-box">
       <div class="gauge" id="gauge"><div class="gauge-arc"></div>
         <div class="gauge-text"><div class="gauge-value" id="g-value">&ndash;</div><div class="gauge-unit" id="g-unit">&nbsp;</div></div>
       </div>
@@ -91,8 +112,8 @@ td .reason { display:block; font-size:13px; font-weight:400; }
     </div>
   </div>
   <div class="row"><button id="go" disabled>Start test</button><button id="all" class="secondary" disabled>Test all nodes</button><span id="status"></span></div>
-  <div class="card" id="all-card" hidden><div class="label">All nodes</div>
-    <table><thead><tr><th>Node</th><th>Ping</th><th>Jitter</th><th>Down</th><th>Up</th></tr></thead><tbody id="all-rows"></tbody></table>
+  <div class="card" id="all-card" hidden><div class="label">All nodes · ping and jitter in ms, down and up in Mb/s</div>
+    <div class="table-wrap"><table><thead><tr><th>Node</th><th>Ping</th><th>Jitter</th><th>Down</th><th>Up</th></tr></thead><tbody id="all-rows"></tbody></table></div>
   </div>
   <div class="card" style="margin-top:12px"><div class="label">Test through a specific node</div><ul id="others"></ul></div>
 </main>

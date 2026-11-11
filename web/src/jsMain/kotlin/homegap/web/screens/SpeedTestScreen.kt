@@ -154,7 +154,7 @@ private fun SpeedBar(label: String, fraction: Double, className: String) {
 @Composable
 private fun LiveTest(live: LiveTestModel) {
     Div({ classes("live-test", live.tone.className) }) {
-        Div {
+        Div({ classes("gauge-box") }) {
             Div({
                 classes("gauge", live.tone.className)
                 style { property("--p", live.fraction.toString()) }
