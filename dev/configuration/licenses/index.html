@@ -2347,9 +2347,13 @@
 
 
 <h1 id="pangolin-ee-licenses">Pangolin EE licenses<a class="headerlink" href="#pangolin-ee-licenses" title="Permanent link">&para;</a></h1>
-<p>Some features of Pangolin need an EE license key. This page tells you when you need a key and how to give it to HomeGAP in each mode.</p>
+<p>Most of HomeGAP works with plain Pangolin. Two features need Pangolin EE. This page tells you when you need an EE license key and how to give it to HomeGAP in each mode.</p>
 <h2 id="when-you-need-a-license">When you need a license<a class="headerlink" href="#when-you-need-a-license" title="Permanent link">&para;</a></h2>
-<p>You need a license for wildcard HTTP resources in <code>terminate</code> mode. Other EE features also need it, for example shared policies in a base blueprint. Passthrough works without a license.</p>
+<ul>
+<li><strong>Cluster mode.</strong> The nodes run as one Pangolin EE cluster, and one key covers all of them.</li>
+<li><strong>Wildcard HTTP resources in <code>terminate</code> mode</strong>, where the nodes end TLS. For example, the front door with <code>homegap.tls: terminate</code>.</li>
+</ul>
+<p>Other EE features that you use yourself also need a key, for example shared policies in a base blueprint. Standalone nodes that pass TLS through to the homelab need no license.</p>
 <p>Pangolin EE has its own license terms. It is free for personal use and for organizations below its commercial revenue threshold.</p>
 <h2 id="keys-bind-to-one-instance">Keys bind to one instance<a class="headerlink" href="#keys-bind-to-one-instance" title="Permanent link">&para;</a></h2>
 <p>A key binds to one Pangolin instance when you activate it the first time. If a second instance tries the same key, the license server refuses it with "already been activated with a different instance name".</p>

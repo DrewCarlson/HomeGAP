@@ -2334,7 +2334,7 @@
 <p>HomeGAP is a self-hosted alternative to Cloudflare Tunnels and WARP. Your homelab is the only origin, and nothing at home accepts inbound connections. Regional VPS nodes take each viewer's connection near the viewer and send it home through a WireGuard tunnel that the homelab dials out.</p>
 <p>One orchestrator container on the homelab controls the system from Docker labels:</p>
 <ul>
-<li><strong>Regional nodes</strong> are Ubuntu VPS servers from any provider, in any location. Each node runs Pangolin EE with Gerbil and Traefik.</li>
+<li><strong>Regional nodes</strong> are Ubuntu VPS servers from any provider, in any location. Each node runs Pangolin with Gerbil and Traefik.</li>
 <li><strong>Bunny DNS</strong> sends each viewer to the nearest healthy node. Health checks remove a node that fails.</li>
 <li><strong>The orchestrator</strong> reads the labels and creates the Pangolin resources on every node, the tunnels that connect the nodes to the homelab, and the DNS records. It also installs and maintains the nodes over SSH.</li>
 </ul>
@@ -2360,7 +2360,7 @@
 <p>Start with <a href="getting-started/">Getting started</a>. For the model behind the system, read <a href="getting-started/how-it-works/">How HomeGAP works</a>.</p>
 <p>These pages are the documentation for HomeGAP version dev.</p>
 <h2 id="license">License<a class="headerlink" href="#license" title="Permanent link">&para;</a></h2>
-<p>HomeGAP has the MIT license. Pangolin EE has its own license terms. It is free for personal use and for organizations below its commercial revenue threshold.</p>
+<p>HomeGAP has the MIT license. Pangolin has its own license terms. Two HomeGAP features need Pangolin EE: cluster mode, and wildcard resources with TLS ended on the nodes (<code>terminate</code>). Pangolin EE is free for personal use and for organizations below its commercial revenue threshold. See <a href="configuration/licenses/">Pangolin EE licenses</a>.</p>
 
 
 

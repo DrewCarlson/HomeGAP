@@ -2467,7 +2467,7 @@
 <p><code>speedtest.&lt;domain&gt;</code> goes to the node that DNS selects for the device. That node answers the name itself and sends each request on to the homelab under its own name, <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>. The address bar keeps <code>speedtest.&lt;domain&gt;</code>. Thus the page shows the node, and each result belongs to a node. On HTTP, the node redirects to HTTPS on the same name.</p>
 <p>The page shows a gauge for each phase as it runs. <strong>Test all nodes</strong> tests each node in turn through its own name, <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>, from the same page. Each result belongs to its node. For this, the speed test origin accepts requests from its own pages under any of its names.</p>
 <p>The token is in the fragment of the URL. The browser never sends the fragment to a server, so no log contains the token.</p>
-<p><img src="../../img/dashboard/speedtest-results.png" alt="The Speed test page with a homelab to node result and a device link"></p>
+<p><img src="../../img/dashboard/speedtest-results.png" alt="The Speed test page with the homelab to edge results and the device test"></p>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
 <p>HomeGAP keeps the results in <code>&lt;data_dir&gt;/speedtests.json</code>. The <strong>History</strong> panel shows the recent results.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
