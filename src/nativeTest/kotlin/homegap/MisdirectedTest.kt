@@ -37,6 +37,18 @@ class MisdirectedTest {
     }
 
     @Test
+    fun theNodesOwnNamesGetA404NotA421() {
+        val na1 = plan.nodes.getValue("na1")
+        val mgmt = na1.managementHost
+        // The passthrough wildcard covers the management host; its unrouted paths must not 421.
+        val rule = NodeTemplates.misdirectedRule(na1.sniRoutes, listOf(mgmt, "Pangolin.test.example.net"))!!
+        assertTrue(rule.startsWith("(Host(`${NodeTemplates.MISDIRECTED_ANCHOR}`)"), rule)
+        assertTrue(rule.endsWith(" && !Host(`$mgmt`) && !Host(`pangolin.test.example.net`)"), rule)
+        val routes = NodeTemplates.dynamicRoutes(na1, mapOf(Planner.FRONTDOOR_TCP to 7), cluster = true)
+        assertTrue("!Host(`$mgmt`)" in routes, routes)
+    }
+
+    @Test
     fun noPassthroughMeansNoRoute() {
         assertNull(NodeTemplates.misdirectedRule(emptyList()))
         // The passthrough routes are only written once their resources exist; so is this one.

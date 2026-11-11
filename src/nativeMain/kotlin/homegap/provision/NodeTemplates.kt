@@ -472,7 +472,7 @@ object NodeTemplates {
         val mgmt = desired.managementHost
         val sni = desired.sniRoutes.mapNotNull { r -> resourceIds[r.resourceNiceId]?.let { r to it } }
         val root = buildJsonObject {
-            if (misdirectedRule(sni.map { it.first }) != null) putJsonObject("tls") {
+            if (misdirectedRule(sni.map { it.first }, ownNames(desired)) != null) putJsonObject("tls") {
                 putJsonObject("options") { putJsonObject(ELSEWHERE_TLS_OPTIONS) { put("minVersion", "VersionTLS12") } }
             }
             putJsonObject("http") {
@@ -488,7 +488,7 @@ object NodeTemplates {
                     // Names this node passes through, asked for on a connection the node ends itself
                     // (a browser reusing it, the names sharing an IP and a wildcard certificate):
                     // the TLS options differ, so Traefik answers 421 and the browser reconnects.
-                    misdirectedRule(sni.map { it.first })?.let { rule ->
+                    misdirectedRule(sni.map { it.first }, ownNames(desired))?.let { rule ->
                         putJsonObject(MISDIRECTED_ROUTER) {
                             put("rule", rule)
                             putJsonArray("entryPoints") { add("websecure") }
@@ -674,15 +674,23 @@ object NodeTemplates {
 
     /**
      * The rule matching every name the node passes through ([routes]), as patterns, or null when
-     * there are none. Excluded names need no exception: the routes serving them rank higher.
+     * there are none. The node's [own] names are left out, even where a passthrough wildcard covers
+     * them: a path the node does not route there gets a 404, not a 421. Traefik leaves negated
+     * Host()s out when it picks TLS options, so this does not touch their certificates.
      */
-    fun misdirectedRule(routes: List<SniRoute>): String? {
+    fun misdirectedRule(routes: List<SniRoute>, own: List<String> = emptyList()): String? {
         val patterns = routes.flatMap { r ->
             r.exactHosts.map { "(?i)^" + it.replace(".", "\\.") + "$" } + listOfNotNull(r.wildcardOf?.let(::wildcardRegex))
         }.distinct()
         if (patterns.isEmpty()) return null
-        return (listOf("Host(`$MISDIRECTED_ANCHOR`)") + patterns.map { "HostRegexp(`$it`)" }).joinToString(" || ")
+        val matches = (listOf("Host(`$MISDIRECTED_ANCHOR`)") + patterns.map { "HostRegexp(`$it`)" }).joinToString(" || ")
+        val except = own.map { it.lowercase() }.distinct()
+        return if (except.isEmpty()) matches else "($matches)" + except.joinToString("") { " && !Host(`$it`)" }
     }
+
+    /** The names this node serves itself: its management host, the client host, the shared names. */
+    private fun ownNames(desired: NodeDesired): List<String> =
+        listOf(desired.managementHost) + listOfNotNull(desired.clientHost) + sharedNames(desired).flatMap { it.second.toList() }
 
     /** Single-label wildcard match, mirroring Pangolin's wildcard semantics. */
     fun wildcardRegex(domain: String): String = "(?i)^[a-z0-9]([a-z0-9-]*[a-z0-9])?\\." + domain.replace(".", "\\.") + "$"
