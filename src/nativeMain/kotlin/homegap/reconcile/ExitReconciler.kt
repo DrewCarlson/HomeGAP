@@ -12,7 +12,8 @@ class ExitReconciler(private val ctx: ReconcileContext) {
     private val domain = "exits"
 
     /** Returns the node's exit site niceId when it has one, else null. */
-    suspend fun reconcile(ready: ReadyNode): String? {
+    /** [addresses]: the management host's, from the plan's DNS records, pinned for the connector. */
+    suspend fun reconcile(ready: ReadyNode, addresses: List<String>): String? {
         val node = ready.node
         val org = ctx.config.pangolin.orgId
         val nice = ExitNodes.siteNiceId(node.id)
@@ -63,9 +64,10 @@ class ExitReconciler(private val ctx: ReconcileContext) {
         val creds = ctx.state.node(node.id)
         val image = ctx.config.cluster!!.exitNodes.newtImage
         // Deployed already and connected: nothing to do (Docker restarts the connector itself).
-        val hash = Crypto.fnv64("$image|${creds.exitNewtId}|${creds.exitNewtSecret}")
+        val pins = addresses.map { node.managementHost(ctx.config.domain) to it }
+        val hash = Crypto.fnv64("$image|${creds.exitNewtId}|${creds.exitNewtSecret}" + if (pins.isEmpty()) "" else "|$pins")
         if (creds.facts[DEPLOYED_FACT] == hash && site?.online == true) return nice
-        val script = ExitNodes.deployScript(ctx.config.pangolin.installDir, image, creds.exitNewtId!!, creds.exitNewtSecret!!)
+        val script = ExitNodes.deployScript(ctx.config.pangolin.installDir, image, creds.exitNewtId!!, creds.exitNewtSecret!!, pins)
         val out = ctx.ssh.session(node).runScriptOrThrow("exit", script, 600)
         out.lines().filter { it.startsWith("CHANGED ") }.forEach { ctx.log.change(domain, it.removePrefix("CHANGED "), node.id) }
         if ("WAITING-FOR-DOCKER" !in out) ctx.state.updateNode(node.id) { it.copy(facts = it.facts + (DEPLOYED_FACT to hash)) }

@@ -428,7 +428,7 @@ class Controller(
                             site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, slot, pins) }
                             if (clustered) {
                                 if (site != null) synchronizedPut(readyNodes, node.id, ready to site)
-                                runDomain("exits", node.id) { exitRec.reconcile(ready) }?.let { synchronizedPut(exitSites, node.id, it) }
+                                runDomain("exits", node.id) { exitRec.reconcile(ready, pins) }?.let { synchronizedPut(exitSites, node.id, it) }
                             } else if (discoveryOk && site != null) {
                                 resources = runDomain("resources", node.id) { resourceRec.reconcile(ready, nd, pausedKeys) } ?: emptyList()
                                 if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()

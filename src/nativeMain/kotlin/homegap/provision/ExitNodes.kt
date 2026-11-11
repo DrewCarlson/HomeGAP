@@ -67,7 +67,12 @@ object ExitNodes {
         tcpPorts = "", udpPorts = "", roles = roles, paused = false, mode = "exit-node",
     )
 
-    fun compose(image: String): String = YamlEmitter.emit(
+    /**
+     * [pins]: (host, address) for the node's management host, which Pangolin gives the connector
+     * as its WireGuard endpoint. Pinned to the addresses HomeGAP publishes in DNS, so the
+     * connector reaches this node even while public DNS has an older answer.
+     */
+    fun compose(image: String, pins: List<Pair<String, String>> = emptyList()): String = YamlEmitter.emit(
         buildJsonObject {
             put("name", "homegap-exit")
             putJsonObject("services") {
@@ -77,6 +82,7 @@ object ExitNodes {
                     // Outbound connections leave from the node's own address, and Pangolin is on loopback.
                     put("network_mode", "host")
                     putJsonArray("env_file") { add(".env") }
+                    if (pins.isNotEmpty()) putJsonArray("extra_hosts") { pins.forEach { (host, ip) -> add("$host=$ip") } }
                 }
             }
         },
@@ -87,14 +93,20 @@ object ExitNodes {
         "PANGOLIN_ENDPOINT=http://127.0.0.1:3000\nNEWT_ID=$newtId\nNEWT_SECRET=$newtSecret\n"
 
     /** Writes the project and (re)starts it when anything changed. Prints `CHANGED …` lines. */
-    fun deployScript(installDir: String, image: String, newtId: String, newtSecret: String): String {
+    fun deployScript(
+        installDir: String,
+        image: String,
+        newtId: String,
+        newtSecret: String,
+        pins: List<Pair<String, String>> = emptyList(),
+    ): String {
         val dir = "$installDir/$DIR"
         return listOf(
             "type -P docker >/dev/null 2>&1 || { echo WAITING-FOR-DOCKER; exit 0; }",
             "set -e",
             "install -d -m 0700 ${shQuote(dir)}",
             "OUT=$( {",
-            SshSession.writeFileSnippet("$dir/compose.yml", compose(image)),
+            SshSession.writeFileSnippet("$dir/compose.yml", compose(image, pins)),
             SshSession.writeFileSnippet("$dir/.env", env(newtId, newtSecret), "0600"),
             "} )",
             "hg_own ${shQuote(dir)}",

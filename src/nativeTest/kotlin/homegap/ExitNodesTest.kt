@@ -66,4 +66,15 @@ class ExitNodesTest {
         assertFalse("NEWT_SECRET=s" in script, "the secret travels base64-encoded, never in the clear on the command line")
         assertTrue("rm -rf '/opt/homegap/exit'" in ExitNodes.teardownScript("/opt/homegap"))
     }
+
+    @Test
+    fun theWireGuardEndpointIsPinnedToThePublishedAddresses() {
+        // Pangolin gives the connector the management host as its WireGuard endpoint.
+        val pins = listOf("pangolin-na1.test.example.net" to "203.0.113.10", "pangolin-na1.test.example.net" to "2001:db8::10")
+        val compose = ExitNodes.compose("img", pins)
+        assertTrue("extra_hosts" in compose, compose)
+        assertTrue("pangolin-na1.test.example.net=203.0.113.10" in compose, compose)
+        assertTrue("pangolin-na1.test.example.net=2001:db8::10" in compose, compose)
+        assertFalse("extra_hosts" in ExitNodes.compose("img"), "no pins, no entry")
+    }
 }

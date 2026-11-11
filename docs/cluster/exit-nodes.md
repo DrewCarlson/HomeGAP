@@ -34,6 +34,8 @@ If you disable `nodes` or `homelab`, HomeGAP removes those exits. For `nodes`, i
 
 The roles in `roles` can use the exits. The `Admin` role can always use them.
 
+Pangolin gives the connector of a node the management host of the node as its WireGuard endpoint. HomeGAP sets the address of this host in the compose project of the connector (`extra_hosts`), with the values of its DNS records. Thus the connector reaches its node, also while public DNS has an old answer.
+
 ## Logs
 
 To see the logs of the exit connector on a node, open the **Diagnostics** page and select the service `newt`. See [Diagnostics and troubleshooting](../operations/troubleshooting.md).
