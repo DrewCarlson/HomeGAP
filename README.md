@@ -27,7 +27,7 @@ connection near the viewer and send it home through a WireGuard tunnel that the 
 One orchestrator container on the homelab controls the system from Docker labels:
 
 - **Regional nodes** are Ubuntu VPS servers from any provider, in any location. Each node runs
-  [Pangolin EE](https://github.com/fosrl/pangolin) with Gerbil and Traefik.
+  [Pangolin](https://github.com/fosrl/pangolin) with Gerbil and Traefik.
 - **[Bunny DNS](https://bunny.net/dns/)** sends each viewer to the nearest healthy node. Health
   checks remove a node that fails.
 - **The orchestrator** reads the labels and creates the Pangolin resources on every node, the
@@ -78,7 +78,7 @@ Solid arrows are viewer traffic. Dashed arrows are the orchestrator's control pl
 flowchart TD
     viewer([Viewers and Pangolin apps])
     dns["Bunny DNS<br/>geo routing + health checks"]
-    node["Nearest regional node<br/>Pangolin EE · Gerbil · Traefik<br/>+ cluster member"]
+    node["Nearest regional node<br/>Pangolin · Gerbil · Traefik<br/>+ cluster member"]
     other["Other nodes<br/>(same Pangolin cluster)"]
 
     subgraph homelab["Homelab (no inbound ports)"]
@@ -159,7 +159,7 @@ The image `ghcr.io/drewcarlson/homegap` is published for `linux/amd64` and `linu
 | [Getting started](https://drewcarlson.github.io/HomeGAP/latest/getting-started/) | The concepts, the requirements and the setup from start to finish. |
 | [Services](https://drewcarlson.github.io/HomeGAP/latest/services/) | Labels, traffic paths, raw ports, private services, sign-in, client addresses. |
 | [Cluster mode](https://drewcarlson.github.io/HomeGAP/latest/cluster/) | The mesh, the shared database, users and devices, the Pangolin apps, exit nodes. |
-| [Configuration](https://drewcarlson.github.io/HomeGAP/latest/configuration/) | Every config key, secrets, certificates, DNS, EE licenses. |
+| [Configuration](https://drewcarlson.github.io/HomeGAP/latest/configuration/) | Every config key, secrets, certificates, DNS, Pangolin EE licenses. |
 | [Operations](https://drewcarlson.github.io/HomeGAP/latest/operations/dashboard/) | The dashboard, updates, upgrades, troubleshooting, failure modes, performance. |
 | [Reference](https://drewcarlson.github.io/HomeGAP/latest/reference/cli/) | The command line, the HTTP API, the security model, ports, files. |
 | [Development](https://drewcarlson.github.io/HomeGAP/latest/development/building/) | Building from source, the end-to-end tests, the documentation. |
@@ -197,5 +197,6 @@ written with AI assistance under human direction and review.
 
 HomeGAP is released under the [MIT License](LICENSE).
 
-Pangolin EE is subject to its own license terms. It is free for personal use and for
-organizations below its commercial revenue threshold.
+Pangolin is subject to its own license terms. Two HomeGAP features need Pangolin EE: cluster
+mode, and wildcard resources with TLS ended on the nodes (`terminate`). Pangolin EE is free for
+personal use and for organizations below its commercial revenue threshold.

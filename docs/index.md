@@ -22,7 +22,7 @@ HomeGAP is a self-hosted alternative to Cloudflare Tunnels and WARP. Your homela
 
 One orchestrator container on the homelab controls the system from Docker labels:
 
-- **Regional nodes** are Ubuntu VPS servers from any provider, in any location. Each node runs Pangolin EE with Gerbil and Traefik.
+- **Regional nodes** are Ubuntu VPS servers from any provider, in any location. Each node runs Pangolin with Gerbil and Traefik.
 - **Bunny DNS** sends each viewer to the nearest healthy node. Health checks remove a node that fails.
 - **The orchestrator** reads the labels and creates the Pangolin resources on every node, the tunnels that connect the nodes to the homelab, and the DNS records. It also installs and maintains the nodes over SSH.
 
@@ -51,4 +51,4 @@ These pages are the documentation for HomeGAP version {{ hg_version }}.
 
 ## License
 
-HomeGAP has the MIT license. Pangolin EE has its own license terms. It is free for personal use and for organizations below its commercial revenue threshold.
+HomeGAP has the MIT license. Pangolin has its own license terms. Two HomeGAP features need Pangolin EE: cluster mode, and wildcard resources with TLS ended on the nodes (`terminate`). Pangolin EE is free for personal use and for organizations below its commercial revenue threshold. See [Pangolin EE licenses](configuration/licenses.md).

@@ -7,7 +7,7 @@ This page lists what you must have before you install HomeGAP.
 | Homelab | Docker with Compose, and a Traefik instance in front of your services. |
 | Regional nodes | A VPS with Ubuntu 22.04, 24.04, 26.04 or 26.10 (x86_64 or aarch64), a public IPv4 address (IPv6 is optional) and SSH access. |
 | DNS | A Bunny DNS zone and a Bunny API key. |
-| Pangolin EE license | Optional. It is necessary for wildcard resources in `terminate` mode. Use one key for a cluster, or one key for each node without a cluster. |
+| Pangolin EE license | Only for cluster mode and for wildcard resources in `terminate` mode. Use one key for a cluster, or one key for each node without a cluster. See [Pangolin EE licenses](../configuration/licenses.md). |
 | Nodes for the cluster | Two or more. Then the cluster can elect a primary, and sign-in continues to work, while the homelab is down. |
 
 ## The homelab

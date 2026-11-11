@@ -54,7 +54,7 @@ This page defines the terms that the HomeGAP docs use.
 : The fixed id of a Pangolin resource. The ids of the resources that HomeGAP manages start with `hg-`. HomeGAP deletes only stale `hg-*` resources.
 
 **Node**
-: A VPS that runs Pangolin EE, Gerbil and Traefik. Node ids are like `na1`, `eu1` and `as1`. See [Prepare the servers](../getting-started/servers.md).
+: A VPS that runs Pangolin, Gerbil and Traefik. Node ids are like `na1`, `eu1` and `as1`. See [Prepare the servers](../getting-started/servers.md).
 
 **Olm**
 : The Pangolin client in the Pangolin apps.
@@ -63,7 +63,7 @@ This page defines the terms that the HomeGAP docs use.
 : The `homegap run` process on the homelab. It reads the labels and manages the nodes, the tunnels and DNS. It is never in the traffic path.
 
 **Pangolin EE**
-: The Enterprise Edition of Pangolin, by Fossorial. See [Pangolin EE licenses](../configuration/licenses.md).
+: The Enterprise Edition of Pangolin, by Fossorial. HomeGAP needs it for cluster mode and for wildcard resources in `terminate` mode. See [Pangolin EE licenses](../configuration/licenses.md).
 
 **Pass**
 : One run of the reconcile loop. See [How HomeGAP works](../getting-started/how-it-works.md#reconciliation).

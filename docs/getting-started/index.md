@@ -20,7 +20,7 @@ In cluster mode, do two more steps. Add users on the **Access** page ([Users and
 You do the steps above one time. After that, the orchestrator does this work by itself:
 
 - In cluster mode, it prepares the private mesh and the shared database. The homelab member comes first, then each node.
-- It provisions each node: Docker, `ufw`, Pangolin EE, Gerbil and Traefik. It also installs the secrets and the certificate, creates the admin account, the org and the API key, and activates the license.
+- It provisions each node: Docker, `ufw`, Pangolin, Gerbil and Traefik. It also installs the secrets and the certificate, and creates the admin account, the org and the API key. If you set a Pangolin EE license key, it activates the key.
 - It creates the homelab sites on the Pangolin of each node, and one Newt connector for each node.
 - It creates the Pangolin resources, and the Bunny geo records with their monitors.
 

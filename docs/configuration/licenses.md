@@ -1,10 +1,13 @@
 # Pangolin EE licenses
 
-Some features of Pangolin need an EE license key. This page tells you when you need a key and how to give it to HomeGAP in each mode.
+Most of HomeGAP works with plain Pangolin. Two features need Pangolin EE. This page tells you when you need an EE license key and how to give it to HomeGAP in each mode.
 
 ## When you need a license
 
-You need a license for wildcard HTTP resources in `terminate` mode. Other EE features also need it, for example shared policies in a base blueprint. Passthrough works without a license.
+- **Cluster mode.** The nodes run as one Pangolin EE cluster, and one key covers all of them.
+- **Wildcard HTTP resources in `terminate` mode**, where the nodes end TLS. For example, the front door with `homegap.tls: terminate`.
+
+Other EE features that you use yourself also need a key, for example shared policies in a base blueprint. Standalone nodes that pass TLS through to the homelab need no license.
 
 Pangolin EE has its own license terms. It is free for personal use and for organizations below its commercial revenue threshold.
 

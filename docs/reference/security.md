@@ -53,7 +53,7 @@ Some calls have no setting. In the container that makes the call, HomeGAP resolv
 
 The calls that remain are needed for the system to work:
 
-- The nodes check the Pangolin EE license at `api.fossorial.io`.
+- If you use a Pangolin EE license key, the nodes check it at `api.fossorial.io`.
 - Traefik on the nodes downloads its plugins (Pangolin's `badger`, and the CrowdSec bouncer if enabled) from the Traefik plugin catalog when it starts.
 - The nodes get certificates from Let's Encrypt.
 - With `pangolin.crowdsec`, CrowdSec talks to its central API for the community blocklists.
