@@ -1,32 +1,31 @@
 package homegap.presentation.tunnels
 
 import androidx.compose.runtime.Immutable
-import homegap.api.TunnelStatusDto
-import homegap.presentation.common.Badge
+import homegap.api.Health
 import homegap.presentation.core.ScreenModel
-import homegap.presentation.format.formatBytes
-import homegap.presentation.format.toHealth
+import homegap.presentation.routing.Location
+import homegap.presentation.ui.ChartModel
+import homegap.presentation.ui.EmptyStateModel
+import homegap.presentation.ui.InspectorModel
+import homegap.presentation.ui.PageHeadModel
 
+/** The Newt connectors from the homelab to each edge. */
 @Immutable
-data class TunnelsScreenModel(val tunnels: List<TunnelRowModel>) : ScreenModel
+data class TunnelsScreenModel(
+    override val head: PageHeadModel,
+    val tunnels: List<TunnelCardModel>,
+    override val inspector: InspectorModel? = null,
+    override val empty: EmptyStateModel? = null,
+) : ScreenModel
 
+/** One connector: up or down, its process, restarts and throughput. */
 @Immutable
-data class TunnelRowModel(
+data class TunnelCardModel(
     val nodeId: String,
     val endpoint: String,
-    val site: Badge,
-    val process: Badge,
-    val lastExit: String?,
-    val restarts: String,
-    val traffic: String,
-)
-
-fun TunnelStatusDto.toRowModel() = TunnelRowModel(
-    nodeId = nodeId,
-    endpoint = endpoint,
-    site = Badge(siteOnline.toHealth(), siteOnline?.let { if (it) "online" else "offline" } ?: "unknown"),
-    process = Badge.status(processRunning, "running", "stopped"),
-    lastExit = lastExit?.let { "last exit: $it" },
-    restarts = restarts.toString(),
-    traffic = bytesIn?.let { "${formatBytes(it)} / ${formatBytes(bytesOut ?: 0)}" } ?: "—",
+    val health: Health,
+    val status: String,
+    val facts: List<String>,
+    val chart: ChartModel,
+    val location: Location,
 )

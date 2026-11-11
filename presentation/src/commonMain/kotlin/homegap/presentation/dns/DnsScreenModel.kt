@@ -1,41 +1,50 @@
 package homegap.presentation.dns
 
 import androidx.compose.runtime.Immutable
-import homegap.api.DnsRecordStatusDto
 import homegap.api.Health
-import homegap.presentation.common.Badge
 import homegap.presentation.core.ScreenModel
+import homegap.presentation.routing.Location
+import homegap.presentation.ui.EmptyStateModel
+import homegap.presentation.ui.InspectorModel
+import homegap.presentation.ui.PageHeadModel
 
+/** The DNS records HomeGAP manages, grouped into record sets (one name and type, several members). */
 @Immutable
-data class DnsScreenModel(val records: List<DnsRowModel>) : ScreenModel
+data class DnsScreenModel(
+    override val head: PageHeadModel,
+    val sets: List<RecordSetModel>,
+    /** Geo steering: which edges visitors are sent to now, from the largest geo-routed record set. */
+    val steering: List<SteeringModel>,
+    override val inspector: InspectorModel? = null,
+    override val empty: EmptyStateModel? = null,
+) : ScreenModel
 
+/** One name and type, with a member per edge (geo-routed) or a single value. */
 @Immutable
-data class DnsRowModel(
-    val key: String,
+data class RecordSetModel(
     val name: String,
     val type: String,
-    val value: String,
-    val node: String,
     val routing: String,
-    /** Null when the record has no health monitor. */
-    val monitor: Badge?,
-    val state: Badge,
+    val health: Health,
+    val summary: String,
+    val members: List<RecordMemberModel>,
+    val location: Location,
 )
 
-fun DnsRecordStatusDto.toRowModel() = DnsRowModel(
-    key = "$type $name $value $nodeId",
-    name = name,
-    type = type,
-    value = value,
-    node = nodeId ?: "—",
-    routing = geo ?: "plain",
-    monitor = if (monitor == "none") null else {
-        val health = when (monitorStatus) {
-            "online" -> Health.OK
-            "offline" -> Health.DOWN
-            else -> Health.UNKNOWN
-        }
-        Badge(health, "$monitor $monitorStatus")
-    },
-    state = if (inSync) Badge(Health.OK, "in sync") else Badge(Health.DEGRADED, diff ?: "differs"),
+@Immutable
+data class RecordMemberModel(
+    val node: String,
+    val value: String,
+    val monitor: String,
+    val health: Health,
+    val state: String,
+)
+
+/** One edge in geo steering: answering for its region, or withdrawn (visitors go to the next nearest). */
+@Immutable
+data class SteeringModel(
+    val edge: String,
+    val serving: Boolean,
+    /** How long it has been withdrawn ("for 12m"). */
+    val since: String? = null,
 )

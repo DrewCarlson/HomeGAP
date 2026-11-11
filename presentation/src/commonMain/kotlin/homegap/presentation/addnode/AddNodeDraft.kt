@@ -3,6 +3,7 @@ package homegap.presentation.addnode
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import homegap.api.ApiJson
 import homegap.api.ConnectionTestDto
 import homegap.api.SetupJobDto
 import homegap.api.SshKeyDto
@@ -11,6 +12,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import homegap.presentation.data.Preferences
+import kotlinx.serialization.Serializable
 
 enum class WizardStep(val title: String) {
     Server("Server"),
@@ -97,16 +100,68 @@ data class AddNodeDraft(
     }
 }
 
-/** Holds the wizard's [AddNodeDraft] for the life of the page. */
+/**
+ * Holds the wizard's [AddNodeDraft], and keeps it on this device so it survives a reload. The
+ * password and a pasted private key are never saved.
+ */
 @SingleIn(AppScope::class)
 @Inject
-class AddNodeWizardStore {
-    private val _draft = MutableStateFlow(AddNodeDraft())
+class AddNodeWizardStore(private val preferences: Preferences) {
+    private val _draft = MutableStateFlow(restore())
     val draft: StateFlow<AddNodeDraft> = _draft.asStateFlow()
 
-    fun update(block: (AddNodeDraft) -> AddNodeDraft) = _draft.update(block)
+    fun update(block: (AddNodeDraft) -> AddNodeDraft) {
+        _draft.update(block)
+        save(_draft.value)
+    }
 
     fun reset() {
         _draft.value = AddNodeDraft()
+        preferences.set(KEY, null)
+    }
+
+    private fun save(draft: AddNodeDraft) {
+        val saved = SavedDraft(
+            step = draft.step.name,
+            values = (draft.values - WizardField.Password - WizardField.ImportKey).mapKeys { it.key.name },
+            toggles = draft.toggles.map { it.name },
+            auth = draft.auth.name,
+            keyMode = draft.keyMode.name,
+            key = draft.key,
+            keyFor = draft.keyFor,
+        )
+        preferences.set(KEY, ApiJson.encodeToString(SavedDraft.serializer(), saved))
+    }
+
+    private fun restore(): AddNodeDraft {
+        val text = preferences.get(KEY) ?: return AddNodeDraft()
+        val saved = runCatching { ApiJson.decodeFromString(SavedDraft.serializer(), text) }.getOrNull() ?: return AddNodeDraft()
+        return AddNodeDraft(
+            step = WizardStep.entries.firstOrNull { it.name == saved.step } ?: WizardStep.Server,
+            values = saved.values.mapNotNull { (name, value) ->
+                WizardField.entries.firstOrNull { it.name == name }?.let { it to value }
+            }.toMap(),
+            toggles = saved.toggles.mapNotNull { name -> WizardToggle.entries.firstOrNull { it.name == name } }.toSet(),
+            auth = AuthMethod.entries.firstOrNull { it.name == saved.auth } ?: AuthMethod.Password,
+            keyMode = KeyMode.entries.firstOrNull { it.name == saved.keyMode } ?: KeyMode.Generate,
+            key = saved.key,
+            keyFor = saved.keyFor,
+        )
+    }
+
+    /** What is kept on the device: everything but the password and a pasted key. */
+    @Serializable
+    private data class SavedDraft(
+        val step: String,
+        val values: Map<String, String>,
+        val toggles: List<String>,
+        val auth: String,
+        val keyMode: String,
+        val key: SshKeyDto? = null,
+        val keyFor: String? = null,
+    )
+
+    private companion object {
+        const val KEY = "addnode.draft"
     }
 }

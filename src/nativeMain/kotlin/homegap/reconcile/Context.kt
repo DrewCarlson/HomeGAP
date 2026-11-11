@@ -22,10 +22,15 @@ class ReconcileContext(
     val externalHttp: HttpClient,
     val dryRun: Boolean,
     val diff: DiffCollector,
+    /** This one pass applies changes even under a global pause ("apply just this change"). */
+    val applyOnce: Boolean = false,
 ) {
     val tunnelsDir: String get() = config.tunnels.stateDir ?: "${config.dataDir}/tunnels"
 
-    fun nodePaused(id: String): Boolean = state.snapshot().pauses.let { it.global || id in it.nodes }
+    /** The pauses in force for this pass: a global pause is lifted for an [applyOnce] pass. */
+    fun pauses(): homegap.state.Pauses = state.snapshot().pauses.let { if (applyOnce) it.copy(global = false) else it }
+
+    fun nodePaused(id: String): Boolean = pauses().let { it.global || id in it.nodes }
 }
 
 class DiffCollector {

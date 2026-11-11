@@ -10,6 +10,11 @@ import homegap.api.Health
 import homegap.api.SecretsResponse
 import homegap.presentation.common.Badge
 import homegap.presentation.core.Presenter
+import homegap.presentation.format.plural
+import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.Severity
+import homegap.presentation.ui.StatusLineModel
+import homegap.presentation.ui.StatusMessage
 import homegap.presentation.core.runCatchingCancellable
 import homegap.presentation.data.ControllerApi
 import kotlinx.coroutines.async
@@ -45,7 +50,27 @@ class ConfigScreenPresenter(private val api: ControllerApi) : Presenter<ConfigSc
                 SecretRowModel(it.name, it.usedBy, it.source, Badge.status(it.present, "present", "missing"))
             }
         }
+        val pending = loaded?.diff?.items?.count { it.action != "none" }
+        val missing = loaded?.secrets?.secrets?.filter { !it.present }.orEmpty()
         return ConfigScreenModel(
+            head = PageHeadModel(
+                caption = "Config · desired vs. actual",
+                headline = when (pending) {
+                    null -> "Loading the config…"
+                    0 -> "Everything matches the config."
+                    else -> "${plural(pending, "difference")} from the config."
+                },
+                statusLine = missing.takeIf { it.isNotEmpty() }?.let { secrets ->
+                    StatusLineModel(
+                        secrets.map { secret ->
+                            StatusMessage(
+                                severity = Severity.Down,
+                                text = "${secret.name} is missing (${secret.source}), used by ${secret.usedBy}.",
+                            )
+                        }
+                    )
+                },
+            ),
             loading = loaded == null,
             onlyChanges = onlyChanges,
             diff = diff,

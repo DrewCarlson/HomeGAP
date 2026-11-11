@@ -13,6 +13,8 @@ ksubprocess = "1.0.0-beta01"
 maplibre = "6.16.0"
 pmtiles = "4.5.0"
 protomaps-basemaps = "5.7.2"
+fontsource-sora = "5.3.0"
+fontsource-jetbrains-mono = "5.3.0"
 metro = "1.5.2"
 molecule = "2.2.0"
 
@@ -40,6 +42,7 @@ molecule-runtime = { module = "app.cash.molecule:molecule-runtime", version.ref 
 ksubprocess = { module = "org.drewcarlson:ksubprocess", version.ref = "ksubprocess" }
 compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
 compose-html-core = { module = "org.jetbrains.compose.html:html-core", version.ref = "compose" }
+compose-html-svg = { module = "org.jetbrains.compose.html:html-svg", version.ref = "compose" }
 
 [plugins]
 kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

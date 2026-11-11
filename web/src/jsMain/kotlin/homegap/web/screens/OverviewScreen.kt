@@ -2,77 +2,340 @@ package homegap.web.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
+import homegap.presentation.overview.AttentionRowModel
+import homegap.presentation.overview.EdgeCardModel
+import homegap.presentation.overview.EdgeModel
+import homegap.presentation.overview.GaugeModel
+import homegap.presentation.overview.MatrixModel
+import homegap.presentation.overview.NetworkModel
+import homegap.presentation.overview.NetworkView
 import homegap.presentation.overview.OverviewScreenModel
+import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.web.routing.HashRouter
 import homegap.web.ui.*
-import org.jetbrains.compose.web.dom.Div
-import org.jetbrains.compose.web.dom.Text
-import org.jetbrains.compose.web.dom.Tr
+import org.jetbrains.compose.web.css.percent
+import org.jetbrains.compose.web.css.width
+import org.jetbrains.compose.web.dom.*
 
+/** The whole system at a glance. */
 @Composable
-fun OverviewScreen(model: OverviewScreenModel, onNavigate: (Route) -> Unit) {
-    Div({ classes("stats") }) { model.stats.forEach { Stat(it) } }
-    if (!model.map.isEmpty) {
-        val subtitle = remember(model.homelabUnplaced) {
-            if (model.homelabUnplaced) {
-                "Set the homelab's location on the Locations page to see its tunnels"
-            } else {
-                "Hover a marker for details; lines are the homelab's tunnels"
+fun OverviewScreen(
+    model: OverviewScreenModel,
+    onOpen: (Location) -> Unit,
+) {
+    Gauges(model.gauges)
+    if (model.attention.isNotEmpty()) {
+        NeedsAttention(
+            rows = model.attention,
+            onOpen = onOpen,
+        )
+    }
+    Network(
+        network = model.network,
+        onOpen = onOpen,
+    )
+    if (model.edges.isNotEmpty()) {
+        EdgeCards(
+            cards = model.edges,
+            onOpen = onOpen,
+        )
+    }
+    if (model.matrix.rows.isNotEmpty()) {
+        Matrix(
+            matrix = model.matrix,
+            onOpen = onOpen,
+        )
+    }
+    Figure(caption = "Fig. 04 · System and recent changes") {
+        Div({ classes("system-grid") }) {
+            Dl({ classes("fact-list") }) {
+                model.system.forEach { row ->
+                    Div {
+                        Dt { Text(row.label) }
+                        Dd { Text(row.value) }
+                    }
+                }
+            }
+            Ol({ classes("recent") }) {
+                if (model.recent.isEmpty()) {
+                    Li({ classes("muted") }) { Text("No changes since the orchestrator started.") }
+                }
+                model.recent.forEach { change ->
+                    Li {
+                        Span({
+                            classes("recent-time", "mono")
+                            title(change.absolute)
+                        }) {
+                            Text(change.time)
+                        }
+                        Span({ classes(change.severity.className) }) { Text(change.text) }
+                    }
+                }
             }
         }
-        Panel("Map", subtitle, actions = {
-            PanelLink("Locations →", Route.Locations, onNavigate)
-        }) {
-            WorldMap(
-                model = model.map,
+    }
+}
+
+@Composable
+private fun Gauges(gauges: List<GaugeModel>) {
+    Div({ classes("gauges") }) {
+        gauges.forEach { gauge ->
+            Div({ classes("tile") }) {
+                Div({ classes("tile-label") }) { Text(gauge.label) }
+                Div({ classes("tile-value", gauge.health.toneClass) }) { Text(gauge.value) }
+                Div({ classes("tile-bar") }) {
+                    Div({
+                        classes("tile-fill", gauge.health.toneClass)
+                        style { width((gauge.fraction * 100).percent) }
+                    })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NeedsAttention(rows: List<AttentionRowModel>, onOpen: (Location) -> Unit) {
+    Section({
+        classes("attention")
+        attr("aria-label", "Needs attention")
+    }) {
+        Div({ classes("attention-head") }) {
+            Span({ classes("caption") }) { Text("Needs attention · ${rows.size}") }
+            Span({ classes("caption", "muted") }) { Text("select to inspect") }
+        }
+        rows.forEach { row ->
+            NavLink(
+                href = HashRouter.href(row.location),
+                onNavigate = { onOpen(row.location) },
+                classNames = listOf("attention-row"),
+            ) {
+                Span({ classes("attention-mark", row.severity.className) }) {
+                    Text(if (row.severity == homegap.presentation.ui.Severity.Down) "✗" else "▲")
+                }
+                Span({ classes("attention-text") }) {
+                    Span({ classes(row.severity.className) }) { Text(row.title) }
+                    if (row.detail.isNotEmpty()) {
+                        Span({ classes("muted") }) { Text(" · ${row.detail}") }
+                    }
+                }
+                Span({ classes("attention-since") }) { Text(row.since) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Network(network: NetworkModel, onOpen: (Location) -> Unit) {
+    Figure(
+        caption = "Fig. 01 · Network · ${network.edges.size} edges",
+        flush = true,
+        actions = {
+            Div({
+                classes("segmented")
+                attr("role", "group")
+                attr("aria-label", "Network view")
+            }) {
+                ViewButton(
+                    label = "Traffic path",
+                    active = network.view == NetworkView.Path,
+                    onClick = { network.onView(NetworkView.Path) },
+                )
+                ViewButton(
+                    label = "Map",
+                    active = network.view == NetworkView.Map,
+                    onClick = { network.onView(NetworkView.Map) },
+                )
+            }
+            NavLink(
+                href = HashRouter.href(Route.Locations),
+                onNavigate = { onOpen(Location(Route.Locations)) },
+                classNames = listOf("link"),
+            ) {
+                Text("Locations")
+            }
+        },
+    ) {
+        when (network.view) {
+            NetworkView.Path -> TrafficPath(
+                network = network,
+                onOpen = onOpen,
+            )
+
+            NetworkView.Map -> WorldMap(
+                model = network.map,
                 heightPx = 380,
-                onMarkerClick = { id -> if (id != "homelab") onNavigate(Route.Nodes) }
+                onMarkerClick = { id ->
+                    if (network.edges.any { it.id == id }) {
+                        onOpen(Location(Route.Overview, id))
+                    }
+                },
             )
         }
     }
-    if (model.labelErrors.isNotEmpty()) {
-        Panel(
-            title = "Label errors",
-            subtitle = "Fix these labels; the affected containers are ignored until then"
+}
+
+@Composable
+private fun ViewButton(label: String, active: Boolean, onClick: () -> Unit) {
+    Button({
+        if (active) {
+            classes("active")
+        }
+        attr("aria-pressed", active.toString())
+        onClick { onClick() }
+    }) {
+        Text(label)
+    }
+}
+
+/** Homelab on the left, a row per edge: tunnel, edge with its probe, the names it serves. */
+@Composable
+private fun TrafficPath(network: NetworkModel, onOpen: (Location) -> Unit) {
+    Div({ classes("path") }) {
+        Div({ classes("path-homelab") }) {
+            Div({ classes("caption") }) { Text("Homelab") }
+            Div({ classes("path-homelab-place") }) { Text(network.homelab.place) }
+            network.homelab.facts.forEach { fact ->
+                Div({ classes("muted", "mono") }) { Text(fact) }
+            }
+        }
+        Div({ classes("path-edges") }) {
+            network.edges.forEach { edge ->
+                key(edge.id) {
+                    PathRow(
+                        edge = edge,
+                        onOpen = onOpen,
+                    )
+                }
+            }
+        }
+    }
+    P({ classes("figure-note") }) {
+        Text("Line: mesh round trip between the homelab and the edge. Box: the Pangolin API probe through the edge.")
+    }
+}
+
+@Composable
+private fun PathRow(edge: EdgeModel, onOpen: (Location) -> Unit) {
+    Div({ classes("path-row") }) {
+        Div({ classes("path-line", edge.health.toneClass) }) {
+            Span({ classes("mono") }) { Text(edge.mesh ?: "tunnel") }
+        }
+        NavLink(
+            href = HashRouter.href(edge.location),
+            onNavigate = { onOpen(edge.location) },
+            classNames = listOf("path-edge", edge.health.toneClass),
         ) {
-            DataTable(listOf("Container", "Problem")) {
-                model.labelErrors.forEach { error ->
-                    key(error) {
-                        Tr {
-                            Cell("Container", "mono") { Text(error.container) }
-                            Cell("Problem") { Text(error.message) }
+            Span {
+                B { Text(edge.id) }
+                Span({ classes("muted") }) { Text(" ${edge.place}") }
+            }
+            Span({ classes("mono") }) { Text(edge.api) }
+        }
+        Div({ classes("path-names", "mono") }) { Text(edge.names) }
+    }
+}
+
+@Composable
+private fun EdgeCards(cards: List<EdgeCardModel>, onOpen: (Location) -> Unit) {
+    Figure(
+        caption = "Fig. 02 · Edges · last 60 min",
+        actions = {
+            NavLink(
+                href = HashRouter.href(Route.Nodes),
+                onNavigate = { onOpen(Location(Route.Nodes)) },
+                classNames = listOf("link"),
+            ) {
+                Text("Nodes →")
+            }
+        },
+        flush = true,
+    ) {
+        Div({
+            classes("edge-cards")
+            if (cards.size <= 2) {
+                classes("two")
+            }
+        }) {
+            cards.forEach { card ->
+                key(card.id) {
+                    NavLink(
+                        href = HashRouter.href(card.location),
+                        onNavigate = { onOpen(card.location) },
+                        classNames = listOf("edge-card"),
+                    ) {
+                        Div({ classes("edge-card-head") }) {
+                            Span {
+                                B { Text(card.id) }
+                                Span({ classes("muted") }) { Text(" ${card.place}") }
+                            }
+                            Span({ classes("mono", card.health.toneClass) }) { Text(card.status) }
+                        }
+                        Chart(
+                            chart = card.chart,
+                            compact = true,
+                        )
+                        if (card.facts.isNotEmpty()) {
+                            Div({ classes("edge-card-facts", "mono") }) {
+                                card.facts.forEach { Span { Text(it) } }
+                            }
                         }
                     }
                 }
             }
         }
     }
-    Panel(
-        title = "Nodes",
-        actions = { PanelLink("Manage →", Route.Nodes, onNavigate) }
-    ) {
-        NodeTable(
-            model.nodes,
-            events = null
-        )
-    }
-    Panel(
-        title = "Services",
-        actions = { PanelLink("All services →", Route.Services, onNavigate) }
-    ) {
-        ServiceTable(model.services, onTogglePause = null)
-    }
 }
 
 @Composable
-private fun PanelLink(text: String, route: Route, onNavigate: (Route) -> Unit) {
-    NavLink(
-        href = HashRouter.href(route),
-        onNavigate = { onNavigate(route) },
-        classNames = listOf("link")
+private fun Matrix(matrix: MatrixModel, onOpen: (Location) -> Unit) {
+    Figure(
+        caption = "Fig. 03 · Services × edges · response time, ms",
+        flush = true,
+        actions = {
+            NavLink(
+                href = HashRouter.href(Route.Services),
+                onNavigate = { onOpen(Location(Route.Services)) },
+                classNames = listOf("link"),
+            ) {
+                Text("All ${matrix.total} →")
+            }
+        },
     ) {
-        Text(text)
+        Div({ classes("matrix-wrap") }) {
+            Table({ classes("matrix") }) {
+                Thead {
+                    Tr {
+                        Th { Text("Host") }
+                        matrix.edges.forEach { edge -> Th { Text(edge) } }
+                    }
+                }
+                Tbody {
+                    matrix.rows.forEach { row ->
+                        key(row.label) {
+                            Tr {
+                                Td({ classes("matrix-host") }) {
+                                    NavLink(
+                                        href = HashRouter.href(row.location),
+                                        onNavigate = { onOpen(row.location) },
+                                    ) {
+                                        Text(row.label)
+                                    }
+                                }
+                                row.cells.forEach { cell ->
+                                    Td({
+                                        classes("matrix-cell", cell.health.toneClass)
+                                        attr("title", cell.title)
+                                    }) {
+                                        Text(cell.text)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

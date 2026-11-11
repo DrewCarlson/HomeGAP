@@ -13,7 +13,9 @@ import homegap.presentation.core.Presenter
 import homegap.presentation.core.ScreenModel
 import homegap.presentation.core.runCatchingCancellable
 import homegap.presentation.data.ActionRunner
+import homegap.presentation.data.Confirmations
 import homegap.presentation.data.ControllerApi
+import homegap.presentation.ui.ConfirmModel
 import homegap.presentation.map.MapInfo
 import homegap.presentation.map.MapMarker
 import homegap.presentation.map.MapModel
@@ -104,6 +106,7 @@ data class LocationsScreenModel(
 class LocationsScreenPresenter(
     private val api: ControllerApi,
     private val actions: ActionRunner,
+    private val confirmations: Confirmations,
 ) : Presenter<LocationsScreenProps, LocationsScreenModel> {
     @Composable
     override fun model(props: LocationsScreenProps): LocationsScreenModel {
@@ -179,13 +182,31 @@ class LocationsScreenPresenter(
                     }
 
                     LocationsEvent.Cancel -> editor = null
-                    is LocationsEvent.Delete -> actions.run(
-                        "Remove location",
-                        onSuccess = { refresh() }) { api.deleteLocation(event.id, reset = false) }
+                    is LocationsEvent.Delete -> {
+                        val name = latestAll.firstOrNull { it.id == event.id }?.name ?: event.id
+                        confirmations.ask(
+                            ConfirmModel(
+                                title = "Remove $name?",
+                                text = "It leaves the known locations. Nodes that use it keep their coordinates.",
+                                confirmLabel = "Remove",
+                                danger = true,
+                            )
+                        ) {
+                            actions.run(
+                                label = "Remove location",
+                                onSuccess = { refresh() },
+                            ) {
+                                api.deleteLocation(event.id, reset = false)
+                            }
+                        }
+                    }
 
                     is LocationsEvent.Reset -> actions.run(
-                        "Restore location",
-                        onSuccess = { refresh() }) { api.deleteLocation(event.id, reset = true) }
+                        label = "Restore location",
+                        onSuccess = { refresh() },
+                    ) {
+                        api.deleteLocation(event.id, reset = true)
+                    }
 
                     is LocationsEvent.SearchHomelab -> homeQuery = event.query
                     is LocationsEvent.HomelabFromCatalog -> latestAll.firstOrNull { it.id == event.id }?.let { l ->

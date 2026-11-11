@@ -30,15 +30,29 @@ class ControlRoutes(private val controller: Controller) : RoutingController {
         parent.post("/cluster/maintenance/end") {
             call.respond(homegap.api.ActionResponse(true, controller.endMaintenance()))
         }
+        parent.post("/undo/{id}") {
+            val id = requireNotNull(call.parameters["id"]) { "undo id required" }
+            call.respond(homegap.api.ActionResponse(true, controller.undo(id)))
+        }
+        parent.post("/tunnels/{id}/restart") {
+            val id = requireNotNull(call.parameters["id"]) { "node id required" }
+            call.respond(homegap.api.ActionResponse(true, controller.restartTunnel(id)))
+        }
         parent.post("/cluster/switchover") {
             val to = call.receive<homegap.api.SwitchoverRequest>().to
             call.respond(homegap.api.ActionResponse(true, controller.switchPrimary(to)))
         }
     }
 
+    /** `?apply=once` runs the pass with a global pause lifted for it ("apply just this change"). */
     suspend fun RoutingContext.resync() {
         controller.trigger("dashboard")
-        call.respond(ActionResponse(true, "Resync queued"))
+        if (call.request.queryParameters["apply"] == "once") {
+            controller.trigger(homegap.reconcile.APPLY_ONCE)
+            call.respond(ActionResponse(true, "Applying the waiting changes once; changes stay paused"))
+        } else {
+            call.respond(ActionResponse(true, "Resync queued"))
+        }
     }
 
     /** Pauses or resumes everything, one node, or one service (`PauseRequest.scope`). */

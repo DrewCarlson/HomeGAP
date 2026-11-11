@@ -10,6 +10,7 @@ sealed interface SpeedTestScreenModel : ScreenModel {
 
     @Immutable
     data class Ready(
+        override val head: homegap.presentation.ui.PageHeadModel,
         val streamChoices: List<Int>,
         val streams: Int,
         /** No test is running, so a new one (or another stream count) may start. */
@@ -23,6 +24,8 @@ sealed interface SpeedTestScreenModel : ScreenModel {
         val onRunAll: () -> Unit = {},
         /** "Test all nodes", or how far a run of them has got. */
         val allButtonText: String = "Test all nodes",
+        /** Stops a run of all nodes; null when none runs. */
+        val onCancelAll: (() -> Unit)? = null,
         /** The running test as it goes; null when none runs. */
         val live: LiveTestModel? = null,
         /** The homelab and the nodes with their latest results; empty without locations. */
@@ -38,6 +41,12 @@ data class NodeTestModel(
     /** Ping, jitter, down, up; null before the first result. */
     val metrics: List<MetricModel>?,
     val note: String?,
+    /** Download and upload as shares of 1 Gb/s, for the bars; 0 before the first result. */
+    val downFraction: Double = 0.0,
+    val upFraction: Double = 0.0,
+    /** The upload is under half of the fastest node's. */
+    val slow: Boolean = false,
+    val failed: Boolean = false,
 )
 
 /**
@@ -56,6 +65,8 @@ data class LiveTestModel(
     /** Bar heights, 0..1. */
     val bars: List<Double>,
     val metrics: List<MetricModel>,
+    /** White for ping, cyan for download, violet for upload. */
+    val tone: homegap.presentation.ui.ChartTone = homegap.presentation.ui.ChartTone.White,
 )
 
 @Immutable

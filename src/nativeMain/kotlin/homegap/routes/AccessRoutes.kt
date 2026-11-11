@@ -20,16 +20,21 @@ import io.ktor.server.routing.*
 class AccessRoutes(private val access: AccessService) : RoutingController {
     override fun init(parent: Route) {
         parent.route("/access") {
-            get { call.respond(access.overview()) }
-            post("/users") { call.respond(access.createUser(call.receive<CreateAccessUserRequest>())) }
-            delete("/users/{id}") { call.respond(ActionResponse(true, access.removeUser(param("id")))) }
-            put("/users/{id}/roles") {
-                call.respond(ActionResponse(true, access.setRoles(param("id"), call.receive<SetAccessRolesRequest>().roleIds)))
+            get { respondRevalidated(access.overview()) }
+            post("/users") { call.respond(access.createUser(call.receive<CreateAccessUserRequest>()).also { access.changed() }) }
+            delete("/users/{id}") {
+                val (message, undo) = access.removeUser(param("id"))
+                call.respond(ActionResponse(true, message, undo))
             }
-            delete("/invitations/{id}") { call.respond(ActionResponse(true, access.removeInvitation(param("id")))) }
+            put("/users/{id}/roles") {
+                val roles = call.receive<SetAccessRolesRequest>().roleIds
+                call.respond(ActionResponse(true, access.setRoles(param("id"), roles).also { access.changed() }))
+            }
+            post("/invitations/{id}/reissue") { call.respond(access.reissueInvitation(param("id"))) }
+            delete("/invitations/{id}") { call.respond(ActionResponse(true, access.removeInvitation(param("id")).also { access.changed() })) }
             post("/devices/{id}/{action}") {
                 val id = requireNotNull(param("id").toIntOrNull()) { "device id must be a number" }
-                call.respond(ActionResponse(true, access.deviceAction(id, param("action"))))
+                call.respond(ActionResponse(true, access.deviceAction(id, param("action")).also { access.changed() }))
             }
         }
     }

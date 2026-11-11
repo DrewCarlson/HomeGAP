@@ -27,9 +27,44 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     /** Shown as its own entry in the navigation. */
     val inNav: Boolean get() = navSection == this
 
+    /** The label where space is short: the rail and the phone menu. */
+    val shortTitle: String
+        get() = when (this) {
+            SpeedTest -> "Speed"
+            Diagnostics -> "Diagnose"
+            else -> title
+        }
+
+    /** The navigation group; sub-pages take their section's. */
+    val group: NavGroup
+        get() = when (navSection) {
+            Overview, Nodes, Services, Access, SpeedTest -> NavGroup.Operate
+            else -> NavGroup.Plumbing
+        }
+
     companion object {
         val DEFAULT = Overview
 
+        /** The ten sections in navigation order: Operate, then Plumbing. */
+        val NAV: List<Route> = listOf(
+            Overview,
+            Nodes,
+            Services,
+            Access,
+            SpeedTest,
+            Dns,
+            Tunnels,
+            Activity,
+            Diagnostics,
+            Config,
+        )
+
         fun fromPath(path: String): Route = entries.firstOrNull { it.path == path.removePrefix("#") } ?: DEFAULT
     }
+}
+
+/** The two groups of the navigation: what is run day to day, and what carries it. */
+enum class NavGroup(val title: String) {
+    Operate("Operate"),
+    Plumbing("Plumbing"),
 }

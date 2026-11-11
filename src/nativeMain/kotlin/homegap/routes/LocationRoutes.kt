@@ -34,7 +34,7 @@ class LocationRoutes(private val catalog: LocationCatalog, private val controlle
 
     suspend fun RoutingContext.list() {
         val home = controller.config.homelab.location?.let { PlaceDto(it.latitude, it.longitude, it.name) }
-        call.respond(LocationsResponse(catalog.all(), home))
+        respondRevalidated(LocationsResponse(catalog.all(), home))
     }
 
     suspend fun RoutingContext.save() {

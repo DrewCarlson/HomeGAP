@@ -36,6 +36,28 @@ class FetchControllerApi(
     override suspend fun secrets(): SecretsResponse = http.get("/api/secrets").body()
     override suspend fun config(): ConfigResponse = http.get("/api/config").body()
     override suspend fun speedtest(): SpeedTestOverview = http.get("/api/speedtest").body()
+    override suspend fun log(
+        beforeSeq: Long?,
+        limit: Int,
+        level: LogLevel?,
+        domain: String?,
+        query: String?,
+    ): LogResponse = http.get("/api/log") {
+        beforeSeq?.let { parameter("before", it) }
+        parameter("limit", limit)
+        level?.let { parameter("level", it.name) }
+        domain?.let { parameter("domain", it) }
+        query?.takeIf { it.isNotBlank() }?.let { parameter("q", it) }
+    }.body()
+
+    override suspend fun search(query: String): SearchResponse =
+        http.get("/api/search") { parameter("q", query) }.body()
+
+    override suspend fun metrics(rangeSeconds: Long, edge: String?): MetricsResponse =
+        http.get("/api/metrics") {
+            parameter("range", rangeSeconds)
+            edge?.let { parameter("edge", it) }
+        }.body()
 
     /** Uses ktor's SSE client rather than EventSource so the bearer token can be sent. */
     override suspend fun events(afterSeq: Long): Flow<ServerEvent> = flow {
@@ -57,6 +79,11 @@ class FetchControllerApi(
     }
 
     override suspend fun resync(): ActionResponse = http.post("/api/resync").body()
+    override suspend fun applyOnce(): ActionResponse = http.post("/api/resync") { parameter("apply", "once") }.body()
+    override suspend fun restartTunnel(node: String): ActionResponse = http.post("/api/tunnels/$node/restart").body()
+    override suspend fun undo(id: String): ActionResponse = http.post("/api/undo/$id").body()
+    override suspend fun reissueInvitation(id: String): CreateAccessUserResponse =
+        http.post("/api/access/invitations/$id/reissue").body()
     override suspend fun provision(node: String): ActionResponse = http.post("/api/nodes/$node/provision").body()
     override suspend fun retryUpdate(node: String): ActionResponse = http.post("/api/nodes/$node/update/retry").body()
     override suspend fun skipUpdate(node: String): ActionResponse = http.post("/api/nodes/$node/update/skip").body()
@@ -79,15 +106,16 @@ class FetchControllerApi(
     override suspend fun speedLink(): SpeedTestLinkDto =
         http.post("/api/speedtest/link").body()
 
+    override suspend fun startSpeedRun(streams: Int): ActionResponse =
+        http.post("/api/speedtest/runs") { parameter("streams", streams) }.body()
+
+    override suspend fun cancelSpeedRun(): ActionResponse = http.delete("/api/speedtest/runs").body()
+
     override suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto =
         http.post("/api/speedtest/nodes/$node") {
             parameter("streams", streams)
         }.body()
 
-    override suspend fun speedLive(): SpeedTestLiveDto? {
-        val r = http.get("/api/speedtest/live")
-        return if (r.status.value == 204) null else r.body()
-    }
 
     override suspend fun testConnection(login: SshLoginDto): ConnectionTestDto =
         http.post("/api/setup/test") { setBody(login) }.body()

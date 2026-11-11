@@ -16,13 +16,17 @@ object SpeedTestPage {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
+<meta name="color-scheme" content="dark">
+<meta name="darkreader-lock">
 <title>HomeGAP speed test</title>
 ${Brand.FAVICON_LINK}
 <style>
-:root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#5b6470; --card:#fff; --line:#dde1e6; --accent:#2563eb; --bad:#b42318; }
-@media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --fg:#e6e9ee; --muted:#9aa4b1; --card:#171b21; --line:#2a313a; --accent:#60a5fa; --bad:#f97066; } }
+@font-face { font-family: "Sora"; font-weight: 400; font-display: swap; src: url("/fonts/sora-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Sora"; font-weight: 600; font-display: swap; src: url("/fonts/sora-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
+:root { --bg:#070A1F; --fg:#E6E8F5; --muted:#A9AFD6; --card:#0A0E2A; --line:#1E2452; --accent:#8EF6FF; --bad:#FF8A98; --tone:#FFFFFF; }
 * { box-sizing: border-box; }
-body { margin:0; font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+body { margin:0; font:15px/1.5 "Sora",system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background-color:var(--bg); color:var(--fg); background-image: linear-gradient(#0C1131 1px, transparent 1px), linear-gradient(90deg, #0C1131 1px, transparent 1px); background-size: 32px 32px; }
 main { max-width:720px; margin:0 auto; padding:24px 16px 48px; }
 h1 { font-size:22px; margin:0 0 4px; display:flex; align-items:center; gap:10px; }
 .hg-mark { width:28px; height:28px; flex:none; }
@@ -42,10 +46,13 @@ button.secondary { background:transparent; color:var(--accent); }
 .live { display:flex; gap:20px; align-items:center; flex-wrap:wrap; margin-top:12px; }
 .live-side { flex:1; min-width:200px; }
 .phase { font-weight:600; }
-/* A half-ring gauge: a conic arc filled to --p (0..1) of its scale. */
+/* A half-ring gauge: a conic arc filled to --p (0..1) of its scale. The phase picks the color:
+   white for ping, cyan for download, violet for upload. Amber and rose are kept for problems. */
+body[data-phase="download"] { --tone:#18FFFF; }
+body[data-phase="upload"] { --tone:#B388FF; }
 .gauge { position:relative; width:220px; height:122px; overflow:hidden; flex:none; }
 .gauge-arc { position:absolute; inset:0 0 auto 0; width:220px; height:220px; border-radius:50%;
-  background:conic-gradient(from -90deg, var(--accent) calc(var(--p, 0) * 180deg), var(--line) 0 180deg, transparent 0);
+  background:conic-gradient(from -90deg, var(--tone) calc(var(--p, 0) * 180deg), #2E3570 0 180deg, transparent 0);
   -webkit-mask:radial-gradient(circle, transparent 62%, #000 63%); mask:radial-gradient(circle, transparent 62%, #000 63%); }
 .gauge-text { position:absolute; left:0; right:0; bottom:0; text-align:center; }
 .gauge-value { font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.1; }
@@ -67,8 +74,8 @@ td .reason { display:block; font-size:13px; font-weight:400; }
   <div class="grid">
     <div class="card"><div class="label">Ping</div><div class="value"><span id="ping">&ndash;</span><span class="unit">ms</span></div></div>
     <div class="card"><div class="label">Jitter</div><div class="value"><span id="jitter">&ndash;</span><span class="unit">ms</span></div></div>
-    <div class="card"><div class="label">Download</div><div class="value"><span id="down">&ndash;</span><span class="unit">Mbps</span></div></div>
-    <div class="card"><div class="label">Upload</div><div class="value"><span id="up">&ndash;</span><span class="unit">Mbps</span></div></div>
+    <div class="card"><div class="label">Download</div><div class="value"><span id="down">&ndash;</span><span class="unit">Mb/s</span></div></div>
+    <div class="card"><div class="label">Upload</div><div class="value"><span id="up">&ndash;</span><span class="unit">Mb/s</span></div></div>
   </div>
   <div class="card live">
     <div>
@@ -117,6 +124,7 @@ td .reason { display:block; font-size:13px; font-weight:400; }
       start: function (label, u, node) {
         max = 0; bars = []; unit = u; lastBar = 0;
         el('g-label').textContent = label; el('g-node').textContent = node ? 'Through node ' + node : ' ';
+        document.body.dataset.phase = label.toLowerCase();
         el('g-unit').textContent = u; this.set(null); draw();
       },
       set: function (v) {
@@ -237,10 +245,10 @@ td .reason { display:block; font-size:13px; font-weight:400; }
       var p = await ping(base, 20);
       res.pingMs = p.avg; res.jitterMs = p.jitter; res.pingSamples = p.n;
       out('ping', p.avg); out('jitter', p.jitter);
-      viz.start('Download', 'Mbps', node);
+      viz.start('Download', 'Mb/s', node);
       status('Measuring download' + (node ? ' through ' + node : '') + '…');
       res.downMbps = await download(base, 4, function (v) { out('down', v); }); out('down', res.downMbps);
-      viz.start('Upload', 'Mbps', node);
+      viz.start('Upload', 'Mb/s', node);
       status('Measuring upload' + (node ? ' through ' + node : '') + '…');
       res.upMbps = await upload(base, 4, function (v) { out('up', v); }); out('up', res.upMbps);
     } catch (e) {

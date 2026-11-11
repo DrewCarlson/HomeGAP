@@ -13,8 +13,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
-/** A short-lived message shown at the bottom of the screen. */
-data class Toast(val text: String, val isError: Boolean)
+/** A short-lived message; [actionLabel] and [action] add a button such as Undo. */
+data class Toast(
+    val text: String,
+    val isError: Boolean,
+    val actionLabel: String? = null,
+    val action: (() -> Unit)? = null,
+)
 
 /**
  * Runs controller actions on the app scope and reports their outcome as a [Toast]. [busy] is
@@ -24,6 +29,7 @@ data class Toast(val text: String, val isError: Boolean)
 @Inject
 class ActionRunner(
     private val session: ControllerSession,
+    private val api: ControllerApi,
     @AppCoroutineScope private val scope: CoroutineScope,
 ) {
     private val _toast = MutableStateFlow<Toast?>(null)
@@ -38,8 +44,18 @@ class ActionRunner(
             _busy.value = true
             try {
                 runCatchingCancellable { action() }
-                    .onSuccess {
-                        notify(it.message)
+                    .onSuccess { response ->
+                        val undo = response.undo
+                        if (undo != null) {
+                            notify(
+                                message = response.message,
+                                actionLabel = "Undo",
+                                action = { run("Undo") { api.undo(undo) } },
+                                duration = UNDO_TOAST_DURATION,
+                            )
+                        } else {
+                            notify(response.message)
+                        }
                         session.refresh()
                         onSuccess()
                     }
@@ -50,16 +66,28 @@ class ActionRunner(
         }
     }
 
-    fun notify(message: String, isError: Boolean = false) {
-        val shown = Toast(message, isError)
+    fun notify(
+        message: String,
+        isError: Boolean = false,
+        actionLabel: String? = null,
+        action: (() -> Unit)? = null,
+        duration: kotlin.time.Duration = TOAST_DURATION,
+    ) {
+        val shown = Toast(
+            text = message,
+            isError = isError,
+            actionLabel = actionLabel,
+            action = action,
+        )
         _toast.value = shown
         scope.launch {
-            delay(TOAST_DURATION)
+            delay(duration)
             if (_toast.value == shown) _toast.value = null
         }
     }
 
     private companion object {
         val TOAST_DURATION = 5.seconds
+        val UNDO_TOAST_DURATION = 30.seconds
     }
 }

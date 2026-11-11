@@ -102,8 +102,9 @@ val generateWebAssets by tasks.registering {
     doLast {
         val target = outDir.get().asFile.resolve("homegap/dashboard/WebAssets.kt")
         target.parentFile.mkdirs()
+        // `.br` files are the brotli copies vite.config.js writes; they ride along with their file.
         val files = if (skipWeb) emptyList() else distDir.get().asFile.walkTopDown()
-            .filter { it.isFile }
+            .filter { it.isFile && it.extension != "br" }
             .sortedBy { it.path }
             .toList()
         val root = distDir.get().asFile
@@ -118,7 +119,8 @@ val generateWebAssets by tasks.registering {
             val path = "/" + f.relativeTo(root).invariantSeparatorsPath
             // Text assets also ship gzip-compressed; served as-is to clients that accept gzip.
             val gz = if (f.extension in setOf("js", "mjs", "css", "html", "svg", "json", "map", "wasm")) "gz$i()" else "null"
-            sb.appendLine("            \"$path\" to WebAsset(\"$path\", asset$i(), $gz),")
+            val br = if (File("${f.path}.br").isFile) "br$i()" else "null"
+            sb.appendLine("            \"$path\" to WebAsset(\"$path\", asset$i(), $gz, $br),")
         }
         sb.appendLine("        )")
         sb.appendLine("    }")
@@ -133,6 +135,13 @@ val generateWebAssets by tasks.registering {
                 val gzb64 = Base64.getEncoder().encodeToString(bos.toByteArray())
                 sb.appendLine("    private fun gz$i(): String = buildString {")
                 gzb64.chunked(30_000).forEach { chunk -> sb.appendLine("        append(\"$chunk\")") }
+                sb.appendLine("    }")
+            }
+            val brotliFile = File("${f.path}.br")
+            if (brotliFile.isFile) {
+                val brb64 = Base64.getEncoder().encodeToString(brotliFile.readBytes())
+                sb.appendLine("    private fun br$i(): String = buildString {")
+                brb64.chunked(30_000).forEach { chunk -> sb.appendLine("        append(\"$chunk\")") }
                 sb.appendLine("    }")
             }
         }

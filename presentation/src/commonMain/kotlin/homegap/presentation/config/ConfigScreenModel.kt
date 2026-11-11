@@ -6,6 +6,7 @@ import homegap.presentation.core.ScreenModel
 
 @Immutable
 data class ConfigScreenModel(
+    override val head: homegap.presentation.ui.PageHeadModel,
     val loading: Boolean,
     val onlyChanges: Boolean,
     val diff: List<DiffRowModel>,

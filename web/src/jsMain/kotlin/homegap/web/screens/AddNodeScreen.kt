@@ -9,15 +9,81 @@ import kotlinx.browser.window
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.dom.*
 
-/** The add-node wizard: one panel per step, then the live setup job. */
+/**
+ * The Add node wizard, over the Nodes page: a dialog with the step list on desktops, a drawer with
+ * a stepper on tablets, and a full-screen sheet with fixed Back and Continue on phones. The draft
+ * is kept on this device, so closing it loses nothing; a running setup carries on.
+ */
 @Composable
-fun AddNodeScreen(model: AddNodeScreenModel) {
+fun AddNodeWizard(
+    model: AddNodeScreenModel,
+    viewport: Viewport,
+    onClose: () -> Unit,
+) {
+    Overlay(
+        label = "Add a node",
+        style = when (viewport) {
+            Viewport.Phone -> OverlayStyle.FullScreen
+            Viewport.Tablet -> OverlayStyle.Drawer
+            else -> OverlayStyle.Modal
+        },
+        onDismiss = onClose,
+    ) {
+        Div({ classes("overlay-panel", "wizard") }) {
+            Aside({ classes("wizard-aside") }) {
+                Div({ classes("caption") }) { Text("Nodes ›") }
+                H2 { Text("Add a node") }
+                P({ classes("muted") }) { Text("Sets up a new server as an edge node. Nothing changes until you run it.") }
+                Stepper(model)
+                P({ classes("wizard-draft", "muted") }) { Text("Draft kept on this device.") }
+            }
+            Div({ classes("wizard-main") }) {
+                Div({ classes("wizard-head") }) {
+                    Div {
+                        val index = model.steps.indexOfFirst { it.step == model.step } + 1
+                        Div({ classes("caption") }) {
+                            Text(if (model.job != null) "Setup" else "Step $index of ${model.steps.size}")
+                        }
+                        H2 { Text(if (model.job != null) "Setting up ${model[WizardField.NodeId]}" else model.step.title) }
+                    }
+                    IconButton(
+                        iconPath = Icons.CLOSE,
+                        label = "Close; the draft is kept",
+                        onClick = onClose,
+                    )
+                }
+                Div({ classes("wizard-progress") }) {
+                    model.steps.forEach { tab ->
+                        Span({ classes("wizard-progress-step", tab.state.name.lowercase()) })
+                    }
+                }
+                Div({ classes("wizard-body") }) {
+                    AddNodeContent(model)
+                }
+            }
+        }
+    }
+}
+
+/** One panel per step, then the live setup job. */
+@Composable
+private fun AddNodeContent(model: AddNodeScreenModel) {
     val send = model.onEvent
-    Stepper(model)
     val job = model.job
     if (job != null) {
         JobPanel(job, send)
         return
+    }
+    if (model.errors.isNotEmpty()) {
+        Div({
+            classes("banner", "error")
+            attr("role", "alert")
+        }) {
+            B { Text("Fix ${model.errors.size} ${if (model.errors.size == 1) "problem" else "problems"} to continue") }
+            Ul({ classes("plain-list") }) {
+                model.errors.forEach { Li { Text(it) } }
+            }
+        }
     }
     when (model.step) {
         WizardStep.Server -> ServerStep(model)
@@ -31,13 +97,6 @@ fun AddNodeScreen(model: AddNodeScreenModel) {
             classes("banner", if (warning) "warn" else "info")
         }) {
             Text(text)
-        }
-    }
-    if (model.errors.isNotEmpty()) {
-        Div({ classes("banner", "error") }) {
-            Ul({ classes("plain-list") }) {
-                model.errors.forEach { Li { Text(it) } }
-            }
         }
     }
     Div({ classes("wizard-actions") }) {
@@ -455,8 +514,11 @@ private fun JobPanel(job: JobModel, send: (WizardEvent) -> Unit) {
                     ActionButton("Edit settings") {
                         send(WizardEvent.EditAfterFailure)
                     }
-                    ActionButton("Retry", ButtonStyle.Primary) {
-                        send(WizardEvent.Run)
+                    ActionButton(
+                        text = job.failedStep?.let { "Retry from step $it" } ?: "Retry",
+                        style = ButtonStyle.Primary,
+                    ) {
+                        send(WizardEvent.RetryFromFailed)
                     }
                 }
             }

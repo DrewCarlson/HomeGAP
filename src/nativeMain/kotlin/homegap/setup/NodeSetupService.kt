@@ -17,6 +17,8 @@ import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -110,10 +112,25 @@ class NodeSetupService(private val controller: Controller) {
 
     fun job(id: String): SetupJobDto? = synchronized(lock) { jobs[id]?.value }
 
+    private val _changes = MutableStateFlow(0L)
+
+    /** Grows whenever a job changes; the event stream then sends [allJobs] that changed. */
+    val changes: StateFlow<Long> = _changes.asStateFlow()
+
+    fun allJobs(): List<SetupJobDto> = synchronized(lock) { jobs.values.map { it.value } }
+
     /** Validates [request] and starts the setup in the background; poll [job] for progress. */
     fun start(request: NodeSetupRequestDto): SetupJobDto {
         val plan = SetupPlan.of(request, controller)
-        val job = SetupJobDto(Crypto.token(12), plan.node.id, "running", plan.steps(), startedAt = nowMillis())
+        // A retry keeps the management user the failed run created.
+        val kept = request.retryOf?.let { job(it) }
+            ?.takeIf { it.nodeId == plan.node.id && it.state == "failed" }
+            ?.steps?.filter { it.status == "ok" && it.id in KEPT_ON_RETRY }?.map { it.id }?.toSet()
+            .orEmpty()
+        val steps = plan.steps().map { step ->
+            if (step.id in kept) step.copy(status = "ok", detail = "kept from the last run") else step
+        }
+        val job = SetupJobDto(Crypto.token(12), plan.node.id, "running", steps, startedAt = nowMillis())
         val state = MutableStateFlow(job)
         synchronized(lock) {
             check(jobs.values.none { it.value.nodeId == plan.node.id && it.value.state == "running" }) {
@@ -121,7 +138,8 @@ class NodeSetupService(private val controller: Controller) {
             }
             jobs[job.id] = state
         }
-        scope.launch { SetupRun(plan, state).execute() }
+        scope.launch { state.collect { _changes.value++ } }
+        scope.launch { SetupRun(plan, state, kept).execute() }
         return job
     }
 
@@ -200,7 +218,11 @@ class NodeSetupService(private val controller: Controller) {
      * The firewall and the SSH hardening stay armed (their revert timers running) until that final
      * check passes, and are both reverted when it fails.
      */
-    private inner class SetupRun(private val plan: SetupPlan, private val state: MutableStateFlow<SetupJobDto>) {
+    private inner class SetupRun(
+        private val plan: SetupPlan,
+        private val state: MutableStateFlow<SetupJobDto>,
+        private val kept: Set<String> = emptySet(),
+    ) {
         private val node = plan.node
         private val keyLogin = SetupLogin.Key(node.host, node.sshPort, plan.target, node.sshKeyFile)
         private val verifyCommand = if (plan.target == "root") "true" else "sudo -n true"
@@ -220,7 +242,9 @@ class NodeSetupService(private val controller: Controller) {
             log("setup started (${plan.initial})")
             try {
                 val admin = step("connect") { connect() }
-                step("user") { prepareUser(admin) }
+                if ("user" !in kept) {
+                    step("user") { prepareUser(admin) }
+                }
                 step("key") { verifyInside(admin, "key login failed") }
                 if (plan.request.configureFirewall) step("firewall") { firewall(admin) }
                 if (plan.hardenSsh) step("ssh") { hardenSsh(admin) }
@@ -437,3 +461,6 @@ private fun String.changes(): String =
     lines().filter { it.startsWith("CHANGED ") }.joinToString("; ") { it.removePrefix("CHANGED ") }
 
 private fun ProcessResult.errorText(): String = stderr.ifBlank { stdout }.trim().takeLast(500).ifEmpty { "exit $exitCode" }
+
+/** Steps whose result stays on the server after a failed run, so a retry needn't run them. */
+private val KEPT_ON_RETRY = setOf("user")

@@ -37,6 +37,15 @@ data class RenderedFile(val path: String, val content: String, val mode: String 
  * Paths are relative to the node's install dir.
  */
 object NodeTemplates {
+    /** Traefik's metrics entry point on each node, on the container's loopback only. */
+    const val METRICS_ENTRY_POINT = "metrics"
+    const val METRICS_PORT = 8082
+
+    /** Prints `M <requests> <response bytes>`, summed over the entry points, when Traefik answers. */
+    val TRAFFIC_CMD = "docker exec traefik wget -qO- http://127.0.0.1:$METRICS_PORT/metrics 2>/dev/null | " +
+        "awk '/^traefik_entrypoint_requests_total/{r+=\$NF} /^traefik_entrypoint_responses_bytes_total/{b+=\$NF} " +
+        "END{if (NR>0) printf \"M %.0f %.0f\\n\", r, b}'"
+
     const val DYNAMIC_ROUTES = "config/traefik/dynamic/homegap-routes.yml"
 
     /**
@@ -405,6 +414,17 @@ object NodeTemplates {
                 }
                 for (rp in rawPorts) {
                     putJsonObject(rp.entryPoint) { put("address", ":${rp.port}/${rp.protocol}") }
+                }
+                // Request and byte counters for the dashboard, read with `docker exec`: bound to the
+                // container's own loopback, so nothing outside the container can reach it.
+                putJsonObject(METRICS_ENTRY_POINT) { put("address", "127.0.0.1:$METRICS_PORT") }
+            }
+            putJsonObject("metrics") {
+                putJsonObject("prometheus") {
+                    put("entryPoint", METRICS_ENTRY_POINT)
+                    put("addEntryPointsLabels", true)
+                    put("addRoutersLabels", false)
+                    put("addServicesLabels", false)
                 }
             }
             // The hop to the origin runs inside the WireGuard tunnel to our own Traefik.

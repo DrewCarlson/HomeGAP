@@ -36,7 +36,7 @@ class ConfigRoutes(
 
     suspend fun RoutingContext.getConfig() {
         val config = controller.config
-        call.respond(
+        respondRevalidated(
             ConfigResponse(
                 path = options.configPath,
                 writable = config.dashboard.allowConfigEdits,
@@ -55,6 +55,6 @@ class ConfigRoutes(
         val secrets = controller.config.referencedSecrets().map { (ref, usedBy) ->
             SecretRefDto(ref.name, usedBy, ref.describe(), present = ref.resolve() != null)
         }
-        call.respond(SecretsResponse(secrets))
+        respondRevalidated(SecretsResponse(secrets))
     }
 }

@@ -16,27 +16,25 @@ object StatusPage {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
+<meta name="darkreader-lock">
 <title>Status</title>
 $${Brand.FAVICON_LINK}
 <style>
+@font-face { font-family: "Sora"; font-weight: 400; font-display: swap; src: url("/fonts/sora-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Sora"; font-weight: 600; font-display: swap; src: url("/fonts/sora-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
 :root {
-  --bg: #f4f6f8; --fg: #14181d; --muted: #5f6b78; --faint: #8a95a2; --card: #ffffff; --line: #e3e7ec;
-  --ok: #12a150; --ok-soft: #e3f6eb; --warn: #d98a00; --warn-soft: #fdf1da; --off: #9aa3ad; --off-soft: #eef0f2;
-  --bad: #d23f31; --bad-soft: #fbe6e3; --accent: #3b6ef5; --bar: #dfe5ec; --shadow: 0 1px 2px rgba(16,24,40,.04), 0 4px 16px rgba(16,24,40,.05);
+  --bg: #070A1F; --fg: #E6E8F5; --muted: #A9AFD6; --faint: #7E86BA; --card: #0A0E2A; --line: #1E2452;
+  --ok: #18FFFF; --ok-soft: rgba(24, 255, 255, .10); --warn: #FFC46B; --warn-soft: rgba(255, 196, 107, .12); --off: #7E86BA; --off-soft: rgba(126, 134, 186, .12);
+  --bad: #FF8A98; --bad-soft: rgba(255, 138, 152, .12); --accent: #8EF6FF; --bar: #141A45; --shadow: none;
   /* The map's names for the same colors. */
   --down: var(--bad); --unknown: var(--off); --surface: var(--card); --text: var(--fg); --border: var(--line); --text-2: var(--muted);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1014; --fg: #e8ecf1; --muted: #a0aab6; --faint: #6f7a86; --card: #151a20; --line: #232a33;
-    --ok: #34d17a; --ok-soft: #12291c; --warn: #f2b33d; --warn-soft: #2d2412; --off: #6c7682; --off-soft: #1c2128;
-    --bad: #ff6b5e; --bad-soft: #2e1714; --accent: #7aa2ff; --bar: #232b35; --shadow: none;
-  }
-}
 * { box-sizing: border-box; }
-html, body { margin: 0; background: var(--bg); color: var(--fg); }
-body { font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+html, body { margin: 0; background-color: var(--bg); color: var(--fg); }
+body { background-image: linear-gradient(#0C1131 1px, transparent 1px), linear-gradient(90deg, #0C1131 1px, transparent 1px); background-size: 32px 32px; }
+body { font: 15px/1.5 "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
 main { max-width: 760px; margin: 0 auto; padding: 40px 16px 56px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
 h1 { font-size: 24px; letter-spacing: -.01em; margin: 0; }
@@ -44,18 +42,18 @@ h1 { font-size: 24px; letter-spacing: -.01em; margin: 0; }
 button { font: inherit; font-size: 14px; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer; }
 button:hover { border-color: var(--faint); }
 button:disabled { opacity: .55; cursor: default; }
-.banner { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-radius: 14px; font-weight: 600; margin-bottom: 16px; }
+.banner { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-radius: 4px; border: 1px solid currentColor; font-weight: 600; margin-bottom: 16px; }
 .banner.ok { background: var(--ok-soft); color: var(--ok); }
 .banner.warn { background: var(--warn-soft); color: var(--warn); }
 .banner.bad { background: var(--bad-soft); color: var(--bad); }
 .banner .dot { width: 10px; height: 10px; }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow); }
 .hero { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 22px 24px; margin-bottom: 16px; align-items: center; }
 .eyebrow { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
 .via { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin-top: 4px; overflow-wrap: anywhere; }
 .where { color: var(--muted); margin-top: 2px; }
 .big { text-align: right; }
-.big .num { font-size: 40px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.big .num { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 40px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .big .unit { font-size: 16px; color: var(--muted); font-weight: 500; margin-left: 3px; }
 .quality { font-size: 13px; font-weight: 600; margin-top: 4px; }
 .list { padding: 6px 0; }

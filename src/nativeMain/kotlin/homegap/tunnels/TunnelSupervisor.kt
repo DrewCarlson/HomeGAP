@@ -59,12 +59,21 @@ data class TunnelStatus(
     val bytesIn: Long? = null,
     val bytesOut: Long? = null,
     val updatedAt: Long,
+    /** Why the connector stopped, newest first (the last ten). */
+    val exits: List<TunnelExit> = emptyList(),
 )
+
+/** One stop of a connector: when, and why (`exit 1`, a restart from the dashboard, ...). */
+@Serializable
+data class TunnelExit(val at: Long, val reason: String)
 
 object TunnelFiles {
     val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     fun specPath(dir: String, nodeId: String) = "$dir/$nodeId.tunnel.json"
     fun statusPath(dir: String, nodeId: String) = "$dir/$nodeId.status.json"
+
+    /** Written by the orchestrator to ask the supervisor to restart a connector; removed once done. */
+    fun restartPath(dir: String, nodeId: String) = "$dir/$nodeId.restart"
     fun readSpecs(dir: String): List<TunnelSpec> =
         Files.list(dir)
         .filter { it.endsWith(".tunnel.json") }
@@ -114,6 +123,13 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
     private val backoffUntil = mutableMapOf<String, Long>()
     private val restartCounts = mutableMapOf<String, Int>()
     private val lastExit = mutableMapOf<String, String>()
+    private val exits = mutableMapOf<String, List<TunnelExit>>()
+
+    /** Remembers why [id] stopped, for the dashboard's restart history. */
+    private fun recordExit(id: String, reason: String) {
+        lastExit[id] = reason
+        exits[id] = (listOf(TunnelExit(nowMillis(), reason)) + exits[id].orEmpty()).take(10)
+    }
     private val metrics = mutableMapOf<String, Metrics?>()
     private val published = mutableMapOf<String, Pair<TunnelStatus, Long>>()
     private var hostsWarned = false
@@ -132,7 +148,12 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             try {
                 when (e) {
                     Event.Rescan -> reconcileSpecs(this)
-                    Event.Tick -> { checkLogs(); scrapeAll(); publish(force = false) }
+                    Event.Tick -> {
+                        checkLogs()
+                        restartRequested()
+                        scrapeAll()
+                        publish(force = false)
+                    }
                     is Event.Exited -> onExit(this, e)
                 }
             } catch (ex: Exception) {
@@ -224,7 +245,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         if (procs[e.id] !== e.proc) return
         logger.warn { "newt for ${e.id} exited (exit ${e.code})" }
         procs.remove(e.id)
-        lastExit[e.id] = "exit ${e.code}"
+        recordExit(e.id, "exit ${e.code}")
         scheduleRetry(scope, e.id)
     }
 
@@ -275,10 +296,24 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             } ?: continue
             logger.warn { "newt for $id: $reason; restarting" }
             stop(id, p)
-            lastExit[id] = reason
+            recordExit(id, reason)
             val n = (restartCounts[id] ?: 0) + 1
             restartCounts[id] = n
             backoffUntil[id] = nowMillis() + backoff(n).inWholeMilliseconds
+            events.send(Event.Rescan)
+        }
+    }
+
+    /** Restarts the connectors the orchestrator asked for (a request file each), at once and without backoff. */
+    private suspend fun restartRequested() {
+        for (id in specs().keys) {
+            val request = TunnelFiles.restartPath(dir, id)
+            if (!Files.exists(request)) continue
+            Files.delete(request)
+            procs[id]?.let { stop(id, it) }
+            recordExit(id, "restarted from the dashboard")
+            backoffUntil.remove(id)
+            logger.info { "newt for $id: restarting as asked" }
             events.send(Event.Rescan)
         }
     }
@@ -318,6 +353,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
                 startedAt = p?.startedAt,
                 restarts = restartCounts[id] ?: 0,
                 lastExit = lastExit[id],
+                exits = exits[id].orEmpty(),
                 connected = m?.connected,
                 bytesIn = m?.bytesIn,
                 bytesOut = m?.bytesOut,

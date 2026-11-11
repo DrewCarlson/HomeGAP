@@ -692,6 +692,14 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
                 }
             }.awaitAll().toMap()
         }
+        // A replica that is behind: how long since it replayed a transaction.
+        val patroni = PatroniClient(http, ClusterTemplates.REST_USER, secrets.rest)
+        val replayLag = coroutineScope {
+            members.filter { m -> pg?.firstOrNull { it.name == m.id }?.let { it.role != "leader" && (it.lagBytes ?: 0L) > 0 } == true }
+                .map { m -> async { m.id to patroni.replayedAt(restUrl(m))?.let { nowMillis() - it } } }
+                .awaitAll()
+                .toMap()
+        }
         val voters = etcdMembers?.filter { !it.learner }
         val quorum = voters?.let { vs ->
             val healthy = vs.count { v -> members.firstOrNull { it.id == v.name || ClusterTemplates.peerUrl(it) in v.peerUrls }?.let { probes[it.id]?.first } == true }
@@ -720,6 +728,7 @@ class ClusterReconciler(dataDir: String, private val http: HttpClient) {
                     role = p?.role,
                     state = p?.state,
                     lagBytes = p?.lagBytes,
+                    lagMs = replayLag[m.id]?.coerceAtLeast(0),
                     timeline = p?.timeline,
                     valkeyRole = probes[m.id]?.second,
                     etcdHealthy = probes[m.id]?.first,

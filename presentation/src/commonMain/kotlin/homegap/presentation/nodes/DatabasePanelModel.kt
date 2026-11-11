@@ -85,7 +85,7 @@ fun ClusterStatusDto.toPanelModel(now: Long = 0): DatabasePanelModel {
                     m.role == null -> Badge(Health.DOWN, "not running")
                     m.role == "leader" -> Badge(Health.OK, "primary")
                     m.state == "streaming" -> Badge(Health.OK, "replica")
-                    else -> Badge(Health.DEGRADED, "${m.role} · ${m.state}")
+                    else -> Badge(Health.DEGRADED, listOfNotNull(m.role, m.state).joinToString(" · "))
                 },
                 valkey = when (m.valkeyRole) {
                     "master" -> Badge(Health.OK, "primary")
@@ -96,7 +96,7 @@ fun ClusterStatusDto.toPanelModel(now: Long = 0): DatabasePanelModel {
                 lag = when {
                     m.role == "leader" || m.role == null -> "—"
                     m.lagBytes == null -> "unknown"
-                    else -> formatBytes(m.lagBytes!!)
+                    else -> formatBytes(m.lagBytes!!) + m.lagMs?.let { " · ${formatDuration(it)}" }.orEmpty()
                 },
                 canBecomePrimary = primary != null && m.role != "leader" && m.state == "streaming" && m.lagBytes == 0L,
             )
@@ -106,3 +106,10 @@ fun ClusterStatusDto.toPanelModel(now: Long = 0): DatabasePanelModel {
 
 /** "in 4 min", "in 40 s". */
 private fun inMinutes(ms: Long): String = if (ms >= 60_000) "in ${(ms + 59_999) / 60_000} min" else "in ${(ms + 999) / 1000} s"
+
+/** "850 ms", "12 s", "4 min". */
+internal fun formatDuration(ms: Long): String = when {
+    ms < 1_000 -> "$ms ms"
+    ms < 120_000 -> "${ms / 1000} s"
+    else -> "${ms / 60_000} min"
+}

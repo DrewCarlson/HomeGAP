@@ -1,6 +1,7 @@
 package homegap.dashboard
 
 import homegap.platform.Files
+import homegap.routes.fingerprint
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -58,25 +59,12 @@ object MapFiles {
         val etag = etags.getOrPut(asset.path) { "\"${fingerprint(asset.bytes)}\"" }
         call.response.header(HttpHeaders.CacheControl, "no-cache")
         call.response.header(HttpHeaders.ETag, etag)
-        call.response.header(HttpHeaders.Vary, HttpHeaders.AcceptEncoding)
         if (call.request.header(HttpHeaders.IfNoneMatch)?.split(',')?.any { it.trim().removePrefix("W/") == etag } == true) {
             return call.respond(HttpStatusCode.NotModified)
         }
-        val gzip = asset.gzip
-        if (gzip != null && call.request.header(HttpHeaders.AcceptEncoding)?.contains("gzip") == true) {
-            call.response.header(HttpHeaders.ContentEncoding, "gzip")
-            call.respondBytes(gzip, ContentType.parse(asset.contentType))
-        } else {
-            call.respondBytes(asset.bytes, ContentType.parse(asset.contentType))
-        }
+        respondAsset(asset)
     }
 
-    /** FNV-1a over the bytes (binary files too), as hex. */
-    private fun fingerprint(bytes: ByteArray): String {
-        var h = 0xcbf29ce484222325uL
-        for (x in bytes) { h = h xor (x.toULong() and 0xffuL); h *= 0x100000001b3uL }
-        return h.toString(16)
-    }
 
     internal fun decode(path: String): String =
         if ('%' !in path) path else buildString {

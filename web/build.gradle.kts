@@ -31,11 +31,14 @@ kotlin {
             implementation(libs.ktor.serialization.kotlinx.json)
             implementation(libs.compose.runtime)
             implementation(libs.compose.html.core)
+            implementation(libs.compose.html.svg)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(npm("maplibre-gl", libs.versions.maplibre.get()))
             implementation(npm("pmtiles", libs.versions.pmtiles.get()))
             implementation(npm("@protomaps/basemaps", libs.versions.protomaps.basemaps.get()))
+            implementation(npm("@fontsource/sora", libs.versions.fontsource.sora.get()))
+            implementation(npm("@fontsource/jetbrains-mono", libs.versions.fontsource.jetbrains.mono.get()))
         }
     }
 }
@@ -75,6 +78,11 @@ val downloadMapAssets by tasks.registering {
     }
 }
 
+// ---------------------------------------------------------------- fonts
+// Sora for the interface and headings, JetBrains Mono for data and captions.
+val SORA_WEIGHTS = listOf(400, 500, 600)
+val MONO_WEIGHTS = listOf(400, 500)
+
 tasks.named<Copy>("jsProcessResources") {
     dependsOn(":kotlinNpmInstall", downloadMapAssets)
     val modules = rootProject.layout.buildDirectory.dir("js/node_modules")
@@ -96,4 +104,16 @@ tasks.named<Copy>("jsProcessResources") {
         into("public/map/lib")
     }
     from(mapAssetsDir) { into("public/map") }
+    // Only the latin woff2 files of the weights the dashboard uses; styles.css declares them.
+    from(modules.map { it.dir("@fontsource/sora/files") }) {
+        include(SORA_WEIGHTS.map { "sora-latin-$it-normal.woff2" })
+        into("public/fonts")
+    }
+    from(modules.map { it.dir("@fontsource/jetbrains-mono/files") }) {
+        include(MONO_WEIGHTS.map { "jetbrains-mono-latin-$it-normal.woff2" })
+        into("public/fonts")
+    }
+    from(modules.map { it.file("@fontsource/sora/LICENSE") }) { rename { "LICENSE-sora.txt" }; into("public/fonts") }
+    from(modules.map { it.file("@fontsource/jetbrains-mono/LICENSE") }) { rename { "LICENSE-jetbrains-mono.txt" }; into("public/fonts") }
 }
+

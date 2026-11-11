@@ -28,7 +28,20 @@ import homegap.presentation.nodes.NodesScreenProps
 import homegap.presentation.overview.OverviewScreenPresenter
 import homegap.presentation.overview.OverviewScreenProps
 import homegap.presentation.routing.Route
+import homegap.presentation.routing.Location
 import homegap.presentation.routing.Router
+import homegap.presentation.search.SearchHit
+import homegap.presentation.search.SearchKind
+import homegap.presentation.search.search
+import homegap.presentation.search.searchIndex
+import homegap.presentation.search.suggestions
+import homegap.presentation.search.toHit
+import homegap.presentation.core.runCatchingCancellable
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
+import homegap.presentation.ui.ConfirmModel
+import homegap.presentation.ui.anyDown
+import homegap.presentation.ui.location
 import homegap.presentation.services.ServicesScreenPresenter
 import homegap.presentation.services.ServicesScreenProps
 import homegap.presentation.access.AccessScreenPresenter
@@ -40,8 +53,15 @@ import homegap.presentation.tunnels.TunnelsScreenProps
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Clock
 
-/** [route] comes from the platform router (the URL fragment), which [router] also updates. */
-data class AppProps(val route: Route, val router: Router)
+/**
+ * [route] and [selection] come from the platform router (the URL fragment), which [router] also
+ * updates. [selection] is the item the Inspector shows, if any.
+ */
+data class AppProps(
+    val route: Route,
+    val router: Router,
+    val selection: String? = null,
+)
 
 /**
  * Root presenter: follows the controller while composed, builds the page shell and delegates the
@@ -52,6 +72,8 @@ data class AppProps(val route: Route, val router: Router)
 class AppPresenter(
     private val session: ControllerSession,
     private val actions: ActionRunner,
+    private val confirmations: Confirmations,
+    private val pausedGuard: PausedGuard,
     private val api: ControllerApi,
     private val tokens: TokenStore,
     private val clock: Clock,
@@ -75,42 +97,248 @@ class AppPresenter(
         val status by session.status.collectAsState()
         val problem by session.problem.collectAsState()
         val toast by actions.toast.collectAsState()
+        val log by session.log.collectAsState()
+        val metrics by session.metrics.collectAsState()
+        val pendingConfirm by confirmations.pending.collectAsState()
         val busy by actions.busy.collectAsState()
         val now by clock.rememberNow()
         val router by rememberUpdatedState(props.router)
 
         val snapshot = status
-        val attention = remember(snapshot) { snapshot?.tabsNeedingAttention().orEmpty() }
+        val attention = remember(snapshot) { snapshot?.attentionCounts().orEmpty() }
         return AppModel(
             route = props.route,
-            nav = Route.entries.filter { it.inNav }.map {
-                NavItem(it, selected = it == props.route.navSection, needsAttention = it in attention)
+            nav = Route.NAV.map { route ->
+                NavItem(
+                    route = route,
+                    selected = route == props.route.navSection,
+                    attention = attention[route],
+                )
             },
             header = snapshot?.let { header(it, busy, now) },
             connection = problem?.let { connection(it) },
             banners = remember(snapshot) { snapshot?.banners().orEmpty() },
             rollout = snapshot?.let { rollout(it, now) },
-            screen = snapshot?.let { screen(props.route, it, now, props.router) },
+            screen = snapshot?.let {
+                screen(
+                    // Add node and Locations open over their section's page.
+                    props = props.copy(
+                        route = props.route.navSection,
+                        selection = props.selection.takeIf { props.route.inNav },
+                    ),
+                    status = it,
+                    now = now,
+                    metrics = metrics,
+                    log = log,
+                )
+            },
+            overlay = snapshot?.let { overlay(props, it) },
             toast = toast,
+            search = search(
+                snapshot = snapshot,
+                log = log,
+                router = router,
+            ),
+            confirm = pendingConfirm?.let { confirmDialog(it) },
             onNavigate = remember { { route: Route -> router.navigate(route) } },
+            onOpen = remember { { location: Location -> router.open(location) } },
         )
     }
 
     @Composable
-    private fun screen(route: Route, status: StatusSnapshot, now: Long, router: Router): ScreenModel = when (route) {
-        Route.Overview -> overview.model(OverviewScreenProps(status, now))
-        Route.Nodes -> nodes.model(NodesScreenProps(status, now))
-        Route.Services -> services.model(ServicesScreenProps(status))
-        Route.Dns -> dns.model(DnsScreenProps(status))
-        Route.Tunnels -> tunnels.model(TunnelsScreenProps(status))
+    private fun confirmDialog(pending: Confirmations.Pending): ConfirmDialogModel {
+        var typed by remember(pending) { mutableStateOf("") }
+        return ConfirmDialogModel(
+            model = pending.model,
+            typed = typed,
+            onType = { typed = it },
+            onConfirm = { confirmations.resolve(confirmed = true) },
+            onCancel = { confirmations.resolve(confirmed = false) },
+            onSecondary = { confirmations.resolveSecondary() },
+        )
+    }
+
+    @Composable
+    private fun search(snapshot: StatusSnapshot?, log: List<homegap.api.LogEntryDto>, router: Router): SearchModel {
+        var isOpen by remember { mutableStateOf(false) }
+        var query by remember { mutableStateOf("") }
+        var kind by remember { mutableStateOf<SearchKind?>(null) }
+        var highlighted by remember { mutableStateOf(0) }
+        val paused = snapshot?.paused == true
+        val actionHits = remember(paused) {
+            listOf(
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = "Resync now",
+                    subtitle = "Run a reconcile pass",
+                    run = { actions.run("Resync") { api.resync() } },
+                ),
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = "Add node",
+                    subtitle = "Open the setup wizard",
+                    location = Location(Route.AddNode),
+                ),
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = if (paused) "Resume changes" else "Pause all changes",
+                    subtitle = if (paused) "Apply waiting changes" else "Observe only",
+                    run = { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } },
+                ),
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = "Test all nodes",
+                    subtitle = "Speed test each edge, one at a time",
+                    location = Location(Route.SpeedTest),
+                ),
+            )
+        }
+        val index = remember(snapshot, log, actionHits) {
+            snapshot?.let {
+                searchIndex(
+                    snapshot = it,
+                    log = log,
+                    actions = actionHits,
+                )
+            }.orEmpty()
+        }
+        // Config keys, secrets and older log entries come from the server, a moment after typing stops.
+        val serverHits by produceState(emptyList<SearchHit>(), query) {
+            value = emptyList()
+            if (query.trim().length < 2) return@produceState
+            delay(SEARCH_DELAY)
+            runCatchingCancellable { api.search(query.trim()) }.onSuccess { response ->
+                value = response.hits.map { it.toHit() }
+            }
+        }
+        val hits = remember(index, query, kind, snapshot, actionHits, serverHits) {
+            val found = if (query.isBlank()) {
+                snapshot?.let { suggestions(it, actionHits) }.orEmpty()
+            } else {
+                val local = search(index, query)
+                val known = local.mapNotNull { it.location }.toSet()
+                (local + serverHits.filter { it.location !in known }).sortedBy { it.kind.ordinal }
+            }
+            found.filter { kind == null || it.kind == kind }
+        }
+        val groups = remember(hits, query) {
+            if (query.isBlank()) {
+                listOf(SearchGroup("Suggested", hits))
+            } else {
+                hits.groupBy { it.kind }.map { (group, groupHits) -> SearchGroup(group.title, groupHits) }
+            }
+        }
+        val close = {
+            isOpen = false
+            query = ""
+            kind = null
+            highlighted = 0
+        }
+        return SearchModel(
+            isOpen = isOpen,
+            query = query,
+            kind = kind,
+            kinds = SearchKind.entries,
+            groups = groups,
+            highlighted = highlighted.coerceIn(0, (hits.size - 1).coerceAtLeast(0)),
+            onOpen = { isOpen = true },
+            onClose = close,
+            onQuery = {
+                query = it
+                highlighted = 0
+            },
+            onKind = {
+                kind = it
+                highlighted = 0
+            },
+            onMove = { delta -> highlighted = (highlighted + delta).coerceIn(0, (hits.size - 1).coerceAtLeast(0)) },
+            onChoose = { hit ->
+                close()
+                hit.run?.invoke()
+                hit.location?.let { router.open(it) }
+            },
+        )
+    }
+
+    @Composable
+    private fun screen(
+        props: AppProps,
+        status: StatusSnapshot,
+        now: Long,
+        metrics: Map<String, Map<String, Samples>>,
+        log: List<homegap.api.LogEntryDto>,
+    ): ScreenModel = when (props.route) {
+        Route.Overview -> overview.model(
+            OverviewScreenProps(
+                status = status,
+                now = now,
+                metrics = metrics,
+                log = log,
+                selection = props.selection,
+            )
+        )
+        Route.Nodes -> nodes.model(
+            NodesScreenProps(
+                status = status,
+                now = now,
+                metrics = metrics,
+                selection = props.selection,
+            )
+        )
+        Route.Services -> services.model(
+            ServicesScreenProps(
+                status = status,
+                selection = props.selection,
+            )
+        )
+        Route.Dns -> dns.model(
+            DnsScreenProps(
+                status = status,
+                now = now,
+                selection = props.selection,
+            )
+        )
+        Route.Tunnels -> tunnels.model(
+            TunnelsScreenProps(
+                status = status,
+                now = now,
+                metrics = metrics,
+                selection = props.selection,
+            )
+        )
         Route.SpeedTest -> speedTest.model(SpeedTestScreenProps(now, status))
-        Route.Access -> access.model(AccessScreenProps)
-        Route.Activity -> activity.model(ActivityScreenProps)
+        Route.Access -> {
+            val currentRouter by rememberUpdatedState(props.router)
+            access.model(
+                AccessScreenProps(
+                    selection = props.selection,
+                    onOpen = remember { { location: Location -> currentRouter.open(location) } },
+                    now = now,
+                )
+            )
+        }
+        Route.Activity -> activity.model(
+            ActivityScreenProps(
+                now = now,
+                selection = props.selection,
+            )
+        )
         Route.Config -> config.model(ConfigScreenProps)
-        Route.Diagnostics -> diagnostics.model(DiagnosticsScreenProps(status))
+        Route.Diagnostics -> diagnostics.model(
+            DiagnosticsScreenProps(
+                status = status,
+                selection = props.selection,
+            )
+        )
+        Route.Locations, Route.AddNode -> error("${props.route} opens over its section's page")
+    }
+
+    /** The page that opens over its section: the Add node wizard over Nodes, Locations over Config. */
+    @Composable
+    private fun overlay(props: AppProps, status: StatusSnapshot): ScreenModel? = when (props.route) {
         Route.Locations -> locations.model(homegap.presentation.locations.LocationsScreenProps)
         Route.AddNode -> {
-            val currentRouter by rememberUpdatedState(router)
+            val currentRouter by rememberUpdatedState(props.router)
             addNode.model(
                 AddNodeScreenProps(
                     existingNodeIds = remember(status.nodes) { status.nodes.map { it.id }.toSet() },
@@ -118,6 +346,8 @@ class AppPresenter(
                 )
             )
         }
+
+        else -> null
     }
 
     @Composable
@@ -129,7 +359,8 @@ class AppPresenter(
             pass = passStatus(status, now),
             paused = status.paused,
             busy = busy,
-            onResync = remember { { actions.run("Resync") { api.resync() } } },
+            onResync = remember { { pausedGuard.run("Resync") { actions.run("Resync") { api.resync() } } } },
+            onApplyOnce = remember { { actions.run("Run one pass") { api.applyOnce() } } },
             onTogglePause = remember {
                 { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } }
             },
@@ -139,18 +370,35 @@ class AppPresenter(
     @Composable
     private fun connection(problem: ConnectionProblem): ConnectionModel {
         var draft by remember { mutableStateOf(tokens.token.orEmpty()) }
+        // A saved token that still gets 401 was not accepted (a token remembered from before too).
+        var rejected by remember { mutableStateOf(tokens.token != null) }
         val save = appScope.rememberEventTrigger {
             tokens.token = draft.ifBlank { null }
             session.refresh()
+            rejected = tokens.token != null && session.problem.value == ConnectionProblem.Unauthorized
         }
         val prompt = TokenPromptModel(
             value = draft,
-            onChange = remember { { draft = it } },
+            rejected = rejected,
+            onChange = remember {
+                { value: String ->
+                    draft = value
+                    rejected = false
+                }
+            },
             onSave = save::trigger,
         )
         return when (problem) {
-            ConnectionProblem.Unauthorized -> ConnectionModel("Enter the dashboard token to continue.", prompt)
-            is ConnectionProblem.Failed -> ConnectionModel(problem.message, prompt)
+            ConnectionProblem.Unauthorized -> ConnectionModel(
+                message = "Enter the dashboard token to continue.",
+                tokenPrompt = prompt,
+                signInRequired = true,
+            )
+
+            is ConnectionProblem.Failed -> ConnectionModel(
+                message = problem.message,
+                tokenPrompt = prompt,
+            )
         }
     }
 
@@ -172,7 +420,19 @@ class AppPresenter(
             detail = failed.firstNotNullOfOrNull { it.second.error }?.take(400),
             failedNodes = failed.map { it.first },
             onRetry = remember { { id: String -> actions.run("Retry update") { api.retryUpdate(id) } } },
-            onSkip = remember { { id: String -> actions.run("Skip update") { api.skipUpdate(id) } } },
+            onSkip = remember {
+                { id: String ->
+                    confirmations.ask(
+                        ConfirmModel(
+                            title = "Skip the update on $id?",
+                            text = "$id stays on its current stack and the other nodes are updated.",
+                            confirmLabel = "Skip $id",
+                        )
+                    ) {
+                        actions.run("Skip update") { api.skipUpdate(id) }
+                    }
+                }
+            },
         )
     }
 
@@ -196,14 +456,14 @@ class AppPresenter(
     }
 }
 
-/** Routes whose content currently needs attention (a dot in the navigation). */
-internal fun StatusSnapshot.tabsNeedingAttention(): Set<Route> = buildSet {
-    if (nodes.any { it.health == Health.DOWN || it.lastProvisionOk == false }) add(Route.Nodes)
-    val serviceDown = services.any { service -> service.perNode.any { it.health == Health.DOWN } }
-    if (labelErrors.isNotEmpty() || serviceDown) add(Route.Services)
-    if (dns.any { !it.inSync || it.monitorStatus == "offline" }) add(Route.Dns)
-    if (tunnels.any { !it.up }) add(Route.Tunnels)
-}
+/** Per section, how many items need attention and how bad the worst is: a count in the navigation. */
+internal fun StatusSnapshot.attentionCounts(): Map<Route, AttentionCount> =
+    attention.groupBy { it.location.route.navSection }.mapValues { (_, items) ->
+        AttentionCount(
+            count = items.size,
+            severity = if (anyDown(items)) Health.DOWN else Health.DEGRADED,
+        )
+    }
 
 internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
     if (dryRun) add(BannerModel(BannerKind.Warn, "Dry-run mode: discovery and planning only. Nothing is written to nodes, Pangolin or DNS."))
@@ -219,5 +479,17 @@ internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
                     "Nodes reaching each other meanwhile (see the mesh probes) means it was the homelab's connection."))
         }
     }
-    if (paused) add(BannerModel(BannerKind.Warn, "Reconciliation is paused globally. Manual changes on nodes, Pangolin and Bunny are left alone."))
+    if (paused) {
+        add(
+            BannerModel(
+                kind = BannerKind.Warn,
+                text = "Changes are paused. HomeGAP is only observing: health and drift keep updating, but nothing is applied " +
+                    "to nodes, Pangolin or DNS, and manual changes there are left alone.",
+                resume = true,
+            )
+        )
+    }
 }
+
+/** How long search waits after the last keystroke before asking the server. */
+private val SEARCH_DELAY = 200.milliseconds

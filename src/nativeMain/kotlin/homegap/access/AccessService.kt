@@ -19,11 +19,17 @@ import homegap.reconcile.ReadyNode
 import io.ktor.client.HttpClient
 import io.ktor.http.Url
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The cluster's users and devices, managed from the dashboard through whichever node's Pangolin
@@ -34,6 +40,18 @@ import kotlinx.coroutines.ensureActive
 class AccessService(private val controller: Controller, @LocalHttp private val http: HttpClient) {
     private val domain = "access"
     private val org get() = controller.config.pangolin.orgId
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private val _revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    /** Grows after every change made from the dashboard; the event stream tells dashboards to reload. */
+    val revision: kotlinx.coroutines.flow.StateFlow<Long> = _revision
+
+    /** Marks that users, invitations or devices changed. */
+    fun changed() {
+        _revision.value++
+    }
 
     suspend fun overview(): AccessOverviewDto {
         val config = controller.config
@@ -97,6 +115,8 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
             archived = c.archived == true,
             blocked = c.blocked == true,
             viaNode = via,
+            // Pangolin keeps the last ping in epoch seconds.
+            lastSeen = c.lastPing?.let { if (it < 100_000_000_000L) it * 1000 else it },
         )
     }
 
@@ -125,13 +145,53 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
         return CreateAccessUserResponse(true, "Created $email. They can sign in now.")
     }
 
-    suspend fun removeUser(userId: String): String {
+    /**
+     * Removes [userId] after [REMOVE_DELAY], so the removal can be undone until then. Returns the
+     * message and the undo id.
+     */
+    suspend fun removeUser(userId: String): Pair<String, String> {
         val (ready, _) = pangolin()
         val user = ready.api.listUsers(org).firstOrNull { it.id == userId } ?: throw IllegalArgumentException("no such user")
         check(user.isOwner != true) { "the server admin can't be removed" }
-        ready.api.removeUser(org, userId)
-        controller.log.change(domain, "removed user ${user.email ?: user.username}")
-        return "Removed ${user.email ?: user.username}"
+        val name = user.email ?: user.username
+        val removal = scope.launch {
+            delay(REMOVE_DELAY)
+            runCatching {
+                pangolin().first.api.removeUser(org, userId)
+                controller.log.change(domain, "removed user $name")
+            }.onFailure {
+                if (it is CancellationException) throw it
+                controller.log.error(domain, "could not remove $name: ${it.message}")
+            }
+            changed()
+        }
+        val undo = controller.offerUndo(
+            ttlMs = REMOVE_DELAY.inWholeMilliseconds,
+        ) {
+            removal.cancel()
+            controller.log.change(domain, "kept $name (removal undone)")
+            "Kept $name"
+        }
+        return "Removing $name in ${REMOVE_DELAY.inWholeSeconds} s" to undo
+    }
+
+    /**
+     * A new invite link for an open invitation, with the same email and roles; the old link stops
+     * working.
+     */
+    suspend fun reissueInvitation(inviteId: String): CreateAccessUserResponse {
+        val (ready, _) = pangolin()
+        val invite = ready.api.listInvitations(org).firstOrNull { it.inviteId == inviteId }
+            ?: throw IllegalArgumentException("no such invitation")
+        val roles = ready.api.listRoles(org)
+        val roleIds = invite.roles.map { it.roleId }.filter { it > 0 }.ifEmpty {
+            invite.roles.mapNotNull { role -> roles.firstOrNull { it.name == role.roleName }?.roleId }
+        }
+        require(roleIds.isNotEmpty()) { "the invitation has no roles to keep" }
+        val link = ready.api.createInvite(org, invite.email, roleIds, INVITE_HOURS, regenerate = true)
+        controller.log.change(domain, "re-issued the invite link for ${invite.email}")
+        changed()
+        return CreateAccessUserResponse(true, "New invite link for ${invite.email}, valid ${INVITE_HOURS / 24} days.", link)
     }
 
     suspend fun setRoles(userId: String, roleIds: List<Int>): String {
@@ -174,6 +234,8 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
         val EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
         /** Long enough to hand the link over; the person sets their own password with it. */
         const val INVITE_HOURS = 7 * 24
+        /** How long a removal of a person waits, so it can be undone. */
+        val REMOVE_DELAY = 30.seconds
         val PAST = mapOf("archive" to "archived", "unarchive" to "unarchived", "block" to "blocked", "unblock" to "unblocked", "delete" to "deleted")
     }
 }

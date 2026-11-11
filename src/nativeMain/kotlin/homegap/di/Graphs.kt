@@ -87,7 +87,7 @@ interface ControllerGraph {
     fun ssh(config: AppConfig): SshPool = SshPool("/tmp/homegap-ssh", "${config.dataDir}/known_hosts")
 
     @Provides @SingleIn(AppScope::class)
-    fun reconcileLog(): ReconcileLog = ReconcileLog()
+    fun reconcileLog(config: AppConfig): ReconcileLog = ReconcileLog(path = "${config.dataDir}/activity.json")
 
     @Provides @SingleIn(AppScope::class)
     fun speedTokens(): SpeedTestTokens = SpeedTestTokens()

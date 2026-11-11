@@ -11,10 +11,37 @@ interface ControllerApi {
     suspend fun config(): ConfigResponse
     suspend fun speedtest(): SpeedTestOverview
 
+    /** Log entries older than [beforeSeq], newest first, filtered by [level], [domain] and [query]. */
+    suspend fun log(
+        beforeSeq: Long?,
+        limit: Int,
+        level: LogLevel?,
+        domain: String?,
+        query: String?,
+    ): LogResponse
+
+    /** What only the server can search: config keys, secrets and older log entries. */
+    suspend fun search(query: String): SearchResponse
+
+    /** The edges' graphs for the last [rangeSeconds], optionally only [edge]'s. */
+    suspend fun metrics(rangeSeconds: Long, edge: String? = null): MetricsResponse
+
     /** Produces a [Flow] of events from `/api/events` until the stream ends. */
     suspend fun events(afterSeq: Long): Flow<ServerEvent>
 
     suspend fun resync(): ActionResponse
+
+    /** One pass that applies the waiting changes although changes are paused. */
+    suspend fun applyOnce(): ActionResponse
+
+    /** Undoes an action whose response carried an undo id. */
+    suspend fun undo(id: String): ActionResponse
+
+    /** A new invite link for an open invitation. */
+    suspend fun reissueInvitation(id: String): CreateAccessUserResponse
+
+    /** Asks the tunnel supervisor to restart [node]'s connector. */
+    suspend fun restartTunnel(node: String): ActionResponse
     suspend fun provision(node: String): ActionResponse
     suspend fun retryUpdate(node: String): ActionResponse
     suspend fun skipUpdate(node: String): ActionResponse
@@ -25,8 +52,11 @@ interface ControllerApi {
     suspend fun speedLink(): SpeedTestLinkDto
     suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto
 
-    /** The homelab ↔ node test running now; null when none runs. */
-    suspend fun speedLive(): homegap.api.SpeedTestLiveDto?
+    /** Starts testing every node, one at a time, on the orchestrator. */
+    suspend fun startSpeedRun(streams: Int): ActionResponse
+
+    suspend fun cancelSpeedRun(): ActionResponse
+
 
     suspend fun testConnection(login: SshLoginDto): ConnectionTestDto
     suspend fun createKey(request: SshKeyRequestDto): SshKeyDto

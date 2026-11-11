@@ -43,7 +43,26 @@ data class NodeState(
     val tunnelSlotConfirmed: Boolean = false,
     /** The node's mesh public key, learned from the node (its private key never leaves it). */
     val meshPublicKey: String? = null,
+    /** The last provisioning and update runs, newest first. */
+    val runs: List<RunRecord> = emptyList(),
 )
+
+/** One provisioning or update run of a node. */
+@Serializable
+data class RunRecord(
+    /** `provision` or `update`. */
+    val kind: String,
+    val startedAt: Long,
+    val finishedAt: Long,
+    val ok: Boolean,
+    val error: String? = null,
+    /** The stack hash the run applied. */
+    val stack: String? = null,
+    val rolledBack: Boolean = false,
+)
+
+/** These runs with [run] added first, keeping the last ten. */
+fun List<RunRecord>.withRun(run: RunRecord): List<RunRecord> = (listOf(run) + this).take(10)
 
 /**
  * A stack update that failed on this node. While [status] is `failed`, the rollout to every other

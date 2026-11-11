@@ -37,6 +37,16 @@ object FakeTimeFormatter : TimeFormatter {
 
 class FakeTokenStore(override var token: String? = null) : TokenStore
 
+class FakePreferences : Preferences {
+    private val values = mutableMapOf<String, String>()
+
+    override fun get(key: String): String? = values[key]
+
+    override fun set(key: String, value: String?) {
+        if (value == null) values.remove(key) else values[key] = value
+    }
+}
+
 /** Records calls; reads return the configured values, the event stream never ends. */
 class FakeControllerApi(
     var statusValue: StatusSnapshot = snapshot(),
@@ -54,9 +64,18 @@ class FakeControllerApi(
     override suspend fun secrets() = SecretsResponse(listOf(SecretRefDto("bunny", "DNS", "env:B", present = false)))
     override suspend fun config() = ConfigResponse("/config.yml", false, "domain: x", emptyList())
     override suspend fun speedtest() = speedtestValue
+    override suspend fun metrics(rangeSeconds: Long, edge: String?) = MetricsResponse(emptyList())
+    override suspend fun search(query: String) = SearchResponse(emptyList())
+    override suspend fun log(beforeSeq: Long?, limit: Int, level: LogLevel?, domain: String?, query: String?) = LogResponse(emptyList())
     override suspend fun events(afterSeq: Long): Flow<ServerEvent> = flow { awaitCancellation() }
     override suspend fun resync() = ok("resync")
+    override suspend fun applyOnce() = ok("apply once")
+    override suspend fun restartTunnel(node: String) = ok("restart tunnel $node")
+    override suspend fun undo(id: String) = ok("undo $id")
+    override suspend fun reissueInvitation(id: String) = CreateAccessUserResponse(true, "new link", "https://pangolin.x/invite?token=new").also { calls += "reissue $id" }
     override suspend fun provision(node: String) = ok("provision $node")
+    override suspend fun startSpeedRun(streams: Int) = ok("speed run $streams")
+    override suspend fun cancelSpeedRun() = ok("cancel speed run")
     override suspend fun retryUpdate(node: String) = ok("retry $node")
     override suspend fun skipUpdate(node: String) = ok("skip $node")
     override suspend fun pause(scope: PauseScope, id: String?, paused: Boolean) = ok("pause ${scope.wire} $id $paused")
@@ -69,8 +88,6 @@ class FakeControllerApi(
         return SpeedTestResultDto("r", NOW, "tunnel", node, downMbps = 250.0, upMbps = 40.0, pingMs = 170.0, streams = streams)
     }
 
-    var liveValue: homegap.api.SpeedTestLiveDto? = null
-    override suspend fun speedLive() = liveValue
 
     var accessValue = AccessOverviewDto(available = false, note = "no cluster")
     var lastCreate: CreateAccessUserRequest? = null

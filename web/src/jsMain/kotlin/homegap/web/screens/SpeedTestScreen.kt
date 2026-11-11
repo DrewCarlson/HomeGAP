@@ -5,6 +5,7 @@ import androidx.compose.runtime.key
 import homegap.presentation.app.BannerKind
 import homegap.presentation.app.BannerModel
 import homegap.presentation.speedtest.*
+import homegap.presentation.ui.QrCode
 import homegap.web.ui.*
 import kotlinx.browser.window
 import org.jetbrains.compose.web.attributes.ATarget
@@ -34,11 +35,11 @@ fun SpeedTestScreen(model: SpeedTestScreenModel) {
         }
 
         is SpeedTestScreenModel.Ready -> {
+            TunnelTests(model)
+            DeviceTests(model.device)
+            History(model.history)
             if (!model.map.isEmpty) {
-                Panel(
-                    title = "Map",
-                    subtitle = "Latest homelab ↔ node results on each line; click a node to test it"
-                ) {
+                Figure(caption = "Fig. 04 · Map · latest homelab ↔ edge results; select a node to test it") {
                     WorldMap(
                         model = model.map,
                         heightPx = 340,
@@ -46,52 +47,116 @@ fun SpeedTestScreen(model: SpeedTestScreenModel) {
                             if (id != "homelab" && model.canStart) {
                                 model.onRunTest(id)
                             }
-                        }
+                        },
                     )
                 }
             }
-            Div({ classes("two-col") }) {
-                TunnelTests(model)
-                DeviceTests(model.device)
-            }
-            History(model.history)
         }
     }
 }
 
 @Composable
 private fun TunnelTests(model: SpeedTestScreenModel.Ready) {
-    Panel("Homelab ↔ node", TUNNEL_PATH, flush = false) {
-        Div({ classes("tunnel-actions") }) {
-            Div({ classes("stream-picker") }) {
-                Span({ classes("muted") }) { Text("Parallel streams") }
-                Segmented(
-                    options = model.streamChoices,
-                    selected = model.streams,
-                    label = { "$it" },
-                    enabled = model.canStart,
-                    onSelect = model.onSelectStreams
+    Figure(
+        caption = "Fig. 01 · Homelab ↔ edge · over the tunnel",
+        flush = true,
+        actions = {
+            Span({ classes("muted", "small", "wide-only") }) { Text("Parallel streams") }
+            Segmented(
+                options = model.streamChoices,
+                selected = model.streams,
+                label = { "$it" },
+                enabled = model.canStart,
+                onSelect = model.onSelectStreams,
+            )
+            ActionButton(
+                text = model.allButtonText,
+                style = ButtonStyle.Primary,
+                small = true,
+                enabled = model.canStart,
+                onClick = model.onRunAll,
+            )
+            model.onCancelAll?.let { cancel ->
+                ActionButton(
+                    text = "Stop",
+                    small = true,
+                    tooltip = "Stop after the node being tested now",
+                    onClick = cancel,
                 )
             }
-            ActionButton(model.allButtonText, style = ButtonStyle.Primary, small = true, enabled = model.canStart, onClick = model.onRunAll)
-        }
+        },
+    ) {
         model.live?.let { LiveTest(it) }
-        Div({ classes("node-tests") }) {
+        Div({ classes("speed-rows") }) {
             model.nodeTests.forEach { test ->
                 key(test.nodeId) {
-                    NodeTest(test, model.canStart) { model.onRunTest(test.nodeId) }
+                    SpeedRow(
+                        test = test,
+                        canStart = model.canStart,
+                        onRun = { model.onRunTest(test.nodeId) },
+                    )
                 }
             }
+        }
+        P({ classes("figure-note") }) {
+            Text("Bars scale to 1 Gb/s. Path: $TUNNEL_PATH. Up is homelab → edge, the direction visitors download in.")
+        }
+    }
+}
+
+@Composable
+private fun SpeedRow(test: NodeTestModel, canStart: Boolean, onRun: () -> Unit) {
+    val metrics = test.metrics
+    Div({ classes("speed-row") }) {
+        Div {
+            B { Text(test.nodeId) }
+            Div({ classes("muted", "mono", "small") }) { Text(test.note ?: "no result yet") }
+        }
+        Div({ classes("speed-bars") }) {
+            SpeedBar(label = "down", fraction = test.downFraction, className = "bar-down")
+            SpeedBar(label = "up", fraction = test.upFraction, className = if (test.slow) "bar-slow" else "bar-up")
+        }
+        Div({ classes("mono", "speed-values") }) {
+            if (metrics != null) {
+                Div { Text(metrics[2].value) }
+                Div({ classes(if (test.slow) "tone-warn" else "muted") }) { Text(metrics[3].value) }
+            } else {
+                Div({ classes("muted") }) { Text("—") }
+            }
+        }
+        Div({ classes("mono", "muted", "small", "speed-ping") }) {
+            if (metrics != null) {
+                Text("${metrics[0].value} · ±${metrics[1].value}")
+            }
+        }
+        ActionButton(
+            text = test.buttonText,
+            small = true,
+            enabled = canStart,
+            onClick = onRun,
+        )
+    }
+}
+
+@Composable
+private fun SpeedBar(label: String, fraction: Double, className: String) {
+    Div({ classes("speed-bar") }) {
+        Span({ classes("muted", "mono", "small") }) { Text(label) }
+        Div({ classes("speed-track") }) {
+            Div({
+                classes("speed-fill", className)
+                style { property("width", "${(fraction * 100).coerceAtLeast(0.5)}%") }
+            })
         }
     }
 }
 
 @Composable
 private fun LiveTest(live: LiveTestModel) {
-    Div({ classes("live-test") }) {
+    Div({ classes("live-test", live.tone.className) }) {
         Div {
             Div({
-                classes("gauge")
+                classes("gauge", live.tone.className)
                 style { property("--p", live.fraction.toString()) }
             }) {
                 Div({ classes("gauge-arc") })
@@ -119,32 +184,10 @@ private fun LiveTest(live: LiveTestModel) {
     }
 }
 
-@Composable
-private fun NodeTest(test: NodeTestModel, canStart: Boolean, onRun: () -> Unit) {
-    Div({ classes("node-test") }) {
-        Div({ classes("node-test-head") }) {
-            B { Text(test.nodeId) }
-            ActionButton(test.buttonText, small = true, enabled = canStart, onClick = onRun)
-        }
-        when (val metrics = test.metrics) {
-            null -> Muted("No result yet")
-            else -> {
-                Div({ classes("metrics") }) {
-                    metrics.forEach { Metric(it) }
-                }
-            }
-        }
-        test.note?.let { Muted(it) }
-    }
-}
 
 @Composable
 private fun DeviceTests(device: DeviceTestModel) {
-    Panel(
-        title = "Your device → node → homelab",
-        subtitle = "Open a link on the device you want to test",
-        flush = false
-    ) {
+    Figure(caption = "Fig. 02 · Your device → edge → homelab · open a link on the device to test") {
         P({ classes("muted") }) { Text(DEVICE_HELP) }
         ActionButton(
             text = device.buttonText,
@@ -152,6 +195,17 @@ private fun DeviceTests(device: DeviceTestModel) {
             onClick = device.onCreateLink
         )
         if (device.links.isNotEmpty()) {
+            device.links.firstOrNull()?.let { auto ->
+                QrCode.encode(auto.url)?.let { code ->
+                    Div({ classes("app-address") }) {
+                        QrImage(
+                            code = code,
+                            label = "QR code for the automatic test link",
+                        )
+                        P({ classes("muted") }) { Text("Scan from a phone to test it through the edge DNS picks for it.") }
+                    }
+                }
+            }
             Div({ classes("links") }) {
                 device.links.forEach { LinkRow(it) }
                 device.expires?.let { Muted(it) }
@@ -182,7 +236,10 @@ private fun LinkRow(link: TestLinkModel) {
 
 @Composable
 private fun History(rows: List<HistoryRowModel>) {
-    Panel("History") {
+    Figure(
+        caption = "Fig. 03 · History",
+        flush = true,
+    ) {
         val headers = listOf("When", "Path", "Node", "Ping", "Jitter", "Down", "Up", "Notes")
         DataTable(headers, "No results yet.", rows.isEmpty()) {
             rows.forEach { row ->

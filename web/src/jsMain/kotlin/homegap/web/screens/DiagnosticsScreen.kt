@@ -12,7 +12,11 @@ import org.w3c.dom.HTMLAnchorElement
 import org.w3c.dom.url.URL
 import org.w3c.files.Blob
 import org.w3c.files.BlobPropertyBag
+import org.jetbrains.compose.web.attributes.disabled
+import org.jetbrains.compose.web.attributes.selected
 import org.jetbrains.compose.web.dom.Div
+import org.jetbrains.compose.web.dom.Option
+import org.jetbrains.compose.web.dom.Select
 import org.jetbrains.compose.web.css.backgroundColor
 import org.jetbrains.compose.web.css.color
 import org.jetbrains.compose.web.dom.Pre
@@ -21,11 +25,11 @@ import org.jetbrains.compose.web.dom.Text
 
 @Composable
 fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
-    Panel(
-        title = "Node",
-        subtitle = "Everything here is read-only: nothing on the node changes"
+    Figure(
+        caption = "Fig. 01 · Node · read-only, nothing on the node changes",
+        flush = true,
     ) {
-        Div({ classes("panel-body") }) {
+        Div({ classes("figure-body") }) {
             if (model.nodes.isEmpty()) {
                 Muted("No nodes yet.")
                 return@Div
@@ -42,13 +46,27 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
             }
             Div({ classes("inline-row") }) {
                 Muted("Container")
-                Segmented(
-                    options = model.services.map { it.first },
-                    selected = model.service,
-                    label = { id -> model.services.first { it.first == id }.second },
-                    enabled = !model.loading,
-                    onSelect = model.onSelectService
-                )
+                Select({
+                    classes("select")
+                    attr("aria-label", "Container")
+                    if (model.loading) {
+                        disabled()
+                    }
+                    onChange { event -> event.value?.let(model.onSelectService) }
+                }) {
+                    model.services.forEach { (id, label) ->
+                        Option(
+                            value = id,
+                            attrs = {
+                                if (model.service == id) {
+                                    selected()
+                                }
+                            },
+                        ) {
+                            Text(label)
+                        }
+                    }
+                }
             }
             Div({ classes("inline-row") }) {
                 Muted("Since")
@@ -79,9 +97,27 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
             }
         }
     }
+    if (model.report.isNotEmpty()) {
+        Figure(
+            caption = "Fig. 02 · Report · ${model.report.count { it.health == homegap.api.Health.DEGRADED }} to look at",
+            flush = true,
+        ) {
+            Div({ classes("report-grid") }) {
+                model.report.forEach { section ->
+                    Div({ classes("report-cell") }) {
+                        Div({ classes("report-title") }) {
+                            Span({ classes("mark", section.health.toneClass) }) { Text(section.health.symbol) }
+                            Text(section.title)
+                        }
+                        Div({ classes("muted", "small") }) { Text(section.summary) }
+                    }
+                }
+            }
+        }
+    }
     val output = model.output
     if (model.loading) {
-        Panel("Loading…") { Div({ classes("panel-body") }) { Muted("Asking the node over SSH.") } }
+        Panel("Loading…") { Div({ classes("figure-body") }) { Muted("Asking the node over SSH.") } }
     } else if (output != null) {
         Panel(
             title = "${output.title} · ${output.node}",

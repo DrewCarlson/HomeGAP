@@ -3,6 +3,11 @@ package homegap.presentation.access
 import androidx.compose.runtime.Immutable
 import homegap.presentation.common.Badge
 import homegap.presentation.core.ScreenModel
+import homegap.presentation.routing.Location
+import homegap.presentation.routing.Route
+import homegap.presentation.ui.InspectorModel
+import homegap.presentation.ui.QrCode
+import homegap.presentation.ui.PageHeadModel
 
 sealed interface AccessScreenModel : ScreenModel {
     data object Loading : AccessScreenModel
@@ -11,13 +16,20 @@ sealed interface AccessScreenModel : ScreenModel {
     @Immutable
     data class Unavailable(
         val message: String,
-        val clientAddress: String?
+        val clientAddress: String?,
+        override val head: PageHeadModel? = null,
     ) : AccessScreenModel
 
     @Immutable
     data class Ready(
+        override val head: PageHeadModel,
+        /** Whether the Add user form is open. */
+        val addUserOpen: Boolean,
+        override val inspector: InspectorModel?,
         /** What to put into the Pangolin apps. */
         val clientAddress: String,
+        /** The address as a QR code, for phones. */
+        val qr: QrCode?,
         /** "Read through na1's Pangolin". */
         val via: String,
         val newUser: NewUserFormModel,
@@ -30,6 +42,8 @@ sealed interface AccessScreenModel : ScreenModel {
         val onRemoveUser: (userId: String) -> Unit,
         val onToggleRole: (userId: String, roleId: Int) -> Unit,
         val onRemoveInvitation: (inviteId: String) -> Unit,
+        /** A new invite link for an open invitation, shown to copy. */
+        val onReissueInvitation: (inviteId: String) -> Unit,
         val onDeviceAction: (deviceId: Int, action: String) -> Unit,
     ) : AccessScreenModel
 }
@@ -67,6 +81,8 @@ data class UserRowModel(
     val badges: List<Badge>,
     /** The server admin can't be removed or have its roles changed here. */
     val editable: Boolean,
+    val devices: Int = 0,
+    val location: Location = Location(Route.Access, "user:$id"),
 )
 
 @Immutable
@@ -88,6 +104,7 @@ data class DeviceRowModel(
     /** "via na1" while online. */
     val via: String?,
     val actions: List<DeviceActionModel>,
+    val location: Location = Location(Route.Access, "device:$id"),
 )
 
 @Immutable

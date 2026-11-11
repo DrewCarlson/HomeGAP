@@ -1,9 +1,11 @@
 package homegap.presentation
 
+import homegap.presentation.data.AlwaysVisible
 import homegap.api.AccessDeviceDto
 import homegap.api.AccessOverviewDto
 import homegap.api.AccessRoleDto
 import homegap.api.AccessUserDto
+import homegap.api.AttentionItemDto
 import homegap.api.Health
 import homegap.api.LogEntryDto
 import homegap.api.LogLevel
@@ -30,6 +32,10 @@ import homegap.presentation.nodes.NodesScreenProps
 import homegap.presentation.overview.OverviewScreenModel
 import homegap.presentation.overview.OverviewScreenPresenter
 import homegap.presentation.overview.OverviewScreenProps
+import homegap.presentation.routing.Location
+import homegap.presentation.services.ServiceActions
+import homegap.presentation.nodes.NodeActions
+import homegap.presentation.data.Confirmations
 import homegap.presentation.routing.Route
 import homegap.presentation.routing.Router
 import homegap.presentation.services.ServicesScreenPresenter
@@ -45,19 +51,41 @@ import kotlin.test.*
 
 class PresenterTest {
     private class Graph(scope: CoroutineScope, val api: FakeControllerApi = FakeControllerApi()) {
-        val session = ControllerSession(api)
-        val actions = ActionRunner(session, scope)
+        val session = ControllerSession(api, AlwaysVisible)
+        val actions = ActionRunner(session, api, scope)
         val tokens = FakeTokenStore()
-        val nodes = NodesScreenPresenter(api, actions)
-        val speedTest = SpeedTestScreenPresenter(api, actions, FakeTimeFormatter, scope)
-        val activity = ActivityScreenPresenter(session, FakeTimeFormatter)
-        val addNode = AddNodeScreenPresenter(api, AddNodeWizardStore(), actions, scope)
-        val access = AccessScreenPresenter(api, actions, FakeTimeFormatter, scope)
+        val preferences = FakePreferences()
+        val confirmations = Confirmations()
+        val pausedGuard = homegap.presentation.data.PausedGuard(session, api, actions, confirmations)
+        val nodeActions = NodeActions(api, actions, confirmations, pausedGuard)
+        val serviceActions = ServiceActions(api, actions, confirmations)
+        val nodes = NodesScreenPresenter(nodeActions, preferences)
+        val speedTest = SpeedTestScreenPresenter(api, session, actions, FakeTimeFormatter, scope)
+        val activity = ActivityScreenPresenter(session, api, FakeTimeFormatter)
+        val addNode = AddNodeScreenPresenter(api, session, AddNodeWizardStore(preferences), actions, scope)
+        val access = AccessScreenPresenter(api, session, actions, confirmations, FakeTimeFormatter, scope)
+        val overview = OverviewScreenPresenter(preferences, nodeActions, serviceActions, FakeTimeFormatter)
         val app = AppPresenter(
-            session, actions, api, tokens, FixedClock, scope,
-            OverviewScreenPresenter(), nodes, ServicesScreenPresenter(api, actions), DnsScreenPresenter(),
-            TunnelsScreenPresenter(), speedTest, access, activity, ConfigScreenPresenter(api), homegap.presentation.diagnostics.DiagnosticsScreenPresenter(api),
-            homegap.presentation.locations.LocationsScreenPresenter(api, actions), addNode,
+            session = session,
+            actions = actions,
+            confirmations = confirmations,
+            pausedGuard = pausedGuard,
+            api = api,
+            tokens = tokens,
+            clock = FixedClock,
+            appScope = scope,
+            overview = overview,
+            nodes = nodes,
+            services = ServicesScreenPresenter(serviceActions),
+            dns = DnsScreenPresenter(api, actions),
+            tunnels = TunnelsScreenPresenter(api, actions, confirmations),
+            speedTest = speedTest,
+            access = access,
+            activity = activity,
+            config = ConfigScreenPresenter(api),
+            diagnostics = homegap.presentation.diagnostics.DiagnosticsScreenPresenter(api),
+            locations = homegap.presentation.locations.LocationsScreenPresenter(api, actions, confirmations),
+            addNode = addNode,
         )
     }
 
@@ -65,18 +93,31 @@ class PresenterTest {
 
     private class RecordingRouter : Router {
         val routes = mutableListOf<Route>()
-        override fun navigate(route: Route) { routes += route }
+        override fun open(location: Location) {
+            routes += location.route
+        }
     }
 
     @Test
     fun overviewCountsHealthPerArea() = runTest {
+        val g = graph
         val status = snapshot(nodes = listOf(node("a1"), node("b1", Health.DOWN)))
-        val model = present(OverviewScreenPresenter(), OverviewScreenProps(status, NOW)).value
-        val nodes = model.stats.first { it.label == "Nodes healthy" }
+        val model = present(g.overview, OverviewScreenProps(status, NOW)).value
+        val nodes = model.gauges.first { it.label == "Edges ok" }
         assertEquals("1 / 2", nodes.value)
         assertEquals(Health.DEGRADED, nodes.health)
-        assertEquals(Health.UNKNOWN, model.stats.first { it.label == "DNS in sync" }.health, "nothing to count")
-        assertEquals(listOf("a1", "b1"), model.nodes.map { it.id })
+        assertEquals(Health.UNKNOWN, model.gauges.first { it.label == "DNS in sync" }.health, "nothing to count")
+        assertEquals(listOf("a1", "b1"), model.edges.map { it.id })
+        assertEquals("1 of 2 edges healthy.", model.head.headline)
+    }
+
+    @Test
+    fun overviewSelectsAnEdgeIntoTheInspector() = runTest {
+        val g = graph
+        val status = snapshot(nodes = listOf(node("a1"), node("b1")))
+        val model = present(g.overview, OverviewScreenProps(status, NOW, selection = "b1")).value
+        assertEquals("b1", model.inspector?.title)
+        assertNull(present(g.overview, OverviewScreenProps(status, NOW, selection = "nowhere")).value.inspector)
     }
 
     @Test
@@ -102,7 +143,9 @@ class PresenterTest {
     fun appFlagsTabsAndHoldsRollouts() = runTest {
         val g = graph
         val failed = node("a1", Health.DOWN, update = NodeUpdateDto("failed", "boom", NOW - 60_000, rolledBack = true))
-        g.api.statusValue = snapshot(nodes = listOf(failed, node("b1", waiting = "rollout held: a1 failed")), paused = true)
+        g.api.statusValue = snapshot(nodes = listOf(failed, node("b1", waiting = "rollout held: a1 failed")), paused = true).copy(
+            attention = listOf(AttentionItemDto("node:a1:down", Health.DOWN, "a1 is down", since = NOW, route = "nodes", selection = "a1")),
+        )
         g.session.refresh()
         val model = present(g.app, AppProps(Route.Overview, RecordingRouter())).first { it.screen != null }
 
@@ -114,6 +157,8 @@ class PresenterTest {
         assertTrue("rolled back" in rollout.summary && "Waiting: b1." in rollout.summary, rollout.summary)
 
         rollout.onSkip("a1")
+        assertEquals("Skip the update on a1?", g.confirmations.pending.value?.model?.title)
+        g.confirmations.resolve(confirmed = true)
         model.header!!.onTogglePause()
         testScheduler.runCurrent()
         assertEquals(listOf("skip a1", "pause global null false"), g.api.calls)
@@ -170,8 +215,20 @@ class PresenterTest {
         send(WizardEvent.Next)
         advanceTo(WizardStep.Review)
 
-        // Run: the request carries everything, and the job is followed until it finishes.
+        // Run: the request carries everything, and the job is followed (from the event stream) until it finishes.
         send(WizardEvent.Run)
+        models.first { it.job?.running == true }
+        g.session.onEvent(
+            ServerEvent.Job(
+                homegap.api.SetupJobDto(
+                    id = "job1",
+                    nodeId = "eu1",
+                    state = "succeeded",
+                    startedAt = NOW,
+                    steps = listOf(homegap.api.SetupStepDto("connect", "Connect as root", "ok")),
+                )
+            )
+        )
         val done = models.first { it.job?.succeeded == true }
         val request = assertNotNull(g.api.lastSetup)
         assertEquals("homegap", request.createUser)
@@ -202,10 +259,10 @@ class PresenterTest {
             g.session.onEvent(ServerEvent.Log(entries.toList()))
         log(LogEntryDto(1, "dns", LogLevel.INFO, "a", seq = 1), LogEntryDto(2, "nodes", LogLevel.CHANGE, "b", seq = 2))
 
-        val models = present(g.activity, ActivityScreenProps)
+        val models = present(g.activity, ActivityScreenProps())
         assertEquals(listOf("b", "a"), models.value.entries.map { it.message }, "newest first")
-        models.value.onSelectDomain("dns")
-        val filtered: ActivityScreenModel = models.first { it.selectedDomain == "dns" }
+        models.value.onDomain("dns")
+        val filtered: ActivityScreenModel = models.first { it.domain == "dns" }
         assertEquals(listOf("a"), filtered.entries.map { it.message })
 
         log(LogEntryDto(3, "dns", LogLevel.INFO, "after restart", seq = 1))
@@ -247,21 +304,23 @@ class PresenterTest {
         eight.onRunTest("a1")
         enabled.actions.toast.first { it != null }
         assertEquals(listOf("test a1 8"), enabled.api.calls)
-        assertEquals("a1: 250 Mbps down, 40.0 Mbps up, 170.0 ms ping", enabled.actions.toast.value?.text)
+        assertEquals("a1: 250 Mb/s down, 40.0 Mb/s up, 170.0 ms ping", enabled.actions.toast.value?.text)
     }
 
     @Test
     fun speedTestRunsEveryNodeInTurnAndShowsTheRunningTest() = runTest {
         val g = graph
         g.api.speedtestValue = SpeedTestOverview(enabled = true, nodes = listOf("a1", "b1"), streams = 4)
-        g.api.liveValue = homegap.api.SpeedTestLiveDto("a1", "download", pingMs = 170.0, mbps = 180.0, mbpsSamples = listOf(90.0, 180.0))
         val models = present(g.speedTest, SpeedTestScreenProps(NOW))
         val ready = models.first { it is SpeedTestScreenModel.Ready } as SpeedTestScreenModel.Ready
         assertEquals("Test all nodes", ready.allButtonText)
         assertNull(ready.live)
+        // A test running anywhere shows on the gauge, pushed by the event stream.
+        g.session.onEvent(ServerEvent.SpeedTestLive(homegap.api.SpeedTestLiveDto("a1", "download", pingMs = 170.0, mbps = 180.0, mbpsSamples = listOf(90.0, 180.0))))
+        assertEquals("180", (models.first { (it as? SpeedTestScreenModel.Ready)?.live != null } as SpeedTestScreenModel.Ready).live?.value)
         ready.onRunAll()
-        g.actions.toast.first { it?.text == "Tested all 2 nodes" }
-        assertEquals(listOf("test a1 4", "test b1 4"), g.api.calls)
+        g.actions.toast.first { it != null }
+        assertEquals(listOf("speed run 4"), g.api.calls, "the orchestrator runs the nodes one at a time")
     }
 
     @Test
@@ -282,13 +341,14 @@ class PresenterTest {
         assertEquals("Download", down.phase)
         assertEquals("180", down.value)
         assertEquals(180.0 / 250.0, down.fraction)
-        assertEquals(listOf("30.0 ms", "—", "180 Mbps", "—"), down.metrics.map { it.value })
+        assertEquals(listOf("30.0 ms", "—", "180 Mb/s", "—"), down.metrics.map { it.value })
+        assertEquals(homegap.presentation.ui.ChartTone.Cyan, down.tone)
     }
 
     @Test
     fun accessCreatesUsersWithAPasswordOrAnInviteLink() = runTest {
-        val unavailable = present(graph.access, AccessScreenProps).first { it != AccessScreenModel.Loading }
-        assertEquals(AccessScreenModel.Unavailable("no cluster", null), unavailable)
+        val unavailable = present(graph.access, AccessScreenProps()).first { it != AccessScreenModel.Loading }
+        assertEquals("no cluster", (unavailable as AccessScreenModel.Unavailable).message)
 
         val g = graph
         g.api.accessValue = AccessOverviewDto(
@@ -297,7 +357,7 @@ class PresenterTest {
             users = listOf(AccessUserDto("u1", "admin@x", "admin@x", roleIds = listOf(1), roles = listOf("Admin"), owner = true)),
             devices = listOf(AccessDeviceDto(7, "phone", "user", user = "p@x", online = true, viaNode = "as1")),
         )
-        val models = present(g.access, AccessScreenProps)
+        val models = present(g.access, AccessScreenProps())
         val ready = models.first { it is AccessScreenModel.Ready } as AccessScreenModel.Ready
         assertEquals("https://pangolin.x", ready.clientAddress)
         assertFalse(ready.users.single().editable, "the server admin stays")
@@ -328,6 +388,9 @@ class PresenterTest {
         assertEquals("create q@x.org [2] invite", g.api.calls.last())
 
         linked.onDeviceAction(7, "block")
+        assertTrue(g.api.calls.none { "device" in it }, "blocking asks first")
+        assertEquals("Block phone?", g.confirmations.pending.value?.model?.title)
+        g.confirmations.resolve(confirmed = true)
         g.actions.toast.first { it?.text == "ok: device 7 block" }
     }
 

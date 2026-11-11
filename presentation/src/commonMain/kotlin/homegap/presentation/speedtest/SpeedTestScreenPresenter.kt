@@ -15,10 +15,16 @@ import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.AppCoroutineScope
 import homegap.presentation.data.ControllerApi
 import homegap.presentation.format.*
+import homegap.presentation.routing.Location
+import homegap.presentation.routing.Route
+import homegap.presentation.ui.ChartTone
+import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.Severity
+import homegap.presentation.ui.StatusLineModel
+import homegap.presentation.ui.StatusMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 data class SpeedTestScreenProps(val now: Long, val status: homegap.api.StatusSnapshot? = null)
@@ -27,6 +33,7 @@ data class SpeedTestScreenProps(val now: Long, val status: homegap.api.StatusSna
 @Inject
 class SpeedTestScreenPresenter(
     private val api: ControllerApi,
+    private val session: homegap.presentation.data.ControllerSession,
     private val actions: ActionRunner,
     private val timeFormatter: TimeFormatter,
     @AppCoroutineScope private val appScope: CoroutineScope,
@@ -50,9 +57,15 @@ class SpeedTestScreenPresenter(
         val streams = chosenStreams ?: current.streams
         val currentStreams by rememberUpdatedState(streams)
 
-        // How far "Test all nodes" has got: (current, of).
-        var allProgress by remember { mutableStateOf<Pair<Int, Int>?>(null) }
-        val nodeIds by rememberUpdatedState(current.nodes)
+        // A "test all nodes" run lives on the orchestrator; its progress comes with the status.
+        val run = props.status?.speedRun
+        val runCurrent = run?.current
+        val allProgress = runCurrent?.let { (run.done.size + 1) to run.nodes.size }
+        val active = running ?: runCurrent ?: session.speedLive.collectAsState().value?.nodeId
+        LaunchedEffect(run?.done?.size, run?.finishedAt) {
+            // Each finished node adds a result.
+            reload++
+        }
 
         // One test; on the app scope, since a test takes ~30 s and should finish even if the user
         // navigates away. Returns the result's error, or null.
@@ -76,48 +89,46 @@ class SpeedTestScreenPresenter(
             { nodeId -> appScope.launch { runOne(nodeId, notify = true) } }
         }
         val onRunAll = remember<() -> Unit> {
-            {
-                appScope.launch {
-                    val ids = nodeIds
-                    var failed = 0
-                    try {
-                        ids.forEachIndexed { i, id ->
-                            allProgress = i + 1 to ids.size
-                            if (runOne(id, notify = false) != null) failed++
-                        }
-                    } finally {
-                        allProgress = null
-                    }
-                    actions.notify(
-                        if (failed == 0) "Tested all ${ids.size} nodes" else "Tested ${ids.size} nodes, $failed failed",
-                        isError = failed > 0,
-                    )
-                }
-            }
+            { actions.run("Test all nodes") { api.startSpeedRun(currentStreams) } }
         }
-        // The running test as the speed test origin sees it, a few times a second.
-        val live by produceState<SpeedTestLiveDto?>(null, running) {
-            value = null
-            if (running == null) return@produceState
-            while (true) {
-                runCatchingCancellable { api.speedLive() }.onSuccess { value = it }
-                delay(LIVE_REFRESH)
-            }
+        val onCancelAll = remember<() -> Unit> {
+            { actions.run("Stop the test") { api.cancelSpeedRun() } }
         }
+        // The running test as the speed test origin sees it, pushed a few times a second.
+        val live by session.speedLive.collectAsState()
         val createLink = appScope.rememberEventTrigger {
             runCatchingCancellable { api.speedLink() }
                 .onSuccess { link = it }
                 .onFailure { actions.notify("Link failed: ${it.message}", isError = true) }
         }
 
+        val latest = current.nodes.mapNotNull { id -> current.results.firstOrNull { it.kind == "tunnel" && it.nodeId == id && it.error == null } }
+        val fastest = latest.filter { it.upMbps != null }.maxByOrNull { it.upMbps ?: 0.0 }
+        val slowest = latest.filter { it.upMbps != null }.minByOrNull { it.upMbps ?: 0.0 }
         return SpeedTestScreenModel.Ready(
+            head = PageHeadModel(
+                caption = "Speed test · homelab and device throughput",
+                headline = fastest?.let { "Fastest upload: ${it.nodeId}, ${formatMbps(it.upMbps)}." } ?: "No speed tests yet.",
+                statusLine = slowest?.takeIf { it != fastest && (it.upMbps ?: 0.0) < (fastest?.upMbps ?: 0.0) / 2 }?.let { slow ->
+                    StatusLineModel(
+                        listOf(
+                            StatusMessage(
+                                severity = Severity.Warn,
+                                text = "Slowest: ${slow.nodeId}, ${formatMbps(slow.upMbps)}.",
+                                location = Location(Route.Nodes, slow.nodeId.orEmpty()),
+                            )
+                        )
+                    )
+                },
+            ),
             streamChoices = STREAM_CHOICES,
             streams = streams,
-            canStart = running == null,
+            canStart = active == null,
             onRunAll = onRunAll,
+            onCancelAll = onCancelAll.takeIf { runCurrent != null },
             allButtonText = allProgress?.let { (i, n) -> "Testing $i of $n…" } ?: "Test all nodes",
-            live = running?.let { liveTestModel(it, live?.takeIf { l -> l.nodeId == it }, allProgress) },
-            nodeTests = remember(current, running, props.now) { nodeTests(current, running, props.now) },
+            live = active?.let { liveTestModel(it, live?.takeIf { l -> l.nodeId == it }, allProgress) },
+            nodeTests = remember(current, active, props.now) { nodeTests(current, active, props.now) },
             device = DeviceTestModel(
                 buttonText = if (link == null) "Create test link" else "Create new link",
                 links = link?.toLinks().orEmpty(),
@@ -127,7 +138,7 @@ class SpeedTestScreenPresenter(
             history = remember(current.results, props.now) { current.results.map { it.toHistoryRow(props.now) } },
             onSelectStreams = remember { { chosenStreams = it } },
             onRunTest = onRunTest,
-            map = remember(current, props.status, running, props.now / 60_000) { testMap(current, props.status, running, props.now) },
+            map = remember(current, props.status, active, props.now / 60_000) { testMap(current, props.status, active, props.now) },
         )
     }
 
@@ -175,8 +186,9 @@ class SpeedTestScreenPresenter(
         return homegap.presentation.map.MapModel(listOfNotNull(home?.let { homegap.presentation.map.homelabMarker(it) }) + markers, lines)
     }
 
-    private fun nodeTests(overview: SpeedTestOverview, running: String?, now: Long): List<NodeTestModel> =
-        overview.nodes.map { nodeId ->
+    private fun nodeTests(overview: SpeedTestOverview, running: String?, now: Long): List<NodeTestModel> {
+        val fastestUp = overview.results.filter { it.kind == "tunnel" && it.error == null }.mapNotNull { it.upMbps }.maxOrNull() ?: 0.0
+        return overview.nodes.map { nodeId ->
             val latest = overview.results.firstOrNull { it.kind == "tunnel" && it.nodeId == nodeId }
             NodeTestModel(
                 nodeId = nodeId,
@@ -190,8 +202,13 @@ class SpeedTestScreenPresenter(
                     )
                 },
                 note = latest?.let { ago(it.at, now) + it.streamsNote() + it.error?.let { e -> " · $e" }.orEmpty() },
+                downFraction = ((latest?.downMbps ?: 0.0) / BAR_SCALE_MBPS).coerceIn(0.0, 1.0),
+                upFraction = ((latest?.upMbps ?: 0.0) / BAR_SCALE_MBPS).coerceIn(0.0, 1.0),
+                slow = latest?.upMbps?.let { it < fastestUp / 2 } == true,
+                failed = latest?.error != null,
             )
         }
+    }
 
     private fun SpeedTestLinkDto.toLinks(): List<TestLinkModel> =
         listOf(TestLinkModel("Auto (DNS)", autoUrl)) + nodeUrls.map { (nodeId, url) -> TestLinkModel(nodeId, url) }
@@ -212,8 +229,10 @@ class SpeedTestScreenPresenter(
 
     private companion object {
         val STREAM_CHOICES = listOf(1, 4, 8)
+
+        /** The bars' full scale: 1 Gb/s. */
+        const val BAR_SCALE_MBPS = 1000.0
         val REFRESH = 10.seconds
-        val LIVE_REFRESH = 400.milliseconds
 
         fun SpeedTestResultDto.summary(): String =
             "${formatMbps(downMbps)} down, ${formatMbps(upMbps)} up, ${formatMillis(pingMs)} ping"
@@ -249,10 +268,15 @@ internal fun liveTestModel(nodeId: String, live: SpeedTestLiveDto?, all: Pair<In
             "download" -> "Download"
             else -> "Upload"
         },
-        value = value?.let { if (ping) formatMillis(it).removeSuffix(" ms") else formatMbps(it).removeSuffix(" Mbps") } ?: "—",
-        unit = if (ping || live == null) "ms" else "Mbps",
+        value = value?.let { if (ping) formatMillis(it).removeSuffix(" ms") else formatMbps(it).removeSuffix(" Mb/s") } ?: "—",
+        unit = if (ping || live == null) "ms" else "Mb/s",
         fraction = ((value ?: 0.0) / scale).coerceIn(0.0, 1.0),
-        scaleMax = "${scale.toInt()} ${if (ping || live == null) "ms" else "Mbps"}",
+        scaleMax = "${scale.toInt()} ${if (ping || live == null) "ms" else "Mb/s"}",
+        tone = when (live?.phase) {
+            "download" -> ChartTone.Cyan
+            "upload" -> ChartTone.Violet
+            else -> ChartTone.White
+        },
         bars = samples.takeLast(48).map { it / top },
         metrics = listOf(
             MetricModel("Ping", formatMillis(live?.pingMs)),

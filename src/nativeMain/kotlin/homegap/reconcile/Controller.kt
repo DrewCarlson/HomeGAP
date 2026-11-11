@@ -25,6 +25,7 @@ import homegap.discovery.concernsHomegap
 import homegap.model.DesiredState
 import homegap.model.Planner
 import homegap.model.isHttpLike
+import homegap.platform.Files
 import homegap.platform.nowMillis
 import homegap.platform.queryNameserver
 import homegap.provision.CertMaterial
@@ -194,7 +195,48 @@ class Controller(
         val checks: List<CheckDto>,
         val certificate: CertificateDto?,
         val apiOk: Boolean,
+        /** Each service hostname requested through this node's proxy: status code and time. */
+        val serviceProbes: Map<String, ServiceProbe> = emptyMap(),
+        /** Traefik's request and response-byte counters, summed over entry points; null without metrics. */
+        val traffic: Pair<Double, Double>? = null,
     )
+
+    /** One request to a service through a node's proxy; [code] 0 when it got no answer. */
+    data class ServiceProbe(val code: Int, val ms: Double)
+
+    /** Recent measurements per edge, for the dashboard's graphs. */
+    val metrics = EdgeMetrics()
+
+    /** When each attention item was first seen, kept across passes. */
+    @Volatile private var attentionSeen: Map<String, Long> = emptyMap()
+
+    /** The Newt version each node's Pangolin reports for its homelab site. */
+    private val newtVersions = mutableMapOf<String, String>()
+
+    /** Asks the tunnel supervisor to restart [nodeId]'s connector now. */
+    fun restartTunnel(nodeId: String): String {
+        val cfg = config
+        requireNotNull(cfg.node(nodeId)) { "unknown node $nodeId" }
+        val dir = cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"
+        Files.writeAtomic(TunnelFiles.restartPath(dir, nodeId), nowMillis().toString())
+        log.change("tunnels", "connector restart requested from the dashboard", nodeId)
+        return "Restarting the $nodeId connector"
+    }
+
+    /** Labeled homelab containers at the last discovery. */
+    @Volatile private var homelabContainers: Int? = null
+
+    /** What each running provisioning or update job is doing now. */
+    private val jobSteps = mutableMapOf<String, String>()
+
+    /** The stack an update would bring each node (set while one is pending or running). */
+    private val targetStacks = mutableMapOf<String, String>()
+
+    /** Tunnel byte counters at the previous sample, for throughput: node id to (time, in, out). */
+    private val tunnelBytes = mutableMapOf<String, Triple<Long, Long, Long>>()
+
+    /** Traefik counters at the previous sample: node id to (time, requests, response bytes). */
+    private val trafficCounters = mutableMapOf<String, Triple<Long, Double, Double>>()
 
     fun trigger(reason: String) {
         triggers.trySend(reason)
@@ -286,14 +328,17 @@ class Controller(
         reconciling = true
         revision.value++
         val started = nowMillis()
+        log.pass = log.nextPass()
         log.drainCounters()
         try {
             reloadConfig()
             val cfg = config
             val diff = DiffCollector()
-            val ctx = ReconcileContext(cfg, state, log, ssh, localHttp, externalHttp, dryRun, diff)
-            val pauses = state.snapshot().pauses
+            val applyOnce = APPLY_ONCE in trigger.split(',')
+            val ctx = ReconcileContext(cfg, state, log, ssh, localHttp, externalHttp, dryRun, diff, applyOnce)
+            val pauses = ctx.pauses()
             if (pauses.global) log.info("controller", "global pause active: observing only")
+            if (applyOnce && state.snapshot().pauses.global) log.change("controller", "applying waiting changes once while paused")
 
             // Remember how to reach each node so it can be torn down after removal from config.
             if (!dryRun) for (n in cfg.nodes) state.updateNode(n.id) { it.copy(facts = it.facts + nodeFacts(n), pendingDecommission = false) }
@@ -316,6 +361,7 @@ class Controller(
                 log.error("discovery", "cannot list containers: ${e.message}")
                 null
             }
+            containers?.let { homelabContainers = it.size }
             val routers = containers?.let { traefikRouters(it) }
             val plan = Planner.plan(cfg, containers ?: emptyList(), pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
@@ -375,6 +421,7 @@ class Controller(
                         val a = runDomain("nodes", node.id) { nodeRec.assess(nd, slot, force, certs) }
                         var ready: ReadyNode? = null
                         if (a != null) {
+                            if (a.kind == NodeReconciler.Kind.UPDATE) targetStacks[node.id] = a.hash else targetStacks.remove(node.id)
                             val decision = if (a.paused || a.kind == NodeReconciler.Kind.NONE) RolloutPolicy.Decision.Start
                             // Until the slot is checked against the live subnet, the rendered stack may be wrong.
                             else if (a.kind == NodeReconciler.Kind.UPDATE && !state.node(node.id).tunnelSlotConfirmed) RolloutPolicy.Decision.Wait("confirming the node's tunnel slot")
@@ -407,8 +454,17 @@ class Controller(
                                     } else {
                                         jobs[node.id] = a.kind to sc.launch {
                                             try {
-                                                nodeRec.provisionJob(a, slot, tunnelWasUp)
+                                                nodeRec.provisionJob(
+                                                    a = a,
+                                                    slot = slot,
+                                                    tunnelWasUp = tunnelWasUp,
+                                                    progress = { step ->
+                                                        jobSteps[node.id] = step
+                                                        revision.value++
+                                                    },
+                                                )
                                             } finally {
+                                                jobSteps.remove(node.id)
                                                 jobs.remove(node.id)
                                                 revision.value++
                                                 trigger("provisioned:${node.id}")
@@ -439,7 +495,10 @@ class Controller(
                             log.info("resources", "[dry-run] blueprint: $bp", node.id)
                             nd.publicResources.forEach { diff.add("resources", node.id, it.niceId, "unknown", "${it.mode.wire} ${it.fullDomain ?: ":${it.proxyPort}"} -> ${it.target.host}:${it.target.port}") }
                         }
-                        val o = runDomain("observe", node.id) { observeNode(ctx, node, ready, site) }
+                        val probeHosts = effective.services
+                            .filter { it.isHttpLike() && !it.paused && !it.hostname.startsWith("*") && it.servesNode(node.id) }
+                            .map { it.hostname }
+                        val o = runDomain("observe", node.id) { observeNode(ctx, node, ready, site, probeHosts) }
                         synchronizedPut(obs, node.id, o ?: NodeObservation(false, emptyList(), null, false))
                         synchronizedPut(online, node.id, site?.online)
                         if (!clustered || ready == null || site == null) synchronizedPut(health, node.id, serviceHealthFor(effective, node.id, resources, site))
@@ -522,12 +581,29 @@ class Controller(
             siteOnline = online
             serviceHealth = health
             lastDiff = diff.all()
+            if (!dryRun) {
+                val current = snapshot()
+                recordMetrics(cfg, current)
+                attentionSeen = attentionSince(current.attention, attentionSeen)
+            }
         } finally {
             val (changes, errors) = log.drainCounters()
             lastSummary = ReconcileSummaryDto(started, nowMillis(), trigger, errors == 0, changes, errors)
             reconciling = false
             revision.value++
-            log.info("controller", "pass complete in ${nowMillis() - started}ms ($changes changes, $errors errors) trigger=$trigger")
+            val duration = nowMillis() - started
+            log.info(
+                domain = "controller",
+                message = "pass complete in ${duration}ms ($changes changes, $errors errors) trigger=$trigger",
+                fields = mapOf(
+                    "duration_ms" to duration.toString(),
+                    "changes" to changes.toString(),
+                    "errors" to errors.toString(),
+                    "trigger" to trigger,
+                ),
+            )
+            log.pass = null
+            log.save()
         }
     }
 
@@ -606,9 +682,12 @@ class Controller(
         node: NodeConfig,
         ready: ReadyNode?,
         site: PangolinSite?,
+        probeHosts: List<String>,
     ): NodeObservation {
         if (ctx.dryRun) return NodeObservation(false, listOf(CheckDto("mode", Health.UNKNOWN, "dry-run: no remote access")), null, false)
         val checks = mutableListOf<CheckDto>()
+        val serviceProbes = mutableMapOf<String, ServiceProbe>()
+        var traffic: Pair<Double, Double>? = null
         val mgmt = node.managementHost(ctx.config.domain)
         val root = ctx.config.domain
         val script = $$"""
@@ -618,7 +697,8 @@ class Controller(
             |echo "T mgmt $(probe $${shQuote(mgmt)})"
             |echo "T root $(probe $${shQuote(root)})"
             |(ss -lun 2>/dev/null | grep -q ':51820 ') && echo "U ok" || echo "U missing"
-        """.trimMargin() + if (ctx.config.cluster == null) "" else "\necho \"P \$(${ClusterProxy.CSV_CMD} | base64 -w0)\""
+        """.trimMargin() + (if (ctx.config.cluster == null) "" else "\necho \"P \$(${ClusterProxy.CSV_CMD} | base64 -w0)\"") +
+            serviceProbeScript(probeHosts) + "\n" + homegap.provision.NodeTemplates.TRAFFIC_CMD
         val r = runCatching {
             ctx.ssh.session(node).runScript(script, 60)
         }.onFailure {
@@ -645,6 +725,12 @@ class Controller(
                     }
                     "D" -> checks += CheckDto("docker", if (parts.getOrNull(1) == "none") Health.DOWN else Health.OK, parts.getOrNull(1).orEmpty())
                     "U" -> checks += CheckDto("gerbil-udp", if (parts.getOrNull(1) == "ok") Health.OK else Health.DOWN, "51820/udp")
+                    "H" -> parseServiceProbe(parts)?.let { (host, probe) -> serviceProbes[host] = probe }
+                    "M" -> {
+                        val requests = parts.getOrNull(1)?.toDoubleOrNull()
+                        val bytes = parts.getOrNull(2)?.toDoubleOrNull()
+                        if (requests != null && bytes != null) traffic = requests to bytes
+                    }
                     "P" -> {
                         val csv = parts.getOrNull(1)?.takeIf { it.isNotBlank() }?.let { runCatching { Base64.decode(it).decodeToString() }.getOrNull() }
                         checks += ClusterProxy.check(csv, proxyHistory.getOrPut(node.id) { mutableListOf() }, nowMillis(), clusterRec.plannedMoves)
@@ -672,6 +758,8 @@ class Controller(
                 }
             }
         }
+        // The Pangolin API probe: a request through the edge to its Pangolin, timed.
+        val apiStarted = nowMillis()
         val apiOk = ready != null && runCatching {
             ready.api.getOrg(ctx.config.pangolin.orgId)
         }.onFailure {
@@ -679,7 +767,18 @@ class Controller(
                 currentCoroutineContext().ensureActive()
             }
         }.isSuccess
-        checks += CheckDto("pangolin-api", if (apiOk) Health.OK else Health.DOWN, if (apiOk) "integration API" else "not reachable")
+        val apiMs = (nowMillis() - apiStarted).toDouble()
+        checks += when {
+            !apiOk -> CheckDto("pangolin-api", Health.DOWN, "not reachable", threshold = API_PROBE_SLOW_MS, unit = "ms")
+            else -> CheckDto(
+                name = "pangolin-api",
+                health = if (apiMs > API_PROBE_SLOW_MS) Health.DEGRADED else Health.OK,
+                detail = if (apiMs > API_PROBE_SLOW_MS) "slow" else "integration API",
+                value = apiMs,
+                threshold = API_PROBE_SLOW_MS,
+                unit = "ms",
+            )
+        }
         val shared = state.snapshot().clusterPangolin
         if (ctx.config.cluster != null) {
             // One license for the whole cluster (stored in the shared database). A missing activation
@@ -698,8 +797,16 @@ class Controller(
                 else -> CheckDto("ee-license", Health.UNKNOWN, "not activated")
             }
         }
+        site?.newtVersion?.let { newtVersions[node.id] = it }
         checks += CheckDto("tunnel", when (site?.online) { true -> Health.OK; false -> Health.DOWN; null -> Health.UNKNOWN }, site?.let { "site ${it.niceId}${it.newtVersion?.let { v -> ", newt $v" }.orEmpty()}" } ?: "no site")
-        return NodeObservation(reachable, checks, cert, apiOk)
+        return NodeObservation(
+            reachable = reachable,
+            checks = checks,
+            certificate = cert,
+            apiOk = apiOk,
+            serviceProbes = serviceProbes,
+            traffic = traffic,
+        )
     }
 
     private fun serviceHealthFor(plan: DesiredState, nodeId: String, resources: List<PangolinResource>, site: PangolinSite?): Map<String, ServiceNodeHealthDto> {
@@ -759,11 +866,25 @@ class Controller(
                 drift = ns?.drift ?: emptyList(),
                 paused = st.pauses.global || id in st.pauses.nodes,
                 pendingDecommission = ns?.pendingDecommission == true || n == null,
-                facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "tcp_cc", "qdisc", "edge_tcp") } +
+                facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "vcpu", "disk_free_gb", "tcp_cc", "qdisc", "edge_tcp") } +
                     (tunnel?.let { mapOf("newt_restarts" to it.restarts.toString()) } ?: emptyMap()),
                 job = jobs[id]?.takeIf { it.second.isActive }?.let { if (it.first == NodeReconciler.Kind.UPDATE) "updating" else "provisioning" },
                 updateWaiting = waiting[id],
                 update = ns?.update?.let { NodeUpdateDto(it.status, it.error, it.at, it.rolledBack) },
+                stack = ns?.stackHash?.take(8),
+                targetStack = targetStacks[id]?.takeIf { it != ns?.stackHash }?.take(8),
+                jobStep = jobSteps[id],
+                runs = ns?.runs.orEmpty().map { run ->
+                    homegap.api.NodeRunDto(
+                        kind = run.kind,
+                        startedAt = run.startedAt,
+                        finishedAt = run.finishedAt,
+                        ok = run.ok,
+                        error = run.error,
+                        stack = run.stack?.take(8),
+                        rolledBack = run.rolledBack,
+                    )
+                },
                 location = n?.let { node ->
                     node.location?.let { homegap.api.PlaceDto(it.latitude, it.longitude, it.name) }
                         ?: node.effectiveLocation()?.let { homegap.api.PlaceDto(it.latitude, it.longitude, null, estimated = true) }
@@ -790,8 +911,10 @@ class Controller(
                 paused = s.paused || s.key in st.pauses.services,
                 name = s.name,
                 ports = s.ports.map { it.toString() },
+                labels = s.labels,
                 perNode = cfg.nodes.filter { s.servesNode(it.id) }.map { n ->
-                    serviceHealth[n.id]?.get(s.key) ?: ServiceNodeHealthDto(n.id, Health.UNKNOWN)
+                    val health = serviceHealth[n.id]?.get(s.key) ?: ServiceNodeHealthDto(n.id, Health.UNKNOWN)
+                    health.withProbe(nodeObs[n.id]?.serviceProbes?.get(s.hostname))
                 },
             )
         } ?: emptyList()
@@ -810,6 +933,7 @@ class Controller(
                 monitorStatus = BunnyRecord.MONITOR_STATUS.getOrElse(o.record.monitorStatus) { "unknown" },
                 inSync = o.inSync,
                 diff = o.diff,
+                changedAt = log.lastRecordChange(o.desired?.fqdn ?: o.record.name),
             )
         }
         val tunnelsDir = cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"
@@ -828,6 +952,8 @@ class Controller(
                 bytesIn = t?.bytesIn,
                 bytesOut = t?.bytesOut,
                 updatedAt = t?.updatedAt,
+                exits = t?.exits.orEmpty().map { homegap.api.TunnelExitDto(it.at, it.reason) },
+                newtVersion = newtVersions[n.id],
             )
         }
         return StatusSnapshot(
@@ -849,7 +975,76 @@ class Controller(
             cluster = clusterStatus.takeIf { cfg.cluster != null },
             homelab = cfg.homelab.location?.let { homegap.api.PlaceDto(it.latitude, it.longitude, it.name) },
             homelabIsolation = isolation?.let { (start, end) -> homegap.api.IsolationDto(start, end) },
+            speedRun = speedRun,
+            homelabContainers = homelabContainers,
+        ).let { snapshot ->
+            snapshot.copy(attention = attentionItems(snapshot, attentionSeen))
+        }
+    }
+
+    /**
+     * Takes this pass's sample of each edge for the graphs: the Pangolin API probe, the node's
+     * mesh round trip to the homelab, and the tunnel's throughput since the last sample.
+     */
+    private suspend fun recordMetrics(cfg: AppConfig, snapshot: StatusSnapshot) {
+        val now = nowMillis()
+        val tunnelsDir = cfg.tunnels.stateDir ?: "${cfg.dataDir}/tunnels"
+        val points = cfg.nodes.flatMap { node ->
+            val api = nodeObs[node.id]?.checks?.firstOrNull { it.name == "pangolin-api" }
+            val mesh = snapshot.mesh?.members
+                ?.firstOrNull { it.id == node.id }
+                ?.peers?.firstOrNull { it.id == "homelab" }
+                ?.probe
+            val tunnel = TunnelFiles.readStatus(tunnelsDir, node.id)
+            val bytesIn = tunnel?.bytesIn
+            val bytesOut = tunnel?.bytesOut
+            val previous = tunnelBytes[node.id]
+            val rates = if (previous != null && bytesIn != null && bytesOut != null && now > previous.first) {
+                val seconds = (now - previous.first) / 1000.0
+                // A restarted connector starts counting again: no rate for that sample.
+                val inRate = (bytesIn - previous.second).takeIf { it >= 0 }?.let { it * 8 / 1e6 / seconds }
+                val outRate = (bytesOut - previous.third).takeIf { it >= 0 }?.let { it * 8 / 1e6 / seconds }
+                inRate to outRate
+            } else {
+                null
+            }
+            if (bytesIn != null && bytesOut != null) {
+                tunnelBytes[node.id] = Triple(now, bytesIn, bytesOut)
+            }
+            val traffic = nodeObs[node.id]?.traffic
+            val previousTraffic = trafficCounters[node.id]
+            val trafficRates = if (traffic != null && previousTraffic != null && now > previousTraffic.first) {
+                val seconds = (now - previousTraffic.first) / 1000.0
+                // Traefik restarted (counters back at zero): no rate for that sample.
+                val requests = (traffic.first - previousTraffic.second).takeIf { it >= 0 }?.let { it / seconds }
+                val egress = (traffic.second - previousTraffic.third).takeIf { it >= 0 }?.let { it * 8 / 1e6 / seconds }
+                requests to egress
+            } else {
+                null
+            }
+            if (traffic != null) {
+                trafficCounters[node.id] = Triple(now, traffic.first, traffic.second)
+            }
+            buildList {
+                add(MetricPointDto(node.id, EdgeMetrics.API, api?.value))
+                if (trafficRates != null) {
+                    add(MetricPointDto(node.id, EdgeMetrics.REQUESTS, trafficRates.first))
+                    add(MetricPointDto(node.id, EdgeMetrics.EGRESS, trafficRates.second))
+                }
+                if (snapshot.mesh != null) {
+                    add(MetricPointDto(node.id, EdgeMetrics.MESH, mesh?.rttMs))
+                }
+                if (rates != null) {
+                    add(MetricPointDto(node.id, EdgeMetrics.TUNNEL_IN, rates.first))
+                    add(MetricPointDto(node.id, EdgeMetrics.TUNNEL_OUT, rates.second))
+                }
+            }
+        }
+        metrics.record(
+            atSeconds = now / 1000,
+            points = points,
         )
+        metrics.retain(cfg.nodes.map { it.id }.toSet())
     }
 
     fun desiredStateJson(): String {
@@ -921,6 +1116,8 @@ class Controller(
         check(speedRunning.add(nodeId)) { "a speed test for $nodeId is already running" }
         val (token, _) = speedTokens.issue(5 * 60_000L)
         speedTokens.live.start(token, nodeId)
+        // Wakes the event streams, which then send the live gauge a few times a second.
+        revision.value++
         try {
             val host = cfg.speedtest.nodeHost(cfg.domain, nodeId)
             val secs = cfg.speedtest.phaseSeconds
@@ -945,6 +1142,52 @@ class Controller(
     }
 
     private fun fmt1(d: Double): String = ((d * 10).toLong() / 10.0).toString()
+
+    @Volatile private var speedRun: SpeedRunDto? = null
+    private var speedRunJob: Job? = null
+
+    /**
+     * Tests every node, one at a time, on the orchestrator: the run goes on if the dashboard is
+     * closed, and its progress is in the snapshot ([StatusSnapshot.speedRun]).
+     */
+    fun startSpeedRun(streams: Int?): String {
+        val cfg = config
+        require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
+        check(speedRunJob?.isActive != true) { "a test of all nodes is already running" }
+        val scope = checkNotNull(jobScope) { "the controller is not running" }
+        val nodes = cfg.nodes.map { it.id }
+        require(nodes.isNotEmpty()) { "there are no nodes to test" }
+        val count = (streams ?: cfg.speedtest.streams).coerceIn(1, homegap.speedtest.TunnelSpeedTest.MAX_STREAMS)
+        speedRun = SpeedRunDto(streams = count, nodes = nodes, current = nodes.first(), startedAt = nowMillis())
+        revision.value++
+        speedRunJob = scope.launch {
+            try {
+                for (id in nodes) {
+                    speedRun = speedRun?.copy(current = id)
+                    revision.value++
+                    val ok = runCatching { runTunnelSpeedTest(id, count).error == null }
+                        .onFailure { if (it is CancellationException) throw it }
+                        .getOrDefault(false)
+                    speedRun = speedRun?.let { run ->
+                        if (ok) run.copy(done = run.done + id) else run.copy(done = run.done + id, failed = run.failed + id)
+                    }
+                    revision.value++
+                }
+            } finally {
+                speedRun = speedRun?.copy(current = null, finishedAt = nowMillis(), cancelled = speedRun?.done?.size != nodes.size)
+                revision.value++
+            }
+        }
+        log.info("speedtest", "testing all ${nodes.size} nodes, one at a time ($count streams)")
+        return "Testing all ${nodes.size} nodes, one at a time"
+    }
+
+    /** Stops a run after the node being tested now. */
+    fun cancelSpeedRun(): String {
+        val job = speedRunJob?.takeIf { it.isActive } ?: return "No test of all nodes is running"
+        job.cancel()
+        return "Stopped the test of all nodes"
+    }
 
     // ------------------------------------------------------------------ dashboard actions
 
@@ -993,7 +1236,29 @@ class Controller(
         return if (location == null) "Homelab location cleared" else "Homelab location saved"
     }
 
-    suspend fun removeNode(id: String): String {
+    /** Things that can be undone for a while: an id each, with how to undo it. */
+    private class Undoable(val expiresAt: Long, val undo: suspend () -> String)
+
+    private val undoables = mutableMapOf<String, Undoable>()
+
+    /** Keeps [undo] for [ttlMs] and returns the id that runs it ([undo]). */
+    fun offerUndo(ttlMs: Long, undo: suspend () -> String): String {
+        val now = nowMillis()
+        undoables.entries.removeAll { it.value.expiresAt < now }
+        val id = homegap.platform.Crypto.token(12)
+        undoables[id] = Undoable(now + ttlMs, undo)
+        return id
+    }
+
+    /** Undoes an earlier action, while it still can be. */
+    suspend fun undo(id: String): String {
+        val undoable = undoables.remove(id)?.takeIf { it.expiresAt >= nowMillis() }
+            ?: throw IllegalArgumentException("that can no longer be undone")
+        return undoable.undo()
+    }
+
+    /** Removes [id] from the config (DNS drains at once); it can be added back for a day. Returns the message and undo id. */
+    suspend fun removeNode(id: String): Pair<String, String> {
         require(config.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
         val node = config.node(id) ?: throw IllegalArgumentException("unknown node $id")
         val next = config.copy(nodes = config.nodes - node)
@@ -1002,7 +1267,12 @@ class Controller(
         state.updateNode(id) { it.copy(pendingDecommission = true, facts = it.facts + nodeFacts(node)) }
         log.change("controller", "removed node $id from config (pending decommission)", id)
         trigger("config")
-        return "Node $id removed from config. DNS drains on the next pass; confirm decommission to stop its stack."
+        val undo = offerUndo(ttlMs = UNDO_NODE_MS) {
+            check(state.node(id).pendingDecommission) { "$id was already decommissioned" }
+            addNode(node)
+            "Added $id back"
+        }
+        return "Node $id removed from config. DNS drains on the next pass; confirm decommission to stop its stack." to undo
     }
 
     private fun nodeFacts(n: NodeConfig) = mapOf(
@@ -1054,3 +1324,52 @@ internal fun isolationAfter(current: Pair<Long, Long?>?, reachable: List<Boolean
         else -> current
     }
 }
+
+/** Above this, the Pangolin API probe is slow and its node degraded. */
+private const val API_PROBE_SLOW_MS = 300.0
+
+/** Above this, a service request through an edge is slow. */
+internal const val SERVICE_SLOW_MS = 1000.0
+
+/**
+ * Lines for the node's observe script: one request per hostname through the node's own proxy
+ * (`--resolve` to 127.0.0.1), printing `H <host> <code> <seconds>`. Each waits at most 3 s.
+ */
+internal fun serviceProbeScript(hosts: List<String>): String = hosts.joinToString(separator = "") { host ->
+    val quoted = shQuote(host)
+    "\necho \"H $host \$(curl -s -o /dev/null --max-time 3 --resolve $quoted:443:127.0.0.1 " +
+        "-w '%{http_code} %{time_total}' https://$quoted/ 2>/dev/null || echo '000 0')\""
+}
+
+/** Reads one `H <host> <code> <seconds>` line (split in three by the caller). */
+internal fun parseServiceProbe(parts: List<String>): Pair<String, Controller.ServiceProbe>? {
+    val host = parts.getOrNull(1) ?: return null
+    val result = parts.getOrNull(2)?.split(' ') ?: return null
+    val code = result.getOrNull(0)?.toIntOrNull() ?: return null
+    val seconds = result.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+    return host to Controller.ServiceProbe(
+        code = code,
+        ms = seconds * 1000,
+    )
+}
+
+/** This edge's health with its request [probe] folded in: no answer or a 5xx fails it, a slow one degrades it. */
+internal fun ServiceNodeHealthDto.withProbe(probe: Controller.ServiceProbe?): ServiceNodeHealthDto {
+    if (probe == null) return this
+    val measured = copy(
+        ms = probe.ms.takeIf { probe.code != 0 },
+        code = probe.code,
+    )
+    return when {
+        probe.code == 0 -> measured.copy(health = Health.DOWN, detail = "no answer", ms = null)
+        probe.code >= 500 -> measured.copy(health = Health.DOWN, detail = "HTTP ${probe.code}")
+        probe.ms > SERVICE_SLOW_MS && health == Health.OK -> measured.copy(health = Health.DEGRADED, detail = "slow")
+        else -> measured
+    }
+}
+
+/** How long removing a node can be undone (until it is decommissioned). */
+private const val UNDO_NODE_MS = 24 * 3_600_000L
+
+/** The trigger for one pass that applies changes while paused. */
+internal const val APPLY_ONCE = "apply-once"

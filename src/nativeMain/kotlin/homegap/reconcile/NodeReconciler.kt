@@ -1,5 +1,7 @@
 package homegap.reconcile
 
+import homegap.state.RunRecord
+import homegap.state.withRun
 import homegap.clients.PangolinApiException
 import homegap.clients.PangolinBootstrapClient
 import homegap.clients.PangolinClient
@@ -170,28 +172,60 @@ class NodeReconciler(
      * @param tunnelWasUp the node's tunnel was online before the update (so it must come back).
      * @return true when the node ends up on the new stack.
      */
-    suspend fun provisionJob(a: Assessment, slot: Int, tunnelWasUp: Boolean, waitForCluster: Boolean = true): Boolean {
+    suspend fun provisionJob(
+        a: Assessment,
+        slot: Int,
+        tunnelWasUp: Boolean,
+        waitForCluster: Boolean = true,
+        progress: (String) -> Unit = {},
+    ): Boolean {
         val node = a.node
         val ssh = a.ssh
         val update = a.kind == Kind.UPDATE
+        val started = nowMillis()
         log.change(domain, "${if (update) "updating" else "provisioning"} (${a.reason})", node.id)
+        // The phases, numbered, for the dashboard's rollout strip.
+        val phases = buildList {
+            add("preparing the host")
+            if (clustered) add("waiting for the cluster")
+            if (update) add("backing up the stack")
+            add("writing the stack")
+            add("starting the stack")
+            add("verifying")
+            if (update && tunnelWasUp) add("waiting for the tunnel")
+        }
+        fun phase(name: String) = progress("$name (${phases.indexOf(name) + 1} of ${phases.size})")
         var changed = false
         try {
+            phase("preparing the host")
             provisionHost(node, ssh, a.desired)
-            if (clustered) awaitClusterMember(node, waitForCluster)
+            if (clustered) {
+                phase("waiting for the cluster")
+                awaitClusterMember(node, waitForCluster)
+            }
             val ready = firstClusterStart(node) {
-                if (update) backup(node, ssh)
+                if (update) {
+                    phase("backing up the stack")
+                    backup(node, ssh)
+                }
                 changed = true
+                phase("writing the stack")
                 provisionStack(node, ssh, a.files)
+                phase("starting the stack")
                 bootstrap(node, ssh, slot, a.secrets)
             }
+            phase("verifying")
             val missing = verify(node, ssh)
             if (update && missing.isNotEmpty()) throw IllegalStateException("verify failed: ${missing.joinToString(", ")}")
-            if (update && tunnelWasUp) waitForTunnel(node, ready)
+            if (update && tunnelWasUp) {
+                phase("waiting for the tunnel")
+                waitForTunnel(node, ready)
+            }
             ctx.state.updateNode(node.id) {
                 it.copy(
                     stackHash = a.hash, lastProvisionAt = nowMillis(), lastProvisionOk = true, lastProvisionError = null,
                     lastCheckAt = nowMillis(), drift = emptyList(), update = null,
+                    runs = it.runs.withRun(RunRecord(if (update) "update" else "provision", started, nowMillis(), ok = true, stack = a.hash)),
                     facts = it.facts + (PANGOLIN_IMAGE_FACT to ctx.config.pangolin.pangolinImage(clustered)) + (CLUSTER_STACK_FACT to clustered.toString()),
                 )
             }
@@ -205,12 +239,20 @@ class NodeReconciler(
             val msg = e.message?.take(2000) ?: e.toString()
             if (!update) {
                 log.error(domain, "provisioning failed: $msg", node.id)
-                ctx.state.updateNode(node.id) { it.copy(lastProvisionAt = nowMillis(), lastProvisionOk = false, lastProvisionError = msg) }
+                ctx.state.updateNode(node.id) {
+                    it.copy(
+                        lastProvisionAt = nowMillis(),
+                        lastProvisionOk = false,
+                        lastProvisionError = msg,
+                        runs = it.runs.withRun(RunRecord("provision", started, nowMillis(), ok = false, error = msg.take(300), stack = a.hash)),
+                    )
+                }
                 return false
             }
             log.error(domain, "update failed: $msg", node.id)
             val restored = if (!changed) true else try {
                 log.change(domain, "rolling back to the previous stack", node.id)
+                progress("rolling back")
                 rollback(ssh, a.files)
                 log.change(domain, "rollback complete; previous stack is running", node.id)
                 true
@@ -227,6 +269,9 @@ class NodeReconciler(
                     lastProvisionOk = restored,
                     lastProvisionError = if (restored) null else "update failed and rollback failed: $msg",
                     update = homegap.state.UpdateState(a.hash, "failed", msg, nowMillis(), restored),
+                    runs = it.runs.withRun(
+                        RunRecord("update", started, nowMillis(), ok = false, error = msg.take(300), stack = a.hash, rolledBack = restored)
+                    ),
                 )
             }
             return false
@@ -958,6 +1003,8 @@ class NodeReconciler(
             |echo "ARCH=$(uname -m)"
             |echo "KERNEL=$(uname -r)"
             |echo "MEM_KB=$(awk '/MemTotal/{print $2}' /proc/meminfo)"
+            |echo "VCPU=$(nproc 2>/dev/null || echo 0)"
+            |echo "DISK_FREE_GB=$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc 0-9)"
             |echo "DOCKER=$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo none)"
             |echo "SUDO=yes"
             |$${Apt.FUNCTION}

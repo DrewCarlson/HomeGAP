@@ -107,3 +107,28 @@ fun CheckOption(title: String, description: String?, checked: Boolean, enabled: 
         }
     }
 }
+
+/** A square button showing only an icon; [label] names it for screen readers and the tooltip. */
+@Composable
+fun IconButton(
+    iconPath: String,
+    label: String,
+    enabled: Boolean = true,
+    highlighted: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Button({
+        classes("btn", "icon-btn")
+        if (highlighted) {
+            classes("highlighted")
+        }
+        if (!enabled) {
+            disabled()
+        }
+        attr("aria-label", label)
+        title(label)
+        onClick { onClick() }
+    }) {
+        Icon(iconPath)
+    }
+}

@@ -5,6 +5,7 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
+import homegap.api.ActionResponse
 import homegap.reconcile.Controller
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
@@ -24,11 +25,17 @@ class SpeedTestRoutes(private val controller: Controller) : RoutingController {
             get("/live") { controller.speedLive()?.let { call.respond(it) } ?: call.respond(io.ktor.http.HttpStatusCode.NoContent) }
             post("/link") { createLink() }
             post("/nodes/{id}") { runTunnelTest() }
+            // Every node, one at a time, on the orchestrator; progress is in the status snapshot.
+            post("/runs") {
+                val streams = call.request.queryParameters["streams"]?.toIntOrNull()
+                call.respond(ActionResponse(true, controller.startSpeedRun(streams)))
+            }
+            delete("/runs") { call.respond(ActionResponse(true, controller.cancelSpeedRun())) }
         }
     }
 
     suspend fun RoutingContext.getOverview() {
-        call.respond(controller.speedOverview())
+        respondRevalidated(controller.speedOverview())
     }
 
     suspend fun RoutingContext.createLink() {

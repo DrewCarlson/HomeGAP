@@ -1,72 +1,159 @@
 package homegap.web.ui
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import homegap.api.Health
 import homegap.presentation.activity.ActivityScreenModel
+import homegap.presentation.access.AccessScreenModel
+import homegap.presentation.addnode.AddNodeScreenModel
 import homegap.presentation.app.AppModel
+import homegap.presentation.app.ConnectionModel
 import homegap.presentation.app.HeaderModel
 import homegap.presentation.app.NavItem
 import homegap.presentation.app.PassStatusModel
-import homegap.presentation.addnode.AddNodeScreenModel
 import homegap.presentation.config.ConfigScreenModel
 import homegap.presentation.core.ScreenModel
+import homegap.presentation.diagnostics.DiagnosticsScreenModel
 import homegap.presentation.dns.DnsScreenModel
+import homegap.presentation.locations.LocationsScreenModel
 import homegap.presentation.nodes.NodesScreenModel
 import homegap.presentation.overview.OverviewScreenModel
+import homegap.presentation.routing.Location
+import homegap.presentation.routing.NavGroup
 import homegap.presentation.routing.Route
 import homegap.presentation.services.ServicesScreenModel
-import homegap.presentation.access.AccessScreenModel
 import homegap.presentation.speedtest.SpeedTestScreenModel
 import homegap.presentation.tunnels.TunnelsScreenModel
 import homegap.web.routing.HashRouter
 import homegap.web.screens.*
-import kotlinx.browser.document
-import kotlinx.coroutines.delay
 import org.jetbrains.compose.web.attributes.ATarget
+import org.jetbrains.compose.web.attributes.InputType
+import org.jetbrains.compose.web.attributes.autoFocus
+import org.jetbrains.compose.web.attributes.onSubmit
 import org.jetbrains.compose.web.attributes.target
 import org.jetbrains.compose.web.dom.*
-import kotlin.time.Duration.Companion.milliseconds
+import androidx.compose.runtime.DisposableEffect
+import kotlinx.browser.document
+import org.w3c.dom.HTMLElement
 
-/** Page layout: sidebar (desktop), top bar, tab strip (mobile) and the active screen. */
+/**
+ * The page shell: the navigation (a side menu on desktops, an icon rail on tablets, a header with
+ * an icon grid on phones; CSS picks the form), the page title and the active screen.
+ */
 @Composable
-fun App(model: AppModel) {
-    LaunchedEffect(model.route) { scrollActiveTabIntoView() }
+fun AppShell(model: AppModel) {
+    val viewport = rememberViewport()
+    val inspector = model.screen?.inspector
+    SearchShortcut(model.search)
+    // Phones: once the page scrolls past this marker, the icon grid shrinks to one row (CSS).
+    Div({
+        classes("nav-sentinel")
+        attr("aria-hidden", "true")
+    })
     Div({ classes("shell") }) {
-        Aside({ classes("sidebar") }) {
-            Brand()
-            NavLinks(model.nav, model.onNavigate, "side-nav")
-            Div({ classes("sidebar-foot") }) {
-                model.header?.let {
-                    Div({ classes("mono") }) { Text(it.domain) }
-                    Div { Text(it.versionLine) }
-                }
-                // The pages for this version, served by the orchestrator itself.
-                A("/docs/", {
-                    classes("docs-link")
-                    target(ATarget.Blank)
-                    attr("rel", "noopener")
-                }) {
-                    Text("Documentation")
+        Aside({ classes("nav") }) {
+            ShrinkOnScroll()
+            Div({ classes("nav-head") }) {
+                Brand()
+                Div({ classes("nav-head-actions") }) {
+                    IconButton(
+                        iconPath = Icons.SEARCH,
+                        label = "Search everything",
+                        onClick = model.search.onOpen,
+                    )
+                    model.header?.let { header ->
+                        PhoneActions(header)
+                    }
                 }
             }
+            SearchField(model.search)
+            NavList(
+                items = model.nav,
+                onNavigate = model.onNavigate,
+            )
+            model.header?.let { header ->
+                ReconcileBox(header)
+                NavFoot(header)
+            }
         }
-        Div({ classes("main-col") }) {
-            TopBar(model.route, model.header)
-            NavLinks(model.nav, model.onNavigate, "tabs")
-            Main({ classes("content") }) { Content(model) }
+        Main({ classes("page") }) {
+            val head = model.screen?.head
+            if (head != null) {
+                PageHead(
+                    head = head,
+                    onOpen = model.onOpen,
+                )
+            } else {
+                RouteHead(model.route)
+            }
+            Content(
+                model = model,
+                viewport = viewport,
+            )
         }
+        if (inspector != null) {
+            InspectorHost(
+                inspector = inspector,
+                viewport = viewport,
+                onClose = { model.onOpen(Location(model.route)) },
+                onOpen = model.onOpen,
+            )
+        }
+    }
+    when (val overlay = model.overlay) {
+        is AddNodeScreenModel -> AddNodeWizard(
+            model = overlay,
+            viewport = viewport,
+            onClose = { model.onNavigate(Route.Nodes) },
+        )
+
+        is LocationsScreenModel -> LocationsOverlay(
+            model = overlay,
+            viewport = viewport,
+            onClose = { model.onNavigate(Route.Config) },
+        )
+
+        else -> Unit
+    }
+    if (model.search.isOpen) {
+        SearchOverlay(
+            search = model.search,
+            viewport = viewport,
+        )
+    }
+    model.confirm?.let { dialog ->
+        ConfirmDialog(
+            dialog = dialog,
+            viewport = viewport,
+        )
     }
     model.toast?.let { toast ->
         Div({
             classes("toast")
-            if (toast.isError) classes("toast-error")
-        }) { Text(toast.text) }
+            if (toast.isError) {
+                classes("toast-error")
+            }
+            attr("role", if (toast.isError) "alert" else "status")
+        }) {
+            Span { Text(toast.text) }
+            val action = toast.action
+            if (action != null) {
+                Button({
+                    classes("toast-action")
+                    onClick { action() }
+                }) {
+                    Text(toast.actionLabel ?: "Undo")
+                }
+            }
+        }
+    }
+    model.connection?.takeIf { it.signInRequired }?.let { connection ->
+        SignInDialog(connection)
     }
 }
 
 @Composable
-private fun Content(model: AppModel) {
-    model.connection?.let { connection ->
+private fun Content(model: AppModel, viewport: Viewport) {
+    model.connection?.takeIf { !it.signInRequired }?.let { connection ->
         Div({ classes("banner", "error") }) { Text(connection.message) }
         connection.tokenPrompt?.let { TokenBox(it) }
     }
@@ -74,102 +161,341 @@ private fun Content(model: AppModel) {
         Div({ classes("loading") }) { Text("Loading…") }
         return
     }
-    model.banners.forEach { Banner(it) }
+    model.banners.forEach { banner ->
+        Banner(
+            banner = banner,
+            onResume = { model.header?.onTogglePause?.invoke() },
+        )
+    }
     model.rollout?.let { RolloutBanner(it) }
-    model.screen?.let { Screen(it, model.onNavigate) }
-}
-
-@Composable
-private fun Screen(screen: ScreenModel, onNavigate: (Route) -> Unit) {
-    when (screen) {
-        is OverviewScreenModel -> OverviewScreen(screen, onNavigate)
-        is NodesScreenModel -> NodesScreen(screen, onNavigate)
-        is ServicesScreenModel -> ServicesScreen(screen)
-        is DnsScreenModel -> DnsScreen(screen)
-        is TunnelsScreenModel -> TunnelsScreen(screen)
-        is SpeedTestScreenModel -> SpeedTestScreen(screen)
-        is AccessScreenModel -> AccessScreen(screen)
-        is ActivityScreenModel -> ActivityScreen(screen)
-        is ConfigScreenModel -> ConfigScreen(screen)
-        is homegap.presentation.diagnostics.DiagnosticsScreenModel -> DiagnosticsScreen(screen)
-        is homegap.presentation.locations.LocationsScreenModel -> LocationsScreen(screen)
-        is AddNodeScreenModel -> AddNodeScreen(screen)
-    }
-}
-
-@Composable
-private fun TopBar(route: Route, header: HeaderModel?) {
-    Header({ classes("topbar") }) {
-        Div({ classes("topbar-brand") }) { Brand() }
-        Div({ classes("page-head") }) {
-            H1 { Text(route.title) }
-            P({ classes("page-sub") }) { Text(route.subtitle) }
-        }
-        header?.let { HeaderActions(it) }
-    }
-}
-
-@Composable
-private fun HeaderActions(header: HeaderModel) {
-    Div({ classes("topbar-actions") }) {
-        PassStatus(header.pass)
-        ActionButton("Resync", ButtonStyle.Primary, enabled = !header.busy, onClick = header.onResync)
-        if (header.paused) {
-            ActionButton("Resume", tooltip = "Resume reconciliation everywhere", onClick = header.onTogglePause)
+    model.screen?.let { screen ->
+        val empty = screen.empty
+        if (empty != null) {
+            EmptyState(
+                empty = empty,
+                onOpen = model.onOpen,
+            )
         } else {
-            ActionButton("Pause", tooltip = "Stop all changes; observe only", onClick = header.onTogglePause)
+            Screen(
+                screen = screen,
+                viewport = viewport,
+                onNavigate = model.onNavigate,
+                onOpen = model.onOpen,
+            )
         }
     }
 }
 
 @Composable
-private fun PassStatus(pass: PassStatusModel) {
-    Span({
-        classes("pass-status")
-        pass.tooltip?.let { title(it) }
-    }) {
-        Span({ classes("status-dot", pass.health.name) })
-        Text(pass.text)
+private fun Screen(
+    screen: ScreenModel,
+    viewport: Viewport,
+    onNavigate: (Route) -> Unit,
+    onOpen: (Location) -> Unit,
+) {
+    when (screen) {
+        is OverviewScreenModel -> OverviewScreen(
+            model = screen,
+            onOpen = onOpen,
+        )
+        is NodesScreenModel -> NodesScreen(
+            model = screen,
+            onOpen = onOpen,
+        )
+        is ServicesScreenModel -> ServicesScreen(
+            model = screen,
+            onOpen = onOpen,
+        )
+        is DnsScreenModel -> DnsScreen(
+            model = screen,
+            onOpen = onOpen,
+        )
+        is TunnelsScreenModel -> TunnelsScreen(
+            model = screen,
+            onOpen = onOpen,
+        )
+        is SpeedTestScreenModel -> SpeedTestScreen(screen)
+        is AccessScreenModel -> AccessScreen(
+            model = screen,
+            viewport = viewport,
+            onOpen = onOpen,
+        )
+        is ActivityScreenModel -> ActivityScreen(
+            model = screen,
+            onOpen = onOpen,
+        )
+        is ConfigScreenModel -> ConfigScreen(screen)
+        is DiagnosticsScreenModel -> DiagnosticsScreen(screen)
+        // Opened over their section by the shell, never as the screen itself.
+        is LocationsScreenModel, is AddNodeScreenModel -> Unit
+    }
+}
+
+/** The page title for screens that don't have their own head yet. */
+@Composable
+private fun RouteHead(route: Route) {
+    Header({ classes("page-head") }) {
+        Div({ classes("caption") }) {
+            Text(route.navSection.title)
+            if (route.navSection != route) {
+                Text(" · ${route.title}")
+            }
+        }
+        H1 { Text(route.title) }
+        P({ classes("page-sub") }) { Text(route.subtitle) }
     }
 }
 
 @Composable
 private fun Brand() {
-    Div({ classes("brand") }) {
-        Img("/emblem.svg", "") { classes("brand-mark") }
-        Div {
-            Div({ classes("brand-name") }) { Text("HomeGAP") }
-            Div({ classes("brand-sub") }) { Text("Global Access Platform") }
+    A(href = HashRouter.href(Route.DEFAULT), {
+        classes("brand")
+        attr("aria-label", "HomeGAP overview")
+    }) {
+        Img(src = "/emblem.svg", alt = "") { classes("brand-mark") }
+        Span({ classes("brand-name") }) {
+            Text("Home")
+            Span({ classes("brand-gap") }) { Text("GAP") }
         }
     }
 }
 
-/** Route links; rendered twice (sidebar and mobile strip) with different [className]s. */
+/** The ten sections in two groups, each with the count of its items needing attention. */
 @Composable
-private fun NavLinks(items: List<NavItem>, onNavigate: (Route) -> Unit, className: String) {
-    Nav({ classes(className) }) {
-        items.forEach { item ->
-            NavLink(
-                HashRouter.href(item.route),
-                { onNavigate(item.route) },
-                if (item.selected) listOf("active") else emptyList()
-            ) {
-                Span { Text(item.route.title) }
-                if (item.needsAttention) {
-                    Span({
-                        classes("dot")
-                        title("Needs attention")
-                    })
+private fun NavList(items: List<NavItem>, onNavigate: (Route) -> Unit) {
+    Nav({
+        classes("nav-list")
+        attr("aria-label", "Sections")
+    }) {
+        NavGroup.entries.forEach { group ->
+            Div({ classes("nav-group") }) {
+                Div({ classes("nav-group-title") }) { Text(group.title) }
+                items.filter { it.route.group == group }.forEach { item ->
+                    NavEntry(
+                        item = item,
+                        onNavigate = onNavigate,
+                    )
                 }
             }
         }
     }
 }
 
-/** Keeps the active tab visible in the horizontally scrolling mobile tab strip. */
-private suspend fun scrollActiveTabIntoView() {
-    delay(30.milliseconds) // after the new active class is rendered
-    document.querySelector(".tabs a.active")
-        ?.asDynamic()
-        ?.scrollIntoView(js("({ inline: 'center', block: 'nearest' })"))
+@Composable
+private fun NavEntry(item: NavItem, onNavigate: (Route) -> Unit) {
+    val attention = item.attention
+    NavLink(
+        href = HashRouter.href(item.route),
+        onNavigate = { onNavigate(item.route) },
+        classNames = if (item.selected) listOf("nav-link", "active") else listOf("nav-link"),
+    ) {
+        Icon(item.route.iconPath)
+        Span({ classes("nav-label") }) { Text(item.route.title) }
+        Span({ classes("nav-label-short") }) { Text(item.route.shortTitle) }
+        if (attention != null) {
+            val severity = if (attention.severity == Health.DOWN) "down" else "warn"
+            Span({
+                classes("nav-count", severity)
+                attr("aria-label", "${attention.count} need attention")
+            }) {
+                Text(attention.count.toString())
+            }
+        }
+    }
+}
+
+/** The reconcile loop: the last pass, Pause or Resume, and Resync. Amber while paused. */
+@Composable
+private fun ReconcileBox(header: HeaderModel) {
+    Div({
+        classes("reconcile")
+        if (header.paused) {
+            classes("paused")
+        }
+    }) {
+        PassStatus(
+            pass = header.pass,
+            paused = header.paused,
+        )
+        Div({ classes("reconcile-actions") }) {
+            PauseButton(header)
+            if (header.paused) {
+                ActionButton(
+                    text = "Run one pass",
+                    enabled = !header.busy,
+                    tooltip = "Apply the waiting changes once; changes stay paused",
+                    onClick = header.onApplyOnce,
+                )
+            } else {
+                ActionButton(
+                    text = "Resync",
+                    style = ButtonStyle.Primary,
+                    enabled = !header.busy,
+                    tooltip = "Run a reconcile pass now",
+                    onClick = header.onResync,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PauseButton(header: HeaderModel) {
+    if (header.paused) {
+        ActionButton(
+            text = "Resume",
+            tooltip = "Resume reconciliation everywhere",
+            onClick = header.onTogglePause,
+        )
+    } else {
+        ActionButton(
+            text = "Pause",
+            tooltip = "Stop all changes; observe only",
+            onClick = header.onTogglePause,
+        )
+    }
+}
+
+/** Phones: Pause or Resume, and Resync, as icon buttons in the header. */
+@Composable
+private fun PhoneActions(header: HeaderModel) {
+    Div({ classes("phone-actions") }) {
+        IconButton(
+            iconPath = if (header.paused) Icons.PLAY else Icons.PAUSE,
+            label = if (header.paused) "Resume reconciliation" else "Pause reconciliation",
+            highlighted = header.paused,
+            onClick = header.onTogglePause,
+        )
+        IconButton(
+            iconPath = Icons.RESYNC,
+            label = "Resync now",
+            enabled = !header.busy,
+            onClick = header.onResync,
+        )
+    }
+}
+
+@Composable
+private fun PassStatus(pass: PassStatusModel, paused: Boolean) {
+    Div({
+        classes("pass-status")
+        pass.tooltip?.let { title(it) }
+    }) {
+        Span({ classes("status-dot", if (paused) "DEGRADED" else pass.health.name) })
+        Span { Text(if (paused) "Paused · observing only" else pass.text) }
+    }
+}
+
+@Composable
+private fun NavFoot(header: HeaderModel) {
+    Div({ classes("nav-foot") }) {
+        Div { Text(header.domain) }
+        Div { Text(header.versionLine) }
+        // The pages for this version, served by the orchestrator itself.
+        A(href = "/docs/", {
+            classes("docs-link")
+            target(ATarget.Blank)
+            attr("rel", "noopener")
+        }) {
+            Text("Documentation ↗")
+        }
+    }
+}
+
+/** Blocks the page until a dashboard token is accepted; it can't be dismissed. */
+@Composable
+private fun SignInDialog(connection: ConnectionModel) {
+    val prompt = connection.tokenPrompt ?: return
+    Overlay(
+        label = "Sign in",
+        style = OverlayStyle.Modal,
+    ) {
+        Form(attrs = {
+            classes("overlay-panel", "sign-in")
+            onSubmit { event ->
+                event.preventDefault()
+                prompt.onSave()
+            }
+        }) {
+            Img(src = "/emblem.svg", alt = "") { classes("sign-in-mark") }
+            H2 { Text("Enter your dashboard token") }
+            P({ classes("sign-in-text") }) {
+                Text("It's the value of ")
+                Span({ classes("mono") }) { Text("HOMEGAP_DASHBOARD_TOKEN") }
+                Text(" in the orchestrator's environment. Only this orchestrator checks it.")
+            }
+            Label {
+                Text("Token")
+                Input(InputType.Password) {
+                    value(prompt.value)
+                    attr("autocomplete", "current-password")
+                    attr("aria-invalid", prompt.rejected.toString())
+                    attr("aria-describedby", "sign-in-message")
+                    autoFocus()
+                    if (prompt.rejected) {
+                        classes("invalid")
+                    }
+                    onInput { prompt.onChange(it.value) }
+                }
+            }
+            P({
+                id("sign-in-message")
+                classes("field-note")
+                if (prompt.rejected) {
+                    classes("error")
+                    attr("role", "alert")
+                }
+            }) {
+                Text(
+                    if (prompt.rejected) {
+                        "That token wasn't accepted. Check for extra spaces and try again."
+                    } else {
+                        "Paste the full token."
+                    }
+                )
+            }
+            Button({
+                classes("btn", "primary", "wide")
+                attr("type", "submit")
+            }) {
+                Text("Sign in")
+            }
+            P({ classes("sign-in-foot") }) {
+                Text("Lost it? Set a new token in the orchestrator's environment and restart it · ")
+                A(href = "/docs/", {
+                    target(ATarget.Blank)
+                    attr("rel", "noopener")
+                }) {
+                    Text("Docs ↗")
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Marks the menu `compact` while the top of the page is scrolled out of view, so the phone's icon
+ * grid becomes a single row; tapping the header brings the labels back. Only CSS reads the class.
+ */
+@Composable
+private fun ElementScope<HTMLElement>.ShrinkOnScroll() {
+    DisposableEffect(Unit) {
+        val menu = scopeElement
+        val sentinel = document.querySelector(".nav-sentinel")
+        val observer = js("new IntersectionObserver(function (entries) { menu.classList.toggle('compact', !entries[0].isIntersecting); })")
+        if (sentinel != null) {
+            observer.observe(sentinel)
+        }
+        val expand: (org.w3c.dom.events.Event) -> Unit = { event ->
+            val target = event.target as? HTMLElement
+            if (target?.closest(".nav-head") != null && target.closest("button") == null) {
+                menu.classList.remove("compact")
+            }
+        }
+        menu.addEventListener("click", expand)
+        onDispose {
+            observer.disconnect()
+            menu.removeEventListener("click", expand)
+        }
+    }
 }

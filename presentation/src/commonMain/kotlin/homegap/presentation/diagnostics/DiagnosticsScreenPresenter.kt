@@ -8,16 +8,24 @@ import homegap.api.NodeLogServices
 import homegap.api.NodeTextDto
 import homegap.api.StatusSnapshot
 import homegap.presentation.core.Presenter
+import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.core.ScreenModel
 import homegap.presentation.core.runCatchingCancellable
 import homegap.presentation.data.ControllerApi
 import kotlinx.coroutines.launch
 
-data class DiagnosticsScreenProps(val status: StatusSnapshot)
+data class DiagnosticsScreenProps(
+    val status: StatusSnapshot,
+    /** The node to look at, when the page was opened for one (`#diagnostics/sg1`). */
+    val selection: String? = null,
+)
 
 /** A node's logs and diagnostics bundle, fetched on demand. */
 @Immutable
 data class DiagnosticsScreenModel(
+    override val head: PageHeadModel,
+    /** The bundle as a report, when the output is one. */
+    val report: List<ReportSection>,
     val nodes: List<String>,
     val node: String?,
     /** Service id to label. */
@@ -41,7 +49,7 @@ class DiagnosticsScreenPresenter(private val api: ControllerApi) : Presenter<Dia
     @Composable
     override fun model(props: DiagnosticsScreenProps): DiagnosticsScreenModel {
         val nodes = remember(props.status.nodes) { props.status.nodes.map { it.id } }
-        var chosen by remember { mutableStateOf<String?>(null) }
+        var chosen by remember(props.selection) { mutableStateOf(props.selection) }
         val node = chosen?.takeIf { it in nodes } ?: nodes.firstOrNull()
         var service by remember { mutableStateOf(NodeLogServices.ALL.first().first) }
         var since by remember { mutableStateOf(SINCE.first()) }
@@ -64,7 +72,15 @@ class DiagnosticsScreenPresenter(private val api: ControllerApi) : Presenter<Dia
             }
         }
 
+        val shown = output
         return DiagnosticsScreenModel(
+            head = PageHeadModel(
+                caption = "Diagnostics · read-only",
+                headline = if (node == null) "No nodes to look at yet." else "Logs and checks on $node.",
+            ),
+            report = remember(shown) {
+                shown?.takeIf { it.text.contains("\n=== ") || it.text.startsWith("=== ") }?.let { reportOf(it.text) }.orEmpty()
+            },
             nodes = nodes,
             node = node,
             services = NodeLogServices.ALL,

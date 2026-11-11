@@ -11,17 +11,18 @@ import org.jetbrains.compose.web.dom.*
 
 @Composable
 fun ConfigScreen(model: ConfigScreenModel) {
-    Panel(
-        title = "Locations",
-        subtitle = "Data-center cities offered when adding a node, and where the homelab is",
+    Figure(
+        caption = "Locations",
+        title = "Data-center cities offered when adding a node, and where the homelab is",
         actions = {
             A(
                 href = HashRouter.href(Route.Locations),
-                { classes("link") }) { Text("Manage locations →") }
-        }) {}
-    Panel(
-        title = "Desired vs. actual",
-        subtitle = "From the last reconcile pass",
+                { classes("btn", "sm") }) { Text("Manage locations") }
+        },
+    ) {}
+    Figure(
+        caption = "Fig. 01 · Desired vs. actual · from the last reconcile pass",
+        flush = true,
         actions = {
             Label(attrs = { classes("check") }) {
                 CheckboxInput(model.onlyChanges) {
@@ -49,9 +50,9 @@ fun ConfigScreen(model: ConfigScreenModel) {
             }
         }
     }
-    Panel(
-        title = "Referenced secrets",
-        subtitle = "Names and sources only; values are never shown"
+    Figure(
+        caption = "Fig. 02 · Referenced secrets · names and sources only, values are never shown",
+        flush = true,
     ) {
         DataTable(
             headers = remember { listOf("Secret", "Used by", "Source", "Present") }
@@ -68,6 +69,6 @@ fun ConfigScreen(model: ConfigScreenModel) {
             }
         }
     }
-    Panel("Effective desired state") { Pre { Text(model.desiredState) } }
-    Panel("Config file", model.configPath) { Pre { Text(model.configYaml) } }
+    Figure(caption = "Fig. 03 · Effective desired state") { Pre({ classes("code-text") }) { Text(model.desiredState) } }
+    Figure(caption = "Fig. 04 · Config file · ${model.configPath.orEmpty()}") { Pre({ classes("code-text") }) { Text(model.configYaml) } }
 }

@@ -2,48 +2,46 @@ package homegap.web.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
+import homegap.presentation.routing.Location
 import homegap.presentation.tunnels.TunnelsScreenModel
+import homegap.web.routing.HashRouter
 import homegap.web.ui.*
-import org.jetbrains.compose.web.dom.B
-import org.jetbrains.compose.web.dom.Text
-import org.jetbrains.compose.web.dom.Tr
+import org.jetbrains.compose.web.dom.*
 
+/** One card per Newt connector. */
 @Composable
-fun TunnelsScreen(model: TunnelsScreenModel) {
-    Panel(
-        title = "Newt connectors",
-        subtitle = "Run by the tunnels container; independent of the orchestrator"
+fun TunnelsScreen(
+    model: TunnelsScreenModel,
+    onOpen: (Location) -> Unit,
+) {
+    Figure(
+        caption = "Fig. 01 · Connectors · last 60 min",
+        flush = true,
     ) {
-        val headers = remember {
-            listOf("Node", "Endpoint", "Site", "Process", "Restarts", "Traffic in / out")
-        }
-        DataTable(
-            headers = headers,
-            emptyText = "No tunnels yet.",
-            isEmpty = model.tunnels.isEmpty()
-        ) {
+        Div({
+            classes("edge-cards")
+            if (model.tunnels.size <= 2) {
+                classes("two")
+            }
+        }) {
             model.tunnels.forEach { tunnel ->
                 key(tunnel.nodeId) {
-                    Tr {
-                        Cell("Node", "primary-cell") {
+                    NavLink(
+                        href = HashRouter.href(tunnel.location),
+                        onNavigate = { onOpen(tunnel.location) },
+                        classNames = listOf("edge-card"),
+                    ) {
+                        Div({ classes("edge-card-head") }) {
                             B { Text(tunnel.nodeId) }
+                            Span({ classes("mono", tunnel.health.toneClass) }) { Text(tunnel.status) }
                         }
-                        Cell("Endpoint", "mono") {
-                            Text(tunnel.endpoint)
-                        }
-                        Cell("Site") {
-                            Pill(tunnel.site)
-                        }
-                        Cell("Process") {
-                            Pill(tunnel.process)
-                            tunnel.lastExit?.let { Muted(it) }
-                        }
-                        Cell("Restarts") {
-                            Text(tunnel.restarts)
-                        }
-                        Cell("Traffic in / out", "mono") {
-                            Text(tunnel.traffic)
+                        Div({ classes("mono", "muted", "small", "ellipsis") }) { Text(tunnel.endpoint) }
+                        Chart(
+                            chart = tunnel.chart,
+                            compact = true,
+                        )
+                        Div({ classes("edge-card-facts", "mono") }) {
+                            tunnel.facts.forEach { Span { Text(it) } }
                         }
                     }
                 }

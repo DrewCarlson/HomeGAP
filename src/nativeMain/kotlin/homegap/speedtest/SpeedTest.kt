@@ -3,6 +3,7 @@ package homegap.speedtest
 import homegap.api.DeviceResultRequest
 import homegap.api.SpeedTestResultDto
 import homegap.config.AppConfig
+import homegap.dashboard.respondAsset
 import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.nowMillis
@@ -186,6 +187,13 @@ class SpeedTestServer(
             get("/map/{path...}") {
                 with(homegap.dashboard.MapFiles) { serveMapAsset() }
             }
+            // The pages' fonts, the same files the dashboard ships.
+            get("/fonts/{file}") {
+                val asset = homegap.dashboard.WebAssets.files["/fonts/${call.parameters["file"]}"]
+                    ?: return@get call.respond(io.ktor.http.HttpStatusCode.NotFound)
+                call.response.header(io.ktor.http.HttpHeaders.CacheControl, "public, max-age=604800")
+                respondAsset(asset)
+            }
             route("/status") {
                 install(NoStore)
                 get("/nodes") { statusNodes() }
@@ -283,7 +291,7 @@ class SpeedTestServer(
         call.response.header(
             "Content-Security-Policy",
             "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-                    "img-src 'self' data: blob:; worker-src 'self' blob:; child-src blob:; connect-src 'self' https:; " +
+                    "img-src 'self' data: blob:; font-src 'self'; worker-src 'self' blob:; child-src blob:; connect-src 'self' https:; " +
                     "base-uri 'none'; frame-ancestors 'none'",
         )
         call.respondText(StatusPage.HTML, ContentType.Text.Html)

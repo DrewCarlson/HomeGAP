@@ -1,5 +1,6 @@
 package homegap.presentation
 
+import homegap.presentation.data.AlwaysVisible
 import homegap.api.CheckDto
 import homegap.api.Health
 import homegap.api.PlaceDto
@@ -64,9 +65,9 @@ class MapsAndLocationsTest {
     @Test
     fun pickingALocationFillsTheWizard() = runTest {
         val api = FakeControllerApi()
-        val store = AddNodeWizardStore()
-        val actions = ActionRunner(ControllerSession(api), backgroundScope)
-        val models = present(AddNodeScreenPresenter(api, store, actions, backgroundScope), AddNodeScreenProps(emptySet()) {})
+        val store = AddNodeWizardStore(FakePreferences())
+        val actions = ActionRunner(ControllerSession(api, AlwaysVisible), api, backgroundScope)
+        val models = present(AddNodeScreenPresenter(api, ControllerSession(api, AlwaysVisible), store, actions, backgroundScope), AddNodeScreenProps(emptySet()) {})
         models.first().onEvent(WizardEvent.SearchLocation("mum"))
         val searched = models.first { it.locationMatches.isNotEmpty() }
         assertEquals("Mumbai, India", searched.locationMatches.single().label)
@@ -85,8 +86,8 @@ class MapsAndLocationsTest {
     @Test
     fun savingALocationAndTheHomelab() = runTest {
         val api = FakeControllerApi()
-        val actions = ActionRunner(ControllerSession(api), backgroundScope)
-        val models = present(LocationsScreenPresenter(api, actions), LocationsScreenProps)
+        val actions = ActionRunner(ControllerSession(api, AlwaysVisible), api, backgroundScope)
+        val models = present(LocationsScreenPresenter(api, actions, homegap.presentation.data.Confirmations()), LocationsScreenProps)
         val loaded = models.first { !it.loading }
         assertEquals(3, loaded.rows.size)
         loaded.onEvent(LocationsEvent.Add)

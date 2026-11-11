@@ -11,6 +11,7 @@ import homegap.presentation.core.runCatchingCancellable
 import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.AppCoroutineScope
 import homegap.presentation.data.ControllerApi
+import homegap.presentation.data.ControllerSession
 import homegap.presentation.locations.LocationSearch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -28,6 +29,7 @@ data class AddNodeScreenProps(val existingNodeIds: Set<String>, val onFinished: 
 @Inject
 class AddNodeScreenPresenter(
     private val api: ControllerApi,
+    private val session: ControllerSession,
     private val store: AddNodeWizardStore,
     private val actions: ActionRunner,
     @AppCoroutineScope private val appScope: CoroutineScope,
@@ -53,18 +55,15 @@ class AddNodeScreenPresenter(
         val latestCatalog by rememberUpdatedState(catalog)
         var locationQuery by remember { mutableStateOf("") }
 
-        // Follow a running job until it finishes.
+        // A running job's steps come from the event stream as they change.
         val jobId = draft.job?.id
-        LaunchedEffect(jobId) {
-            while (jobId != null && store.draft.value.job?.state == "running") {
-                delay(1.seconds)
-                runCatchingCancellable { api.setupJob(jobId) }.onSuccess { job ->
-                    store.update { d ->
-                        val done = job.state == "succeeded"
-                        // The password is not needed once setup has finished.
-                        d.copy(job = job, values = if (done) d.values - WizardField.Password else d.values)
-                    }
-                }
+        val streamedJob = session.jobs.collectAsState().value[jobId]
+        LaunchedEffect(streamedJob) {
+            val job = streamedJob ?: return@LaunchedEffect
+            store.update { d ->
+                val done = job.state == "succeeded"
+                // The password is not needed once setup has finished.
+                d.copy(job = job, values = if (done) d.values - WizardField.Password else d.values)
             }
         }
 
@@ -121,6 +120,17 @@ class AddNodeScreenPresenter(
                         appScope.launch {
                             try {
                                 startJob()
+                            } finally {
+                                starting = false
+                            }
+                        }
+                    }
+
+                    WizardEvent.RetryFromFailed -> if (!starting) {
+                        starting = true
+                        appScope.launch {
+                            try {
+                                startJob(retryOf = store.draft.value.job?.id)
                             } finally {
                                 starting = false
                             }
@@ -245,10 +255,10 @@ class AddNodeScreenPresenter(
             .onFailure { actions.notify("SSH key: ${it.message}", isError = true) }
     }
 
-    private suspend fun startJob() {
+    private suspend fun startJob(retryOf: String? = null) {
         val draft = store.draft.value
         val key = draft.key ?: return
-        runCatchingCancellable { api.startSetup(request(draft, key)) }
+        runCatchingCancellable { api.startSetup(request(draft, key).copy(retryOf = retryOf)) }
             .onSuccess { job -> store.update { it.copy(job = job) } }
             .onFailure { actions.notify("Setup could not start: ${it.message}", isError = true) }
     }
@@ -441,6 +451,7 @@ class AddNodeScreenPresenter(
     private fun SetupJobDto.toModel() = JobModel(
         running = state == "running",
         succeeded = state == "succeeded",
+        failedStep = steps.indexOfFirst { it.status == "failed" }.takeIf { it >= 0 }?.plus(1),
         steps = steps.map {
             JobStepModel(
                 it.title,

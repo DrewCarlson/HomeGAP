@@ -4,8 +4,14 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.LogEntryDto
+import homegap.api.MetricPointDto
 import homegap.api.ServerEvent
+import homegap.api.SetupJobDto
+import homegap.api.SpeedTestLiveDto
 import homegap.api.StatusSnapshot
+import homegap.api.patched
+import homegap.api.snapshotFields
+import homegap.api.snapshotOf
 import homegap.presentation.core.runCatchingCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +20,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.FlowPreview
+import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.seconds
 
 /** Why the controller is not reachable, as far as the dashboard can tell. */
@@ -30,7 +41,10 @@ sealed interface ConnectionProblem {
  */
 @SingleIn(AppScope::class)
 @Inject
-class ControllerSession(private val api: ControllerApi) {
+class ControllerSession(
+    private val api: ControllerApi,
+    private val visibility: PageVisibility,
+) {
     private val _status = MutableStateFlow<StatusSnapshot?>(null)
     val status: StateFlow<StatusSnapshot?> = _status.asStateFlow()
 
@@ -43,12 +57,52 @@ class ControllerSession(private val api: ControllerApi) {
 
     private var lastLogSeq = 0L
 
+    private val _metrics = MutableStateFlow<Map<String, Map<String, Samples>>>(emptyMap())
+
+    /** Per edge and series (`api`, `mesh`, `in`, `out`), the last hour of samples. */
+    val metrics: StateFlow<Map<String, Map<String, Samples>>> = _metrics.asStateFlow()
+
+    private val _jobs = MutableStateFlow<Map<String, SetupJobDto>>(emptyMap())
+
+    /** Add node setup jobs by id, as the event stream reports them. */
+    val jobs: StateFlow<Map<String, SetupJobDto>> = _jobs.asStateFlow()
+
+    private val _speedLive = MutableStateFlow<SpeedTestLiveDto?>(null)
+
+    /** The homelab ↔ node speed test running now; null when none runs. */
+    val speedLive: StateFlow<SpeedTestLiveDto?> = _speedLive.asStateFlow()
+
+    private val _accessRevision = MutableStateFlow(0L)
+
+    /** Changes when users, invitations or devices changed, so the Access page reloads. */
+    val accessRevision: StateFlow<Long> = _accessRevision.asStateFlow()
+
+    /** The current snapshot's fields, which `patch` events update. */
+    private var fields: JsonObject? = null
+
     /**
-     * Follows the event stream until canceled. When it cannot be opened or drops (network,
-     * controller restart), polls once to stay current and reconnects shortly after.
+     * Follows the event stream until canceled, while the page is visible: 30 s after the tab is
+     * hidden the stream closes, and it opens again (with a fresh snapshot) once the tab is back.
      */
+    @OptIn(FlowPreview::class)
     suspend fun follow() {
+        visibility.visible
+            .debounce { visible -> if (visible) 0L else HIDDEN_GRACE.inWholeMilliseconds }
+            .distinctUntilChanged()
+            .collectLatest { visible ->
+                if (visible) {
+                    stream()
+                }
+            }
+    }
+
+    /**
+     * Keeps the event stream open. When it cannot be opened or drops (network, controller
+     * restart), polls once to stay current and reconnects shortly after.
+     */
+    private suspend fun stream() {
         while (true) {
+            loadMetrics()
             // A fresh request each time, so a reconnect asks only for the log entries it missed.
             api.events(lastLogSeq)
                 .onEach { onEvent(it) }
@@ -67,7 +121,7 @@ class ControllerSession(private val api: ControllerApi) {
     suspend fun refresh() {
         runCatchingCancellable { api.status() }
             .onSuccess {
-                _status.value = it
+                setSnapshot(it)
                 _problem.value = null
             }
             .onFailure {
@@ -79,12 +133,78 @@ class ControllerSession(private val api: ControllerApi) {
     internal fun onEvent(event: ServerEvent) {
         when (event) {
             is ServerEvent.Status -> {
-                _status.value = event.snapshot
+                setSnapshot(event.snapshot)
                 _problem.value = null
             }
 
+            is ServerEvent.Patch -> {
+                // A patch only follows a status event on the same stream, so fields are set.
+                val patched = fields?.patched(event) ?: return
+                fields = patched
+                _status.value = snapshotOf(
+                    fields = patched,
+                    generatedAt = event.at,
+                )
+            }
+
+            is ServerEvent.Metrics -> appendMetrics(
+                atSeconds = event.at,
+                points = event.points,
+            )
+
+            is ServerEvent.Job -> _jobs.value = _jobs.value + (event.job.id to event.job)
+
+            is ServerEvent.SpeedTestLive -> _speedLive.value = event.live
+
+            is ServerEvent.Access -> _accessRevision.value = event.revision
+
             is ServerEvent.Log -> appendLog(event.entries)
         }
+    }
+
+    /** Loads the last hour of graphs; on failure the graphs fill from the stream instead. */
+    private suspend fun loadMetrics() {
+        runCatchingCancellable { api.metrics(rangeSeconds = METRICS_RANGE_SECONDS) }
+            .onSuccess { response ->
+                _metrics.value = response.series
+                    .groupBy { it.edge }
+                    .mapValues { (_, series) ->
+                        series.associate {
+                            it.series to Samples(
+                                unit = it.unit,
+                                times = it.times,
+                                values = it.values,
+                            )
+                        }
+                    }
+            }
+    }
+
+    private fun appendMetrics(atSeconds: Long, points: List<MetricPointDto>) {
+        val oldest = atSeconds - METRICS_RANGE_SECONDS
+        val updated = _metrics.value.mapValues { (_, series) -> series.toMutableMap() }.toMutableMap()
+        for (point in points) {
+            val edge = updated.getOrPut(point.edge) { mutableMapOf() }
+            val current = edge[point.series] ?: Samples(
+                unit = when (point.series) {
+                    "in", "out", "egress" -> "Mb/s"
+                    "rps" -> "r/s"
+                    else -> "ms"
+                },
+                times = emptyList(),
+                values = emptyList(),
+            )
+            edge[point.series] = current.plus(
+                time = atSeconds,
+                value = point.value,
+            ).since(oldest)
+        }
+        _metrics.value = updated
+    }
+
+    private fun setSnapshot(snapshot: StatusSnapshot) {
+        fields = snapshotFields(snapshot)
+        _status.value = snapshot
     }
 
     private fun appendLog(fresh: List<LogEntryDto>) {
@@ -105,5 +225,30 @@ class ControllerSession(private val api: ControllerApi) {
 
     private companion object {
         const val MAX_LOG_ENTRIES = 1000
+        const val METRICS_RANGE_SECONDS = 3600L
+        val HIDDEN_GRACE = 30.seconds
     }
+}
+
+/** One edge's series: sample times (epoch seconds) and values, null where a measurement failed. */
+data class Samples(
+    val unit: String,
+    val times: List<Long>,
+    val values: List<Double?>,
+) {
+    fun plus(time: Long, value: Double?): Samples = copy(
+        times = times + time,
+        values = values + value,
+    )
+
+    fun since(oldest: Long): Samples {
+        val first = times.indexOfFirst { it >= oldest }.takeIf { it >= 0 } ?: times.size
+        return copy(
+            times = times.drop(first),
+            values = values.drop(first),
+        )
+    }
+
+    /** The newest value, or null when there is none or the newest measurement failed. */
+    val latest: Double? get() = values.lastOrNull()
 }

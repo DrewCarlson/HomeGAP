@@ -5,6 +5,7 @@ import dev.zacsweers.metro.DependencyGraph
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import homegap.api.ActionResponse
+import homegap.api.ApiJson
 import homegap.presentation.app.AppPresenter
 import homegap.presentation.data.ApiException
 import homegap.presentation.data.AppCoroutineScope
@@ -38,12 +39,7 @@ interface WebAppGraph {
 
     @Provides
     @SingleIn(AppScope::class)
-    fun json(): Json {
-        return Json {
-            ignoreUnknownKeys = true
-            encodeDefaults = true
-        }
-    }
+    fun json(): Json = ApiJson
 
     @Provides
     @SingleIn(AppScope::class)

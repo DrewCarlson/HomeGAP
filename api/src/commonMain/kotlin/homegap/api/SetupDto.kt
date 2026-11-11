@@ -76,6 +76,11 @@ data class NodeSetupRequestDto(
     val configureFirewall: Boolean = true,
     /** Allowed SSH sources (IPs/CIDRs); empty allows any source. */
     val sshAllowFrom: List<String> = emptyList(),
+    /**
+     * A failed job this one retries: steps whose result stayed on the server (the management
+     * user) are not run again.
+     */
+    val retryOf: String? = null,
 )
 
 @Serializable

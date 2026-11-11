@@ -84,6 +84,19 @@ class PatroniClient(private val http: HttpClient, user: String, password: String
         }
     }
 
+    /**
+     * When the replica at [baseUrl] last replayed a transaction (epoch ms), from its `/patroni`
+     * page; null on a primary, when unreachable, or before the first replayed transaction.
+     */
+    suspend fun replayedAt(baseUrl: String): Long? = runCatching {
+        val r = http.get("$baseUrl/patroni") { timeout { requestTimeoutMillis = 3_000 } }
+        if (!r.status.isSuccess()) return null
+        val stamp = lenient.parseToJsonElement(r.bodyAsText()).jsonObject["xlog"]?.jsonObject
+            ?.get("replayed_timestamp")?.jsonPrimitive?.contentOrNull ?: return null
+        // Patroni writes "2026-11-11 12:34:56.123+00:00".
+        kotlin.time.Instant.parse(stamp.replaceFirst(' ', 'T')).toEpochMilliseconds()
+    }.getOrNull()
+
     /** A planned switchover: no data loss, writes pause for a moment. */
     suspend fun switchover(baseUrl: String, leader: String, candidate: String) =
         post(

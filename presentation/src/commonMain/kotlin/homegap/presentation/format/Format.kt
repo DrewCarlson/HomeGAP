@@ -27,9 +27,9 @@ fun formatBytes(n: Long): String {
     val kib = 1024.0
     return when {
         n < kib -> "$n B"
-        n < kib * kib -> "${(n / kib).oneDecimal()} KiB"
-        n < kib * kib * kib -> "${(n / (kib * kib)).oneDecimal()} MiB"
-        else -> "${(n / (kib * kib * kib)).oneDecimal()} GiB"
+        n < kib * kib -> "${(n / kib).oneDecimal()} KB"
+        n < kib * kib * kib -> "${(n / (kib * kib)).oneDecimal()} MB"
+        else -> "${(n / (kib * kib * kib)).oneDecimal()} GB"
     }
 }
 
@@ -37,8 +37,8 @@ fun formatMillis(value: Double?): String = value?.let { "${it.oneDecimal()} ms" 
 
 fun formatMbps(value: Double?): String = when {
     value == null -> "—"
-    value >= 100 -> "${value.toInt()} Mbps"
-    else -> "${value.oneDecimal()} Mbps"
+    value >= 100 -> "${value.toInt()} Mb/s"
+    else -> "${value.oneDecimal()} Mb/s"
 }
 
 fun plural(count: Int, noun: String): String = "$count $noun${if (count == 1) "" else "s"}"

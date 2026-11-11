@@ -8,7 +8,6 @@ import homegap.presentation.locations.LocationField
 import homegap.presentation.locations.LocationsEvent
 import homegap.presentation.locations.LocationsScreenModel
 import homegap.web.ui.*
-import kotlinx.browser.window
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.placeholder
 import org.jetbrains.compose.web.dom.*
@@ -123,7 +122,7 @@ fun LocationsScreen(model: LocationsScreenModel) {
                 send(LocationsEvent.Add)
             }
         }) {
-        Div({ classes("panel-body") }) {
+        Div({ classes("figure-body") }) {
             Input(InputType.Search) {
                 value(model.query)
                 placeholder("Filter by city, country or provider")
@@ -168,11 +167,12 @@ fun LocationsScreen(model: LocationsScreenModel) {
                                     send(LocationsEvent.Reset(r.id))
                                 }
                             }
-                            ActionButton("Remove", ButtonStyle.Danger, small = true) {
-                                if (window.confirm("Remove ${r.name} from the known locations?")) {
-                                    send(LocationsEvent.Delete(r.id))
-                                }
-                            }
+                            ActionButton(
+                                text = "Remove",
+                                style = ButtonStyle.Danger,
+                                small = true,
+                                onClick = { send(LocationsEvent.Delete(r.id)) },
+                            )
                         }
                     }
                 }
@@ -180,4 +180,39 @@ fun LocationsScreen(model: LocationsScreenModel) {
         }
     }
     Panel("All known locations") { WorldMap(model.map, heightPx = 320) }
+}
+
+/** Locations over the Config page: a wide dialog on desktops, a drawer on tablets, full screen on phones. */
+@Composable
+fun LocationsOverlay(
+    model: LocationsScreenModel,
+    viewport: Viewport,
+    onClose: () -> Unit,
+) {
+    Overlay(
+        label = "Locations",
+        style = when (viewport) {
+            Viewport.Phone -> OverlayStyle.FullScreen
+            Viewport.Tablet -> OverlayStyle.Drawer
+            else -> OverlayStyle.Modal
+        },
+        onDismiss = onClose,
+    ) {
+        Div({ classes("overlay-panel", "wide-panel") }) {
+            Div({ classes("wizard-head") }) {
+                Div {
+                    Div({ classes("caption") }) { Text("Config › Locations") }
+                    H2 { Text("Data-center cities and the homelab") }
+                }
+                IconButton(
+                    iconPath = Icons.CLOSE,
+                    label = "Close Locations",
+                    onClick = onClose,
+                )
+            }
+            Div({ classes("wide-panel-body") }) {
+                LocationsScreen(model)
+            }
+        }
+    }
 }

@@ -243,25 +243,22 @@ object MaintenancePage {
         |<meta name="viewport" content="width=device-width, initial-scale=1">
         |<meta http-equiv="refresh" content="30">
         |<meta name="robots" content="noindex">
+        |<meta name="color-scheme" content="dark">
+        |<meta name="darkreader-lock">
         |<title>Back shortly</title>
         |<style>
         |:root {
-        |  --bg: #f5f6f8; --surface: #fff; --text: #111827; --text-2: #4b5563; --muted: #6b7280;
-        |  --border: #e5e7eb; --warn: #b45309; --warn-soft: #fffbeb;
-        |  --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 10px 30px rgba(16, 24, 40, .08);
-        |  --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-        |  color-scheme: light dark;
-        |}
-        |@media (prefers-color-scheme: dark) {
-        |  :root {
-        |    --bg: #0b0e13; --surface: #12161d; --text: #e5e7eb; --text-2: #c2c8d0; --muted: #8b95a3;
-        |    --border: #232a34; --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .10); --shadow: none;
-        |  }
+        |  --bg: #070A1F; --surface: #0A0E2A; --text: #E6E8F5; --text-2: #C3C8E6; --muted: #A9AFD6;
+        |  --border: #1E2452; --warn: #FFC46B; --warn-soft: rgba(255, 196, 107, .12);
+        |  --shadow: 0 24px 64px rgba(0, 0, 0, .5);
+        |  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        |  color-scheme: dark;
         |}
         |* { box-sizing: border-box; }
         |body {
         |  margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
-        |  background: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased;
+        |  background-color: var(--bg); color: var(--text); font: 15px/1.6 var(--sans); -webkit-font-smoothing: antialiased;
+        |  background-image: linear-gradient(#0C1131 1px, transparent 1px), linear-gradient(90deg, #0C1131 1px, transparent 1px); background-size: 32px 32px;
         |}
         |main {
         |  width: 100%; max-width: 440px; padding: 32px; border-radius: 14px;

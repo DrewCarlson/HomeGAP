@@ -69,6 +69,8 @@ data class JobModel(
     val succeeded: Boolean,
     val steps: List<JobStepModel>,
     val error: String?,
+    /** The step that failed, counted from 1; a retry starts there. */
+    val failedStep: Int? = null,
 )
 
 @Immutable
@@ -88,6 +90,8 @@ sealed interface WizardEvent {
     data object Back : WizardEvent
     data object Run : WizardEvent
     data object EditAfterFailure : WizardEvent
+    /** Runs the failed job again, keeping what its earlier steps left on the server. */
+    data object RetryFromFailed : WizardEvent
     data object Finish : WizardEvent
     data object Reset : WizardEvent
     data class SearchLocation(val query: String) : WizardEvent

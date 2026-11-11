@@ -3,7 +3,11 @@ package homegap.web.ui
 import androidx.compose.runtime.Composable
 import org.jetbrains.compose.web.dom.*
 
-/** A titled card. Content is [flush] (edge to edge, for tables) or padded. */
+/**
+ * A titled figure for the screens that name their parts in words rather than figure numbers:
+ * the same frame as [Figure], with [title] as the heading and an optional [subtitle] under it.
+ * Content is [flush] (edge to edge, for tables) or padded.
+ */
 @Composable
 fun Panel(
     title: String,
@@ -12,14 +16,14 @@ fun Panel(
     actions: @Composable () -> Unit = {},
     content: @Composable () -> Unit,
 ) {
-    Section({ classes("panel") }) {
-        Div({ classes("panel-head") }) {
-            Div({ classes("panel-titles") }) {
+    Section({ classes("figure") }) {
+        Div({ classes("figure-head") }) {
+            Div({ classes("figure-titles") }) {
                 H2 { Text(title) }
-                subtitle?.let { P({ classes("panel-sub") }) { Text(it) } }
+                subtitle?.let { P({ classes("figure-sub") }) { Text(it) } }
             }
-            Div({ classes("panel-actions") }) { actions() }
+            Div({ classes("figure-actions") }) { actions() }
         }
-        Div({ classes(if (flush) "panel-flush" else "panel-body") }) { content() }
+        Div({ classes(if (flush) "figure-flush" else "figure-body") }) { content() }
     }
 }

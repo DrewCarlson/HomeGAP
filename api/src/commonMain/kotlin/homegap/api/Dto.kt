@@ -34,6 +34,68 @@ data class StatusSnapshot(
     val homelab: PlaceDto? = null,
     /** The last time the homelab could reach none of the nodes; null if it hasn't happened. */
     val homelabIsolation: IsolationDto? = null,
+    /** What needs attention, worst first. */
+    val attention: List<AttentionItemDto> = emptyList(),
+    /** The "test all nodes" run, while it runs and after it finished; null before the first. */
+    val speedRun: SpeedRunDto? = null,
+    /** Running homelab containers with `homegap.expose`, from the last discovery. */
+    val homelabContainers: Int? = null,
+)
+
+/** Homelab ↔ node speed tests of every node, one at a time, run by the orchestrator. */
+@Serializable
+data class SpeedRunDto(
+    val streams: Int,
+    val nodes: List<String>,
+    /** The node being tested now; null once the run is over. */
+    val current: String? = null,
+    val done: List<String> = emptyList(),
+    val failed: List<String> = emptyList(),
+    val startedAt: Long,
+    val finishedAt: Long? = null,
+    val cancelled: Boolean = false,
+)
+
+/**
+ * Something that needs attention: a node down, a failing service, a record out of sync. [route]
+ * is the dashboard page that shows it (`nodes`) and [selection] the item there (`sg1`).
+ */
+@Serializable
+data class AttentionItemDto(
+    val id: String,
+    /** [Health.DOWN] or [Health.DEGRADED]. */
+    val severity: Health,
+    val title: String,
+    val detail: String = "",
+    /** When it was first seen (epoch ms). */
+    val since: Long,
+    val route: String,
+    val selection: String? = null,
+)
+
+/** One measurement series of one edge, for graphs. */
+@Serializable
+data class MetricSeriesDto(
+    val edge: String,
+    /** `api` (Pangolin API probe), `mesh` (mesh round trip), `in` and `out` (tunnel throughput). */
+    val series: String,
+    /** `ms` or `Mb/s`. */
+    val unit: String,
+    /** Epoch seconds of each sample. */
+    val times: List<Long> = emptyList(),
+    /** Null where a measurement failed. */
+    val values: List<Double?> = emptyList(),
+)
+
+@Serializable
+data class MetricsResponse(val series: List<MetricSeriesDto>)
+
+/** One new sample, pushed on the event stream. */
+@Serializable
+data class MetricPointDto(
+    val edge: String,
+    val series: String,
+    val value: Double?,
 )
 
 /** The homelab lost contact with every node from [startedAt] until [endedAt] (null while it lasts). */
@@ -81,8 +143,19 @@ data class ReconcileSummaryDto(
     val errors: Int,
 )
 
+/**
+ * One check of a node. Measured checks also carry their [value] and the [threshold] above which
+ * the check is degraded, in [unit] (`pangolin-api`: 412 ms against 300 ms).
+ */
 @Serializable
-data class CheckDto(val name: String, val health: Health, val detail: String = "")
+data class CheckDto(
+    val name: String,
+    val health: Health,
+    val detail: String = "",
+    val value: Double? = null,
+    val threshold: Double? = null,
+    val unit: String? = null,
+)
 
 @Serializable
 data class NodeStatusDto(
@@ -110,6 +183,26 @@ data class NodeStatusDto(
     val update: NodeUpdateDto? = null,
     /** Where the node is: its configured location, or its region's centre ([PlaceDto.estimated]). */
     val location: PlaceDto? = null,
+    /** The stack it runs (a short hash of its rendered files), and the one an update brings. */
+    val stack: String? = null,
+    val targetStack: String? = null,
+    /** What a running [job] is doing now: "writing the stack (4 of 7)". */
+    val jobStep: String? = null,
+    /** The last provisioning and update runs, newest first. */
+    val runs: List<NodeRunDto> = emptyList(),
+)
+
+/** One provisioning or update run of a node. */
+@Serializable
+data class NodeRunDto(
+    /** `provision` or `update`. */
+    val kind: String,
+    val startedAt: Long,
+    val finishedAt: Long,
+    val ok: Boolean,
+    val error: String? = null,
+    val stack: String? = null,
+    val rolledBack: Boolean = false,
 )
 
 /** A stack update that failed (and was rolled back) or that the user skipped on this node. */
@@ -149,10 +242,22 @@ data class ServiceStatusDto(
     val name: String? = null,
     /** Raw services: each published port, e.g. `7881/tcp`, `2222:22/tcp`, `3478/tcp+udp`. */
     val ports: List<String> = emptyList(),
+    /** The `homegap.*` labels on the container that publish it. */
+    val labels: Map<String, String> = emptyMap(),
 )
 
+/**
+ * A service as one edge serves it. [ms] and [code] come from a request to the service through
+ * that edge's proxy (null before the first one, or for services it can't request, such as raw TCP).
+ */
 @Serializable
-data class ServiceNodeHealthDto(val nodeId: String, val health: Health, val detail: String = "")
+data class ServiceNodeHealthDto(
+    val nodeId: String,
+    val health: Health,
+    val detail: String = "",
+    val ms: Double? = null,
+    val code: Int? = null,
+)
 
 @Serializable
 data class DnsRecordStatusDto(
@@ -165,6 +270,8 @@ data class DnsRecordStatusDto(
     val monitorStatus: String,
     val inSync: Boolean,
     val diff: String? = null,
+    /** When HomeGAP last created or changed this record (epoch ms); null when not since it started logging. */
+    val changedAt: Long? = null,
 )
 
 @Serializable
@@ -180,7 +287,14 @@ data class TunnelStatusDto(
     val bytesIn: Long? = null,
     val bytesOut: Long? = null,
     val updatedAt: Long? = null,
+    /** Why the connector stopped, newest first. */
+    val exits: List<TunnelExitDto> = emptyList(),
+    /** The Newt version the node's Pangolin reports for the site. */
+    val newtVersion: String? = null,
 )
+
+@Serializable
+data class TunnelExitDto(val at: Long, val reason: String)
 
 @Serializable
 data class LabelErrorDto(val container: String, val message: String)
@@ -204,6 +318,10 @@ data class LogEntryDto(
     val target: String? = null,
     /** Increasing sequence number (lets streaming clients resume after the last entry seen). */
     val seq: Long = 0,
+    /** The reconcile pass it was written in; null outside a pass. */
+    val pass: Long? = null,
+    /** Structured details, such as a pass's `duration_ms`, `changes` and `trigger`. */
+    val fields: Map<String, String> = emptyMap(),
 )
 
 @Serializable
@@ -240,8 +358,13 @@ data class SecretsResponse(val secrets: List<SecretRefDto>)
 @Serializable
 data class PauseRequest(val scope: String, val id: String? = null, val paused: Boolean)
 
+/** The outcome of an action. [undo] is set when it can be undone for a while (`POST /api/undo/{undo}`). */
 @Serializable
-data class ActionResponse(val ok: Boolean, val message: String)
+data class ActionResponse(
+    val ok: Boolean,
+    val message: String,
+    val undo: String? = null,
+)
 
 @Serializable
 data class NodeConfigDto(
@@ -479,6 +602,12 @@ data class ClusterMemberDto(
     val valkeyRole: String? = null,
     /** The member's etcd answers its health check (it is part of a working majority). */
     val etcdHealthy: Boolean? = null,
+    /**
+     * How far behind the primary this replica's replay is, in milliseconds: the time since it
+     * replayed the last transaction. Only set while [lagBytes] is above zero, since an idle primary
+     * writes nothing to replay.
+     */
+    val lagMs: Long? = null,
 )
 
 /**
@@ -535,6 +664,8 @@ data class AccessDeviceDto(
     val blocked: Boolean = false,
     /** The node the device relays through (online devices). */
     val viaNode: String? = null,
+    /** When the device last checked in (epoch ms), as Pangolin saw it. */
+    val lastSeen: Long? = null,
 )
 
 /**
@@ -549,3 +680,17 @@ data class CreateAccessUserResponse(val ok: Boolean, val message: String, val in
 
 @Serializable
 data class SetAccessRolesRequest(val roleIds: List<Int>)
+
+/** A search result the server finds: config keys, secrets and older log entries. */
+@Serializable
+data class SearchHitDto(
+    /** `setting` or `log`. */
+    val kind: String,
+    val title: String,
+    val subtitle: String = "",
+    val route: String,
+    val selection: String? = null,
+)
+
+@Serializable
+data class SearchResponse(val hits: List<SearchHitDto>)

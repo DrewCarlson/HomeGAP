@@ -58,7 +58,7 @@ The page shows a gauge for each phase as it runs. **Test all nodes** tests each 
 
 The token is in the fragment of the URL. The browser never sends the fragment to a server, so no log contains the token.
 
-<img src="../img/dashboard/speedtest-results.png" alt="The Speed test page with a homelab to node result and a device link">
+<img src="../img/dashboard/speedtest-results.png" alt="The Speed test page with the homelab to edge results and the device test">
 
 ## Results
 

@@ -8,7 +8,10 @@ import homegap.config.MeshConfig
 import homegap.config.NodeConfig
 import homegap.platform.nowMillis
 import homegap.provision.Mesh
+import homegap.provision.ClusterTemplates
 import homegap.provision.MeshProbe
+import io.ktor.client.plugins.timeout
+import io.ktor.client.request.get
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -32,6 +35,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     private val probes = MeshProbe.History()
     private val containerProbes = MeshProbe.History()
+    private val homelabProbe = HomelabProbe()
 
     private class NodeResult(val peers: List<Mesh.PeerStatus>?, val error: String?, val probe: Map<String, MeshProbeDto> = emptyMap(), val containerProbe: Map<String, MeshProbeDto> = emptyMap())
 
@@ -79,6 +83,9 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             }
         }
         report(ctx, Mesh.HOMELAB, homelabError)
+        if (homelabPeers != null) {
+            probeFromHomelab(ctx, members, addresses)
+        }
 
         val names = buildMap {
             homelabKey?.let { put(it, Mesh.HOMELAB) }
@@ -104,9 +111,33 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         )
         return MeshStatusDto(
             subnet = mesh.subnet,
-            members = listOf(view(Mesh.HOMELAB, homelabAddress, homelabPeers, homelabError)) +
+            members = listOf(view(Mesh.HOMELAB, homelabAddress, homelabPeers, homelabError, homelabProbe.view())) +
                 members.map { n -> results[n.id].let { r -> view(n.id, addresses.getValue(n.id), r?.peers, r?.error, r?.probe.orEmpty(), r?.containerProbe.orEmpty()) } },
         )
+    }
+
+    /** One timed request from the homelab to each member's Patroni over the mesh. */
+    private suspend fun probeFromHomelab(ctx: ReconcileContext, members: List<NodeConfig>, addresses: Map<String, String>) {
+        homelabProbe.retain(members.map { it.id }.toSet())
+        coroutineScope {
+            members.map { node ->
+                async {
+                    val address = addresses[node.id] ?: return@async
+                    val started = nowMillis()
+                    val answered = runCatching {
+                        ctx.localHttp.get("http://$address:${ClusterTemplates.PATRONI_PORT}/liveness") {
+                            timeout { requestTimeoutMillis = 3_000 }
+                        }
+                    }.onFailure { if (it is CancellationException) currentCoroutineContext().ensureActive() }.isSuccess
+                    val now = nowMillis()
+                    homelabProbe.record(
+                        peer = node.id,
+                        at = now,
+                        rttMs = if (answered) (now - started).toDouble() else null,
+                    )
+                }
+            }.awaitAll()
+        }
     }
 
     private suspend fun configureNode(ctx: ReconcileContext, node: NodeConfig, mesh: MeshConfig, address: String, peers: List<Mesh.Peer>): NodeResult {

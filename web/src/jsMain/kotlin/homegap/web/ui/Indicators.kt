@@ -2,8 +2,6 @@ package homegap.web.ui
 
 import androidx.compose.runtime.Composable
 import homegap.presentation.common.Badge
-import homegap.presentation.common.ChecksModel
-import homegap.presentation.overview.StatModel
 import homegap.presentation.speedtest.MetricModel
 import org.jetbrains.compose.web.dom.Div
 import org.jetbrains.compose.web.dom.Span
@@ -46,16 +44,6 @@ fun ErrorText(text: String, mono: Boolean = true) {
     }) { Text(text) }
 }
 
-/** Overview counter tile. */
-@Composable
-fun Stat(stat: StatModel) {
-    Div({ classes("stat", stat.health.name) }) {
-        Div({ classes("stat-label") }) { Text(stat.label) }
-        Div({ classes("stat-value") }) { Text(stat.value) }
-        stat.hint?.let { Div({ classes("stat-hint") }) { Text(it) } }
-    }
-}
-
 /** Labeled number in a speed test result. */
 @Composable
 fun Metric(metric: MetricModel) {
@@ -71,11 +59,3 @@ fun Badges(badges: List<Badge>) {
     Div({ classes("checks") }) { badges.forEach { Pill(it, small = true) } }
 }
 
-@Composable
-fun Checks(checks: ChecksModel) {
-    if (checks.isEmpty) {
-        Placeholder()
-        return
-    }
-    Badges(checks.problems + listOfNotNull(checks.passing))
-}

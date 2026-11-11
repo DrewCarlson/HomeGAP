@@ -49,7 +49,7 @@ class DnsReconciler(
         val actual = zone.records
         val claimed = mutableSetOf<Long>()
         val observed = mutableListOf<Observed>()
-        val pausedNodes = ctx.state.snapshot().pauses.let { p -> if (p.global) ctx.config.nodes.map { it.id }.toSet() else p.nodes }
+        val pausedNodes = ctx.pauses().let { p -> if (p.global) ctx.config.nodes.map { it.id }.toSet() else p.nodes }
 
         fun isPaused(d: DesiredDnsRecord) = d.nodeId in pausedNodes || pausedServiceKeys.any { d.purpose == "service:$it" }
 
@@ -68,7 +68,7 @@ class DnsReconciler(
                 val created = bunny.addRecord(zoneId, want)
                 claimed += created.id
                 observed += Observed(created, d, true, null)
-                ctx.log.change(domain, "created ${d.type} ${d.fqdn} -> ${d.value} (${d.purpose})", d.nodeId)
+                ctx.log.change(domain, "created ${d.type} ${d.fqdn} -> ${d.value} (${d.purpose})", d.nodeId, mapOf("record" to d.fqdn))
                 continue
             }
             claimed += mine.id
@@ -85,7 +85,7 @@ class DnsReconciler(
             }
             bunny.updateRecord(zoneId, want.copy(id = mine.id))
             observed += Observed(want.copy(id = mine.id, monitorStatus = mine.monitorStatus), d, true, null)
-            ctx.log.change(domain, "updated ${d.type} ${d.fqdn}: $diff", d.nodeId)
+            ctx.log.change(domain, "updated ${d.type} ${d.fqdn}: $diff", d.nodeId, mapOf("record" to d.fqdn))
         }
 
         val desiredNames = desired.map { it.name.lowercase() to BunnyRecord.typeCode(it.type) }.toSet()

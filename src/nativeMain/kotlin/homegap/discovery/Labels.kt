@@ -110,6 +110,8 @@ data class ServiceSpec(
     val name: String? = null,
     /** Raw services: every published port (at least one). Empty for http/https. */
     val ports: List<PortMapping> = emptyList(),
+    /** The `homegap.*` labels it was read from, as written on the container. */
+    val labels: Map<String, String> = emptyMap(),
 ) {
     /**
      * Stable identifier used to key every derived Pangolin/Bunny object. A named service adds its
@@ -345,6 +347,7 @@ fun parseLabels(
             privateMiddleware = privateMiddleware,
             traefikApi = privateMiddleware?.let { traefikApiUrl(containerName, labels) },
             ports = ports,
+            labels = labels.filterKeys { it.startsWith(Labels.PREFIX) }.entries.sortedBy { it.key }.associate { it.key to it.value },
         ),
         emptyList(),
         warnings,

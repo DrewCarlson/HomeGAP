@@ -5,10 +5,10 @@ import homegap.presentation.app.BannerKind
 import homegap.presentation.app.BannerModel
 import homegap.presentation.app.RolloutModel
 import homegap.presentation.app.TokenPromptModel
-import kotlinx.browser.window
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.dom.Div
 import org.jetbrains.compose.web.dom.Section
+import org.jetbrains.compose.web.dom.Span
 import org.jetbrains.compose.web.dom.Text
 
 private val BannerKind.className: String
@@ -19,8 +19,22 @@ private val BannerKind.className: String
     }
 
 @Composable
-fun Banner(banner: BannerModel) {
-    Div({ classes("banner", banner.kind.className) }) { Text(banner.text) }
+fun Banner(banner: BannerModel, onResume: () -> Unit = {}) {
+    Div({
+        classes("banner", banner.kind.className)
+        if (banner.resume) {
+            classes("paused-banner")
+        }
+    }) {
+        Span { Text(banner.text) }
+        if (banner.resume) {
+            ActionButton(
+                text = "Resume",
+                style = ButtonStyle.Primary,
+                onClick = onResume,
+            )
+        }
+    }
 }
 
 /** Shown while a failed node update holds the rollout to the other nodes. */
@@ -33,28 +47,39 @@ fun RolloutBanner(rollout: RolloutModel) {
         }
         Div({ classes("row-actions") }) {
             rollout.failedNodes.forEach { nodeId ->
-                ActionButton("Retry $nodeId", small = true) { rollout.onRetry(nodeId) }
                 ActionButton(
-                    "Skip $nodeId",
+                    text = "Retry $nodeId",
+                    small = true,
+                    onClick = { rollout.onRetry(nodeId) },
+                )
+                ActionButton(
+                    text = "Skip $nodeId",
                     small = true,
                     tooltip = "Leave $nodeId on its current stack and continue updating the other nodes",
-                ) { if (confirmSkipUpdate(nodeId)) rollout.onSkip(nodeId) }
+                    onClick = { rollout.onSkip(nodeId) },
+                )
             }
         }
     }
 }
 
-/** Asks before releasing a held rollout without updating [nodeId]. */
-fun confirmSkipUpdate(nodeId: String): Boolean =
-    window.confirm("Skip the update on $nodeId? It stays on its current stack and the other nodes are updated.")
-
 /** Shown when the API asks for a dashboard token (or cannot be reached). */
 @Composable
 fun TokenBox(prompt: TokenPromptModel) {
-    Section({ classes("panel") }) {
-        Div({ classes("panel-body", "token-box") }) {
-            TextField("Dashboard token", prompt.value, "Paste HOMEGAP_DASHBOARD_TOKEN", InputType.Password, prompt.onChange)
-            ActionButton("Save", ButtonStyle.Primary, onClick = prompt.onSave)
+    Section({ classes("figure") }) {
+        Div({ classes("figure-body", "token-box") }) {
+            TextField(
+                label = "Dashboard token",
+                value = prompt.value,
+                placeholder = "Paste HOMEGAP_DASHBOARD_TOKEN",
+                type = InputType.Password,
+                onChange = prompt.onChange,
+            )
+            ActionButton(
+                text = "Save",
+                style = ButtonStyle.Primary,
+                onClick = prompt.onSave,
+            )
         }
     }
 }

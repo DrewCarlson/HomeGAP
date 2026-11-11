@@ -4,11 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HomeGAP</title>
-  <meta name="theme-color" content="#2563eb">
+  <!-- Dark only: the browser draws dark controls, and Dark Reader leaves the theme alone. -->
+  <meta name="color-scheme" content="dark">
+  <meta name="darkreader-lock">
+  <meta name="theme-color" content="#070A1F">
   <meta name="robots" content="noindex">
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <!-- The two weights the first screen uses most. -->
+  <link rel="preload" href="/fonts/sora-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/jetbrains-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>

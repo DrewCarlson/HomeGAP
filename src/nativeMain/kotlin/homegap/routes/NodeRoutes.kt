@@ -53,7 +53,8 @@ class NodeRoutes(private val controller: Controller) : RoutingController {
 
     /** Removes the node from the config; DNS drains, the stack stays up until decommission. */
     suspend fun RoutingContext.removeNode() {
-        call.respond(ActionResponse(true, controller.removeNode(nodeId())))
+        val (message, undo) = controller.removeNode(nodeId())
+        call.respond(ActionResponse(true, message, undo))
     }
 
     /** Stops a removed node's stack; `?confirm=` must repeat the node id. */

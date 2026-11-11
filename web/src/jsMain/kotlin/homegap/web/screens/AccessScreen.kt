@@ -2,10 +2,15 @@ package homegap.web.screens
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
-import homegap.presentation.access.*
-import homegap.presentation.app.BannerKind
-import homegap.presentation.app.BannerModel
+import homegap.presentation.access.AccessScreenModel
+import homegap.presentation.access.DeviceRowModel
+import homegap.presentation.access.InvitationRowModel
+import homegap.presentation.access.NewUserFormModel
+import homegap.presentation.access.RoleOptionModel
+import homegap.presentation.routing.Location
+import homegap.presentation.routing.Route
+import homegap.presentation.ui.QrCode
+import homegap.web.routing.HashRouter
 import homegap.web.ui.*
 import kotlinx.browser.window
 import org.jetbrains.compose.web.attributes.InputType
@@ -13,125 +18,121 @@ import org.jetbrains.compose.web.attributes.disabled
 import org.jetbrains.compose.web.dom.*
 
 private const val APP_HELP =
-    "In the Pangolin app, choose a self-hosted server and enter this address. It's served by every " +
-            "node and DNS sends each device to the nearest healthy one, so signing in works while the homelab is down."
+    "In the Pangolin app, choose a self-hosted server and enter this address, or scan the code from a phone. " +
+        "Every node serves it, so devices connect to the nearest one."
 
 private const val INVITE_HELP =
-    "Without a password, HomeGAP creates an invite link (valid 7 days) for you to send; the person " +
-            "opens it and picks their own password."
+    "Off: HomeGAP creates an invite link, valid 7 days, for you to send. The person opens it and picks their own password."
 
+/** Who can sign in to the Pangolin apps, their invitations and devices. */
 @Composable
-fun AccessScreen(model: AccessScreenModel) {
+fun AccessScreen(
+    model: AccessScreenModel,
+    viewport: Viewport,
+    onOpen: (Location) -> Unit,
+) {
     when (model) {
-        AccessScreenModel.Loading -> {
-            Div({ classes("loading") }) {
-                Text("Loading…")
-            }
-        }
+        AccessScreenModel.Loading -> Div({ classes("loading") }) { Text("Loading…") }
 
         is AccessScreenModel.Unavailable -> {
-            Banner(BannerModel(BannerKind.Info, model.message))
-            model.clientAddress?.let { ClientAddress(it, null) }
+            P({ classes("banner", "info") }) { Text(model.message) }
+            model.clientAddress?.let { address ->
+                ClientAddress(
+                    address = address,
+                    via = null,
+                    qr = QrCode.encode(address),
+                )
+            }
         }
 
         is AccessScreenModel.Ready -> {
-            Div({ classes("two-col") }) {
-                ClientAddress(model.clientAddress, model.via)
-                NewUser(
-                    form = model.newUser,
-                    inviteLink = model.inviteLink,
-                    onDismiss = model.onDismissInviteLink
-                )
-            }
-            Users(model)
+            ClientAddress(
+                address = model.clientAddress,
+                via = model.via,
+                qr = model.qr,
+            )
+            People(
+                model = model,
+                onOpen = onOpen,
+            )
             if (model.invitations.isNotEmpty()) {
                 Invitations(
                     rows = model.invitations,
-                    onRemove = model.onRemoveInvitation
+                    onReissue = model.onReissueInvitation,
+                    onRemove = model.onRemoveInvitation,
                 )
             }
-            Devices(model.devices, model.onDeviceAction)
-        }
-    }
-}
-
-@Composable
-private fun ClientAddress(address: String, via: String?) {
-    Panel(
-        title = "Pangolin app address",
-        subtitle = via,
-        flush = false
-    ) {
-        Div({ classes("copy-row") }) {
-            Span({ classes("mono") }) { Text(address) }
-            ActionButton("Copy", small = true) {
-                window.navigator.clipboard.writeText(address)
-            }
-        }
-        P({ classes("muted") }) { Text(APP_HELP) }
-    }
-}
-
-@Composable
-private fun NewUser(
-    form: NewUserFormModel,
-    inviteLink: String?,
-    onDismiss: () -> Unit
-) {
-    Panel(
-        title = "Add a user",
-        flush = false
-    ) {
-        TextField(
-            label = "Email",
-            value = form.email,
-            placeholder = "person@example.com",
-            type = InputType.Email,
-            onChange = form.onEmail
-        )
-        Div({ classes("field") }) {
-            Span({ classes("muted") }) { Text("Roles") }
-            RoleChips(form.roles, enabled = true, onToggle = form.onToggleRole)
-        }
-        CheckOption(
-            title = "Set a password now",
-            description = "They can sign in straight away. Share it with them privately.",
-            checked = form.setPassword,
-            onChange = form.onSetPassword
-        )
-        if (form.setPassword) {
-            TextField(
-                label = "Password",
-                value = form.password,
-                placeholder = "at least 8 characters",
-                type = InputType.Password,
-                onChange = form.onPassword
+            Devices(
+                rows = model.devices,
+                onOpen = onOpen,
             )
-        } else {
-            P({ classes("muted") }) {
-                Text(INVITE_HELP)
+            if (model.addUserOpen) {
+                AddUser(
+                    form = model.newUser,
+                    inviteLink = model.inviteLink,
+                    viewport = viewport,
+                    onDismissLink = model.onDismissInviteLink,
+                    onClose = { onOpen(Location(Route.Access)) },
+                )
             }
         }
-        form.error?.let { ErrorText(it, mono = false) }
-        ActionButton(
-            text = form.submitText,
-            style = ButtonStyle.Primary,
-            enabled = form.canSubmit,
-            onClick = form.onSubmit
-        )
-        inviteLink?.let { link ->
-            Div({ classes("links") }) {
+    }
+}
+
+@Composable
+private fun ClientAddress(address: String, via: String?, qr: QrCode?) {
+    Figure(caption = "Pangolin app address" + via?.let { " · $it" }.orEmpty()) {
+        Div({ classes("app-address") }) {
+            qr?.let { code ->
+                QrImage(
+                    code = code,
+                    label = "QR code for $address",
+                )
+            }
+            Div({ classes("app-address-text") }) {
                 Div({ classes("copy-row") }) {
-                    Span({ classes("link-label") }) {
-                        Text("Invite link")
+                    Span({ classes("mono", "app-address-value") }) { Text(address) }
+                    ActionButton(
+                        text = "Copy",
+                        small = true,
+                        onClick = { window.navigator.clipboard.writeText(address) },
+                    )
+                }
+                P({ classes("muted") }) { Text(APP_HELP) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun People(model: AccessScreenModel.Ready, onOpen: (Location) -> Unit) {
+    Figure(
+        caption = "Fig. 01 · People · ${model.users.size}",
+        flush = true,
+        actions = { Span({ classes("caption", "muted") }) { Text("Everyone who can sign in, on every node") } },
+    ) {
+        Ul({ classes("people") }) {
+            model.users.forEach { user ->
+                key(user.id) {
+                    Li({ classes("person") }) {
+                        NavLink(
+                            href = HashRouter.href(user.location),
+                            onNavigate = { onOpen(user.location) },
+                            classNames = listOf("person-name"),
+                        ) {
+                            Span({ classes("avatar") }) { Text(user.email.take(1).uppercase()) }
+                            Span {
+                                B { Text(user.name ?: user.email.substringBefore('@')) }
+                                Span({ classes("mono", "muted", "small") }) { Text(" ${user.email}") }
+                            }
+                        }
+                        Span({ classes("muted", "small") }) {
+                            Text(user.roles.filter { it.selected }.joinToString(", ") { it.name })
+                        }
+                        Span({ classes("mono", "muted", "small", "wide-only") }) {
+                            Text("${user.devices} ${if (user.devices == 1) "device" else "devices"}")
+                        }
                     }
-                    Span({ classes("mono") }) {
-                        Text(link.substringBefore("?") + "?…")
-                    }
-                    ActionButton("Copy", small = true) {
-                        window.navigator.clipboard.writeText(link)
-                    }
-                    ActionButton("Done", small = true, onClick = onDismiss)
                 }
             }
         }
@@ -143,47 +144,57 @@ private fun NewUser(
 private fun RoleChips(
     roles: List<RoleOptionModel>,
     enabled: Boolean,
-    onToggle: (Int) -> Unit
+    onToggle: (Int) -> Unit,
 ) {
-    Div({ classes("segmented") }) {
+    Div({ classes("role-chips") }) {
         roles.forEach { role ->
             Button({
-                if (role.selected) classes("active")
-                if (!enabled) disabled()
+                classes("chip")
+                if (role.selected) {
+                    classes("active")
+                }
+                if (!enabled) {
+                    disabled()
+                }
+                attr("aria-pressed", role.selected.toString())
                 onClick { onToggle(role.id) }
-            }) { Text(role.name) }
+            }) {
+                Text(if (role.selected) "✓ ${role.name}" else "+ ${role.name}")
+            }
         }
     }
 }
 
 @Composable
-private fun Users(model: AccessScreenModel.Ready) {
-    Panel(
-        title = "Users",
-        subtitle = "Everyone who can sign in, on every node"
+private fun Invitations(
+    rows: List<InvitationRowModel>,
+    onReissue: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    Figure(
+        caption = "Fig. 02 · Open invitations · ${rows.size}",
+        flush = true,
     ) {
-        DataTable(
-            headers = remember { listOf("User", "Roles", "", "") },
-            emptyText = "No users yet.",
-            isEmpty = model.users.isEmpty()
-        ) {
-            model.users.forEach { user ->
-                key(user.id) {
-                    Tr {
-                        Cell("User") {
-                            B { Text(user.email) }
-                            user.name?.let { Muted(it) }
-                        }
-                        Cell("Roles") { RoleChips(user.roles, user.editable) { model.onToggleRole(user.id, it) } }
-                        Cell("") { Badges(user.badges) }
-                        Cell("", "actions") {
-                            if (user.editable) {
-                                ActionButton("Remove", ButtonStyle.Danger, small = true) {
-                                    if (window.confirm("Remove ${user.email}? They can no longer sign in, and their devices stop working.")) {
-                                        model.onRemoveUser(user.id)
-                                    }
-                                }
-                            }
+        Ul({ classes("people") }) {
+            rows.forEach { row ->
+                key(row.id) {
+                    Li({ classes("person", "invite") }) {
+                        Span({ classes("mono") }) { Text(row.email) }
+                        Span({ classes("muted", "small") }) { Text(row.roles) }
+                        row.expires?.let { Span({ classes("muted", "small", "wide-only") }) { Text(it) } }
+                        Div({ classes("inline-row") }) {
+                            ActionButton(
+                                text = "New link",
+                                small = true,
+                                tooltip = "Create a new invite link; the old one stops working",
+                                onClick = { onReissue(row.id) },
+                            )
+                            ActionButton(
+                                text = "Revoke",
+                                style = ButtonStyle.Danger,
+                                small = true,
+                                onClick = { onRemove(row.id) },
+                            )
                         }
                     }
                 }
@@ -193,66 +204,134 @@ private fun Users(model: AccessScreenModel.Ready) {
 }
 
 @Composable
-private fun Invitations(rows: List<InvitationRowModel>, onRemove: (String) -> Unit) {
-    Panel("Open invitations") {
-        DataTable(listOf("Email", "Roles", "Expires", "")) {
-            rows.forEach { row ->
-                key(row.id) {
-                    Tr {
-                        Cell("Email") { Text(row.email) }
-                        Cell("Roles") { Text(row.roles) }
-                        Cell("Expires") {
-                            row.expires?.let { Muted(it) } ?: Placeholder()
-                        }
-                        Cell("", "actions") {
-                            ActionButton("Remove", small = true) {
-                                onRemove(row.id)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Devices(rows: List<DeviceRowModel>, onAction: (Int, String) -> Unit) {
-    Panel(
-        title = "Devices",
-        subtitle = "Pangolin apps and machine clients, and the node each one relays through"
+private fun Devices(rows: List<DeviceRowModel>, onOpen: (Location) -> Unit) {
+    Figure(
+        caption = "Fig. 03 · Devices · ${rows.size}",
+        flush = true,
+        actions = { Span({ classes("caption", "muted") }) { Text("Pangolin apps and machine clients") } },
     ) {
-        DataTable(
-            headers = remember { listOf("Device", "Owner", "Status", "Node", "") },
-            emptyText = "No devices have connected yet.",
-            isEmpty = rows.isEmpty()
-        ) {
+        if (rows.isEmpty()) {
+            P({ classes("figure-note") }) { Text("No devices have connected yet.") }
+        }
+        Div({ classes("device-grid") }) {
             rows.forEach { row ->
                 key(row.id) {
-                    Tr {
-                        Cell("Device") {
+                    NavLink(
+                        href = HashRouter.href(row.location),
+                        onNavigate = { onOpen(row.location) },
+                        classNames = listOf("device-card"),
+                    ) {
+                        Div({ classes("edge-card-head") }) {
                             B { Text(row.name) }
-                            row.agent?.let { Muted(it) }
+                            Span({ classes("mono", "small", row.status.health.toneClass) }) { Text(row.status.text) }
                         }
-                        Cell("Owner") { Text(row.owner) }
-                        Cell("Status") { Pill(row.status, small = true) }
-                        Cell("Node") {
-                            row.via?.let { Text(it) } ?: Placeholder()
+                        Div({ classes("muted", "small") }) {
+                            Text(listOfNotNull(row.agent, row.owner).joinToString(" · "))
                         }
-                        Cell("", "actions") {
-                            row.actions.forEach { a ->
-                                ActionButton(
-                                    text = a.label,
-                                    style = if (a.danger) ButtonStyle.Danger else ButtonStyle.Default,
-                                    small = true
-                                ) {
-                                    if (!a.danger || window.confirm("${a.label} ${row.name}?")) {
-                                        onAction(row.id, a.action)
-                                    }
-                                }
-                            }
-                        }
+                        row.via?.let { Div({ classes("mono", "small") }) { Text(it) } }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** The Add user form: a drawer or dialog with explicit Cancel and Create. */
+@Composable
+private fun AddUser(
+    form: NewUserFormModel,
+    inviteLink: String?,
+    viewport: Viewport,
+    onDismissLink: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Overlay(
+        label = "Add a user",
+        style = when (viewport) {
+            Viewport.Phone -> OverlayStyle.Sheet
+            Viewport.Desktop -> OverlayStyle.Drawer
+            else -> OverlayStyle.Drawer
+        },
+        onDismiss = onClose,
+    ) {
+        Div({ classes("overlay-panel", "form-panel") }) {
+            Div({ classes("wizard-head") }) {
+                Div {
+                    Div({ classes("caption") }) { Text("New user") }
+                    H2 { Text("Add a user") }
+                }
+                IconButton(
+                    iconPath = Icons.CLOSE,
+                    label = "Close",
+                    onClick = onClose,
+                )
+            }
+            Div({ classes("form-body") }) {
+                if (inviteLink != null) {
+                    P { Text("Send this link to the person. It works for 7 days.") }
+                    Div({ classes("copy-row") }) {
+                        Span({ classes("mono", "small", "ellipsis") }) { Text(inviteLink) }
+                        ActionButton(
+                            text = "Copy link",
+                            small = true,
+                            onClick = { window.navigator.clipboard.writeText(inviteLink) },
+                        )
+                    }
+                } else {
+                    TextField(
+                        label = "Email",
+                        value = form.email,
+                        placeholder = "person@example.com",
+                        type = InputType.Email,
+                        onChange = form.onEmail,
+                    )
+                    Div({ classes("field") }) {
+                        Span({ classes("muted") }) { Text("Roles") }
+                        RoleChips(
+                            roles = form.roles,
+                            enabled = true,
+                            onToggle = form.onToggleRole,
+                        )
+                    }
+                    CheckOption(
+                        title = "Set a password now",
+                        description = if (form.setPassword) "They can sign in at once. Share it with them privately." else INVITE_HELP,
+                        checked = form.setPassword,
+                        onChange = form.onSetPassword,
+                    )
+                    if (form.setPassword) {
+                        TextField(
+                            label = "Password",
+                            value = form.password,
+                            placeholder = "at least 8 characters",
+                            type = InputType.Password,
+                            onChange = form.onPassword,
+                        )
+                    }
+                    form.error?.let { ErrorText(it, mono = false) }
+                }
+            }
+            Div({ classes("form-actions") }) {
+                if (inviteLink != null) {
+                    ActionButton(
+                        text = "Done",
+                        style = ButtonStyle.Primary,
+                        onClick = {
+                            onDismissLink()
+                            onClose()
+                        },
+                    )
+                } else {
+                    ActionButton(
+                        text = "Cancel",
+                        onClick = onClose,
+                    )
+                    ActionButton(
+                        text = form.submitText,
+                        style = ButtonStyle.Primary,
+                        enabled = form.canSubmit,
+                        onClick = form.onSubmit,
+                    )
                 }
             }
         }
