@@ -68,6 +68,10 @@ class MisdirectedTest {
         // Its own route, read back from the homelab Traefik, does not take the names away.
         val loaded = routers + TraefikRouter("${HomelabTraefik.MISDIRECTED_ROUTER}@http", "Host(`pangolin-na1.test.example.net`)")
         assertEquals(names, HomelabTraefik.nodeOnlyNames(plan, cfg.clientHost, loaded))
+        // Copied per entry point when the entry points have defaults (e.g. websecure's http.tls).
+        val copies = routers + listOf("web", "websecure").map { TraefikRouter("$it-${HomelabTraefik.MISDIRECTED_ROUTER}@http", "Host(`pangolin-na1.test.example.net`) || Host(`status.test.example.net`)") }
+        assertEquals(names, HomelabTraefik.nodeOnlyNames(plan, cfg.clientHost, copies))
+        assertFalse(HomelabTraefik.isOwn("not-homegap-misdirected-x@file"))
         assertEquals(listOf("a.example", "b.example"), HomelabTraefik.hostsIn("Host(`a.example`) || Host(`B.example`) && Path(`/`)"))
     }
 

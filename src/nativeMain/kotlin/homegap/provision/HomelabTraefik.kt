@@ -34,11 +34,19 @@ object HomelabTraefik {
             nodes.firstNotNullOfOrNull { it.speedtestRedirect?.first }?.let(::add)
         }.map { it.lowercase() }.distinct()
         // This route itself comes back in the homelab's routes once loaded; it is not the homelab's.
-        val routed = homelabRouters?.filterNot { it.name.substringBefore('@') == MISDIRECTED_ROUTER }
+        val routed = homelabRouters?.filterNot { isOwn(it.name) }
             ?.flatMap { hostsIn(it.rule) }?.toSet()
             ?: setOfNotNull(nodes.firstNotNullOfOrNull { it.speedtestRedirect?.first }?.lowercase())
         return names.filter { it !in routed }.sorted()
     }
+
+    /**
+     * Whether [routerName] (as the Traefik API lists it) is this route. With defaults on an entry
+     * point (its `http.tls` or `http.middlewares`), Traefik copies a route without entry points
+     * into one per entry point, named `<entry point>-<name>`. Read back as the homelab's own
+     * routes, those copies took every name away, so the route was dropped and came back each pass.
+     */
+    fun isOwn(routerName: String): Boolean = routerName.substringBefore('@').let { it == MISDIRECTED_ROUTER || it.endsWith("-$MISDIRECTED_ROUTER") }
 
     /** The plain `Host(...)` names in a Traefik rule. */
     fun hostsIn(rule: String): List<String> =

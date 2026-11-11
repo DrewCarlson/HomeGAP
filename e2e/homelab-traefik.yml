@@ -4,6 +4,10 @@ entryPoints:
     # The nodes send each viewer's address with PROXY protocol (homegap.proxy_protocol).
     proxyProtocol:
       trustedIPs: ["172.30.0.0/24"]
+    # Entry point defaults, as most homelab setups have: Traefik then copies a route without
+    # entry points into one per entry point, renamed (see HomelabTraefik.isOwn).
+    http:
+      tls: {}
   web:
     address: ":80"
     forwardedHeaders:
