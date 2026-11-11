@@ -77,8 +77,12 @@ html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; color: var(--text);
   font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased;
-  /* The blueprint grid: hairlines every 32 px on the ground. */
   background-color: var(--ground);
+}
+/* The blueprint grid: hairlines every 32 px on the ground, fixed to the screen so it stays still
+   while the page, the window or a panel scrolls over it. */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image:
     linear-gradient(var(--grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
@@ -615,7 +619,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .path-homelab-place { font-size: 16px; font-weight: 600; }
 .path-edges { display: grid; gap: 8px; }
 .path-row { display: grid; grid-template-columns: minmax(80px, 1fr) minmax(160px, 220px) minmax(0, 1.4fr); align-items: center; gap: 12px; }
-.path-line { position: relative; height: 1px; background: currentColor; opacity: .9; }
+.path-line { position: relative; height: 1px; margin-right: -12px; background: currentColor; opacity: .9; }
 .path-line span { position: absolute; left: 50%; top: -18px; transform: translateX(-50%); font-size: 11px; color: var(--ink-dim); white-space: nowrap; }
 .path-edge { display: grid; gap: 2px; padding: 8px 12px; border: 1px solid currentColor; border-radius: var(--radius); background: var(--panel); }
 .path-edge > span:first-child { color: var(--ink); }

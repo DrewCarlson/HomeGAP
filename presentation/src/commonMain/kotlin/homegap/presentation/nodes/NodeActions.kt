@@ -22,6 +22,7 @@ class NodeActions(
     private val actions: ActionRunner,
     private val confirmations: Confirmations,
     private val pausedGuard: homegap.presentation.data.PausedGuard,
+    private val relocation: NodeRelocation,
 ) {
     /** The buttons for [node] in the Inspector, most used first. */
     fun forNode(node: NodeStatusDto): List<ActionModel> = buildList {
@@ -73,6 +74,13 @@ class NodeActions(
                 label = if (node.paused) "Resume" else "Pause",
                 tooltip = if (node.paused) "Apply changes to this node again" else "Leave this node as it is; observe only",
                 onClick = { togglePause(node.id, node.paused) },
+            )
+        )
+        add(
+            ActionModel(
+                label = "Change location",
+                tooltip = "Move the node on the maps and in geo DNS steering",
+                onClick = { relocation.open(node.id) },
             )
         )
         if (node.pendingDecommission) {

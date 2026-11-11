@@ -111,6 +111,13 @@ private fun Shell(model: AppModel) {
             )
         }
     }
+    // After the Inspector, so it stays above it (overlays stack in page order).
+    model.nodeLocation?.let { nodeLocation ->
+        NodeLocationDialog(
+            model = nodeLocation,
+            viewport = viewport,
+        )
+    }
     when (val overlay = model.overlay) {
         is AddNodeScreenModel -> AddNodeWizard(
             model = overlay,
@@ -225,7 +232,6 @@ private fun Screen(
         )
         is NodesScreenModel -> NodesScreen(
             model = screen,
-            viewport = viewport,
             onOpen = onOpen,
         )
         is ServicesScreenModel -> ServicesScreen(

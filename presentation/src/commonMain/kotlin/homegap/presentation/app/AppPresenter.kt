@@ -99,6 +99,7 @@ class AppPresenter(
     private val locations: homegap.presentation.locations.LocationsScreenPresenter,
     private val addNode: AddNodeScreenPresenter,
     private val shareLinks: ShareLinksScreenPresenter,
+    private val nodeLocation: homegap.presentation.nodes.NodeLocationPresenter,
 ) : Presenter<AppProps, AppModel> {
     private companion object {
         /** How long the controller must stay out of reach before the dashboard says so. */
@@ -133,6 +134,7 @@ class AppPresenter(
                 )
             },
             header = snapshot?.let { header(it, busy, now, readOnly) },
+            nodeLocation = nodeLocation.model(status = snapshot),
             connection = problem?.let {
                 connection(
                     problem = it,

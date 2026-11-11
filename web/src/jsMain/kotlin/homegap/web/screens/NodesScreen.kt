@@ -18,15 +18,8 @@ import org.jetbrains.compose.web.dom.*
 @Composable
 fun NodesScreen(
     model: NodesScreenModel,
-    viewport: Viewport,
     onOpen: (Location) -> Unit,
 ) {
-    model.relocation?.let { relocation ->
-        NodeLocationDialog(
-            model = relocation,
-            viewport = viewport,
-        )
-    }
     model.rollout?.let { RolloutStrip(it) }
     Fleet(
         rows = model.fleet,

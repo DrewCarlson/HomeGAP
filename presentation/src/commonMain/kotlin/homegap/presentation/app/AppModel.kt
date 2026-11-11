@@ -26,6 +26,8 @@ data class AppModel(
     val overlay: ScreenModel? = null,
     val toast: Toast?,
     val search: SearchModel,
+    /** Change location for a node, over whichever screen opened it. */
+    val nodeLocation: homegap.presentation.nodes.NodeLocationModel? = null,
     /** The confirm dialog, while a presenter asks. */
     val confirm: ConfirmDialogModel?,
     val onNavigate: (Route) -> Unit,

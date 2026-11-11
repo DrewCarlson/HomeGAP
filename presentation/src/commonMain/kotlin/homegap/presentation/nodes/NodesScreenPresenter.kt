@@ -3,25 +3,17 @@ package homegap.presentation.nodes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.Health
-import homegap.api.LocationDto
-import homegap.api.PlaceDto
 import homegap.api.NodeStatusDto
 import homegap.api.StatusSnapshot
 import homegap.presentation.common.Badge
 import homegap.presentation.core.Presenter
-import homegap.presentation.addnode.LocationOptionModel
-import homegap.presentation.core.runCatchingCancellable
-import homegap.presentation.data.ActionRunner
-import homegap.presentation.data.ControllerApi
 import homegap.presentation.data.Preferences
-import homegap.presentation.locations.LocationSearch
 import homegap.presentation.data.Samples
 import homegap.presentation.format.label
 import homegap.presentation.format.plural
@@ -48,8 +40,6 @@ data class NodesScreenProps(
 class NodesScreenPresenter(
     private val nodeActions: NodeActions,
     private val preferences: Preferences,
-    private val api: ControllerApi,
-    private val actions: ActionRunner,
 ) : Presenter<NodesScreenProps, NodesScreenModel> {
     @Composable
     override fun model(props: NodesScreenProps): NodesScreenModel {
@@ -68,7 +58,6 @@ class NodesScreenPresenter(
         }
         val healthy = status.nodes.count { it.health == Health.OK }
         val selected = status.nodes.firstOrNull { it.id == props.selection }
-        var relocating by remember { mutableStateOf<String?>(null) }
         return NodesScreenModel(
             head = PageHeadModel(
                 caption = "Nodes · ${plural(status.nodes.size, "edge server")}",
@@ -106,16 +95,7 @@ class NodesScreenPresenter(
                     node = node,
                     samples = props.metrics[node.id],
                     now = now,
-                    actions = nodeActions.forNode(node) + ActionModel(
-                        label = "Change location",
-                        onClick = { relocating = node.id },
-                    ),
-                )
-            },
-            relocation = status.nodes.firstOrNull { it.id == relocating }?.let { node ->
-                relocation(
-                    node = node,
-                    onClose = { relocating = null },
+                    actions = nodeActions.forNode(node),
                 )
             },
             empty = if (status.nodes.isEmpty()) {
@@ -133,55 +113,6 @@ class NodesScreenPresenter(
             } else {
                 null
             },
-        )
-    }
-
-    /** Search the known cities or pick on the map, then save the node's new place. */
-    @Composable
-    private fun relocation(node: NodeStatusDto, onClose: () -> Unit): NodeLocationModel {
-        val catalog by produceState(emptyList<LocationDto>()) {
-            value = runCatchingCancellable { api.locations().locations }.getOrDefault(emptyList())
-        }
-        var query by remember { mutableStateOf("") }
-        var pending by remember { mutableStateOf<PlaceDto?>(null) }
-        val current = node.location
-        val shown = pending ?: current
-        return NodeLocationModel(
-            nodeId = node.id,
-            current = current?.let { describePlace(it) },
-            query = query,
-            matches = LocationSearch.search(catalog, query).map { location ->
-                LocationOptionModel(
-                    id = location.id,
-                    label = LocationSearch.label(location),
-                    detail = location.providers.take(4).joinToString(", "),
-                )
-            },
-            pending = pending?.let { describePlace(it) },
-            pick = shown?.let { it.latitude to it.longitude },
-            onQuery = { query = it },
-            onChoose = { id ->
-                catalog.firstOrNull { it.id == id }?.let { location ->
-                    query = ""
-                    pending = PlaceDto(location.latitude, location.longitude, LocationSearch.label(location))
-                }
-            },
-            onPickOnMap = { latitude, longitude ->
-                val lat = LocationSearch.round2(latitude)
-                val lon = LocationSearch.round2(longitude)
-                pending = PlaceDto(lat, lon, LocationSearch.nearest(catalog, lat, lon)?.let { LocationSearch.label(it) })
-            },
-            onSave = {
-                pending?.let { place ->
-                    actions.run(
-                        label = "Change location",
-                        onSuccess = onClose,
-                    ) {
-                        api.setNodeLocation(node.id, place)
-                    }
-                }
-            },
-            onCancel = onClose,
         )
     }
 
@@ -321,11 +252,6 @@ private fun Badge.toCell(): MeshCellModel {
         title = tooltip.orEmpty(),
     )
 }
-
-/** "Mumbai, India · 19.08, 72.88", noting a point that is only the region's center. */
-private fun describePlace(place: PlaceDto): String =
-    place.name?.takeIf { it.isNotBlank() }?.let { "$it · " }.orEmpty() + "${place.latitude}, ${place.longitude}" +
-        if (place.estimated) " (the region's center; not set)" else ""
 
 /** Problems first in the fleet table. */
 private fun Health.rank(): Int = when (this) {

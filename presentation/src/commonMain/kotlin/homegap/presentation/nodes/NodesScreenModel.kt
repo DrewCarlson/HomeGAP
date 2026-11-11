@@ -2,7 +2,6 @@ package homegap.presentation.nodes
 
 import androidx.compose.runtime.Immutable
 import homegap.api.Health
-import homegap.presentation.addnode.LocationOptionModel
 import homegap.presentation.core.ScreenModel
 import homegap.presentation.routing.Location
 import homegap.presentation.ui.ActionModel
@@ -28,31 +27,7 @@ data class NodesScreenModel(
     val mesh: MeshMatrixModel?,
     override val inspector: InspectorModel? = null,
     override val empty: EmptyStateModel? = null,
-    /** Moving a node to another place; null when not open. */
-    val relocation: NodeLocationModel? = null,
 ) : ScreenModel
-
-/**
- * Where a node is, being changed: search the known cities or pick a point on the map, then save.
- * The coordinates steer geo DNS and place the node on the maps.
- */
-@Immutable
-data class NodeLocationModel(
-    val nodeId: String,
-    /** Where it is now: "Mumbai · 19.08, 72.88", or null when not set. */
-    val current: String?,
-    val query: String,
-    val matches: List<LocationOptionModel>,
-    /** The place chosen and not saved yet. */
-    val pending: String?,
-    val pick: Pair<Double, Double>?,
-    val onQuery: (String) -> Unit,
-    /** A known city, by its catalog id. */
-    val onChoose: (String) -> Unit,
-    val onPickOnMap: (latitude: Double, longitude: Double) -> Unit,
-    val onSave: () -> Unit,
-    val onCancel: () -> Unit,
-)
 
 /** One node in the fleet table. */
 @Immutable

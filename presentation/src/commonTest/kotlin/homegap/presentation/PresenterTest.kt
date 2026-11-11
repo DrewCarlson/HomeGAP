@@ -57,9 +57,10 @@ class PresenterTest {
         val preferences = FakePreferences()
         val confirmations = Confirmations(session, actions)
         val pausedGuard = homegap.presentation.data.PausedGuard(session, api, actions, confirmations)
-        val nodeActions = NodeActions(api, actions, confirmations, pausedGuard)
+        val relocation = homegap.presentation.nodes.NodeRelocation()
+        val nodeActions = NodeActions(api, actions, confirmations, pausedGuard, relocation)
         val serviceActions = ServiceActions(api, actions, confirmations)
-        val nodes = NodesScreenPresenter(nodeActions, preferences, api, actions)
+        val nodes = NodesScreenPresenter(nodeActions, preferences)
         val speedTest = SpeedTestScreenPresenter(api, session, actions, FakeTimeFormatter, scope)
         val activity = ActivityScreenPresenter(session, api, FakeTimeFormatter)
         val addNode = AddNodeScreenPresenter(api, session, AddNodeWizardStore(preferences), actions, scope)
@@ -93,6 +94,7 @@ class PresenterTest {
                 address = FakePageAddress,
                 appScope = scope,
             ),
+            nodeLocation = homegap.presentation.nodes.NodeLocationPresenter(relocation, api, actions),
         )
     }
 
@@ -125,6 +127,24 @@ class PresenterTest {
         val model = present(g.overview, OverviewScreenProps(status, NOW, selection = "b1")).value
         assertEquals("b1", model.inspector?.title)
         assertNull(present(g.overview, OverviewScreenProps(status, NOW, selection = "nowhere")).value.inspector)
+    }
+
+    @Test
+    fun changeLocationOpensFromTheOverviewInspectorLikeOnNodes() = runTest {
+        val g = graph
+        g.session.refresh()
+        val models = present(g.app, AppProps(Route.Overview, RecordingRouter(), selection = "a1"))
+        val model = models.first { it.screen != null }
+        val inspector = assertNotNull(model.screen?.inspector)
+        val nodesInspector = present(g.nodes, NodesScreenProps(g.session.status.value!!, NOW, selection = "a1")).value.inspector
+        assertEquals(nodesInspector?.actions?.map { it.label }, inspector.actions.map { it.label })
+        assertNull(model.nodeLocation)
+
+        inspector.actions.single { it.label == "Change location" }.onClick!!()
+        val opened = models.first { it.nodeLocation != null }.nodeLocation!!
+        assertEquals("a1", opened.nodeId)
+        opened.onCancel()
+        assertNull(models.first { it.nodeLocation == null }.nodeLocation)
     }
 
     @Test

@@ -84,6 +84,7 @@ fun Overlay(
             dialog.addEventListener("click", onClick)
             PageScrollLock.acquire()
             dialog.asDynamic().showModal()
+            raiseOverlaysAfter(dialog)
             onDispose {
                 dialog.removeEventListener("cancel", onCancel)
                 dialog.removeEventListener("pointerdown", onPointerDown)
@@ -163,6 +164,27 @@ private fun SheetGrip(onDismiss: () -> Unit) {
 /** A flick: at least this far, at least this fast. */
 private const val SHEET_FLICK_MIN_PX = 40.0
 private const val SHEET_FLICK_PX_PER_MS = 0.5
+
+/**
+ * Keeps overlays stacked in page order. The browser stacks modal dialogs in the order they open,
+ * so an overlay that opens late but sits earlier in the page (the Inspector turning into a drawer
+ * when the window narrows, under a dialog it opened) would cover the ones after it. Those are
+ * reopened, in page order, to put them back on top.
+ */
+private fun raiseOverlaysAfter(opened: HTMLElement) {
+    val open = document.querySelectorAll("dialog.overlay[open]")
+    for (index in 0 until open.length) {
+        val other = open.item(index) as HTMLElement
+        val after = opened.compareDocumentPosition(other).toInt() and FOLLOWING != 0
+        if (other != opened && after) {
+            other.asDynamic().close()
+            other.asDynamic().showModal()
+        }
+    }
+}
+
+/** `Node.DOCUMENT_POSITION_FOLLOWING`. */
+private const val FOLLOWING = 4
 
 /**
  * Stops the page scrolling while any overlay is open, as Bootstrap's modal does: the root's
