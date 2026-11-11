@@ -52,6 +52,8 @@ object NodeTemplates {
     const val SECRETS = "secrets/node.json"
     /** Pangolin's own routes in a cluster (file mode), next to HomeGAP's in the dynamic directory. */
     const val PANGOLIN_ROUTES = "/var/dynamic/router_config.yml"
+    /** Under the node's `config/`, which Pangolin sees as `/app/config`. */
+    const val AI_CATALOG = "config/ai-model-catalog.json"
     const val GERBIL_API_PORT = 3004
     private val PRETTY_JSON = Json { prettyPrint = true }
     /** Rendered into the install dir (so it is hashed and drift-checked), installed into /etc/sysctl.d. */
@@ -75,6 +77,7 @@ object NodeTemplates {
             RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot, cluster), "0600").apply { restarts = "pangolin" },
             RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts, cluster != null)).apply { restarts = "traefik" },
             RenderedFile(SECRETS, PRETTY_JSON.encodeToString(secrets), "0600"),
+            RenderedFile(AI_CATALOG, OutsideCalls.EMPTY_AI_CATALOG),
         )
         files += RenderedFile("${MaintenancePage.DIR}/server.py", MaintenancePage.SCRIPT).apply { restarts = MaintenancePage.SERVICE }
         files += RenderedFile("${MaintenancePage.DIR}/index.html", MaintenancePage.page(config.domain, node.id))
@@ -102,6 +105,7 @@ object NodeTemplates {
                     put("container_name", "pangolin")
                     put("restart", "unless-stopped")
                     putJsonArray("env_file") { add(".env") }
+                    putJsonArray("extra_hosts") { OutsideCalls.PANGOLIN.forEach { add("$it=${OutsideCalls.NOWHERE}") } }
                     putJsonArray("volumes") {
                         add("./config:/app/config")
                         if (cluster != null) {
@@ -264,7 +268,11 @@ object NodeTemplates {
                 put("dashboard_url", "https://$dashboard")
                 put("log_level", "info")
                 putJsonObject("telemetry") { put("anonymous_usage", false) }
+                // The dashboard would otherwise ask Fossorial's API for product news and the newest version.
+                putJsonObject("notifications") { put("product_updates", false); put("new_releases", false) }
             }
+            // The model catalog (AI pricing) would otherwise be downloaded from Fossorial every few hours.
+            putJsonObject("ai") { putJsonObject("model_catalog") { put("file", "/app/$AI_CATALOG") } }
             putJsonObject("domains") {
                 putJsonObject("homegap") {
                     put("base_domain", config.domain)
@@ -342,6 +350,8 @@ object NodeTemplates {
         val p = config.pangolin
         val email = p.acmeEmail ?: adminEmail(config)
         val root = buildJsonObject {
+            // No version check (update.traefik.io) and no usage data.
+            putJsonObject("global") { put("checkNewVersion", false); put("sendAnonymousUsage", false) }
             putJsonObject("api") { put("insecure", false); put("dashboard", false) }
             putJsonObject("providers") {
                 if (!cluster) putJsonObject("http") {

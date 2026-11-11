@@ -35,7 +35,7 @@ class TunnelPinsTest {
         val docker = "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost\n172.30.0.5\tabc123\n"
         val first = HostsPins.render(docker, HostsPins.entries(listOf(spec("na1", "203.0.113.10"))))
         assertEquals(
-            docker + "${HostsPins.BEGIN}\n203.0.113.10\tpangolin-na1.test.example.net\n${HostsPins.END}\n",
+            docker + "${HostsPins.BEGIN}\n203.0.113.10\tpangolin-na1.test.example.net\n127.0.0.1\tapi.fossorial.io\n${HostsPins.END}\n",
             first,
         )
         // The address changed and a node was added: the block is rewritten in place, once.
@@ -46,13 +46,15 @@ class TunnelPinsTest {
         assertEquals(
             docker + "${HostsPins.BEGIN}\n" +
                 "198.51.100.20\tpangolin-as1.test.example.net\n2001:db8::20\tpangolin-as1.test.example.net\n" +
-                "203.0.113.99\tpangolin-na1.test.example.net\n${HostsPins.END}\n",
+                "203.0.113.99\tpangolin-na1.test.example.net\n127.0.0.1\tapi.fossorial.io\n${HostsPins.END}\n",
             second,
         )
         assertEquals(1, second.lines().count { it == HostsPins.BEGIN })
         // Unchanged pins render the same text, so the file is not rewritten.
         assertEquals(second, HostsPins.render(second, HostsPins.entries(listOf(spec("na1", "203.0.113.99"), spec("as1", "198.51.100.20", "2001:db8::20")))))
-        // No pins left: back to the file as Docker wrote it.
+        // Newt's version check goes nowhere, also before any node has a tunnel.
+        assertEquals(listOf("127.0.0.1" to "api.fossorial.io"), HostsPins.entries(emptyList()))
+        // No entries: back to the file as Docker wrote it.
         assertEquals(docker, HostsPins.render(second, emptyList()))
     }
 
@@ -62,7 +64,7 @@ class TunnelPinsTest {
         val spec = TunnelFiles.json.decodeFromString(TunnelSpec.serializer(), old)
         assertEquals(emptyList(), spec.addresses)
         assertEquals("pangolin-na1.test.example.net", spec.host)
-        assertTrue(HostsPins.entries(listOf(spec)).isEmpty())
+        assertTrue(HostsPins.entries(listOf(spec)).none { it.second == spec.host })
         // Adding pins to a running connector's spec is not a reason to restart it.
         assertEquals(spec.withoutPins(), spec.copy(addresses = listOf("203.0.113.10")).withoutPins())
     }

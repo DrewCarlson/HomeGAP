@@ -39,6 +39,27 @@ HomeGAP never publishes the IP address of the homelab. Every tunnel goes outboun
 
 With `passthrough`, the nodes never see plaintext. `pangolin.crowdsec` gives abuse mitigation on the edge for terminated traffic only. It cannot examine passthrough streams.
 
+## Calls to outside services
+
+The software that HomeGAP runs makes no calls home of its own. HomeGAP turns off:
+
+- **Pangolin:** its usage data, the product news and newest-version notices on its dashboard, and the download of its AI model catalog. It reads an empty catalog from its config instead.
+- **Traefik on the nodes:** its version check and its usage data.
+
+Some calls have no setting. In the container that makes the call, HomeGAP resolves the name to `127.0.0.1`, so the call fails on the machine itself:
+
+- **Newt** asks `api.fossorial.io` for the newest version each time it starts. This affects the tunnels container on the homelab and each node's exit connector.
+- **Pangolin** looks up its public address at `checkip.amazonaws.com`, `ifconfig.io` and `api.ipify.org` each time it starts. The address only fills in a hint on the DNS records page of its dashboard, and HomeGAP publishes the DNS records of each node itself.
+
+The calls that remain are needed for the system to work:
+
+- The nodes check the Pangolin EE license at `api.fossorial.io`.
+- Traefik on the nodes downloads its plugins (Pangolin's `badger`, and the CrowdSec bouncer if enabled) from the Traefik plugin catalog when it starts.
+- The nodes get certificates from Let's Encrypt.
+- With `pangolin.crowdsec`, CrowdSec talks to its central API for the community blocklists.
+
+Your own Traefik on the homelab is configured by you. Set `global.checkNewVersion` and `global.sendAnonymousUsage` to `false` in its static configuration to turn off the same calls there.
+
 ## What the public can see
 
 - The public status page never shows addresses or hostnames. It shows the homelab only as its region. See [Status page](../operations/status-page.md).

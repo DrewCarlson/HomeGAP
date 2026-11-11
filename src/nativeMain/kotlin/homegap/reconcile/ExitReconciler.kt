@@ -63,9 +63,10 @@ class ExitReconciler(private val ctx: ReconcileContext) {
 
         val creds = ctx.state.node(node.id)
         val image = ctx.config.cluster!!.exitNodes.newtImage
-        // Deployed already and connected: nothing to do (Docker restarts the connector itself).
         val pins = addresses.map { node.managementHost(ctx.config.domain) to it }
-        val hash = Crypto.fnv64("$image|${creds.exitNewtId}|${creds.exitNewtSecret}" + if (pins.isEmpty()) "" else "|$pins")
+        // Deployed already and connected: nothing to do (Docker restarts the connector itself).
+        // The hash covers both files, so any change to the project redeploys it.
+        val hash = Crypto.fnv64(ExitNodes.compose(image, pins) + ExitNodes.env(creds.exitNewtId.orEmpty(), creds.exitNewtSecret.orEmpty()))
         if (creds.facts[DEPLOYED_FACT] == hash && site?.online == true) return nice
         val script = ExitNodes.deployScript(ctx.config.pangolin.installDir, image, creds.exitNewtId!!, creds.exitNewtSecret!!, pins)
         val out = ctx.ssh.session(node).runScriptOrThrow("exit", script, 600)

@@ -291,7 +291,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         try {
             Files.writeAtomic(hostsFile, next, "644".toInt(8))
             hostsWarned = false
-            logger.info { "pinned ${HostsPins.entries(specs).size} endpoint address(es) in $hostsFile" }
+            logger.info { "updated $hostsFile (${HostsPins.entries(specs).size} entries)" }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             // Connectors still work through public DNS; say so once rather than every rescan.

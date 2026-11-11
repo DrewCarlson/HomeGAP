@@ -75,6 +75,8 @@ class ExitNodesTest {
         assertTrue("extra_hosts" in compose, compose)
         assertTrue("pangolin-na1.test.example.net=203.0.113.10" in compose, compose)
         assertTrue("pangolin-na1.test.example.net=2001:db8::10" in compose, compose)
-        assertFalse("extra_hosts" in ExitNodes.compose("img"), "no pins, no entry")
+        assertFalse("pangolin-na1" in ExitNodes.compose("img"), "no pins, no entry")
+        // Newt's version check goes nowhere.
+        assertTrue("api.fossorial.io=127.0.0.1" in ExitNodes.compose("img"))
     }
 }

@@ -115,6 +115,20 @@ class TemplatesTest {
     }
 
     @Test
+    fun nodesCallNoOutsideServiceOnTheirOwn() {
+        val nd = Planner.plan(cfg, listOf(TRAEFIK)).nodes.getValue("na1")
+        val files = NodeTemplates.staticFiles(cfg, cfg.node("na1")!!, secrets, nd.rawPorts, 0).associateBy { it.path }
+        val traefik = files.getValue("config/traefik/traefik_config.yml").content
+        assertTrue("checkNewVersion: false" in traefik && "sendAnonymousUsage: false" in traefik, traefik)
+        val pangolin = files.getValue("config/config.yml").content
+        assertTrue("anonymous_usage: false" in pangolin && "product_updates: false" in pangolin && "new_releases: false" in pangolin, pangolin)
+        assertTrue("file: \"/app/${NodeTemplates.AI_CATALOG}\"" in pangolin || "file: /app/${NodeTemplates.AI_CATALOG}" in pangolin, pangolin)
+        assertEquals("{\"data\": []}\n", files.getValue(NodeTemplates.AI_CATALOG).content)
+        val compose = files.getValue("compose.yml").content
+        assertTrue("checkip.amazonaws.com=127.0.0.1" in compose, compose)
+    }
+
+    @Test
     fun acmeJsonPicksWildcardCovering() {
         val pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
         val key = "-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n"

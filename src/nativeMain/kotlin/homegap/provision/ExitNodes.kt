@@ -82,7 +82,10 @@ object ExitNodes {
                     // Outbound connections leave from the node's own address, and Pangolin is on loopback.
                     put("network_mode", "host")
                     putJsonArray("env_file") { add(".env") }
-                    if (pins.isNotEmpty()) putJsonArray("extra_hosts") { pins.forEach { (host, ip) -> add("$host=$ip") } }
+                    putJsonArray("extra_hosts") {
+                        pins.forEach { (host, ip) -> add("$host=$ip") }
+                        OutsideCalls.NEWT.forEach { add("$it=${OutsideCalls.NOWHERE}") }
+                    }
                 }
             }
         },
