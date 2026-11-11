@@ -1,6 +1,7 @@
 package homegap.reconcile
 
 import homegap.provision.ExitNodes
+import homegap.provision.TunnelDns
 import com.charleskorn.kaml.*
 import homegap.clients.PangolinClient
 import homegap.clients.PangolinResource
@@ -205,8 +206,9 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         }
         if (!paused) actual = actual.filter { it.niceId in keep || !it.niceId.startsWith(Planner.NICE_PREFIX) || pausedServiceKeys.any { k -> it.niceId.startsWith(Planner.NICE_PREFIX + k) } }
 
-        // Exits the config wants are kept even while their site is missing.
-        val keepPrivate = plan.values.flatMap { n -> n.privateResources.map { it.niceId } }.toSet() + ExitNodes.wanted(ctx.config)
+        // Exits and DNS resolvers the config wants are kept even while their sites are missing.
+        val keepPrivate = plan.values.flatMap { n -> n.privateResources.map { it.niceId } }.toSet() +
+            ExitNodes.wanted(ctx.config) + TunnelDns.wanted(ctx.config)
         siteResources.getOrNull()?.forEach { a ->
             if (!a.niceId.startsWith(Planner.NICE_PREFIX) || a.niceId in keepPrivate) return@forEach
             if (pausedServiceKeys.any { a.niceId.startsWith(Planner.NICE_PREFIX + it) }) return@forEach
@@ -302,7 +304,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         return true
     }
 
-    private fun PrivateResource.label() = if (mode == "exit-node") name else "$alias -> $destination"
+    private fun PrivateResource.label() = if (mode == "exit-node" || alias.isEmpty()) "$name ($destination)".removeSuffix(" ()") else "$alias -> $destination"
 
     private fun describe(d: PublicResource) = "${d.mode.wire} ${d.fullDomain ?: ":${d.proxyPort}"} -> ${d.target.host}:${d.target.port}"
     private fun describe(a: PangolinResource) = "${a.mode} ${a.fullDomain ?: ":${a.proxyPort}"} -> ${a.targets.joinToString { "${it.ip}:${it.port}" }}"
@@ -325,7 +327,8 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
                         if (r.mode != "exit-node") {
                             // An exit node has no destination or ports: all traffic, all ports.
                             put("destination", r.destination)
-                            put("alias", r.alias)
+                            // Optional: a cidr resource (a DNS resolver) is reached by its address.
+                            if (r.alias.isNotEmpty()) put("alias", r.alias)
                             if (r.tcpPorts.isNotEmpty()) put("tcp-ports", r.tcpPorts)
                             if (r.udpPorts.isNotEmpty()) put("udp-ports", r.udpPorts)
                         }

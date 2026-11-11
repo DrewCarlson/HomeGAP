@@ -1,6 +1,7 @@
 package homegap.reconcile
 
 import homegap.provision.ExitNodes
+import homegap.provision.TunnelDns
 import homegap.VERSION
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -454,7 +455,7 @@ class Controller(
                 val sites = readyNodes.mapValues { (_, v) -> v.second.niceId }
                 val via = cfg.nodes.first { it.id in readyNodes }.id
                 val actual = runDomain("resources", ResourceReconciler.CLUSTER_SCOPE) {
-                    resourceRec.reconcileCluster(readyNodes.getValue(via).first, effective.nodes, sites, pausedKeys, ExitNodes.resources(cfg, exitSites, sites))
+                    resourceRec.reconcileCluster(readyNodes.getValue(via).first, effective.nodes, sites, pausedKeys, ExitNodes.resources(cfg, exitSites, sites) + TunnelDns.resources(cfg, exitSites, sites))
                 }
                 if (actual != null) for ((id, rs) in readyNodes) {
                     val (ready, site) = rs

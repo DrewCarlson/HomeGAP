@@ -107,6 +107,8 @@ The `cluster` section is optional. Without it, HomeGAP runs in standalone mode. 
 | `exit_nodes.homelab` | boolean | `false` | Offers an exit through the homelab. |
 | `exit_nodes.roles` | list | `[]` | The roles that can use the exits. `Admin` can always use them. |
 | `exit_nodes.newt_image` | string | `docker.io/fosrl/newt:1.20.0` | The connector image of the exit on each node. |
+| `tunnel_dns.resolvers` | list | `["8.8.8.8"]` | The DNS servers that the Pangolin apps can use through the tunnel, as IP addresses. An empty list disables them. See [DNS through the tunnel](../cluster/pangolin-apps.md#dns-through-the-tunnel). |
+| `tunnel_dns.roles` | list | `["Member"]` | The roles that can use these DNS servers. `Admin` can always use them. |
 
 ## nodes[]
 

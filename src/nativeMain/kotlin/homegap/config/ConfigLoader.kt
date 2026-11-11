@@ -132,6 +132,9 @@ object ConfigLoader {
                 errors += "cluster.primary.switch_back_after: ${e.message}"
             }
             if (cl.image.isBlank()) errors += "cluster.image must not be empty"
+            cl.tunnelDns.resolvers.filterNot { homegap.setup.SetupScripts.isIpAddress(it) }.forEach {
+                errors += "cluster.tunnel_dns.resolvers: '$it' is not an IP address"
+            }
         }
         require(errors.isEmpty()) {
             "Invalid configuration:\n  - " + errors.joinToString("\n  - ")

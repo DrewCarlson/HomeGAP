@@ -61,6 +61,9 @@ certificates:
 #     nodes: true            # "Exit via <node>": leaves with that node's address
 #     homelab: true          # "Exit via homelab": relayed by the nearest node, leaves from home
 #     roles: [Member]        # who may use them (Admin always can)
+#   tunnel_dns:              # DNS servers the apps reach with "DNS over tunnel", no exit needed
+#     resolvers: ["8.8.8.8"] # the apps' default upstream; [] turns it off
+#     roles: [Member]        # who may use them (Admin always can)
 
 nodes:
   - id: na1

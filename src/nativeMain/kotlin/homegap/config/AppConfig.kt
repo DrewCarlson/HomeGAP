@@ -162,6 +162,22 @@ data class ClusterConfig(
     @SerialName("client_hostname") val clientHostname: String = "pangolin",
     /** Internet exits the Pangolin apps can pick: each node, and/or the homelab. */
     @SerialName("exit_nodes") val exitNodes: ExitNodesConfig = ExitNodesConfig(),
+    /** DNS resolvers the Pangolin apps can reach through the tunnel, without an exit node. */
+    @SerialName("tunnel_dns") val tunnelDns: TunnelDnsConfig = TunnelDnsConfig(),
+)
+
+/**
+ * The Pangolin apps' "DNS over tunnel" sends their own DNS lookups through the tunnel to their
+ * upstream DNS server (8.8.8.8 unless changed in the app), which must be a resource they can reach.
+ * Each resolver here becomes one: on every node's exit site when nodes are exits (lookups leave
+ * from the node nearest the device), otherwise on every node's homelab site (they leave from home).
+ */
+@Serializable
+data class TunnelDnsConfig(
+    /** IPv4 or IPv6 addresses of DNS servers; empty turns it off. The apps' default is 8.8.8.8. */
+    val resolvers: List<String> = listOf("8.8.8.8"),
+    /** Roles that may use them (Admin always can). */
+    val roles: List<String> = listOf("Member"),
 )
 
 /**
