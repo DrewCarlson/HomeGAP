@@ -5,7 +5,6 @@ build/
 .idea/
 *.iml
 local.properties
-kotlin-js-store/
 node_modules/
 e2e/work/
 .DS_Store

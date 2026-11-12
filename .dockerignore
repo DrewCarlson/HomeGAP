@@ -1,0 +1,15 @@
+# The image builds copy only the release binaries, the docs sources and a few scripts.
+.git
+.gradle
+.kotlin
+.idea
+.env
+.env.*
+**/node_modules
+*/build
+build/*
+!build/bin
+e2e
+kotlin-js-store
+local
+map
