@@ -966,17 +966,23 @@ class NodeReconciler(
         throw IllegalStateException("$what not reachable")
     }
 
-    /** Stops and removes the node stack (decommission). Data volumes are kept under install_dir. */
+    /**
+     * Stops the node stack and removes it with its data and secrets (decommission). A node that
+     * is added again starts as a new node.
+     */
     suspend fun decommission(node: NodeConfig) {
+        check(dir.startsWith("/") && dir.trimEnd('/').count { it == '/' } >= 2) { "install_dir '$dir' is not safe to remove" }
         val ssh = ctx.ssh.session(node)
-        ssh.runScriptOrThrow("decommission", "cd ${shQuote(dir)} 2>/dev/null && docker compose down --remove-orphans || true", 300)
+        ssh.runScriptOrThrow("decommission", "cd ${shQuote(dir)} 2>/dev/null && docker compose down --remove-orphans --volumes || true", 300)
         ssh.runScript(homegap.provision.ExitNodes.teardownScript(ctx.config.pangolin.installDir), 120)
-        ssh.runScript("rm -f ${shQuote("$dir/${NodeTemplates.CERT}")} ${shQuote("$dir/${NodeTemplates.KEY}")}", 60)
         if (ctx.config.cluster != null) {
             val cluster = shQuote("$dir/cluster")
             ssh.runScript("cd $cluster 2>/dev/null && docker compose down --remove-orphans || true; rm -rf $cluster", 300)
             ssh.runScript(homegap.provision.Mesh.TEARDOWN, 60)
         }
+        // The directory itself can be a mount point, so its contents go first.
+        val q = shQuote(dir)
+        ssh.runScriptOrThrow("decommission", "find $q -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; rmdir $q 2>/dev/null; [ -z \"\$(ls -A $q 2>/dev/null)\" ]", 120)
         ctx.ssh.drop(node.id)
     }
 

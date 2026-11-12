@@ -20,7 +20,10 @@ HomeGAP removes only its own records. In cluster mode, the decommission also doe
 - It removes the exit node of the node from the Pangolin of the cluster.
 - It removes the member of the node from the vote, and deletes its data.
 
-In both modes, the decommission removes the wildcard certificate and its key from the node. The other files stay in the install directory.
+In both modes, the decommission then removes the install directory from the node, with the data and the secrets of the stack. If you add the node again, it starts as a new node.
+
+!!! danger "Warning"
+    A decommission deletes the data of the node. In standalone mode, that includes the Pangolin database of the node.
 
 ## Re-provision a node
 

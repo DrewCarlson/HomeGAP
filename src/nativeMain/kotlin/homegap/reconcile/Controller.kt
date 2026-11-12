@@ -1099,7 +1099,7 @@ class Controller(
         val st = cfg.speedtest
         return SpeedTestOverview(
             enabled = st.enabled,
-            autoUrl = if (st.enabled) "http://${st.autoHost(cfg.domain)}/" else null,
+            autoUrl = if (st.enabled) "https://${st.autoHost(cfg.domain)}/" else null,
             nodes = cfg.nodes.map { it.id },
             results = speedStore.recent(),
             streams = st.streams,
@@ -1112,7 +1112,7 @@ class Controller(
         require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
         val (token, exp) = speedTokens.issue(homegap.config.parseDuration(cfg.speedtest.linkTtl).inWholeMilliseconds)
         return SpeedTestLinkDto(
-            autoUrl = "http://${cfg.speedtest.autoHost(cfg.domain)}/#t=$token",
+            autoUrl = "https://${cfg.speedtest.autoHost(cfg.domain)}/#t=$token",
             nodeUrls = cfg.nodes.associate { it.id to "https://${cfg.speedtest.nodeHost(cfg.domain, it.id)}/#t=$token" },
             expiresAt = exp,
         )
