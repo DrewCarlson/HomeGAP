@@ -12,9 +12,50 @@ import kotlin.time.Duration.Companion.seconds
 
 private val lenient = Json { ignoreUnknownKeys = true }
 
-/** etcd's v3 HTTP gateway: cluster membership (learners join first, then are promoted). */
-class EtcdClient(private val http: HttpClient, private val base: String) {
+/**
+ * etcd's v3 HTTP gateway: cluster membership (learners join first, then are promoted) and
+ * authentication. With [user] and [password], a call signs in when etcd asks for it. The client
+ * works with authentication off and on.
+ */
+class EtcdClient(
+    private val http: HttpClient,
+    private val base: String,
+    private val user: String? = null,
+    private val password: String? = null,
+) {
     data class Member(val id: String, val name: String, val peerUrls: List<String>, val learner: Boolean)
+
+    private var token: String? = null
+
+    /** True if etcd asks for a user. Signs in as a side effect. */
+    suspend fun authEnabled(): Boolean = signIn()
+
+    /** Turns authentication on, with [user] as the only user. It has the `root` role. */
+    suspend fun enableAuth() {
+        val name = requireNotNull(user)
+        val secret = requireNotNull(password)
+        suspend fun create(path: String, body: JsonObject) {
+            runCatching { post(path, body) }.onFailure { if ("already exists" !in it.message.orEmpty()) throw it }
+        }
+        create("/v3/auth/user/add", buildJsonObject { put("name", name); put("password", secret) })
+        create("/v3/auth/role/add", buildJsonObject { put("name", ROOT_ROLE) })
+        post("/v3/auth/user/grant", buildJsonObject { put("user", name); put("role", ROOT_ROLE) })
+        post("/v3/auth/enable", buildJsonObject {})
+        check(signIn()) { "etcd did not turn authentication on" }
+    }
+
+    /** Gets a token. False if authentication is off. */
+    private suspend fun signIn(): Boolean {
+        val name = user ?: return false
+        val secret = password?.takeIf { it.isNotEmpty() } ?: return false
+        token = null
+        return try {
+            token = post("/v3/auth/authenticate", buildJsonObject { put("name", name); put("password", secret) })["token"]?.jsonPrimitive?.content
+            token != null
+        } catch (e: IllegalStateException) {
+            if (AUTH_OFF in e.message.orEmpty()) false else throw e
+        }
+    }
 
     suspend fun healthy(): Boolean = runCatching {
         val r = http.get("$base/health") { timeout { requestTimeoutMillis = 5_000 } }
@@ -40,9 +81,18 @@ class EtcdClient(private val http: HttpClient, private val base: String) {
         call("/v3/cluster/member/remove", buildJsonObject { put("ID", id) })
     }
 
-    private suspend fun call(path: String, body: JsonObject): JsonObject {
+    /** A call that signs in again when etcd refuses the token, or has none. */
+    private suspend fun call(path: String, body: JsonObject): JsonObject = try {
+        post(path, body)
+    } catch (e: IllegalStateException) {
+        if (AUTH_ERRORS.none { it in e.message.orEmpty() } || !signIn()) throw e
+        post(path, body)
+    }
+
+    private suspend fun post(path: String, body: JsonObject): JsonObject {
         val r = http.post("$base$path") {
             contentType(ContentType.Application.Json)
+            token?.let { header(HttpHeaders.Authorization, it) }
             setBody(body.toString())
             timeout { requestTimeoutMillis = 10_000 }
         }
@@ -52,6 +102,12 @@ class EtcdClient(private val http: HttpClient, private val base: String) {
             throw IllegalStateException("etcd ${path.substringAfterLast('/')}: ${message ?: "HTTP ${r.status.value}"}")
         }
         return lenient.parseToJsonElement(text).jsonObject
+    }
+
+    private companion object {
+        const val ROOT_ROLE = "root"
+        const val AUTH_OFF = "authentication is not enabled"
+        val AUTH_ERRORS = listOf("user name is empty", "invalid auth token", "permission denied", "revision of auth store is old")
     }
 
     private fun JsonObject.toMember() = Member(
@@ -120,8 +176,11 @@ class PatroniClient(private val http: HttpClient, user: String, password: String
     }
 }
 
-/** Valkey and its Sentinels, through `redis-cli` (the password travels in the environment). */
-class ValkeyCli(private val password: String) {
+/**
+ * Valkey and its Sentinels, through `redis-cli` (the passwords travel in the environment).
+ * [sentinelPassword] is Sentinel's own password.
+ */
+class ValkeyCli(private val password: String, private val sentinelPassword: String) {
     suspend fun sentinelMaster(host: String, name: String): String? =
         cli(host, 26379, "SENTINEL", "get-master-addr-by-name", name, auth = false)?.lines()?.firstOrNull()?.takeIf { it.isNotBlank() }
 
@@ -170,9 +229,11 @@ class ValkeyCli(private val password: String) {
             l.trim().indexOf(':').takeIf { it > 0 }?.let { l.trim().substring(0, it) to l.trim().substring(it + 1) }
         }?.toMap()
 
+    /** With [auth], the call uses the Valkey password. Without it, the Sentinel password. */
     private suspend fun cli(host: String, port: Int, vararg args: String, auth: Boolean): String? {
-        val argv = listOf("redis-cli", "-h", host, "-p", port.toString(), "--raw") + args
-        val env = if (auth) mapOf("REDISCLI_AUTH" to password) else emptyMap()
+        val argv = listOf("redis-cli", "-h", host, "-p", port.toString(), "--raw", "--no-auth-warning") + args
+        val secret = if (auth) password else sentinelPassword
+        val env = if (secret.isNotEmpty()) mapOf("REDISCLI_AUTH" to secret) else emptyMap()
         val r = runCatching { Subprocess.run(argv, timeout = 5.seconds, env = env) }.getOrNull() ?: return null
         return r.stdout.takeIf { r.ok && !r.stdout.startsWith("ERR") && !r.stdout.contains("Could not connect") }
     }

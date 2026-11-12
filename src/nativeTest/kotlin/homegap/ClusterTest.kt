@@ -24,7 +24,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ClusterTest {
-    private val secrets = ClusterSecrets("pgpass", "replpass", "valkeypass", "restpass", "pangolinpass", "rewindpass")
+    private val secrets = ClusterSecrets("pgpass", "replpass", "valkeypass", "restpass", "pangolinpass", "rewindpass", "etcdpass", "sentinelpass")
     private val homelab = Member("homelab", "10.77.0.1")
     private val na1 = Member("na1", "10.77.0.10")
     private val eu1 = Member("eu1", "10.77.0.11")
@@ -65,6 +65,11 @@ class ClusterTest {
         val sentinel = ClusterTemplates.sentinel(na1, homelab.meshIp, secrets)
         assertTrue("sentinel monitor homegap 10.77.0.1 6379 2" in sentinel)
         assertTrue("sentinel announce-ip 10.77.0.10" in sentinel)
+        assertTrue("requirepass sentinelpass" in sentinel, "Sentinel has its own password, not the Valkey password")
+        val patroni = ClusterTemplates.patroni(na1, homegap.config.MeshConfig(), secrets)
+        assertTrue("username: root" in patroni && "password: \"etcdpass\"" in patroni, patroni)
+        val valkey = ClusterTemplates.valkeyEnv(na1, secrets, 100, homelab.meshIp, listOf(homelab.meshIp))
+        assertTrue("HG_SENTINEL_PASSWORD=sentinelpass" in valkey)
     }
 
     @Test
@@ -123,7 +128,12 @@ class ClusterTest {
         assertTrue("allow in on hg-mesh to any port 5432 proto tcp" in specs)
         assertTrue("allow in on hg-mesh to any port 3004 proto tcp" in specs)
         assertTrue("allow in on hg-mesh" !in specs, "the mesh reaches only the cluster ports")
-        assertTrue("allow in on hg-cluster" in specs, "the node's own containers reach its cluster services")
+        // The containers of the node reach the database, Valkey and the Patroni check, and no control port.
+        assertEquals(
+            listOf("allow in on hg-cluster to any port 5432 proto tcp", "allow in on hg-cluster to any port 6379 proto tcp", "allow in on hg-cluster to any port 8008 proto tcp"),
+            specs.filter { "hg-cluster" in it },
+        )
+        assertEquals("DOCKER-USER -o hg-mesh -p tcp -m multiport --dports 2380,26379 -j DROP", FirewallRules.containerGuard)
         assertTrue("com.docker.network.bridge.name: hg-cluster" in ClusterTemplates.nodeCompose("x", emptyMap()))
     }
 

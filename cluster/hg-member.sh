@@ -35,6 +35,21 @@ backup_loop() {
   done
 }
 
+# The password that Sentinel asks for, from a Sentinel config file. Sentinel writes it in quotes.
+sentinel_password() {
+  sed -n 's/^requirepass //p' "$1" 2>/dev/null | head -n 1 | tr -d '"'
+}
+
+# valkey-cli for a Sentinel, with the Sentinel password $1 if there is one.
+sentinel_cli() {
+  pw=$1; shift
+  if [ -n "$pw" ]; then
+    timeout 3 env REDISCLI_AUTH="$pw" valkey-cli --no-auth-warning "$@"
+  else
+    timeout 3 valkey-cli "$@"
+  fi
+}
+
 # Reloads HAProxy (PID 1 of the haproxy container) with the current config. Each server's up/down
 # state is saved first and loaded by the new workers (server-state-file), so a reload never
 # briefly sends traffic to a replica the old workers knew was down.
@@ -104,7 +119,9 @@ case "$ROLE" in
     . "$CONFIG/valkey.env"
     master=""
     for s in $HG_SENTINELS; do
-      master=$(timeout 3 valkey-cli -h "$s" -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1) || master=""
+      master=$(sentinel_cli "${HG_SENTINEL_PASSWORD:-}" -h "$s" -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1) || master=""
+      # An error text is not an address.
+      case "$master" in *[!0-9.]*) master="" ;; esac
       if [ -n "$master" ]; then break; fi
     done
     [ -n "$master" ] || master=$HG_INITIAL_MASTER
@@ -126,8 +143,24 @@ case "$ROLE" in
     # Sentinel rewrites its config with what it learns, so the state is kept in the data volume
     # and the rendered template is only the starting point.
     wait_for "$CONFIG/sentinel.conf"
-    [ -s /var/lib/sentinel/sentinel.conf ] || install -D -m 0600 "$CONFIG/sentinel.conf" /var/lib/sentinel/sentinel.conf
-    exec valkey-sentinel /var/lib/sentinel/sentinel.conf
+    STATE=/var/lib/sentinel/sentinel.conf
+    [ -s "$STATE" ] || install -D -m 0600 "$CONFIG/sentinel.conf" "$STATE"
+    # The password is the one setting that goes from the rendered config into the kept copy.
+    want=$(sentinel_password "$CONFIG/sentinel.conf")
+    if [ "$want" != "$(sentinel_password "$STATE")" ]; then
+      sed -i '/^requirepass /d' "$STATE"
+      [ -z "$want" ] || echo "requirepass $want" >> "$STATE"
+    fi
+    # Sentinel also keeps the default user in its copy, and that line wins over the password.
+    # Without the line, Sentinel makes the user from the password and writes it again.
+    [ -z "$want" ] || sed -i '/^user default on nopass /d' "$STATE"
+    # A new password needs a new start: Sentinel (PID 1 below) reads it only then.
+    (
+      while sleep 10; do
+        [ "$(sentinel_password "$CONFIG/sentinel.conf")" = "$want" ] || kill -TERM 1
+      done
+    ) &
+    exec valkey-sentinel "$STATE"
     ;;
   haproxy)
     wait_for "$CONFIG/haproxy.cfg"
@@ -148,7 +181,8 @@ case "$ROLE" in
     # A database or Valkey member must be the primary or a replica that is linked to it.
     [ -s "$CONFIG/mesh.env" ] && . "$CONFIG/mesh.env"
     case "${2:-}" in
-      etcd) etcdctl --endpoints=http://127.0.0.1:2379 --command-timeout=3s endpoint health >/dev/null 2>&1 ;;
+      # The health page needs no user. `etcdctl endpoint health` does, once etcd asks for one.
+      etcd) curl -fsS -m 3 http://127.0.0.1:2379/health 2>/dev/null | grep -q '"health":"true"' ;;
       patroni)
         # No config: this member only votes (cluster.homelab_role: vote), so there is nothing to wait for.
         [ -s "$CONFIG/patroni.yml" ] || exit 0
@@ -159,7 +193,9 @@ case "$ROLE" in
         . "$CONFIG/valkey.env"
         info=$(REDISCLI_AUTH=$HG_PASSWORD valkey-cli -h 127.0.0.1 info replication 2>/dev/null) || exit 1
         echo "$info" | grep -q '^role:master' || echo "$info" | grep -q '^master_link_status:up' ;;
-      sentinel) [ -n "$(valkey-cli -h 127.0.0.1 -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1)" ] ;;
+      sentinel)
+        master=$(sentinel_cli "$(sentinel_password /var/lib/sentinel/sentinel.conf)" -h 127.0.0.1 -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1)
+        case "$master" in ""|*[!0-9.]*) exit 1 ;; esac ;;
       *) echo "usage: hg-member ready etcd|patroni|valkey|sentinel" >&2; exit 64 ;;
     esac
     ;;

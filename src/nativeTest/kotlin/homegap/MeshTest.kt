@@ -68,7 +68,12 @@ class MeshTest {
         val script = Mesh.nodeScript(mesh, "10.77.0.10", Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()), openFirewall = true)
         assertTrue("wg syncconf" in script, "peer changes apply without tearing the interface down")
         assertTrue("wg genkey" in script && "PUBKEY=" in script)
-        assertTrue("ufw allow 51821/udp comment homegap" in script)
+        assertTrue("allow 51821/udp" in script && "ufw \$spec comment homegap" in script)
+        // A container of the node has no path to the control ports of the other members.
+        assertTrue("-I DOCKER-USER -o hg-mesh -p tcp -m multiport --dports 2380,26379 -j DROP" in script)
+        assertTrue("PostUp = iptables -N DOCKER-USER" in Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()), "the rule comes back at boot")
+        // A rule for the bridge that admits more does not stay.
+        assertTrue("ufw delete \$spec" in script)
         assertFalse("ufw allow" in Mesh.nodeScript(mesh, "10.77.0.10", "", openFirewall = false))
     }
 

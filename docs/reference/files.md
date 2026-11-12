@@ -17,7 +17,7 @@ The data directory is `data_dir` (default `/data`), on the `homegap-data` volume
 | `ssh-askpass.sh` | A helper that gives the setup password to `ssh`. |
 | `tunnels/` | The connector specs, which the `tunnels` container also reads. With the shipped compose file, this is the `homegap-tunnels` volume at `/tunnels`. |
 | `acme/` | The ACME account key, and the certificate of the nodes with its key. See [Certificates](../configuration/certificates.md). |
-| `cluster/secrets.json` | The cluster passwords. |
+| `cluster/secrets.json` | The cluster passwords: PostgreSQL, Valkey, Sentinel, etcd and the Patroni API. |
 | `cluster/homelab-role` | The role of the homelab that HomeGAP records when it creates the cluster. |
 | `cluster/backups/` | With `cluster.homelab_role: vote`, the daily dumps of the cluster database. HomeGAP keeps the newest seven. |
 | `cluster/config/` | The configs of the homelab member, which the cluster containers read. With the shipped compose file, this is the `homegap-cluster-config` volume at `/cluster-config`. |

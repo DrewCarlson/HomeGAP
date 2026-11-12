@@ -28,15 +28,29 @@ object FirewallRules {
 
     /**
      * The rules for the cluster mesh on [port]. The other members reach only the cluster ports on
-     * the mesh address. The containers of the node (HAProxy, Pangolin) reach them from the cluster bridge.
+     * the mesh address. The containers of the node (HAProxy, Pangolin) reach the database, Valkey
+     * and the Patroni health check from the cluster bridge, and no other port. See
+     * [containerGuard] for the paths of a container to the other members.
      */
     fun meshSpecs(port: Int): List<String> = buildList {
         add("allow $port/udp")
         (ClusterTemplates.MESH_PORTS + NodeTemplates.GERBIL_API_PORT).sorted().forEach {
             add("allow in on ${Mesh.INTERFACE} to any port $it proto tcp")
         }
-        add("allow in on ${ClusterTemplates.BRIDGE}")
+        ClusterTemplates.BRIDGE_PORTS.sorted().forEach {
+            add("allow in on ${ClusterTemplates.BRIDGE} to any port $it proto tcp")
+        }
     }
+
+    /**
+     * The `iptables` arguments of the rule that keeps containers off the control ports of the
+     * other members. Docker forwards a container to the mesh as the node itself, so the other
+     * member cannot tell the container from the node. `DOCKER-USER` sees each forwarded packet
+     * before the rules of Docker. The etcd client port stays open for the mesh probe of HAProxy,
+     * and etcd asks for a password there.
+     */
+    val containerGuard: String =
+        "DOCKER-USER -o ${Mesh.INTERFACE} -p tcp -m multiport --dports ${ClusterTemplates.CONTROL_PORTS.sorted().joinToString(",")} -j DROP"
 
     /**
      * Applies [specs]: adds the wanted rules first (so narrowing SSH access never drops the

@@ -6,7 +6,9 @@
 #   4. cutting the homelab off: a node becomes primary and takes writes, the homelab stops; after
 #      healing, HomeGAP switches the primary back (cluster.primary.switch_back_after);
 #   5. exit nodes (cluster.exit_nodes): a client that picks "Exit via <node>" or "Exit via homelab"
-#      reaches the internet with no route of its own, through that exit (needs internet access).
+#      reaches the internet with no route of its own, through that exit (needs internet access);
+#   6. a container on a node (Pangolin) cannot reach the etcd peer port or Sentinel of a member,
+#      and etcd and Sentinel refuse a request without their password.
 # ONLY="3 5" runs just those sections.
 # Test credentials come from the e2e data directory and are never printed.
 set -uo pipefail
@@ -215,6 +217,35 @@ if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
   docker rm -f hg-verify-exit >/dev/null 2>&1
   docker compose exec -T -e K="$KEY" node-na1 sh -c "curl -s -o /dev/null -X DELETE -H \"Authorization: Bearer \$K\" http://127.0.0.1:3003/v1/client/$CID"
 fi
+fi
+
+if want 6; then
+echo "--- 6. what a container on a node can reach"
+MESH="10.77.0.1 10.77.0.10 10.77.0.11"
+for node in $NODES; do
+  id=${node%%:*}
+  code() { docker compose exec -T "node-$id" docker exec pangolin curl -s -m 4 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null; }
+  open=""
+  for ip in $MESH; do
+    [ "$(code "http://$ip:2380/members")" = 000 ] || open="$open $ip:2380"
+    # Sentinel speaks no HTTP: any answer, also an error text, shows that the port is open.
+    out=$(docker compose exec -T "node-$id" docker exec pangolin curl -s -m 4 "http://$ip:26379/" 2>&1)
+    [ -z "$out" ] || open="$open $ip:26379"
+  done
+  if [ -z "$open" ]; then pass "$id: Pangolin's container cannot reach the etcd peer port or Sentinel of a member"; else fail "$id: Pangolin's container reaches$open"; fi
+  denied=1
+  for ip in $MESH; do
+    out=$(docker compose exec -T "node-$id" docker exec pangolin curl -s -m 4 -X POST "http://$ip:2379/v3/kv/range" -d '{"key":"AA==","range_end":"AA==","limit":1}' 2>/dev/null)
+    case "$out" in *'"kvs"'*|*'"header"'*) denied=0 ;; esac
+  done
+  if [ "$denied" = 1 ]; then pass "$id: etcd gives Pangolin's container no data without a user"; else fail "$id: etcd answered Pangolin's container without a user"; fi
+  if [ "$(code http://localhost:3001/api/v1/)" = 200 ]; then pass "$id: Pangolin still reaches its database"; else fail "$id: Pangolin does not answer"; fi
+done
+SPW=$(python3 -c "import json; print(json.load(open('work/data/cluster/secrets.json'))['sentinel'])")
+seen=$(docker compose exec -T -e REDISCLI_AUTH="$SPW" cluster-sentinel valkey-cli --no-auth-warning -p 26379 SENTINEL sentinels homegap 2>/dev/null | grep -c '^10\.77\.')
+noauth=$(docker compose exec -T cluster-sentinel valkey-cli -p 26379 SENTINEL get-master-addr-by-name homegap 2>&1 | head -n 1)
+if [ "$seen" -ge 2 ]; then pass "the Sentinels see each other with the password"; else fail "the homelab Sentinel sees $seen other Sentinels"; fi
+case "$noauth" in *NOAUTH*) pass "Sentinel refuses a command without the password" ;; *) fail "Sentinel answered without the password: $noauth" ;; esac
 fi
 
 echo

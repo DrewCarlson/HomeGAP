@@ -74,6 +74,8 @@ object Mesh {
         appendLine("Address = $address/$prefix")
         appendLine("ListenPort = ${mesh.port}")
         appendLine("PrivateKey = $KEY_PLACEHOLDER")
+        // At boot, before Docker starts and makes its rules.
+        appendLine("PostUp = $GUARD_COMMAND")
         for (p in peers.sortedBy { it.id }) {
             appendLine()
             appendLine("# ${p.id}")
@@ -172,9 +174,35 @@ object Mesh {
 
     private const val DOCKER_DROPIN = "/etc/systemd/system/docker.service.d/10-homegap-mesh.conf"
 
-    private fun firewallStep(port: Int) =
-        "if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then " +
-            FirewallRules.meshSpecs(port).joinToString("; ") { "ufw $it comment homegap >/dev/null" } + "; fi"
+    /**
+     * Adds the rule of [FirewallRules.containerGuard] if it is not there. Docker keeps the chain.
+     * A host can have the nftables and the legacy rule sets, and Docker uses one of them, so the
+     * rule goes into each set that has the chain.
+     */
+    private val GUARD_COMMAND =
+        "iptables -N DOCKER-USER 2>/dev/null || true; for t in iptables iptables-legacy; do \$t -S DOCKER-USER >/dev/null 2>&1 || continue; " +
+            "\$t -C ${FirewallRules.containerGuard} 2>/dev/null || \$t -I ${FirewallRules.containerGuard} || true; done"
+
+    /**
+     * Opens the mesh in an active ufw, and removes each HomeGAP rule for the mesh interface or the
+     * cluster bridge that is not wanted, so a rule that admits more does not stay.
+     */
+    private fun firewallStep(port: Int): String {
+        val wanted = FirewallRules.meshSpecs(port)
+        return $$"""
+            |$$GUARD_COMMAND
+            |if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
+            |  WANTED=$(cat <<'HOMEGAP_MESH_RULES'
+            |$${wanted.joinToString("\n")}
+            |HOMEGAP_MESH_RULES
+            |)
+            |  printf '%s\n' "$WANTED" | while IFS= read -r spec; do ufw $spec comment homegap >/dev/null; done
+            |  ufw show added 2>/dev/null | sed -n "s/^ufw \(.*\) comment 'homegap'$/\1/p" | { grep -E ' on ($${INTERFACE}|$${ClusterTemplates.BRIDGE})( |$)' || true; } | while IFS= read -r spec; do
+            |    printf '%s\n' "$WANTED" | grep -qxF "$spec" || { ufw delete $spec >/dev/null && echo "CHANGED ufw removed $spec"; }
+            |  done
+            |fi
+        """.trimMargin()
+    }
 
     /** What the orchestrator writes for the homelab's mesh agent: the interface it keeps. */
     const val SPEC_FILE = "mesh.json"

@@ -38,6 +38,17 @@ Thus a container in that namespace cannot open a connection to the orchestrator,
 
 The orchestrator reaches the members through this namespace. It adds a route for `cluster.mesh.subnet` through `homegap-mesh` on the `homegap-cluster` network. For that route it needs `NET_ADMIN`.
 
+## What a container on a node can reach
+
+Pangolin on a node faces the internet. HomeGAP keeps the containers of a node away from the services that control the cluster:
+
+- **The firewall of the node** admits the containers only to PostgreSQL, Valkey and the health check of Patroni on the member of their own node.
+- **A forward rule** in the `DOCKER-USER` chain drops each packet from a container to the etcd peer port (`2380`) or the Sentinel port (`26379`) of another member. Docker forwards a container to the mesh as the node itself, so the other member cannot tell them apart. The rule is on the node that sends. `wg-quick` adds it again at boot.
+- **etcd asks for a password.** The etcd client port (`2379`) stays reachable for the probe of HAProxy, but each read and each write needs the etcd `root` user. Only the members and the orchestrator hold that password.
+- **Sentinel asks for a password.** It is not the Valkey password, which Pangolin holds.
+
+A person with root on a node holds these passwords, because the member of that node needs them. See [Security model](../reference/security.md#the-homelab).
+
 ## Probes
 
 Once a second, each node opens a TCP connection to the etcd port of every other member. It does this on two paths:

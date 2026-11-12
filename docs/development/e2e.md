@@ -71,6 +71,7 @@ The script has these sections:
 3. A Pangolin client (the `client` service) reaches a private service through the node that it goes to. `CLIENT_NODE_IP` takes the role of DNS. Private-only names arrive from the private network.
 4. The homelab is cut off from the mesh. A node becomes the primary and takes writes, and the homelab stops writes. After the repair, HomeGAP switches the primary back.
 5. Exit nodes: a client that selects `Exit via <node>` or `Exit via homelab` reaches the internet through that exit. This section needs internet access.
+6. The container of Pangolin on each node cannot reach the etcd peer port or the Sentinel of a member. etcd and Sentinel refuse a request without their password.
 
 To run only some sections, set `ONLY`, for example `ONLY="3 5"`.
 

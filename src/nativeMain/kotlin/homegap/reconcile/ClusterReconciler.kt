@@ -78,6 +78,10 @@ class ClusterReconciler(
     /** When a Sentinel was last told to forget departed members (epoch ms). */
     private var sentinelResetAt = 0L
 
+    /** Passes in a row in which each node took its cluster config. See [ensureEtcdAuth]. */
+    private var credentialPasses = 0
+    private var authWaitLogged = false
+
     /** When HomeGAP last moved a primary on purpose (epoch ms, the last hour), for the proxy check. */
     @Volatile var plannedMoves: List<Long> = emptyList()
         private set
@@ -113,7 +117,7 @@ class ClusterReconciler(
         val data = data(members)
         writeHomelab(ctx, cluster, homelab, members, secrets)
 
-        val etcd = EtcdClient(http, "http://${homelab.meshIp}:${ClusterTemplates.ETCD_CLIENT_PORT}")
+        val etcd = EtcdClient(http, "http://${homelab.meshIp}:${ClusterTemplates.ETCD_CLIENT_PORT}", ClusterTemplates.ETCD_USER, secrets.etcd)
         val patroni = PatroniClient(http, ClusterTemplates.REST_USER, secrets.rest)
         val etcdMembers = runCatching { etcd.members() }.getOrNull()
         report(ctx, "etcd", if (etcdMembers == null) "the homelab's etcd is not reachable yet" else null)
@@ -139,6 +143,7 @@ class ClusterReconciler(
         if (etcdMembers != null) {
             if (!ctx.pauses().global) removeDeparted(ctx, etcd, etcdMembers, nodeMembers.map { it.second })
             var joining = etcdMembers.any { it.learner }
+            val synced = mutableSetOf<String>()
             for ((node, member) in nodeMembers) {
                 if (ctx.nodePaused(node.id)) continue
                 val existing = etcdMembers.firstOrNull { it.name == member.id || ClusterTemplates.peerUrl(member) in it.peerUrls }
@@ -172,14 +177,21 @@ class ClusterReconciler(
                         }
                     }
                     report(ctx, node.id, null)
+                    synced += node.id
                 } catch (e: Exception) {
                     if (e is CancellationException) currentCoroutineContext().ensureActive()
                     report(ctx, node.id, e.message ?: e.toString())
                 }
             }
+            if (!ctx.pauses().global) {
+                runCatching { ensureEtcdAuth(ctx, etcd, nodeMembers.all { it.first.id in synced }) }.onFailure {
+                    if (it is CancellationException) currentCoroutineContext().ensureActive()
+                    ctx.log.warn(domain, "cannot turn on the authentication of etcd: ${it.message}")
+                }
+            }
         }
 
-        if (initialized) forgetDeparted(ctx, ValkeyCli(secrets.valkey), members)
+        if (initialized) forgetDeparted(ctx, ValkeyCli(secrets.valkey, secrets.sentinel), members)
         if (pg != null) recordPrimary(pg)
         // Without a database at home there is nowhere to switch back to: the primary stays where it is elected.
         val switchBack = if (voteOnly) null else switchBack(ctx, cluster, patroni, pg, homelab, members, secrets)
@@ -287,7 +299,7 @@ class ClusterReconciler(
         } else {
             notes += "database primary already on ${leader?.name ?: "no member"}"
         }
-        val valkey = ValkeyCli(secrets().valkey)
+        val valkey = secrets().let { ValkeyCli(it.valkey, it.sentinel) }
         val offIp = members.first { it.id == off }.meshIp
         val master = sentinelMaster(valkey, members)
         if (master == offIp) {
@@ -492,13 +504,19 @@ class ClusterReconciler(
                         "the cluster database keeps the passwords in that file.",
                 )
             }
-            return read.also { loadedSecrets = it }
+            // A password that an older file does not have is new. It replaces no password in use.
+            val complete = read.copy(
+                etcd = read.etcd.ifEmpty { Crypto.token(32) },
+                sentinel = read.sentinel.ifEmpty { Crypto.token(32) },
+            )
+            if (complete != read) Files.writeAtomic(secretsFile, json.encodeToString(complete), "600".toInt(8))
+            return complete.also { loadedSecrets = it }
         }
         check(!Files.exists(initializedFile) && !inUse()) {
             "The cluster secrets file $secretsFile is missing, but the cluster is in use. HomeGAP does not create new " +
                 "passwords: the cluster database keeps the old ones. Restore the file from a backup of the data directory."
         }
-        val created = ClusterSecrets(Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32))
+        val created = ClusterSecrets(Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32), Crypto.token(32))
         Files.mkdirs(dir)
         Files.chmodPath(dir, "700".toInt(8))
         Files.writeAtomic(secretsFile, json.encodeToString(created), "600".toInt(8))
@@ -568,8 +586,8 @@ class ClusterReconciler(
         val compose = ClusterTemplates.nodeCompose(
             image,
             mapOf(
-                // The Sentinel list only matters at start; growing it must not restart Valkey.
-                "valkey" to hash(valkeyEnv.lines().filterNot { it.startsWith("HG_SENTINELS=") }.joinToString("\n")),
+                // The Sentinel list and password only matter at start. A change must not restart Valkey.
+                "valkey" to hash(valkeyEnv.lines().filterNot { it.startsWith("HG_SENTINEL") }.joinToString("\n")),
                 "sentinel" to hash(sentinelConf),
                 MeshProbe.SERVICE to hash(MeshProbe.SCRIPT + probeTargets),
             ),
@@ -638,10 +656,32 @@ class ClusterReconciler(
      */
     suspend fun dropMember(ctx: ReconcileContext, nodeId: String) {
         val cluster = ctx.config.cluster ?: return
-        val etcd = EtcdClient(http, "http://${Mesh.homelabAddress(cluster.mesh)}:${ClusterTemplates.ETCD_CLIENT_PORT}")
+        val etcd = EtcdClient(http, "http://${Mesh.homelabAddress(cluster.mesh)}:${ClusterTemplates.ETCD_CLIENT_PORT}", ClusterTemplates.ETCD_USER, secrets().etcd)
         val member = etcd.members().firstOrNull { it.name == nodeId } ?: return
         etcd.remove(member.id)
         ctx.log.change(domain, "removed $nodeId from the cluster vote")
+    }
+
+    /**
+     * Turns on the authentication of etcd once each member has the password. Patroni signs in
+     * when etcd asks for it, but a Patroni without the password loses etcd and demotes its
+     * database. So each node must take its config in two passes in a row first: the second pass
+     * shows that Patroni had the time to read the config of the first.
+     */
+    private suspend fun ensureEtcdAuth(ctx: ReconcileContext, etcd: EtcdClient, allSynced: Boolean) {
+        if (etcd.authEnabled()) {
+            credentialPasses = 0
+            return
+        }
+        if (!allSynced) {
+            credentialPasses = 0
+            if (!authWaitLogged) ctx.log.info(domain, "etcd gets its authentication once each node has the password")
+            authWaitLogged = true
+            return
+        }
+        if (++credentialPasses < 2) return
+        etcd.enableAuth()
+        ctx.log.change(domain, "etcd now asks for a password")
     }
 
     /** Removes etcd members whose node left the cluster (never the homelab). */
@@ -723,7 +763,7 @@ class ClusterReconciler(
         }
         // Valkey follows once PostgreSQL is back on the preferred member.
         if (pg.firstOrNull { it.role == "leader" }?.name == cluster.primary.preferred) {
-            val valkey = ValkeyCli(secrets.valkey)
+            val valkey = ValkeyCli(secrets.valkey, secrets.sentinel)
             val master = sentinelMaster(valkey, members)
             val homelabLinked = valkey.replication(homelab.meshIp)?.get("master_link_status") == "up"
             if (master != null && master != homelab.meshIp && homelabLinked) {
@@ -808,7 +848,7 @@ class ClusterReconciler(
         secrets: ClusterSecrets,
         switchBack: String?,
     ): ClusterStatusDto {
-        val valkey = ValkeyCli(secrets.valkey)
+        val valkey = ValkeyCli(secrets.valkey, secrets.sentinel)
         val valkeyMaster = sentinelMaster(valkey, members)
         // Each member's own view: its etcd's health and its Valkey role.
         val probes = coroutineScope {

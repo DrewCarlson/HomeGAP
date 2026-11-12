@@ -18,6 +18,10 @@ data class ClusterSecrets(
     val pangolin: String,
     /** The role pg_rewind connects with (`rewinder`). */
     val rewind: String,
+    /** The etcd `root` user. Only the members and the orchestrator hold it, never Pangolin. */
+    val etcd: String = "",
+    /** Sentinel's `requirepass`. It is not the Valkey password, which Pangolin holds. */
+    val sentinel: String = "",
 )
 
 /**
@@ -47,6 +51,13 @@ object ClusterTemplates {
     const val BRIDGE = "hg-cluster"
     const val PROXY_HOST = "cluster-proxy"
     const val REST_USER = "homegap"
+    const val ETCD_USER = "root"
+
+    /** Ports that only the members use. A container on a node has no path to them. */
+    val CONTROL_PORTS = listOf(ETCD_PEER_PORT, SENTINEL_PORT)
+
+    /** Ports of the member that the containers of its own node use (HAProxy, Pangolin). */
+    val BRIDGE_PORTS = listOf(POSTGRES_PORT, PATRONI_PORT, VALKEY_PORT)
 
     /** Ports other members connect to over the mesh. */
     val MESH_PORTS = listOf(ETCD_CLIENT_PORT, ETCD_PEER_PORT, POSTGRES_PORT, PATRONI_PORT, VALKEY_PORT, SENTINEL_PORT)
@@ -110,6 +121,8 @@ object ClusterTemplates {
         |    password: "${secrets.rest}"
         |etcd3:
         |  hosts: 127.0.0.1:$ETCD_CLIENT_PORT
+        |  username: $ETCD_USER
+        |  password: "${secrets.etcd}"
         |bootstrap:
         |  dcs:
         |    ttl: 30
@@ -169,6 +182,7 @@ object ClusterTemplates {
     fun valkeyEnv(member: Member, secrets: ClusterSecrets, priority: Int, initialMaster: String, sentinels: List<String>): String = buildString {
         appendLine("HG_MESH_IP=${member.meshIp}")
         appendLine("HG_PASSWORD=${secrets.valkey}")
+        appendLine("HG_SENTINEL_PASSWORD=${secrets.sentinel}")
         appendLine("HG_PRIORITY=$priority")
         appendLine("HG_INITIAL_MASTER=$initialMaster")
         appendLine("HG_SENTINELS='${sentinels.joinToString(" ")}'")
@@ -178,6 +192,7 @@ object ClusterTemplates {
     fun sentinel(member: Member, initialMaster: String, secrets: ClusterSecrets): String = """
         |bind ${member.meshIp} 127.0.0.1
         |port $SENTINEL_PORT
+        |requirepass ${secrets.sentinel}
         |sentinel announce-ip ${member.meshIp}
         |sentinel monitor $SCOPE $initialMaster $VALKEY_PORT $SENTINEL_QUORUM
         |sentinel auth-pass $SCOPE ${secrets.valkey}

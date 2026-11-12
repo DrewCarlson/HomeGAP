@@ -44,6 +44,8 @@ Only the orchestrator mounts the `homegap-data` volume, which holds the state ca
 
 In cluster mode, Pangolin on each node uses its own database role, `pangolin`. This role owns the `pangolin` database and is not a superuser. The superuser `postgres` can sign in only from inside a member, never over the mesh.
 
+The containers of a node cannot control the cluster. etcd and Sentinel ask for a password that Pangolin does not hold, and a firewall on each node keeps its containers off the etcd peer port and the Sentinel port. See [Cluster mesh](../cluster/mesh.md#what-a-container-on-a-node-can-reach).
+
 Each node is also a voting member of the cluster database. Patroni members share their config, so a person with root on a node can still run commands in the cluster containers of the homelab. HomeGAP therefore isolates those containers:
 
 - They are in their own network namespace, without the orchestrator. A firewall there lets them open connections only on the mesh. They cannot reach the dashboard, your other containers or your home network.
