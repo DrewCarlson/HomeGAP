@@ -55,7 +55,7 @@ This page lists every key of the config file, with its type and its default. A k
 | `crowdsec_image` | string | `docker.io/crowdsecurity/crowdsec:latest` | The CrowdSec image. |
 | `badger_version` | string | `v1.8.0` | The version of the Badger plugin of Pangolin for Traefik. |
 | `crowdsec_bouncer_version` | string | `v1.4.6` | The version of the CrowdSec bouncer. |
-| `acme_email` | string | None. | The email address for ACME. |
+| `acme_email` | string | None. | The contact address of the ACME account, if `acme.email` is not set. |
 | `org_id` | string | `homegap` | The id of the Pangolin org. |
 | `org_name` | string | `HomeGAP` | The name of the Pangolin org. |
 | `admin_email` | string | `admin@<domain>` | The email of the admin account that HomeGAP creates. |
@@ -70,17 +70,17 @@ This page lists every key of the config file, with its type and its default. A k
 
 For the use of these keys, see [Pangolin options](pangolin.md).
 
-## certificates
+## acme
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `source` | string | `none` | `none`, `files` or `acme_json`. |
-| `cert_file` | string | None. | The PEM certificate chain, for `files`. |
-| `key_file` | string | None. | The PEM private key, for `files`. |
-| `acme_json` | string | None. | The path of the ACME store of the homelab Traefik, for `acme_json`. |
-| `resolver` | string | None. | The resolver name in the ACME store. Without it, HomeGAP searches every resolver. |
+| `email` | string | `pangolin.acme_email`, then the admin email. | The contact address of the ACME account. |
+| `staging` | boolean | `false` | Uses the staging directory of Let's Encrypt. |
+| `directory` | string | The directory of Let's Encrypt. | The address of a different ACME directory. It must start with `https://`. |
+| `caa` | boolean | `true` | Publishes CAA records that permit only `caa_issuer` with the DNS challenge. |
+| `caa_issuer` | string | `letsencrypt.org` | The certificate authority in the CAA records. |
 
-See [Certificates](certificates.md).
+See [Certificates](certificates.md). HomeGAP does not use the `certificates` section of an older config.
 
 ## tunnels
 

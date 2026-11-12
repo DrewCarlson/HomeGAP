@@ -86,7 +86,7 @@ class PlannerTest {
     @Test
     fun dnsHasGeoSetsAndManagementRecords() {
         val plan = Planner.plan(cfg, listOf(TRAEFIK))
-        val root = plan.dns.filter { it.fqdn == "test.example.net" }
+        val root = plan.dns.filter { it.fqdn == "test.example.net" && it.type != "CAA" }
         assertEquals(setOf("na1", "as1"), root.map { it.nodeId }.toSet())
         assertTrue(root.all { it.geo && it.monitor == "http" && it.name == "test" })
         val wildcard = plan.dns.filter { it.name == "*.test" }

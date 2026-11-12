@@ -25,8 +25,6 @@ The **Config** page on the dashboard lists each secret that the config reference
 - The Pangolin EE license for all nodes, if you set one.
 - The bearer token of the dashboard, if you set one.
 - For each node, the SSH key (`ssh_key_file`), and the license of the node if you set one.
-- For `certificates.source: files`, the certificate chain and the private key.
-- For `certificates.source: acme_json`, the ACME store of the homelab Traefik.
 
 The PINs of `homegap.pin_env` are also secrets. HomeGAP reads them for each service. See [Pangolin sign-in for services](../services/authentication.md).
 

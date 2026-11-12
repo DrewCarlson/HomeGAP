@@ -32,8 +32,9 @@ import homegap.model.isHttpLike
 import homegap.platform.Files
 import homegap.platform.nowMillis
 import homegap.platform.queryNameserver
-import homegap.provision.CertMaterial
-import homegap.provision.Certificates
+import homegap.acme.CertMaterial
+import homegap.acme.CertNames
+import homegap.acme.NodeCertificate
 import homegap.provision.ClusterProxy
 import kotlin.io.encoding.Base64
 import homegap.state.StateStore
@@ -101,6 +102,9 @@ class Controller(
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
     @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
+    private val nodeCert by lazy { NodeCertificate("${config.dataDir}/acme") }
+    private var certificatesWarned = false
+
     private val clusterRec by lazy {
         ClusterReconciler(
             dataDir = config.dataDir,
@@ -390,19 +394,22 @@ class Controller(
             val pausedKeys = effective.services.filter { it.paused }.map { it.key }.toSet() + pauses.services
             val discoveryOk = containers != null && routers != null
 
-            val certs: CertMaterial? = try {
-                Certificates.load(cfg.certificates, cfg.domain)
-            } catch (e: Exception) {
-                log.error("nodes", "certificate material unavailable: ${e.message}")
-                null
+            if (cfg.certificates.source != "none" && !certificatesWarned) {
+                certificatesWarned = true
+                log.warn("certificates", "the `certificates` section of the config is not used and can be removed: HomeGAP orders the certificate of the nodes itself (see `acme`)")
             }
+            // A failed discovery gives a plan without services: keep the certificate as it is.
+            val certs: CertMaterial? = if (!discoveryOk) nodeCert.current() else runDomain("certificates", null) {
+                val bunny = cfg.bunny.apiKey.resolve()?.let { BunnyClient(externalHttp, cfg.bunny.apiUrl, it) }
+                nodeCert.ensure(ctx, CertNames.of(cfg, effective), bunny)
+            } ?: nodeCert.current()
 
             // 2-4. Node lifecycle, tunnels and resources, per node in parallel.
             val nodeRec = NodeReconciler(ctx, if (cfg.cluster != null) clusterRec else null)
             val tunnelRec = TunnelReconciler(ctx)
             val exitRec = ExitReconciler(ctx)
             val exitSites = mutableMapOf<String, String>()
-            val resourceRec = ResourceReconciler(ctx)
+            val resourceRec = ResourceReconciler(ctx, certs)
             val health = mutableMapOf<String, Map<String, ServiceNodeHealthDto>>()
             // niceIds observed present on each node this pass (absent key = node not observed).
             val present = mutableMapOf<String, Set<String>>()
@@ -432,7 +439,7 @@ class Controller(
                             return@async
                         }
                         val force = forceProvision.remove(node.id)
-                        val a = runDomain("nodes", node.id) { nodeRec.assess(nd, slot, force, certs) }
+                        val a = runDomain("nodes", node.id) { nodeRec.assess(nd, slot, force) }
                         var ready: ReadyNode? = null
                         if (a != null) {
                             if (a.kind == NodeReconciler.Kind.UPDATE) targetStacks[node.id] = a.hash else targetStacks.remove(node.id)

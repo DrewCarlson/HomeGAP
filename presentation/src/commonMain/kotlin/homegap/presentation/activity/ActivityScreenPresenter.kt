@@ -186,7 +186,7 @@ class ActivityScreenPresenter(
 
     private companion object {
         /** Reconcile domains in the order they run; `null` shows everything. */
-        val DOMAINS = listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "private", "observe", "cluster", "setup", "speedtest", "controller")
+        val DOMAINS = listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "certificates", "private", "observe", "cluster", "setup", "speedtest", "controller")
         const val PAGE = 200
         const val MAX_SHOWN = 1500
     }

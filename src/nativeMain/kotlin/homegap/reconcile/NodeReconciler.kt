@@ -13,7 +13,6 @@ import homegap.platform.Crypto
 import homegap.platform.nowMillis
 import homegap.provision.Apt
 import homegap.provision.MaintenancePage
-import homegap.provision.CertMaterial
 import homegap.provision.ClusterLink
 import homegap.provision.ClusterSecrets
 import homegap.provision.ClusterTemplates
@@ -83,16 +82,15 @@ class NodeReconciler(
      * dry-run mode.
      *
      * @param force re-run every provisioning step even if nothing appears to have changed.
-     * @param certs wildcard certificate material to install, if configured.
      */
-    suspend fun assess(desired: NodeDesired, slot: Int, force: Boolean, certs: CertMaterial?): Assessment? {
+    suspend fun assess(desired: NodeDesired, slot: Int, force: Boolean): Assessment? {
         val node = desired.node
         val paused = ctx.nodePaused(node.id)
         val st = ctx.state.node(node.id)
 
         if (ctx.dryRun) {
             val secrets = (if (clustered) ctx.state.snapshot().clusterPangolin?.let { sharedSecrets(it, "<generated>") } else st.toSecrets()) ?: placeholderSecrets()
-            val files = renderAll(node, desired, secrets, certs, slot)
+            val files = renderAll(node, desired, secrets, slot)
             log.info(domain, "[dry-run] would ensure stack (${files.size} files, hash ${hash(files)}) at $dir; raw ports: ${desired.rawPorts.joinToString { it.entryPoint }.ifEmpty { "none" }}", node.id)
             ctx.diff.add(domain, node.id, "stack", if (st.stackHash == hash(files)) "none" else "provision", hash(files), st.stackHash)
             return null
@@ -118,7 +116,7 @@ class NodeReconciler(
         }
 
         val secrets = ensureSecrets(node, ssh)
-        val files = renderAll(node, desired, secrets, certs, slot)
+        val files = renderAll(node, desired, secrets, slot)
         val stackHash = hash(files)
         val dueCheck = force || st.lastCheckAt == null || nowMillis() - st.lastCheckAt > ctx.config.reconcile.nodeCheck.inWholeMilliseconds
         var drift = emptyList<String>()
@@ -457,18 +455,12 @@ class NodeReconciler(
         return secrets
     }
 
-    fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, certs: CertMaterial?, slot: Int): List<RenderedFile> {
+    fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, slot: Int): List<RenderedFile> {
         val link = ctx.config.cluster?.let { c ->
             val db = if (ctx.dryRun || cluster == null) ClusterSecrets("<generated>", "<generated>", "<generated>", "<generated>", "<generated>", "<generated>") else cluster.secrets()
             ClusterLink(Mesh.nodeAddress(c.mesh, slot), db)
         }
-        val files = NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts, slot, link).toMutableList()
-        if (certs != null) {
-            files += RenderedFile(NodeTemplates.CERT, certs.certPem, "0600")
-            files += RenderedFile(NodeTemplates.KEY, certs.keyPem, "0600")
-            files += RenderedFile(NodeTemplates.DYNAMIC_TLS, NodeTemplates.tlsDynamic())
-        }
-        return files
+        return NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts, slot, link)
     }
 
     private fun hash(files: List<RenderedFile>): String =
@@ -561,11 +553,11 @@ class NodeReconciler(
         val d = shQuote(dir)
         appendLine("install -d -m 0755 $d $d/config $d/config/traefik $d/config/traefik/dynamic $d/config/letsencrypt $d/config/traefik/logs $d/config/certificates $d/${MaintenancePage.DIR}")
         appendLine("install -d -m 0700 $d/secrets $d/config/traefik/certs")
-        // Traefik leaves its ACME store empty until it issues a certificate (nodes use the
-        // wildcard instead), and Pangolin's certificate sync warns about an empty file every few
-        // seconds. An empty JSON object is valid for both.
+        // A node orders no certificate, so this ACME store stays empty. Pangolin's certificate sync
+        // reads the file and accepts an empty JSON object. An older HomeGAP let the node order
+        // certificates: that account key and those certificate keys go away here.
         val acme = shQuote("$dir/config/letsencrypt/acme.json")
-        appendLine("[ -s $acme ] || { printf '{}\\n' > $acme; chmod 600 $acme; }")
+        appendLine("printf '{}\\n' > $acme; chmod 600 $acme")
         appendLine("RESTART=\"\"")
         for (f in files) {
             val path = "$dir/${f.path}"

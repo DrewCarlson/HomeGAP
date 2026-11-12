@@ -125,8 +125,6 @@ services:
       - homegap-cluster-config:/cluster-config          # written here, read by the cluster containers
       - homegap-tunnels:/tunnels                        # connector specs, shared with the tunnels container
       - homegap-mesh:/mesh                              # the mesh description, shared with the mesh agent
-      # Optional: the homelab Traefik ACME store, so nodes get the same wildcard certificate.
-      # - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
     # The dashboard must only be reachable privately (an SSH tunnel, or a *private* Pangolin
     # resource with alias e.g. homegap.<domain> -> orchestrator:8088), never publicly.
 

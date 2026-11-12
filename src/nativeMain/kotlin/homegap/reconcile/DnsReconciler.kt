@@ -56,7 +56,7 @@ class DnsReconciler(
 
         for (d in desired) {
             val typeCode = BunnyRecord.typeCode(d.type)
-            val sameName = actual.filter { it.type == typeCode && it.name.equals(d.name, ignoreCase = true) && it.id !in claimed }
+            val sameName = actual.filter { it.type == typeCode && it.name.equals(d.name, ignoreCase = true) && it.id !in claimed && (d.tag == null || it.tag == d.tag) }
             val mine = sameName.firstOrNull { it.comment?.startsWith(DesiredDnsRecord.OWNER_TAG) == true && it.comment.endsWith("node=${d.nodeId}") }
                 ?: sameName.firstOrNull { it.comment?.startsWith(DesiredDnsRecord.OWNER_TAG) != true && it.value == d.value }
             val want = toRecord(d, typeCode)
@@ -163,6 +163,8 @@ class DnsReconciler(
             smartRoutingType = smart,
             disabled = false,
             comment = d.comment,
+            flags = d.tag?.let { 0 },
+            tag = d.tag,
         )
     }
 

@@ -34,6 +34,7 @@ object Labels {
     const val PRIVATE_HOSTS = "homegap.private_hosts"
     const val PRIVATE_MIDDLEWARE = "homegap.private_middleware"
     const val TRAEFIK_API = "homegap.traefik_api"
+    const val MAINTENANCE_PAGE = "homegap.maintenance_page"
 
     /** Named services on one container: `homegap.services.<name>.<label>` (`expose`, `port`, ...). */
     const val SERVICES_PREFIX = "homegap.services."
@@ -44,7 +45,7 @@ object Labels {
     const val COMPOSE_SERVICE = "com.docker.compose.service"
     const val COMPOSE_PROJECT = "com.docker.compose.project"
 
-    val KNOWN = setOf(EXPOSE, WILDCARD, PORT, PROTOCOL, TLS, REGIONS, ACCESS, AUTH, HEALTHCHECK, HOST, PUBLIC_PORT, ROLES, PIN_ENV, PAUSE, PROXY_PROTOCOL, PRIVATE_NETWORK, PRIVATE_HOSTS, PRIVATE_MIDDLEWARE, TRAEFIK_API)
+    val KNOWN = setOf(EXPOSE, WILDCARD, PORT, PROTOCOL, TLS, REGIONS, ACCESS, AUTH, HEALTHCHECK, HOST, PUBLIC_PORT, ROLES, PIN_ENV, PAUSE, PROXY_PROTOCOL, PRIVATE_NETWORK, PRIVATE_HOSTS, PRIVATE_MIDDLEWARE, TRAEFIK_API, MAINTENANCE_PAGE)
 }
 
 enum class Protocol(val label: String) {
@@ -106,6 +107,11 @@ data class ServiceSpec(
     val privateMiddleware: String? = null,
     /** Where this container's Traefik API answers (with [privateMiddleware]). */
     val traefikApi: String? = null,
+    /**
+     * The nodes show the maintenance page for this service while the homelab is unreachable. Only a
+     * service that the node terminates can have the page.
+     */
+    val maintenancePage: Boolean = false,
     /** Its name under `homegap.services.<name>`; null for the container's top-level service. */
     val name: String? = null,
     /** Raw services: every published port (at least one). Empty for http/https. */
@@ -289,6 +295,13 @@ fun parseLabels(
     if (auth != AuthMode.NONE && tls != TlsMode.TERMINATE) {
         errors += "${Labels.AUTH}=${auth.label} requires ${Labels.TLS}=terminate (the node cannot authenticate encrypted traffic)"
     }
+    val terminated = (protocol == Protocol.HTTP || protocol == Protocol.HTTPS) && tls == TlsMode.TERMINATE
+    val maintenanceLabel = bool(Labels.MAINTENANCE_PAGE, true)
+    val maintenancePage = maintenanceLabel && terminated
+    if (!terminated && maintenanceLabel && labels[Labels.MAINTENANCE_PAGE] != null) {
+        if (protocol.isRaw) warnings += "${Labels.MAINTENANCE_PAGE} has no effect on raw ${protocol.label} services"
+        else errors += "${Labels.MAINTENANCE_PAGE} needs ${Labels.TLS}=terminate (a node holds no certificate for a name that it passes through)"
+    }
     if (auth == AuthMode.PIN && labels[Labels.PIN_ENV].isNullOrBlank()) errors += "${Labels.AUTH}=pin requires ${Labels.PIN_ENV}"
     if (wildcard && expose != domain) errors += "${Labels.WILDCARD}=true is only valid when ${Labels.EXPOSE} is the root domain"
     if (publicPort != null && !protocol.isRaw) warnings += "${Labels.PUBLIC_PORT} only applies to tcp/udp"
@@ -347,6 +360,7 @@ fun parseLabels(
             privateHosts = if (privateNetwork == null) emptyList() else privateHosts ?: if (privateMiddleware != null) emptyList() else listOf(expose),
             privateMiddleware = privateMiddleware,
             traefikApi = privateMiddleware?.let { traefikApiUrl(containerName, labels) },
+            maintenancePage = maintenancePage,
             ports = ports,
             labels = labels.filterKeys { it.startsWith(Labels.PREFIX) }.entries.sortedBy { it.key }.associate { it.key to it.value },
         ),

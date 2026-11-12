@@ -61,7 +61,7 @@ echo "$created" | grep -q '"ok":true' && pass "created $EMAIL" || fail "create u
 for n in $NODES; do
   id=${n%%:*}; ip=${n#*:}
   code=$(python3 -c "import json,sys; print(json.dumps({'email': sys.argv[1], 'password': sys.argv[2]}))" "$EMAIL" "$UPW" \
-    | docker compose exec -T viewer sh -c "curl -s --cacert /certs/ca.pem --resolve pangolin.test.example.net:443:$ip -H 'X-CSRF-Token: x-csrf-protection' -H 'Content-Type: application/json' --data @- -o /dev/null -w '%{http_code}' https://pangolin.test.example.net/api/v1/auth/login")
+    | docker compose exec -T viewer sh -c "curl -s --cacert /certs/trust.pem --resolve pangolin.test.example.net:443:$ip -H 'X-CSRF-Token: x-csrf-protection' -H 'Content-Type: application/json' --data @- -o /dev/null -w '%{http_code}' https://pangolin.test.example.net/api/v1/auth/login")
   [ "$code" = 200 ] && pass "$EMAIL signs in at pangolin.test.example.net via $id" || fail "sign-in via $id: HTTP $code"
 done
 uid=$(curl -s -H "$AUTH" "$DASH/access" | python3 -c "import json,sys; print(next(u['id'] for u in json.load(sys.stdin)['users'] if u['email'] == sys.argv[1]))" "$EMAIL")
@@ -187,7 +187,7 @@ read -r OLM_ID OLM_SECRET CID < <(docker compose exec -T -e EMAIL="$ADMIN_EMAIL"
 if [ -z "${CID:-}" ]; then fail "could not create a machine client"; else
   NET=$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$(docker compose ps -q viewer)")
   docker rm -f hg-verify-exit >/dev/null 2>&1
-  docker run -d --name hg-verify-exit --network "$NET" --cap-add NET_ADMIN --device /dev/net/tun -e SSL_CERT_FILE=/certs/ca.pem \
+  docker run -d --name hg-verify-exit --network "$NET" --cap-add NET_ADMIN --device /dev/net/tun -e SSL_CERT_FILE=/certs/trust.pem \
     -v "$PWD/work/certs:/certs:ro" --add-host pangolin.test.example.net:172.30.0.10 docker.io/fosrl/olm:1.10.1 \
     --id "$OLM_ID" --secret "$OLM_SECRET" --endpoint https://pangolin.test.example.net --enable-api --http-addr 127.0.0.1:9452 >/dev/null
   olm() { docker run --rm --network container:hg-verify-exit --entrypoint curl homegap:e2e -s -H 'Content-Type: application/json' "$@"; }

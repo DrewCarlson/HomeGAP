@@ -20,6 +20,7 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 | `homegap.regions` | Node ids, separated by commas. | `all` | Limits the service to these nodes, for example `na1,as1`. The value `all` or an empty value selects every node. |
 | `homegap.access` | `public`, `private` | `public` | With `private`, only the Pangolin client can reach the service. |
 | `homegap.auth` | `none`, `sso`, `pin` | `none` | Puts Pangolin sign-in in front of the service. |
+| `homegap.maintenance_page` | Boolean. | `true` with `terminate`. | While the homelab is unreachable, the nodes show a "back shortly" page for the service. See [Traffic paths](traffic-paths.md#when-the-homelab-is-down). |
 | `homegap.healthcheck` | An HTTP path that starts with `/`, or `tcp`. | None. | Sets the health check of the Pangolin target. On the front door, it also sets the path of the health resource that Bunny probes. |
 
 ### Rules for the core labels
@@ -31,6 +32,8 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 - An unknown node id in `homegap.regions` gives the warning "regions reference unknown node(s): ...".
 - `homegap.auth` needs `homegap.tls: terminate`. Without it, you get the error "...requires homegap.tls=terminate (the node cannot authenticate encrypted traffic)".
 - `homegap.auth: pin` needs `homegap.pin_env`.
+- `homegap.maintenance_page` needs `homegap.tls: terminate`. A passthrough service has no page, because the node holds no certificate for its name. If you set the label to `true` on a passthrough service, you get the error "...needs homegap.tls=terminate...".
+- If the front door has `homegap.tls: terminate` and `homegap.wildcard`, HomeGAP refuses `homegap.tls: passthrough` on another hostname one label under the domain. See [Certificates](../configuration/certificates.md#the-front-door-in-terminate-mode-with-a-wildcard).
 - Without `homegap.healthcheck`, Bunny still probes `/` through the front door. On raw services, the label applies only to the TCP ports.
 
 ## Extension labels

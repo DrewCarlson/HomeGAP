@@ -73,8 +73,7 @@ A duration is a number with a unit: `ms`, `s`, `m` or `h`. A number without a un
 - `bunny.zone` is equal to `domain`, or a parent of it.
 - `bunny.routing` is `geolocation`, `latency` or `none`.
 - `bunny.monitor` is `http`, `ping` or `none`.
-- `certificates.source` is `none`, `files` or `acme_json`.
-- With `files`, `cert_file` and `key_file` are set. With `acme_json`, `acme_json` is set.
+- `acme.directory` starts with `https://`.
 - Each node id matches `^[a-z][a-z0-9-]{0,30}$`, and each node id is unique.
 - Each `ssh_allow_from` entry is an IP address or a CIDR.
 - Each node has an IPv4 address (`public_ipv4`, or a `host` that is an IPv4 literal), or a `public_ipv6`.

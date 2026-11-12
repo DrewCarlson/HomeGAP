@@ -10,6 +10,19 @@
 ARG NEWT_VERSION=1.20.0
 FROM docker.io/fosrl/newt:${NEWT_VERSION} AS newt
 
+# Lego orders the certificate of the nodes (see docs/configuration/certificates.md).
+FROM docker.io/library/alpine:3.20 AS lego
+ARG TARGETARCH
+ARG LEGO_VERSION=5.6.0
+# The SHA-256 of the Lego release archives. Change them together with LEGO_VERSION.
+ARG LEGO_SHA256_AMD64=f02fc11b6f56b97e387fa7caa0268f86f5a336953b22458e6430e4651fea439a
+ARG LEGO_SHA256_ARM64=34d87a6552d69390c4a4560237045c47713a8e148d899e16db0e97040894ed1f
+RUN apk add --no-cache curl \
+    && if [ "$TARGETARCH" = amd64 ]; then SUM="$LEGO_SHA256_AMD64"; else SUM="$LEGO_SHA256_ARM64"; fi \
+    && curl -fsSL -o /tmp/lego.tar.gz "https://github.com/go-acme/lego/releases/download/v${LEGO_VERSION}/lego_v${LEGO_VERSION}_linux_${TARGETARCH}.tar.gz" \
+    && echo "$SUM  /tmp/lego.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/lego.tar.gz -C /usr/local/bin lego
+
 # The world map the dashboard and status page draw from (OpenStreetMap data via Protomaps, to zoom
 # 6, about 45 MB), extracted once at build time; HomeGAP never fetches map data at runtime.
 # PROTOMAPS_BUILD pins a daily build (e.g. 20261108.pmtiles); by default the newest is used.
@@ -54,6 +67,7 @@ RUN apt-get update \
     && install -d -o homegap -g homegap -m 0700 /data
 
 COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
+COPY --from=lego /usr/local/bin/lego /usr/local/bin/lego
 COPY --from=map /src/map/world.pmtiles /usr/share/homegap/map/world.pmtiles
 COPY --from=tunnels-version /tunnels-version /usr/share/homegap/tunnels-version
 COPY --from=docs /site /usr/share/homegap/docs

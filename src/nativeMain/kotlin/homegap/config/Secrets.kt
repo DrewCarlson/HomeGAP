@@ -32,11 +32,4 @@ fun AppConfig.referencedSecrets(): List<Pair<SecretRef, String>> = buildList {
         add(n.sshKey to "SSH key for node ${n.id}")
         if (n.licenseKeyEnv != null || n.licenseKeyFile != null) n.licenseKey(pangolin)?.let { add(it to "Pangolin EE license for node ${n.id}") }
     }
-    when (certificates.source) {
-        "files" -> {
-            certificates.certFile?.let { add(SecretRef("certificates.cert", null, it) to "Wildcard certificate chain") }
-            certificates.keyFile?.let { add(SecretRef("certificates.key", null, it) to "Wildcard certificate private key") }
-        }
-        "acme_json" -> certificates.acmeJson?.let { add(SecretRef("certificates.acme_json", null, it) to "Homelab Traefik ACME store") }
-    }
 }

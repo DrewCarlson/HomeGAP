@@ -60,7 +60,6 @@ The orchestrator has these volumes:
 - `homegap-cluster-config:/cluster-config`. The config that the orchestrator writes for the cluster containers. They mount it read-only.
 - `homegap-tunnels:/tunnels`. The connector specs. The `tunnels` container mounts the same volume.
 - `homegap-mesh:/mesh`. The description of the mesh, for the mesh agent.
-- Optional: the `acme.json` file of the homelab Traefik, read-only.
 
 The orchestrator does not mount the Docker socket. See [Security model](../reference/security.md#the-homelab).
 
@@ -87,7 +86,7 @@ For `tunnels.native: true`, the service needs `cap_add: [NET_ADMIN]` and `device
 1. Copy `deploy/homelab-compose.yml` to `compose.yml` in your folder.
 2. Copy `config/config.example.yml` to `config/config.yml`.
 3. In `config/config.yml`, set `domain`, `bunny.zone` and `pangolin.acme_email`.
-4. Set `certificates`. See [Certificates](../configuration/certificates.md).
+4. Read [Certificates](../configuration/certificates.md). HomeGAP publishes CAA records for your domain, and they also apply to the Traefik of your homelab.
 5. Add the nodes to `nodes[]`. To use the wizard, set `nodes: []` instead. The wizard writes each node to the config file.
 6. For cluster mode, add `cluster: {}`.
 7. For the first start, set `reconcile.dry_run: true`.

@@ -23,6 +23,8 @@ data class AppConfig(
     val reconcile: ReconcileConfig = ReconcileConfig(),
     val bunny: BunnyConfig,
     val pangolin: PangolinNodeDefaults = PangolinNodeDefaults(),
+    val acme: AcmeConfig = AcmeConfig(),
+    /** Not used. HomeGAP reads the section so that an old config file still loads. */
     val certificates: CertificatesConfig = CertificatesConfig(),
     val tunnels: TunnelsConfig = TunnelsConfig(),
     /** Clustered Pangolin across the nodes; null keeps one independent Pangolin per node. */
@@ -149,9 +151,28 @@ data class PangolinNodeDefaults(
     }
 }
 
+/** How HomeGAP orders the certificate that the nodes serve. See [homegap.acme.NodeCertificate]. */
+@Serializable
+data class AcmeConfig(
+    /** The contact address of the ACME account. The default is `pangolin.acme_email`, then the admin email. */
+    val email: String? = null,
+    /** The ACME directory. The default is Let's Encrypt, or its staging directory with [staging]. */
+    val directory: String? = null,
+    val staging: Boolean = false,
+    /** Publishes CAA records that allow only [caaIssuer] with the DNS challenge. */
+    val caa: Boolean = true,
+    @SerialName("caa_issuer") val caaIssuer: String = "letsencrypt.org",
+) {
+    fun directoryUrl(): String = directory ?: if (staging) STAGING else PRODUCTION
+
+    companion object {
+        const val PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
+        const val STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
+    }
+}
+
 @Serializable
 data class CertificatesConfig(
-    /** `none` (nodes use ACME HTTP-01 only), `files` (PEM cert+key) or `acme_json` (homelab Traefik store). */
     val source: String = "none",
     @SerialName("cert_file") val certFile: String? = null,
     @SerialName("key_file") val keyFile: String? = null,

@@ -58,6 +58,8 @@ object NodeTemplates {
     const val DYNAMIC_TLS = "config/traefik/dynamic/homegap-tls.yml"
     const val CERT = "config/traefik/certs/homegap.crt"
     const val KEY = "config/traefik/certs/homegap.key"
+    /** Pangolin writes this resolver name into its routes. Traefik reads an empty name as no resolver. */
+    const val NO_RESOLVER = ""
     const val SECRETS = "secrets/node.json"
     /** Pangolin's own routes in a cluster (file mode), next to HomeGAP's in the dynamic directory. */
     const val PANGOLIN_ROUTES = "/var/dynamic/router_config.yml"
@@ -169,7 +171,6 @@ object NodeTemplates {
                     putJsonArray("command") { add("--configFile=/etc/traefik/traefik_config.yml") }
                     putJsonArray("volumes") {
                         add("./config/traefik:/etc/traefik:ro")
-                        add("./config/letsencrypt:/letsencrypt")
                         add("./config/traefik/logs:/var/log/traefik")
                         if (cluster != null) add("./config/certificates:/var/certificates:ro")
                     }
@@ -285,8 +286,8 @@ object NodeTemplates {
             putJsonObject("domains") {
                 putJsonObject("homegap") {
                     put("base_domain", config.domain)
-                    put("cert_resolver", "letsencrypt")
-                    put("prefer_wildcard_cert", config.certificates.source != "none")
+                    // No resolver: a node orders no certificate. See [homegap.acme.NodeCertificate].
+                    put("cert_resolver", NO_RESOLVER)
                 }
             }
             if (cluster != null) {
@@ -308,7 +309,7 @@ object NodeTemplates {
                 }
             }
             putJsonObject("traefik") {
-                put("cert_resolver", "letsencrypt")
+                put("cert_resolver", NO_RESOLVER)
                 put("http_entrypoint", "web")
                 put("https_entrypoint", "websecure")
                 if (cluster != null) {
@@ -357,7 +358,6 @@ object NodeTemplates {
 
     fun traefikStatic(config: AppConfig, rawPorts: List<RawPort>, cluster: Boolean = false): String {
         val p = config.pangolin
-        val email = p.acmeEmail ?: adminEmail(config)
         val root = buildJsonObject {
             // No version check (update.traefik.io) and no usage data.
             putJsonObject("global") { put("checkNewVersion", false); put("sendAnonymousUsage", false) }
@@ -387,16 +387,6 @@ object NodeTemplates {
             if (p.crowdsec) {
                 putJsonObject("accessLog") { put("filePath", "/var/log/traefik/access.log"); put("format", "json") }
             }
-            putJsonObject("certificatesResolvers") {
-                putJsonObject("letsencrypt") {
-                    putJsonObject("acme") {
-                        putJsonObject("httpChallenge") { put("entryPoint", "web") }
-                        put("email", email)
-                        put("storage", "/letsencrypt/acme.json")
-                        put("caServer", "https://acme-v02.api.letsencrypt.org/directory")
-                    }
-                }
-            }
             putJsonObject("entryPoints") {
                 putJsonObject("web") { put("address", ":80") }
                 putJsonObject("websecure") {
@@ -404,7 +394,7 @@ object NodeTemplates {
                     putJsonObject("transport") { putJsonObject("respondingTimeouts") { put("readTimeout", "30m") } }
                     putJsonObject("http3") { put("advertisedPort", 443) }
                     putJsonObject("http") {
-                        putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                        putJsonObject("tls") {}
                         if (p.crowdsec) putJsonArray("middlewares") { add("crowdsec@file") }
                         putJsonObject("encodedCharacters") {
                             put("allowEncodedSlash", true)
@@ -502,7 +492,7 @@ object NodeTemplates {
                         putJsonArray("entryPoints") { add("websecure") }
                         put("service", "homegap-pangolin-api")
                         put("priority", 10000)
-                        putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                        putJsonObject("tls") {}
                     }
                     if (node.dashboardPublic) {
                         putJsonObject("homegap-mgmt-ui") {
@@ -510,7 +500,7 @@ object NodeTemplates {
                             putJsonArray("entryPoints") { add("websecure") }
                             put("service", "homegap-pangolin-next")
                             put("priority", 9999)
-                            putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                            putJsonObject("tls") {}
                         }
                     }
                     desired.clientHost?.let { client ->
@@ -521,14 +511,14 @@ object NodeTemplates {
                             putJsonArray("entryPoints") { add("websecure") }
                             put("service", "homegap-pangolin-api")
                             put("priority", 10000)
-                            putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                            putJsonObject("tls") {}
                         }
                         putJsonObject("homegap-client-ui") {
                             put("rule", "Host(`$client`)")
                             putJsonArray("entryPoints") { add("websecure") }
                             put("service", "homegap-pangolin-next")
                             put("priority", 9999)
-                            putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                            putJsonObject("tls") {}
                         }
                         putJsonObject("homegap-client-redirect") {
                             put("rule", "Host(`$client`)")
@@ -550,7 +540,7 @@ object NodeTemplates {
                             putJsonArray("middlewares") { add("homegap-$name-via") }
                             put("service", "homegap-$name-via")
                             put("priority", 10000)
-                            putJsonObject("tls") { put("certResolver", "letsencrypt") }
+                            putJsonObject("tls") {}
                         }
                         putJsonObject("homegap-$name-via-http") {
                             put("rule", "Host(`$from`)")
@@ -705,11 +695,15 @@ object NodeTemplates {
         return "($include) && $exclude"
     }
 
-    fun tlsDynamic(): String = YamlEmitter.emit(buildJsonObject {
+    /**
+     * Points Traefik at the certificate files. Traefik watches this file and not the certificate
+     * files, so the [hash] of the certificate is in the header: a new certificate changes the file.
+     */
+    fun tlsDynamic(hash: String): String = YamlEmitter.emit(buildJsonObject {
         putJsonObject("tls") {
             putJsonArray("certificates") {
                 addJsonObject { put("certFile", "/etc/traefik/certs/homegap.crt"); put("keyFile", "/etc/traefik/certs/homegap.key") }
             }
         }
-    }, HEADER)
+    }, "$HEADER\ncertificate $hash")
 }

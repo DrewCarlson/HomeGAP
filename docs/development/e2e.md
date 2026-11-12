@@ -44,8 +44,17 @@ The dashboard of the harness is at `http://127.0.0.1:18088`.
 - The health endpoint on port 80, which Bunny probes.
 - The redirect from HTTP to HTTPS.
 - A dedicated passthrough service, with the certificate of the origin.
-- A dedicated terminate service, with the wildcard certificate of the node.
+- A dedicated terminate service, with the certificate that HomeGAP ordered for the nodes.
 - Raw TCP on the public port 19000.
+- The certificate on the node has no wildcard and no passthrough name. The ACME store of the node is empty.
+
+The script also checks that the zone has the two CAA records.
+
+## The certificate of the nodes
+
+The `pebble` service is a local ACME server in place of Let's Encrypt. It accepts each challenge without a DNS lookup. Thus the harness checks that HomeGAP writes and removes the challenge records, and it does not check that they resolve.
+
+Pebble makes a new root certificate each time its container starts. `run.sh` reads the root and writes `work/certs/trust.pem`, which the viewer and the tunnels trust. After a new root, `run.sh` removes `work/data/acme`, so HomeGAP orders the certificate again.
 
 ## Cluster checks
 

@@ -49,6 +49,9 @@ data class BunnyRecord(
     @SerialName("SmartRoutingType") val smartRoutingType: Int = 0,
     @SerialName("Disabled") val disabled: Boolean = false,
     @SerialName("Comment") val comment: String? = null,
+    /** CAA records only. */
+    @SerialName("Flags") val flags: Int? = null,
+    @SerialName("Tag") val tag: String? = null,
 ) {
     val typeName: String get() = RECORD_TYPES.getOrElse(type) { type.toString() }
 

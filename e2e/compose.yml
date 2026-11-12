@@ -242,6 +242,16 @@ services:
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
     networks: [e2e-docker]
 
+  # A local ACME server in place of Let's Encrypt. It accepts each challenge without a DNS lookup,
+  # so the harness checks that HomeGAP writes the challenge records, and not that they resolve.
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest@sha256:0c81f05db371f436c97fb894bd6d2ab8fc9c8e2ce40f8bef8a8e15941bcd75ef
+    environment:
+      PEBBLE_VA_ALWAYS_VALID: "1"
+      PEBBLE_VA_NOSLEEP: "1"
+      PEBBLE_WFE_NONCEREJECT: "0"
+    networks: [e2e]
+
   orchestrator:
     image: homegap:e2e
     command: ["run"]
@@ -255,8 +265,13 @@ services:
     security_opt: ["no-new-privileges:true"]
     depends_on:
       docker-proxy: { condition: service_started }
+      pebble: { condition: service_started }
     environment:
       BUNNY_API_KEY: e2e-bunny-key
+      # Lego reads these: the ACME server has a test certificate, and no nameserver has the
+      # challenge records of the Bunny stand-in.
+      LEGO_TLS_SKIP_VERIFY: "true"
+      LEGO_DNS_PROPAGATION_WAIT: 1s
       HOMEGAP_MESH_DIR: /mesh
       HOMEGAP_CLUSTER_CONFIG_DIR: /cluster-config
       HOMEGAP_TUNNELS_DIR: /tunnels
@@ -279,8 +294,8 @@ services:
     image: homegap:e2e
     command: ["tunnels", "--dir", "/tunnels"]
     environment:
-      # Newt (Go) trusts the e2e CA that signed the node's wildcard certificate.
-      SSL_CERT_FILE: /certs/ca.pem
+      # Newt (Go) trusts the local ACME server that issued the certificate of the nodes.
+      SSL_CERT_FILE: /certs/trust.pem
     # Kernel WireGuard for the main tunnel (tunnels.native: true).
     cap_add: [NET_ADMIN]
     devices: [ "/dev/net/tun:/dev/net/tun" ]
@@ -313,7 +328,7 @@ services:
       PANGOLIN_ENDPOINT: https://pangolin.test.example.net
       OLM_ID: ${OLM_ID:-}
       OLM_SECRET: ${OLM_SECRET:-}
-      SSL_CERT_FILE: /certs/ca.pem
+      SSL_CERT_FILE: /certs/trust.pem
     volumes: [ "./work/certs:/certs:ro" ]
     extra_hosts: ["pangolin.test.example.net:${CLIENT_NODE_IP:-172.30.0.11}"]
     networks: [e2e]

@@ -58,16 +58,8 @@ object ConfigLoader {
             )
         ) errors += "bunny.routing must be geolocation|latency|none"
         if (c.bunny.monitor !in setOf("http", "ping", "none")) errors += "bunny.monitor must be http|ping|none"
-        if (c.certificates.source !in setOf(
-                "none",
-                "files",
-                "acme_json"
-            )
-        ) errors += "certificates.source must be none|files|acme_json"
-        if (c.certificates.source == "files" && (c.certificates.certFile == null || c.certificates.keyFile == null)) {
-            errors += "certificates.source=files requires cert_file and key_file"
-        }
-        if (c.certificates.source == "acme_json" && c.certificates.acmeJson == null) errors += "certificates.source=acme_json requires acme_json"
+        c.acme.directory?.let { if (!it.startsWith("https://")) errors += "acme.directory must be an https address" }
+        if (c.acme.caa && !Regex("^[a-z0-9.-]+$").matches(c.acme.caaIssuer)) errors += "acme.caa_issuer must be a domain name"
         val ids = mutableSetOf<String>()
         for (n in c.nodes) {
             if (!NODE_ID.matches(n.id)) errors += "node id '${n.id}' must match ${NODE_ID.pattern}"

@@ -1,63 +1,113 @@
 # Certificates
 
-The nodes need certificates only for the names that they terminate or serve themselves. This page tells you which names need a certificate, and how to give the nodes the certificate of your homelab.
+A node holds a certificate only for a name that it terminates. This page tells you which names those are, how HomeGAP orders the certificate, and how HomeGAP stops a node from getting other certificates.
 
-## Which names need a certificate on the node
+## Why this matters
 
-For passthrough names, the node reads only the SNI. The homelab serves these names with its own certificates.
+A browser accepts each valid certificate for a name. All traffic to your domain goes through a node. Thus a person with root on a node can read the traffic of each name on the certificate of that node. That person ends TLS on the node, reads or changes the request, and sends it on to the homelab. The browser and the homelab see no difference.
 
-The node needs a certificate for these names:
+For this reason, HomeGAP gives a node no certificate for a passthrough name.
 
-- The resources in `terminate` mode: the root, the wildcard and dedicated hostnames.
-- Its management host.
-- In cluster mode, the client address.
-- The shared name of the status page.
+## Which names are on the certificate
 
-## The certificate source
-
-Set `certificates.source` to one of these values:
-
-| Value | What the nodes use |
+| Name | On the certificate of the nodes |
 | --- | --- |
-| `none` (default) | Their own ACME HTTP-01 certificates, from the Traefik of Pangolin (resolver `letsencrypt`, email `pangolin.acme_email`). HTTP-01 cannot issue a wildcard certificate. |
-| `files` | A PEM chain (`cert_file`) and a private key (`key_file`) that you mount in the orchestrator. |
-| `acme_json` | A certificate from the ACME store of the homelab Traefik. Mount the store read-only, for example at `/homelab/traefik/acme.json`. |
+| The management host of each node, `pangolin-<id>.<domain>`. | Yes. |
+| In cluster mode, the client address `pangolin.<domain>`. | Yes. |
+| The shared names of the status page and the speed test. | Yes. |
+| A service with `homegap.tls: terminate`. | Yes. |
+| A service with `homegap.tls: passthrough`. | No. |
+| The front door with `passthrough`, with or without `homegap.wildcard`. | No. |
+| The front door with `terminate`. | Yes: the root name, and `*.<domain>` if the front door has `homegap.wildcard`. |
 
-With `files` or `acme_json`, HomeGAP sends the certificate to every node as `homegap.crt` and `homegap.key` for Traefik. Thus `terminate` mode works at once, without a new issuance on the node. HomeGAP also tells Pangolin to prefer the wildcard certificate.
+The **Certificates** entry in the activity log shows each order with the number of names.
 
-### How HomeGAP selects a certificate from acme.json
+### The front door in terminate mode with a wildcard
 
-HomeGAP looks for a certificate whose main name or SANs include `*.<domain>`. It prefers a certificate that also covers `<domain>`. It searches only the resolver in `certificates.resolver`, or every resolver if that key is not set.
+This is the only setup that puts a wildcard certificate on the nodes. The nodes then end TLS for each name one label under your domain, and a person with root on a node can read all of that traffic.
 
-The certificate must come from a DNS-01 challenge, for example with the `bunny` provider of Traefik. If no certificate covers the wildcard, HomeGAP gives the error `No certificate covering *.<domain> in <path>`.
+!!! danger "Warning"
+    With `homegap.tls: terminate` and `homegap.wildcard: "true"` on the front door, the nodes hold a certificate for `*.<domain>`. Use this setup only if you trust each node and its provider with all web traffic of the domain.
 
-## Use the ACME store of the homelab Traefik
+In this setup, HomeGAP refuses a service with `homegap.tls: passthrough` on a hostname one label under the domain. The wildcard on the nodes covers that hostname, so passthrough protects nothing. The error is `homegap.tls=passthrough is refused for <hostname>`. Set `homegap.tls: terminate` on that service, or use `passthrough` on the front door.
 
-1. Find the path of the store on the host. This command shows the mounts of the Traefik container:
-    ```bash
-    {% raw %}docker inspect traefik --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'{% endraw %}
-    ```
-2. List the resolvers and the domains that their certificates cover. The command prints no keys:
-    ```bash
-    sudo jq -r 'to_entries[] | .key as $r | (.value.Certificates // [])[] | "\($r): \(.domain.main) \(.domain.sans // [] | join(" "))"' /path/to/acme.json
-    ```
-3. Find a line with `*.example.net`. The text before the colon is the resolver name.
-4. Mount the file read-only in the orchestrator:
-    ```yaml
-    volumes:
-      - /path/to/traefik/acme.json:/homelab/traefik/acme.json:ro
-    ```
-5. Set the source in the config:
-    ```yaml
-    certificates:
-      source: acme_json
-      acme_json: /homelab/traefik/acme.json
-      resolver: bunny
-    ```
-    Replace `bunny` with the resolver name from step 3.
+HomeGAP does not refuse a raw TCP or UDP service. A certificate has no effect on a protocol that does not use TLS. But a raw TCP service that uses TLS for a name under the domain has the same risk as a web service.
+
+## How HomeGAP orders the certificate
+
+The orchestrator on the homelab orders one certificate from Let's Encrypt. The certificate lists each name from the table above. Each node gets the same certificate and the same key.
+
+HomeGAP uses the DNS challenge:
+
+1. The orchestrator starts Lego, an ACME client in the `homegap` image.
+2. For each name, Lego asks the orchestrator for a TXT record `_acme-challenge.<name>`. Lego calls an endpoint on the loopback address of the orchestrator.
+3. The orchestrator writes the record with its own Bunny client. Lego never gets the Bunny key.
+4. Let's Encrypt reads the records and issues the certificate.
+5. The orchestrator removes the records and sends the certificate to each node.
+
+A node orders no certificate. The Traefik on a node has no certificate resolver.
+
+HomeGAP orders a new certificate, with a new key, in these cases:
+
+- The list of names changes.
+- One third of the lifetime of the certificate remains.
+- The ACME directory in the config changes.
+
+If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes held its key. This occurs when you remove a node, or when you change a service from `terminate` to `passthrough`.
+
+A new certificate does not restart the stack of a node. Traefik loads it in a few seconds.
+
+### Limits
+
+- One certificate has at most 100 names. With more names, the order fails, and the activity log shows the error.
+- Let's Encrypt permits approximately 50 new certificates for a domain in a week. HomeGAP uses one for each change of the list of names.
+
+## The CAA records
+
+HomeGAP publishes two CAA records for `domain`, with the tags `issue` and `issuewild`. Each has this value:
+
+```text
+letsencrypt.org; validationmethods=dns-01
+```
+
+The records permit only Let's Encrypt to issue a certificate for the domain, and only with the DNS challenge. A node has no DNS key. Thus a compromised node cannot order a certificate for one of your names, although the traffic for that name goes through it.
+
+HomeGAP removes other CAA records for `domain`, because they can permit more.
+
+!!! warning "Caution"
+    The CAA records also apply to the Traefik of your homelab. It must order its certificates from Let's Encrypt with the DNS challenge. If it uses a different certificate authority or a different challenge, its renewals fail. In that case, set `acme.caa: false`, or set `acme.caa_issuer` to the CAA name of your certificate authority.
+
+## Config
+
+```yaml
+acme:
+  email: ops@example.net
+```
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `email` | `pangolin.acme_email`, then the admin email. | The contact address of the ACME account. |
+| `staging` | `false` | Uses the staging directory of Let's Encrypt. Browsers do not trust its certificates. Use it for tests. |
+| `directory` | The directory of Let's Encrypt. | The address of a different ACME directory. |
+| `caa` | `true` | Publishes the CAA records. |
+| `caa_issuer` | `letsencrypt.org` | The certificate authority in the CAA records. |
+
+HomeGAP does not use the `certificates` section of an older config. You can remove it.
+
+## Where HomeGAP keeps the certificate
+
+The ACME account key, the certificate and its key are in `acme/` in the data directory of the orchestrator. Include this folder in your backup of the data directory. If you lose it, HomeGAP makes a new account and orders a new certificate.
+
+On a node, the certificate is `config/traefik/certs/homegap.crt` and the key is `homegap.key`, with mode 0600.
 
 ## Expiry and failures
 
 The **Nodes** page on the dashboard shows the expiry of the certificate on each node.
 
-If the issuance of a certificate fails on a node, that node cannot serve TLS for those names. To correct this, send the wildcard certificate with `certificates`, or repair ACME on the node.
+If an order fails, the nodes keep the certificate that they have. HomeGAP writes the error in the activity log and tries again after one hour. A node without a certificate answers its names with the default certificate of Traefik, and browsers show a warning.
+
+These are the usual causes of a failed order:
+
+- The Bunny API key is not set, or it cannot change the zone.
+- The homelab cannot reach Let's Encrypt.
+- A CAA record that HomeGAP does not manage, on a name above `domain`, refuses Let's Encrypt.

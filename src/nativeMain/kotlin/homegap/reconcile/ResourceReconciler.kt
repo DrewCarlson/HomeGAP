@@ -26,7 +26,11 @@ import kotlin.io.encoding.Base64
  * (keyed by deterministic niceIds), deletion of managed resources no longer desired, and the
  * node's hot-reloaded Traefik routing file (SNI passthrough, health, management API).
  */
-class ResourceReconciler(private val ctx: ReconcileContext) {
+class ResourceReconciler(
+    private val ctx: ReconcileContext,
+    /** The certificate that each node serves for the names it terminates, or null if there is none. */
+    private val certificate: homegap.acme.CertMaterial? = null,
+) {
     private val domain = "resources"
 
     suspend fun reconcile(ready: ReadyNode, desired: NodeDesired, pausedServiceKeys: Set<String>): List<PangolinResource> {
@@ -265,7 +269,7 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         val content = NodeTemplates.dynamicRoutes(desired, ids, ctx.config.cluster != null)
         val maintenance = MaintenancePage.routes(desired, ids)
         val probes = MaintenancePage.probes(desired, ids)
-        val hash = Crypto.fnv64(content + maintenance + probes)
+        val hash = Crypto.fnv64(content + maintenance + probes + certificate?.hash)
         val st = ctx.state.node(ready.node.id)
         val dueCheck = st.facts["routesHash"] != hash || st.drift.isNotEmpty() || (st.lastCheckAt ?: 0) > (st.facts["routesCheckedAt"]?.toLongOrNull() ?: 0)
         if (!dueCheck) return
@@ -276,16 +280,43 @@ class ResourceReconciler(private val ctx: ReconcileContext) {
         val out = ssh.runScriptOrThrow("routes", """
             |install -d -m 0755 "$(dirname $q)"
             |printf '%s' '$b64' | base64 -d > $q.homegap-new
-            |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod 0644 $q.homegap-new; mv -f $q.homegap-new $q; echo CHANGED; else rm -f $q.homegap-new; fi
+            |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod 0644 $q.homegap-new; mv -f $q.homegap-new $q; echo 'ROUTES changed'; else rm -f $q.homegap-new; fi
             |hg_own $q
             |${SshSession.writeFileSnippet("${ctx.config.pangolin.installDir}/${MaintenancePage.ROUTES}", maintenance)}
             |${SshSession.writeFileSnippet("${ctx.config.pangolin.installDir}/${MaintenancePage.PROBES}", probes)}
             |hg_own ${shQuote("${ctx.config.pangolin.installDir}/${MaintenancePage.DIR}")}
+            |${certificateScript()}
         """.trimMargin(), 60)
-        if (out.contains("CHANGED")) {
+        if (out.contains("CERTIFICATE installed")) ctx.log.change(domain, "installed the certificate of the nodes (${certificate?.names?.size} names)", ready.node.id)
+        if (out.contains("CERTIFICATE removed")) ctx.log.change(domain, "removed the certificate from the node: HomeGAP has none to give", ready.node.id)
+        if (out.contains("ROUTES changed")) {
             ctx.log.change(domain, "updated Traefik routes (${desired.sniRoutes.size} SNI passthrough, health=${desired.healthResourceNiceId != null})", ready.node.id)
         }
         ctx.state.updateNode(ready.node.id) { it.copy(facts = it.facts + ("routesHash" to hash) + ("routesCheckedAt" to (st.lastCheckAt ?: 0).toString())) }
+    }
+
+    /**
+     * Writes the certificate and its key, then the file that points Traefik at them. Without a
+     * certificate, it removes all three, so a key from an earlier certificate does not stay on the
+     * node.
+     */
+    private fun certificateScript(): String {
+        val dir = ctx.config.pangolin.installDir
+        val cert = shQuote("$dir/${NodeTemplates.CERT}")
+        val key = shQuote("$dir/${NodeTemplates.KEY}")
+        val tls = shQuote("$dir/${NodeTemplates.DYNAMIC_TLS}")
+        val c = certificate ?: return "if [ -e $cert ] || [ -e $key ] || [ -e $tls ]; then rm -f $tls $cert $key; echo 'CERTIFICATE removed'; fi"
+        return """
+            |install -d -m 0700 "$(dirname $cert)"
+            |umask 077
+            |${SshSession.writeFileSnippet("$dir/${NodeTemplates.KEY}", c.keyPem, "0600")}
+            |${SshSession.writeFileSnippet("$dir/${NodeTemplates.CERT}", c.certPem, "0600")}
+            |umask 022
+            |chmod 0700 "$(dirname $cert)"
+            |${SshSession.writeFileSnippet("$dir/${NodeTemplates.DYNAMIC_TLS}", NodeTemplates.tlsDynamic(c.hash))} | sed 's/^CHANGED.*/CERTIFICATE installed/'
+            |hg_own "$(dirname $cert)"
+            |hg_own $tls
+        """.trimMargin()
     }
 
     private fun matches(d: PublicResource, a: PangolinResource?, sites: List<String>? = null): Boolean {

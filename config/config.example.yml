@@ -38,12 +38,15 @@ pangolin:
   crowdsec: false
   # base_blueprint: /config/blueprints/base.yml
 
-# Wildcard + root certificate pushed to every node so `terminate` mode is instant.
-# none | files | acme_json (read the homelab Traefik's ACME store, mounted read-only).
-certificates:
-  source: acme_json
-  acme_json: /homelab/traefik/acme.json
-  resolver: bunny
+# The certificate of the nodes. HomeGAP orders it from Let's Encrypt with the DNS challenge, for
+# the names that a node terminates and no others. A node never gets a certificate for a
+# passthrough name. See https://drewcarlson.github.io/HomeGAP/latest/configuration/certificates/
+acme:
+  # email: ops@test.example.net   # default: pangolin.acme_email
+  # staging: true                 # Let's Encrypt staging, for tests
+  # CAA records for the domain: only Let's Encrypt, only with the DNS challenge. They also apply
+  # to the Traefik of your homelab. Set false if it uses another authority or challenge.
+  caa: true
 
 # Optional: clustered Pangolin's private WireGuard mesh and its shared database (PostgreSQL and
 # Valkey on the homelab and every node). The orchestrator needs NET_ADMIN; see

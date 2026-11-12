@@ -16,7 +16,8 @@ class ConfigTest {
         val c = ConfigLoader.load(path)
         assertEquals(2, c.nodes.size)
         assertEquals(60.seconds, c.reconcile.resync)
-        assertEquals("acme_json", c.certificates.source)
+        assertTrue(c.acme.caa)
+        assertEquals(homegap.config.AcmeConfig.PRODUCTION, c.acme.directoryUrl())
     }
 
     @Test

@@ -57,7 +57,11 @@ HomeGAP never publishes the IP address of the homelab. Every tunnel goes outboun
 
 ## Traffic
 
-With `passthrough`, the nodes never see plaintext. `pangolin.crowdsec` gives abuse mitigation on the edge for terminated traffic only. It cannot examine passthrough streams.
+With `passthrough`, a node cannot read the traffic. It holds no certificate for a passthrough name, and the CAA records of the domain stop it from ordering one. A node can see the name, the address of the client, and the size and time of the traffic.
+
+A node can read the traffic of each name that it terminates: its own Pangolin, the shared names of the status page and the speed test, and each service with `homegap.tls: terminate`. A front door with `terminate` and `homegap.wildcard` gives the nodes all web traffic of the domain. See [Certificates](../configuration/certificates.md).
+
+`pangolin.crowdsec` gives abuse mitigation on the edge for terminated traffic only. It cannot examine passthrough streams.
 
 ## Calls to outside services
 
@@ -75,7 +79,7 @@ The calls that remain are needed for the system to work:
 
 - If you use a Pangolin EE license key, the nodes check it at `api.fossorial.io`.
 - Traefik on the nodes downloads its plugins (Pangolin's `badger`, and the CrowdSec bouncer if enabled) from the Traefik plugin catalog when it starts.
-- The nodes get certificates from Let's Encrypt.
+- The orchestrator orders the certificate of the nodes from Let's Encrypt. The nodes order no certificates.
 - With `pangolin.crowdsec`, CrowdSec talks to its central API for the community blocklists.
 
 Your own Traefik on the homelab is configured by you. Set `global.checkNewVersion` and `global.sendAnonymousUsage` to `false` in its static configuration to turn off the same calls there.

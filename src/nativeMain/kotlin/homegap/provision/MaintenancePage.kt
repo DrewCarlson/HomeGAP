@@ -2,6 +2,7 @@ package homegap.provision
 
 import homegap.brand.Brand
 import homegap.model.NodeDesired
+import homegap.model.ResourceMode
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -10,19 +11,22 @@ import kotlinx.serialization.json.putJsonObject
 
 /**
  * The page a node shows while the homelab is unreachable (its internet is down, or it is
- * restarting or updating), instead of a connection error.
+ * restarting or updating), instead of an error.
  *
- * A small `maintenance` service on each node checks every few seconds that passthrough still
- * works: a TLS handshake with the homelab through each passthrough resource's tunnel service
- * (as Pangolin last generated it). When none succeeds a few times in a row it drops
- * [routes] into Traefik's dynamic directory: TCP routers with the same SNI rules as the
- * passthrough routes but a higher priority, which end TLS on the node (with its wildcard
- * certificate) and hand the request to the service, which answers every request with the page
- * and a 503. Once the homelab answers again the file is removed and passthrough resumes. HomeGAP's
- * own routing file is never touched, so the override can only ever add the page.
+ * The page covers only names for which the node ends TLS: a service in `terminate` mode with the
+ * page on, and the shared status and speed-test names. A passthrough name never gets the page,
+ * because the node holds no certificate for it.
  *
- * Only passthrough traffic is covered: raw TCP/UDP ports and resources that Pangolin terminates
- * keep failing as before.
+ * A small `maintenance` service on each node checks every few seconds that the homelab answers
+ * through the tunnel, at the addresses of the services that Pangolin last generated. When no
+ * address answers a few times in a row, it drops [routes] into Traefik's dynamic directory: one
+ * HTTP router for the covered names, above every other router, that sends each request to the
+ * service. The service answers with the page and a 503. Once the homelab answers again, the
+ * service removes the file. HomeGAP's own routing file is never touched, so the override can only
+ * ever add the page.
+ *
+ * For a passthrough name, the override closes the connection at once and does not end TLS. The
+ * browser then shows its error without a wait for a timeout.
  */
 object MaintenancePage {
     const val SERVICE = "maintenance"
@@ -33,60 +37,81 @@ object MaintenancePage {
     /** The file the service adds to (and removes from) Traefik's dynamic directory. */
     const val ACTIVE_NAME = "homegap-maintenance.yml"
 
-    /** Above every passthrough router (theirs are small, ordered by specificity). */
-    private const val PRIORITY_OFFSET = 1_000_000
+    /** Above every other router of the node. */
+    private const val PRIORITY = 1_000_000
 
     const val PROBES = "$DIR/probe.json"
+    private const val CLOSED_PORT = 9
 
     /**
-     * What the service checks: each passthrough resource (found in Pangolin's generated routes as
-     * `<id>-<niceId>-service`) with a name to send as SNI. Empty when there is nothing to cover.
+     * What the service checks: each resource that reaches the homelab (found in Pangolin's
+     * generated routes as `<id>-<niceId>-service`), with a name to send as SNI. Empty when there is
+     * nothing to cover.
      */
     fun probes(desired: NodeDesired, resourceIds: Map<String, Int>): String = buildJsonObject {
         putJsonArray("targets") {
-            if (covers(desired, resourceIds)) for (r in desired.sniRoutes.filter { resourceIds[it.resourceNiceId] != null }) {
-                val sni = r.exactHosts.firstOrNull { it !in r.excludeHosts } ?: r.wildcardOf?.let { "homegap-probe.$it" } ?: continue
-                add(buildJsonObject { put("service_suffix", "-${r.resourceNiceId}-service"); put("sni", sni) })
+            if (covers(desired, resourceIds)) for ((niceId, sni) in targets(desired, resourceIds)) {
+                add(buildJsonObject { put("service_suffix", "-$niceId-service"); put("sni", sni) })
             }
         }
     }.toString() + "\n"
 
-    private fun covers(desired: NodeDesired, resourceIds: Map<String, Int>) =
-        desired.sniRoutes.any { resourceIds[it.resourceNiceId] != null }
+    /** The resources that reach the homelab and exist in Pangolin: niceId to a name for SNI. */
+    private fun targets(desired: NodeDesired, resourceIds: Map<String, Int>): List<Pair<String, String>> {
+        val passthrough = desired.sniRoutes.mapNotNull { r ->
+            val sni = r.exactHosts.firstOrNull { it !in r.excludeHosts } ?: r.wildcardOf?.let { "homegap-probe.$it" }
+            sni?.let { r.resourceNiceId to it }
+        }
+        val terminated = desired.publicResources.filter { it.mode == ResourceMode.HTTP && it.ssl && it.fullDomain != null }
+            .map { it.niceId to (it.tlsServerName ?: it.fullDomain!!.replace("*.", "homegap-probe.")) }
+        return (passthrough + terminated).filter { resourceIds[it.first] != null }
+    }
 
-    /**
-     * The Traefik override, or an empty file when there is nothing to cover (no passthrough routes
-     * whose resource exists yet).
-     */
+    private fun covers(desired: NodeDesired, resourceIds: Map<String, Int>) =
+        (desired.maintenanceHosts.isNotEmpty() || desired.sniRoutes.isNotEmpty()) && targets(desired, resourceIds).isNotEmpty()
+
+    /** The Traefik override, or an empty file when there is nothing to cover. */
     fun routes(desired: NodeDesired, resourceIds: Map<String, Int>): String {
-        val sni = desired.sniRoutes.filter { resourceIds[it.resourceNiceId] != null }
+        val hosts = desired.maintenanceHosts
         if (!covers(desired, resourceIds)) return "# Managed by HomeGAP: nothing for the maintenance page to cover on this node.\n"
+        val passthrough = desired.sniRoutes.filter { resourceIds[it.resourceNiceId] != null }
+        val matches = hosts.map { if (it.startsWith("*.")) "HostRegexp(`${NodeTemplates.wildcardRegex(it.removePrefix("*."))}`)" else "Host(`$it`)" }
+        // Pangolin's own pages on the node do not need the homelab.
+        val own = listOfNotNull(desired.managementHost, desired.clientHost).filter { it !in hosts }
+        val rule = "(${matches.joinToString(" || ")})" + own.joinToString("") { " && !Host(`$it`)" }
         val root = buildJsonObject {
-            putJsonObject("tcp") {
+            if (hosts.isNotEmpty()) putJsonObject("http") {
                 putJsonObject("routers") {
-                    for (r in sni) {
-                        putJsonObject("${r.name}-maintenance") {
-                            putJsonArray("entryPoints") { add("websecure") }
-                            put("rule", NodeTemplates.sniRule(r))
-                            put("service", "homegap-maintenance")
-                            put("priority", r.priority + PRIORITY_OFFSET)
-                            putJsonObject("tls") {
-                                put("certResolver", "letsencrypt")
-                                put("options", "homegap-maintenance")
-                            }
-                        }
+                    putJsonObject("homegap-maintenance") {
+                        putJsonArray("entryPoints") { add("websecure") }
+                        put("rule", rule)
+                        put("service", "homegap-maintenance")
+                        put("priority", PRIORITY)
+                        putJsonObject("tls") {}
                     }
                 }
                 putJsonObject("services") {
                     putJsonObject("homegap-maintenance") {
-                        putJsonObject("loadBalancer") { putJsonArray("servers") { add(buildJsonObject { put("address", "127.0.0.1:$PORT") }) } }
+                        putJsonObject("loadBalancer") { putJsonArray("servers") { add(buildJsonObject { put("url", "http://127.0.0.1:$PORT") }) } }
                     }
                 }
             }
-            // A TCP router hands over the decrypted bytes as they are: the page speaks HTTP/1.1 only.
-            putJsonObject("tls") {
-                putJsonObject("options") {
-                    putJsonObject("homegap-maintenance") { putJsonArray("alpnProtocols") { add("http/1.1") } }
+            if (passthrough.isNotEmpty()) putJsonObject("tcp") {
+                putJsonObject("routers") {
+                    for (r in passthrough) putJsonObject("${r.name}-unreachable") {
+                        putJsonArray("entryPoints") { add("websecure") }
+                        put("rule", NodeTemplates.sniRule(r))
+                        put("service", "homegap-unreachable")
+                        put("priority", r.priority + PRIORITY)
+                        // The node does not end TLS here: it holds no certificate for these names.
+                        putJsonObject("tls") { put("passthrough", true) }
+                    }
+                }
+                putJsonObject("services") {
+                    // Nothing listens on this port, so Traefik closes the connection of the viewer.
+                    putJsonObject("homegap-unreachable") {
+                        putJsonObject("loadBalancer") { putJsonArray("servers") { add(buildJsonObject { put("address", "127.0.0.1:$CLOSED_PORT") }) } }
+                    }
                 }
             }
         }
@@ -137,22 +162,26 @@ object MaintenancePage {
         |    block = routes[m.end():]
         |    nxt = re.search(r'"?[\w-]+-service"?\s*:', block)
         |    block = block[: nxt.start()] if nxt else block
-        |    return re.findall(r'"?address"?\s*:\s*"?([^"\s,}]+)', block)
+        |    return re.findall(r'"?(?:address|url)"?\s*:\s*"?([^"\s,}]+)', block)
         |
         |def handshake(address, sni):
-        |    host, _, port = address.rpartition(":")
-        |    ctx = ssl.create_default_context()
-        |    ctx.check_hostname = False
-        |    ctx.verify_mode = ssl.CERT_NONE
+        |    # A TCP service has host:port and carries TLS. An HTTP service has a URL.
+        |    scheme, _, rest = address.rpartition("://")
+        |    host, _, port = rest.rstrip("/").rpartition(":")
         |    try:
         |        with socket.create_connection((host.strip("[]"), int(port)), timeout=3) as raw:
+        |            if scheme == "http":
+        |                return True
+        |            ctx = ssl.create_default_context()
+        |            ctx.check_hostname = False
+        |            ctx.verify_mode = ssl.CERT_NONE
         |            with ctx.wrap_socket(raw, server_hostname=sni):
         |                return True
         |    except Exception:
         |        return False
         |
         |def homelab_up(targets):
-        |    # Up when any passthrough service completes a TLS handshake with the homelab. A service
+        |    # Up when any service reaches the homelab (a TLS handshake, or a connection for http). A service
         |    # Pangolin has dropped (its targets failed their health checks) counts as down.
         |    # The checks run side by side, so an unreachable homelab is noticed in one timeout.
         |    routes = pangolin_routes()
@@ -166,6 +195,14 @@ object MaintenancePage {
         |    tmp = ACTIVE + ".tmp"
         |    shutil.copyfile(os.path.join(DIR, "routes.yml"), tmp)
         |    os.replace(tmp, ACTIVE)
+        |
+        |def current():
+        |    # True if Traefik has the routes that HomeGAP wrote last.
+        |    try:
+        |        with open(ACTIVE, "rb") as a, open(os.path.join(DIR, "routes.yml"), "rb") as b:
+        |            return a.read() == b.read()
+        |    except OSError:
+        |        return False
         |
         |def deactivate():
         |    try:
@@ -187,7 +224,7 @@ object MaintenancePage {
         |            elif down and oks >= UP_AFTER:
         |                deactivate(); down = False
         |                log("homelab reachable again: maintenance page removed")
-        |            elif down and not os.path.exists(ACTIVE):
+        |            elif down and not current():
         |                activate()
         |        except OSError as e:
         |            log(f"could not update {ACTIVE}: {e}")

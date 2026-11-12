@@ -73,7 +73,8 @@ class ReconcilerTest {
         assertEquals(desired.size, managed.size)
         assertTrue(bunny.records.none { it.value == "192.0.2.99" }, "colliding unmanaged record taken over")
         assertTrue(bunny.records.any { it.value == "keep-me" }, "unrelated records are left alone")
-        val geo = managed.filter { it.name == "test" }
+        val geo = managed.filter { it.name == "test" && it.typeName != "CAA" }
+        assertEquals(listOf("issue", "issuewild"), managed.filter { it.typeName == "CAA" }.mapNotNull { it.tag }.sorted())
         assertTrue(geo.all { it.smartRoutingType == BunnyRecord.ROUTING_GEO && it.monitorType == BunnyRecord.MONITOR_HTTP && it.ttl == 60 })
 
         // Second pass is a no-op.

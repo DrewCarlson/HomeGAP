@@ -12,10 +12,9 @@ bunny:
 pangolin:
   acme_email: ops@test.example.net
   license_key_env: PANGOLIN_LICENSE_KEY
-certificates:
-  source: files
-  cert_file: /certs/wild.pem
-  key_file: /certs/wild.key
+# The local ACME server of the harness, in place of Let's Encrypt.
+acme:
+  directory: https://pebble:14000/dir
 tunnels:
   mtu: 1420
   native: true

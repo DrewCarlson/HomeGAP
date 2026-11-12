@@ -47,6 +47,12 @@ data class NodeDesired(
     val statusRedirect: Pair<String, String>? = null,
     /** The cluster's client address, served by this node's Pangolin (login pages and API). */
     val clientHost: String? = null,
+    /**
+     * The names for which the node shows the maintenance page while the homelab is unreachable.
+     * The node ends TLS for each of them. `*.<domain>` stands for each name one label under the
+     * domain.
+     */
+    val maintenanceHosts: List<String> = emptyList(),
 ) {
     val id: String get() = node.id
 }
@@ -122,6 +128,8 @@ data class DesiredDnsRecord(
     val monitor: String,
     val ttl: Int,
     val purpose: String,
+    /** CAA records only: `issue` or `issuewild`. */
+    val tag: String? = null,
 ) {
     /** Managed-ownership marker stored in the Bunny record comment. */
     val comment: String get() = "$OWNER_TAG $purpose node=$nodeId"
@@ -138,6 +146,9 @@ object Planner {
     const val SPEEDTEST = "hg-speedtest"
     const val STATUS = "hg-status"
     const val PRIVATE_PATH_PREFIX = "hg-private--"
+    /** The CAA records belong to the homelab, not to a node. */
+    const val CAA_OWNER = "homelab"
+    private const val CAA_TTL = 3600
 
     /**
      * A resource only one node serves (its health check, its speed test host). In a cluster all
@@ -254,9 +265,10 @@ object Planner {
             }
         }
 
-        val services = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
+        val claimed = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
         val frontDoor =
-            services.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC && !it.protocol.isRaw }
+            claimed.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC && !it.protocol.isRaw }
+        val services = refuseCoveredPassthrough(claimed, frontDoor, errors)
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
 
         val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, frontDoor) }
@@ -308,6 +320,24 @@ object Planner {
         return kept
     }
 
+    /**
+     * A front door in `terminate` mode with a wildcard puts the wildcard certificate on the nodes.
+     * That certificate covers each name one label under the domain, so TLS passthrough for such a
+     * name protects nothing. HomeGAP refuses the service and does not publish it.
+     */
+    private fun refuseCoveredPassthrough(services: List<ServiceSpec>, frontDoor: ServiceSpec?, errors: MutableList<LabelIssue>): List<ServiceSpec> {
+        if (frontDoor == null || !frontDoor.wildcard || frontDoor.tls != TlsMode.TERMINATE) return services
+        return services.filter { s ->
+            val covered = s != frontDoor && s.access == Access.PUBLIC && s.isHttpLike() && s.tls == TlsMode.PASSTHROUGH &&
+                homegap.acme.CertNames.covers(frontDoor.hostname, s.hostname)
+            if (covered) errors += LabelIssue(
+                s.containerName,
+                (s.name?.let { "services.$it: " }.orEmpty()) + "${Labels.TLS}=passthrough is refused for ${s.hostname}: the front door ends TLS for *.${frontDoor.hostname} on the nodes, so the nodes hold a certificate for this name. Set ${Labels.TLS}=terminate here, or passthrough on the front door",
+            )
+            !covered
+        }
+    }
+
     private fun overlaps(a: List<String>?, b: List<String>?) = a == null || b == null || a.any { it in b }
 
     /** The public ports a raw service takes on its nodes. */
@@ -337,6 +367,7 @@ object Planner {
         val redirects = mutableListOf<String>()
         val raw = mutableSetOf<RawPort>()
         val passthroughKeys = mutableListOf<String>()
+        val maintenance = mutableListOf<String>()
         var wildcardRedirect: String? = null
 
         val fd = frontDoor?.takeIf { it.servesNode(node.id) }
@@ -380,6 +411,7 @@ object Planner {
                 redirects += fd.hostname
                 if (fd.wildcard) wildcardRedirect = fd.hostname
             } else {
+                if (fd.maintenancePage) maintenance += listOf(fd.hostname) + (if (fd.wildcard) listOf("*.${fd.hostname}") else stHosts.drop(1) + listOfNotNull(spNode))
                 publicRes += httpResource(NICE_PREFIX + fd.key, fd, fd.hostname, method)
                 if (fd.wildcard) publicRes += httpResource(
                     NICE_PREFIX + "wildcard-" + fd.key,
@@ -427,6 +459,7 @@ object Planner {
                         sni += SniRoute("homegap-${s.key}", nice, listOf(s.hostname), null, emptyList(), 200)
                         redirects += s.hostname
                     } else {
+                        if (s.maintenancePage) maintenance += s.hostname
                         publicRes += httpResource(
                             NICE_PREFIX + s.key,
                             s,
@@ -498,6 +531,8 @@ object Planner {
             speedtestRedirect = st?.let { stHosts[0] to stHosts[1] },
             statusRedirect = if (spAuto != null && spNode != null) spAuto to spNode else null,
             clientHost = config.clientHost,
+            // The node ends TLS for the shared names in each mode, so they always get the page.
+            maintenanceHosts = (maintenance + listOfNotNull(stHosts.firstOrNull(), spAuto)).distinct().sorted(),
         )
     }
 
@@ -605,6 +640,14 @@ object Planner {
             }
         }
 
+        if (config.acme.caa) {
+            // Only this certificate authority, and only with the DNS challenge. A node has no DNS
+            // key, so it cannot order a certificate for a name under the domain.
+            val value = "${config.acme.caaIssuer}; validationmethods=dns-01"
+            for (tag in listOf("issue", "issuewild")) {
+                out += DesiredDnsRecord(rel(config.domain), config.domain, "CAA", value, CAA_OWNER, false, null, null, null, "none", CAA_TTL, "caa", tag)
+            }
+        }
         if (frontDoor != null) {
             val eligible = nodes.filter { frontDoor.servesNode(it.id) }
             geoSet(frontDoor.hostname, "root", eligible)
