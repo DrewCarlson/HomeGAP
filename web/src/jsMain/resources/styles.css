@@ -395,14 +395,48 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .ansi-italic { font-style: italic; }
 .ansi-underline { text-decoration: underline; }
 
-.toasts { position: fixed; bottom: 20px; right: 20px; z-index: 20; max-width: 460px; display: grid; gap: 8px; justify-items: end; }
+.toasts { position: fixed; bottom: 20px; right: 20px; z-index: 20; width: min(420px, calc(100vw - 40px)); display: grid; gap: 8px; }
 .toast {
-  background: var(--panel-raised); color: var(--ink); border: 1px solid var(--rule-strong); border-left: 2px solid var(--cyan-soft);
-  border-radius: var(--radius); padding: 11px 16px; display: flex; align-items: center; gap: 12px;
-  box-shadow: var(--shadow-lg); font-size: 13.5px; animation: toast-in .18s ease-out;
+  position: relative; overflow: hidden; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  padding: 10px 8px 10px 12px; min-height: 52px; box-sizing: border-box;
+  background: var(--panel-raised); color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 10px;
+  box-shadow: var(--shadow-lg); font-size: 13.5px; line-height: 1.4; animation: toast-in .2s ease-out;
 }
-.toast-error { border-left-color: var(--rose); color: #FFB3BE; }
+.toast-icon {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--cyan); background: color-mix(in srgb, var(--cyan) 14%, transparent);
+}
+.toast-text { min-width: 0; overflow-wrap: anywhere; }
+.toast:not(:has(.toast-buttons)) { padding-right: 14px; }
+.toast-buttons { display: flex; align-items: center; gap: 2px; }
+.toast-action {
+  height: 32px; padding: 0 14px; border: 0; border-radius: 8px; background: var(--cyan-soft); color: #061032;
+  font: 600 13px var(--sans); cursor: pointer;
+}
+.toast-action:hover { background: var(--cyan); }
+.toast-dismiss {
+  width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px;
+  background: transparent; color: var(--ink-dim); cursor: pointer;
+}
+.toast-dismiss:hover { background: var(--rule); color: var(--ink); }
+.toast-action:focus-visible, .toast-dismiss:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.toast-timer {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--cyan-soft); opacity: .55;
+  transform-origin: left; animation: toast-timer linear forwards;
+}
+.toast-error .toast-icon { color: var(--rose); background: color-mix(in srgb, var(--rose) 16%, transparent); }
+.toast-error .toast-text { color: #FFB3BE; }
+.toast-error .toast-timer { background: var(--rose); }
 @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes toast-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+/* With the Inspector's column open the stack sits just left of it. */
+.toasts.beside-inspector { right: calc(var(--inspector-width) + 20px); width: min(400px, calc(100vw - var(--inspector-width) - 40px)); }
+/* In the drawer and the sheet the stack rises from just above the action bar. */
+.inspector-toasts { position: relative; height: 0; z-index: 4; }
+.inspector-toasts .toasts { position: absolute; left: 12px; right: 12px; bottom: 10px; width: auto; }
+/* Room to scroll the body's end out from under a toast. */
+.inspector:has(.inspector-toasts .toast) .inspector-body { padding-bottom: 112px; }
 
 /* ---------------------------------------------------------------- tones */
 .tone-ok { color: var(--cyan); }
@@ -763,8 +797,6 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .form-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--rule); }
 .form-actions .btn { height: 44px; }
 .overlay-drawer:has(.form-panel) { width: min(460px, 100vw); }
-.toast-action { flex: none; height: 32px; padding: 0 12px; border: 1px solid currentColor; border-radius: var(--radius); background: transparent; color: var(--cyan-soft); font: 600 13px var(--sans); cursor: pointer; }
-.toast-dismiss { flex: none; height: 32px; padding: 0 6px; border: 0; background: transparent; color: var(--ink-dim); font: 13px var(--sans); cursor: pointer; }
 
 /* ---------------------------------------------------------------- speed test */
 .speed-rows { display: grid; }
@@ -922,7 +954,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .link-row { grid-template-columns: 1fr auto; }
   .link-row .link-label { grid-column: 1 / -1; }
-  .toasts { left: 12px; right: 12px; bottom: 12px; max-width: none; justify-items: stretch; }
+  .toasts { left: 12px; right: 12px; bottom: 12px; width: auto; }
 }
 
 /* ---------------------------------------------------------------- rollout */

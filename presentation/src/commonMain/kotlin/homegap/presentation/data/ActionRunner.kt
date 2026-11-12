@@ -15,12 +15,13 @@ import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * A short-lived message. [actionLabel] and [action] add a button such as Undo, and such a toast
- * also has [dismiss], which removes it unused.
+ * A short-lived message, shown for [duration]. [actionLabel] and [action] add a button such as
+ * Undo, and such a toast also has [dismiss], which removes it unused.
  */
 data class Toast(
     val text: String,
     val isError: Boolean,
+    val duration: kotlin.time.Duration,
     val actionLabel: String? = null,
     val action: (() -> Unit)? = null,
     val dismiss: (() -> Unit)? = null,
@@ -88,6 +89,7 @@ class ActionRunner(
         shown = Toast(
             text = message,
             isError = isError,
+            duration = duration,
             actionLabel = actionLabel,
             action = action?.let {
                 {

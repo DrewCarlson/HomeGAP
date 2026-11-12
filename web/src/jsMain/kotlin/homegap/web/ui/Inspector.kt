@@ -2,6 +2,7 @@ package homegap.web.ui
 
 import androidx.compose.runtime.Composable
 import homegap.api.Health
+import homegap.presentation.data.Toast
 import homegap.presentation.routing.Location
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.InspectorSection
@@ -16,6 +17,7 @@ import org.jetbrains.compose.web.dom.*
 @Composable
 fun InspectorHost(
     inspector: InspectorModel,
+    toasts: List<Toast>,
     viewport: Viewport,
     onClose: () -> Unit,
     onOpen: (Location) -> Unit,
@@ -27,8 +29,13 @@ fun InspectorHost(
         }) {
             InspectorContent(
                 inspector = inspector,
+                toasts = emptyList(),
                 onClose = onClose,
                 onOpen = onOpen,
+            )
+            ToastStack(
+                toasts = toasts,
+                placement = ToastPlacement.BesideInspector,
             )
         }
     } else {
@@ -41,6 +48,7 @@ fun InspectorHost(
             Div({ classes("overlay-panel", "inspector") }) {
                 InspectorContent(
                     inspector = inspector,
+                    toasts = toasts,
                     onClose = onClose,
                     onOpen = onOpen,
                 )
@@ -52,6 +60,7 @@ fun InspectorHost(
 @Composable
 private fun InspectorContent(
     inspector: InspectorModel,
+    toasts: List<Toast>,
     onClose: () -> Unit,
     onOpen: (Location) -> Unit,
 ) {
@@ -72,6 +81,15 @@ private fun InspectorContent(
         ScrollReset(inspector.kind to inspector.title)
         inspector.sections.forEach { section ->
             Section(section)
+        }
+    }
+    // Drawer and sheet: a zero-height line over the action bar; the toasts rise from it over the body's end.
+    if (toasts.isNotEmpty()) {
+        Div({ classes("inspector-toasts") }) {
+            ToastStack(
+                toasts = toasts,
+                placement = ToastPlacement.AboveInspectorActions,
+            )
         }
     }
     if (inspector.actions.isNotEmpty()) {
