@@ -103,7 +103,7 @@ class AppPresenter(
         LaunchedEffect(Unit) { session.follow() }
         val status by session.status.collectAsState()
         val problem by session.problem.collectAsState()
-        val toast by actions.toast.collectAsState()
+        val toasts by actions.toasts.collectAsState()
         val log by session.log.collectAsState()
         val metrics by session.metrics.collectAsState()
         val pendingConfirm by confirmations.pending.collectAsState()
@@ -146,7 +146,7 @@ class AppPresenter(
                 )
             },
             overlay = snapshot?.let { overlay(props, it) },
-            toast = toast,
+            toasts = toasts,
             search = search(
                 snapshot = snapshot,
                 log = log,

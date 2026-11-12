@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.withContext
 import platform.posix.*
-import kotlin.random.Random
 
 /**
  * Asks one nameserver directly (UDP port 53) for [name]'s records of [type]. Returns null when
@@ -28,9 +27,12 @@ private fun queryBlocking(server: String, name: String, type: Int, timeoutMs: In
         val fd = socket(ai.ai_family, SOCK_DGRAM, 0)
         if (fd < 0) return null
         try {
-            val id = Random.nextInt(0, 0x10000)
+            // A connected socket takes answers only from the address and port of the nameserver.
+            // The id is not predictable, so a host off the path cannot forge an answer.
+            if (connect(fd, ai.ai_addr, ai.ai_addrlen) != 0) return null
+            val id = Crypto.randomBytes(2).let { ((it[0].toInt() and 0xff) shl 8) or (it[1].toInt() and 0xff) }
             val query = DnsWire.encodeQuery(id, name, type)
-            val sent = query.usePinned { sendto(fd, it.addressOf(0), query.size.convert(), 0, ai.ai_addr, ai.ai_addrlen) }
+            val sent = query.usePinned { send(fd, it.addressOf(0), query.size.convert(), 0) }
             if (sent < 0) return null
             val buf = ByteArray(4096)
             val deadline = nowMillis() + timeoutMs

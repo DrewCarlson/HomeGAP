@@ -73,6 +73,8 @@ data class AddNodeDraft(
     /** Last connection test, and the login it was made with (a change of login invalidates it). */
     val test: ConnectionTestDto? = null,
     val testedLogin: SshLoginDto? = null,
+    /** The host key fingerprint the operator confirmed for the entered host and port. */
+    val confirmedHostKey: String? = null,
     /** The node's management key, and the node id it was made for. */
     val key: SshKeyDto? = null,
     val keyFor: String? = null,

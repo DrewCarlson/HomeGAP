@@ -12,6 +12,7 @@ import homegap.presentation.app.NavItem
 import homegap.presentation.app.PassStatusModel
 import homegap.presentation.config.ConfigScreenModel
 import homegap.presentation.core.ScreenModel
+import homegap.presentation.data.Toast
 import homegap.presentation.diagnostics.DiagnosticsScreenModel
 import homegap.presentation.dns.DnsScreenModel
 import homegap.presentation.locations.LocationsScreenModel
@@ -135,23 +136,10 @@ fun AppShell(model: AppModel) {
             viewport = viewport,
         )
     }
-    model.toast?.let { toast ->
-        Div({
-            classes("toast")
-            if (toast.isError) {
-                classes("toast-error")
-            }
-            attr("role", if (toast.isError) "alert" else "status")
-        }) {
-            Span { Text(toast.text) }
-            val action = toast.action
-            if (action != null) {
-                Button({
-                    classes("toast-action")
-                    onClick { action() }
-                }) {
-                    Text(toast.actionLabel ?: "Undo")
-                }
+    if (model.toasts.isNotEmpty()) {
+        Div({ classes("toasts") }) {
+            model.toasts.forEach { toast ->
+                ToastCard(toast)
             }
         }
     }
@@ -524,6 +512,37 @@ private fun ElementScope<HTMLElement>.ShrinkOnScroll() {
             observer.disconnect()
             spacer.disconnect()
             menu.removeEventListener("click", expand)
+        }
+    }
+}
+
+@Composable
+private fun ToastCard(toast: Toast) {
+    Div({
+        classes("toast")
+        if (toast.isError) {
+            classes("toast-error")
+        }
+        attr("role", if (toast.isError) "alert" else "status")
+    }) {
+        Span { Text(toast.text) }
+        val action = toast.action
+        if (action != null) {
+            Button({
+                classes("toast-action")
+                onClick { action() }
+            }) {
+                Text(toast.actionLabel ?: "Undo")
+            }
+        }
+        val dismiss = toast.dismiss
+        if (dismiss != null) {
+            Button({
+                classes("toast-dismiss")
+                onClick { dismiss() }
+            }) {
+                Text("Dismiss")
+            }
         }
     }
 }

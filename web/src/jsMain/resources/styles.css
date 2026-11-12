@@ -395,10 +395,10 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .ansi-italic { font-style: italic; }
 .ansi-underline { text-decoration: underline; }
 
+.toasts { position: fixed; bottom: 20px; right: 20px; z-index: 20; max-width: 460px; display: grid; gap: 8px; justify-items: end; }
 .toast {
-  position: fixed; bottom: 20px; right: 20px; z-index: 20; max-width: 460px;
   background: var(--panel-raised); color: var(--ink); border: 1px solid var(--rule-strong); border-left: 2px solid var(--cyan-soft);
-  border-radius: var(--radius); padding: 11px 16px;
+  border-radius: var(--radius); padding: 11px 16px; display: flex; align-items: center; gap: 12px;
   box-shadow: var(--shadow-lg); font-size: 13.5px; animation: toast-in .18s ease-out;
 }
 .toast-error { border-left-color: var(--rose); color: #FFB3BE; }
@@ -764,6 +764,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .form-actions .btn { height: 44px; }
 .overlay-drawer:has(.form-panel) { width: min(460px, 100vw); }
 .toast-action { flex: none; height: 32px; padding: 0 12px; border: 1px solid currentColor; border-radius: var(--radius); background: transparent; color: var(--cyan-soft); font: 600 13px var(--sans); cursor: pointer; }
+.toast-dismiss { flex: none; height: 32px; padding: 0 6px; border: 0; background: transparent; color: var(--ink-dim); font: 13px var(--sans); cursor: pointer; }
 
 /* ---------------------------------------------------------------- speed test */
 .speed-rows { display: grid; }
@@ -921,7 +922,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .link-row { grid-template-columns: 1fr auto; }
   .link-row .link-label { grid-column: 1 / -1; }
-  .toast { left: 12px; right: 12px; bottom: 12px; max-width: none; }
+  .toasts { left: 12px; right: 12px; bottom: 12px; max-width: none; justify-items: stretch; }
 }
 
 /* ---------------------------------------------------------------- rollout */

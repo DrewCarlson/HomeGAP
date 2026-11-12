@@ -69,6 +69,8 @@ For the blueprint format, see the [Pangolin blueprint reference](https://docs.pa
 
 `crowdsec: true` enables the CrowdSec bouncer on the Traefik of each node. It uses `crowdsec_image` and `crowdsec_bouncer_version`. CrowdSec protects only terminated traffic. It cannot examine passthrough streams.
 
+If a node cannot reach the AppSec component of CrowdSec, it lets the requests through. With `crowdsec_fail_closed: true`, the node refuses them. Then a stopped CrowdSec container stops the terminated traffic of that node, and its own Pangolin pages too.
+
 ## Ports and tuning
 
 `passthrough_port_base` (default 40000) is the start of the internal proxy ports for passthrough resources. HomeGAP never publishes these ports.

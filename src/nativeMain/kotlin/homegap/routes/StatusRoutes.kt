@@ -81,9 +81,19 @@ class StatusRoutes(
         var lastSeq = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
         // A client that saw a previous controller process has a sequence ahead of ours.
         if (lastSeq > controller.log.revision.value) lastSeq = 0L
-        call.response.header(HttpHeaders.CacheControl, "no-cache")
-        call.response.header("X-Accel-Buffering", "no")
-        call.respondBytesWriter(ContentType.Text.EventStream) { writeEvents(afterSeq = lastSeq) }
+        // Each stream holds a connection and a coroutine for as long as a dashboard is open.
+        if (streams.incrementAndGet() > MAX_STREAMS) {
+            streams.decrementAndGet()
+            call.respond(io.ktor.http.HttpStatusCode.ServiceUnavailable, homegap.api.ActionResponse(false, "Too many dashboards are open. Close one and try again."))
+            return
+        }
+        try {
+            call.response.header(HttpHeaders.CacheControl, "no-cache")
+            call.response.header("X-Accel-Buffering", "no")
+            call.respondBytesWriter(ContentType.Text.EventStream) { writeEvents(afterSeq = lastSeq) }
+        } finally {
+            streams.decrementAndGet()
+        }
     }
 
     private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long) = coroutineScope {
@@ -183,7 +193,10 @@ class StatusRoutes(
         writeStringUtf8("event: ${event.name}\ndata: ${ApiJson.encodeToString<ServerEvent>(event)}\n\n")
     }
 
+    private val streams = kotlinx.atomicfu.atomic(0)
+
     private companion object {
+        const val MAX_STREAMS = 32
         val RECHECK = 5.seconds
         val LIVE_TICK = 250.milliseconds
         /** How often values that change all the time (round trips, byte counts) are sent. */

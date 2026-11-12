@@ -57,11 +57,15 @@ To have no database member on the homelab, set `cluster.homelab_role: vote`. The
 
 HomeGAP never publishes the IP address of the homelab. Every tunnel goes outbound from home. In cluster mode, the homelab dials the mesh. On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database.
 
+The add-node wizard sends a password only to a host key that you confirmed. After that, HomeGAP connects to a node only if it shows the host key from its first connection.
+
 ## Traffic
 
 With `passthrough`, a node cannot read the traffic. It holds no certificate for a passthrough name. With the CAA records of the domain, it cannot order one. A node can see the name, the address of the client, and the size and time of the traffic.
 
 A node can read the traffic of each name that it terminates. These are its own Pangolin, the shared names of the status page and the speed test, and each service with `homegap.tls: terminate`. A front door with `terminate` and `homegap.wildcard` gives the nodes all web traffic of the domain. See [Certificates](../configuration/certificates.md).
+
+The nodes send an HSTS header on each name that they terminate. A browser then uses only HTTPS for that name for one year.
 
 `pangolin.crowdsec` gives abuse mitigation on the edge for terminated traffic only. It cannot examine passthrough streams.
 

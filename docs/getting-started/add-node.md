@@ -53,8 +53,11 @@ When you pick a point on the map, the nearest known city within 50 km gives the 
 3. For **Password**, type the password.
 4. For **Private key**, type the path of the key file in **Private key on the orchestrator**.
 5. Click **Test connection**.
-6. Compare the **Host key** fingerprint with the fingerprint in the console of your provider.
-7. Click **Continue**.
+6. For a password login to a new server, the page shows "Check the server's fingerprint". Compare the **Host key** fingerprint with the fingerprint in the console of your provider.
+7. If the fingerprints are the same, click **The fingerprint matches**. HomeGAP then sends the password and does the test.
+8. Click **Continue**.
+
+HomeGAP sends a password only to a host key that you confirmed. A server that shows a different key later does not get the password.
 
 You must test the connection before you can continue. The test checks the login and shows this information:
 

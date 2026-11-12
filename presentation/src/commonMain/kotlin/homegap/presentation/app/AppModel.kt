@@ -24,7 +24,7 @@ data class AppModel(
     val screen: ScreenModel?,
     /** A page over the screen: the Add node wizard over Nodes, Locations over Config. */
     val overlay: ScreenModel? = null,
-    val toast: Toast?,
+    val toasts: List<Toast>,
     val search: SearchModel,
     /** Change location for a node, over whichever screen opened it. */
     val nodeLocation: homegap.presentation.nodes.NodeLocationModel? = null,

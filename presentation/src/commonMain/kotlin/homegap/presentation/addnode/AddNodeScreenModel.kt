@@ -54,6 +54,10 @@ data class ConnectionResultModel(
     val facts: List<ReviewLine>,
     val error: String?,
     val hostKeyChanged: Boolean,
+    /** The operator must compare the host key in [facts] before HomeGAP logs in. */
+    val hostKeyUnconfirmed: Boolean = false,
+    /** What to do about the result, when it is not an error. */
+    val note: String? = null,
 )
 
 @Immutable
@@ -85,6 +89,8 @@ sealed interface WizardEvent {
     data class GoTo(val step: WizardStep) : WizardEvent
     data object TestConnection : WizardEvent
     data object ForgetHostKeyAndTest : WizardEvent
+    /** The fingerprint of the last test matches the provider's: tests again, now with the login. */
+    data object ConfirmHostKey : WizardEvent
     data object CreateKey : WizardEvent
     data object Next : WizardEvent
     data object Back : WizardEvent

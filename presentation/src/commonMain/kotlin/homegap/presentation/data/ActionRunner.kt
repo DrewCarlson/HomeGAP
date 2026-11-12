@@ -10,15 +10,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
-/** A short-lived message; [actionLabel] and [action] add a button such as Undo. */
+/**
+ * A short-lived message. [actionLabel] and [action] add a button such as Undo, and such a toast
+ * also has [dismiss], which removes it unused.
+ */
 data class Toast(
     val text: String,
     val isError: Boolean,
     val actionLabel: String? = null,
     val action: (() -> Unit)? = null,
+    val dismiss: (() -> Unit)? = null,
 )
 
 /**
@@ -32,8 +37,13 @@ class ActionRunner(
     private val api: ControllerApi,
     @AppCoroutineScope private val scope: CoroutineScope,
 ) {
-    private val _toast = MutableStateFlow<Toast?>(null)
-    val toast: StateFlow<Toast?> = _toast.asStateFlow()
+    private val _toasts = MutableStateFlow<List<Toast>>(emptyList())
+
+    /**
+     * The messages to show, oldest first. A new message replaces the plain one before it, but a
+     * toast with an action stays until it is used, dismissed, or its time runs out.
+     */
+    val toasts: StateFlow<List<Toast>> = _toasts.asStateFlow()
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
@@ -73,16 +83,24 @@ class ActionRunner(
         action: (() -> Unit)? = null,
         duration: kotlin.time.Duration = TOAST_DURATION,
     ) {
-        val shown = Toast(
+        lateinit var shown: Toast
+        val remove = { _toasts.update { toasts -> toasts.filterNot { it === shown } } }
+        shown = Toast(
             text = message,
             isError = isError,
             actionLabel = actionLabel,
-            action = action,
+            action = action?.let {
+                {
+                    remove()
+                    it()
+                }
+            },
+            dismiss = remove.takeIf { action != null },
         )
-        _toast.value = shown
+        _toasts.update { toasts -> toasts.filter { it.action != null } + shown }
         scope.launch {
             delay(duration)
-            if (_toast.value == shown) _toast.value = null
+            remove()
         }
     }
 

@@ -158,8 +158,54 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         }
     }
 
+    /**
+     * A password goes only to a host key that is in the known hosts file, so a password login
+     * never accepts a new key by itself. ssh uses the first value of an option, so the strict
+     * value comes before [COMMON_OPTIONS].
+     */
     private fun baseArgs(login: SetupLogin) =
-        listOf("ssh", "-p", login.port.toString()) + COMMON_OPTIONS + listOf("-o", "UserKnownHostsFile=$knownHostsFile")
+        listOf("ssh", "-p", login.port.toString()) +
+            (if (login is SetupLogin.Password) listOf("-o", "StrictHostKeyChecking=yes") else emptyList()) +
+            COMMON_OPTIONS + listOf("-o", "UserKnownHostsFile=$knownHostsFile")
+
+    private val scannedHostsFile = "$knownHostsFile.scanned"
+
+    private fun hostName(host: String, port: Int) = if (port == 22) host else "[$host]:$port"
+
+    /**
+     * Reads the host key of the server of [login] into a file of its own and returns its SHA256
+     * fingerprint, or null if the server gives no key. The scan sends no credential.
+     */
+    suspend fun scanHostKey(login: SetupLogin): String? {
+        Files.delete(scannedHostsFile)
+        // One key type for each connection: a server that counts each connection without a
+        // login as an attack sees one, not one for each type.
+        val key = HOST_KEY_TYPES.firstNotNullOfOrNull { type ->
+            val scan = Subprocess.run(listOf("ssh-keyscan", "-T", "10", "-p", login.port.toString(), "-t", type, login.host), timeout = 30.seconds)
+            scan.stdout.lines().firstOrNull { it.isNotBlank() && !it.startsWith("#") }
+        } ?: return null
+        Files.writeAtomic(scannedHostsFile, key + "\n", "600".toInt(8))
+        return scannedHostKey(login)
+    }
+
+    /** SHA256 fingerprint of the key that the last [scanHostKey] read for the server of [login]. */
+    suspend fun scannedHostKey(login: SetupLogin): String? {
+        if (!Files.exists(scannedHostsFile)) return null
+        val r = Subprocess.run(listOf("ssh-keygen", "-l", "-F", hostName(login.host, login.port), "-f", scannedHostsFile), timeout = 10.seconds)
+        return Regex("SHA256:[A-Za-z0-9+/=]+").find(r.stdout)?.value
+    }
+
+    /** Puts the key of the last [scanHostKey] for the server of [login] into the known hosts file. */
+    suspend fun trustScannedHostKey(login: SetupLogin) {
+        val name = hostName(login.host, login.port)
+        val found = Subprocess.run(listOf("ssh-keygen", "-F", name, "-f", scannedHostsFile), timeout = 10.seconds)
+        val lines = found.stdout.lines().filter { it.isNotBlank() && !it.startsWith("#") }
+        check(lines.isNotEmpty()) { "The host key of ${login.host} is not there. Test the connection again." }
+        forgetHostKey(login.host, login.port)
+        val known = Files.readTextOrNull(knownHostsFile).orEmpty()
+        Files.writeAtomic(knownHostsFile, known + (if (known.isEmpty() || known.endsWith("\n")) "" else "\n") + lines.joinToString("\n") + "\n", "600".toInt(8))
+        Files.delete(scannedHostsFile)
+    }
 
     private fun target(login: SetupLogin) = "${login.user}@${login.host}"
 
@@ -188,6 +234,9 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
 
     companion object {
         private const val SECRET_ENV = "HOMEGAP_SSH_SECRET"
+
+        /** In the order ssh prefers them. */
+        private val HOST_KEY_TYPES = listOf("ed25519", "ecdsa", "rsa")
 
         /** Short, so socket paths stay under the platform's limit (about 104 bytes). */
         private const val CONTROL_DIR = "/tmp/homegap-setup"

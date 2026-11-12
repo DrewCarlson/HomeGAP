@@ -31,6 +31,13 @@ The page and its data are public. For each node, a visitor can read these values
 
 The page does not show IP addresses or the management hosts. But a visitor can find the public address of each node from its `status-<node>` name. The public DNS records of your services give the same addresses.
 
+### Limits on requests
+
+The page needs no token, so HomeGAP limits its requests:
+
+- On the name `status.<domain>`, each node lets one address send 30 requests in a second, with a burst of 150.
+- The orchestrator lets one address send 1200 requests in a minute to the page, its data and the map. Above that number, it answers 429.
+
 ## How the page works
 
 Each node answers `status.<domain>` itself, with its own certificate. This name never goes through passthrough. On HTTP, the node redirects to HTTPS on the same name.

@@ -18,6 +18,7 @@ import homegap.reconcile.Controller
 import homegap.reconcile.ReadyNode
 import io.ktor.client.HttpClient
 import io.ktor.http.Url
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +43,10 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
     private val org get() = controller.config.pangolin.orgId
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** The removals that wait for their delay: user id to the message and the undo id. */
+    private val removals = mutableMapOf<String, Pair<String, String>>()
+    private val removalLock = kotlinx.atomicfu.locks.SynchronizedObject()
 
     private val _revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
 
@@ -150,6 +155,8 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
      * message and the undo id.
      */
     suspend fun removeUser(userId: String): Pair<String, String> {
+        // A second click must not start a second removal: an undo would stop only one of them.
+        synchronized(removalLock) { removals[userId] }?.let { return it }
         val (ready, _) = pangolin()
         val user = ready.api.listUsers(org).firstOrNull { it.id == userId } ?: throw IllegalArgumentException("no such user")
         check(user.isOwner != true) { "the server admin can't be removed" }
@@ -163,16 +170,18 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
                 if (it is CancellationException) throw it
                 controller.log.error(domain, "could not remove $name: ${it.message}")
             }
+            synchronized(removalLock) { removals.remove(userId) }
             changed()
         }
         val undo = controller.offerUndo(
             ttlMs = REMOVE_DELAY.inWholeMilliseconds,
         ) {
             removal.cancel()
+            synchronized(removalLock) { removals.remove(userId) }
             controller.log.change(domain, "kept $name (removal undone)")
             "Kept $name"
         }
-        return "Removing $name in ${REMOVE_DELAY.inWholeSeconds} s" to undo
+        return ("Removing $name in ${REMOVE_DELAY.inWholeSeconds} s" to undo).also { synchronized(removalLock) { removals[userId] = it } }
     }
 
     /**

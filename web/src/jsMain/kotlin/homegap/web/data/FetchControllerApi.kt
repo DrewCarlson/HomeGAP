@@ -59,14 +59,19 @@ class FetchControllerApi(
             edge?.let { parameter("edge", it) }
         }.body()
 
-    /** Uses ktor's SSE client rather than EventSource so the bearer token can be sent. */
+    /**
+     * Uses ktor's SSE client rather than EventSource so the bearer token can be sent. The flow
+     * ends when the server closes the stream or stays silent past [EVENT_STREAM_SILENCE_LIMIT].
+     */
     override suspend fun events(afterSeq: Long): Flow<ServerEvent> = flow {
         try {
             http.sse(
                 "/api/events?after=$afterSeq",
                 deserialize = { type, data -> json.decodeFromString(json.serializersModule.serializer(type.kotlinType!!), data) },
+                // Keepalive comments count as life for the silence limit.
+                showCommentEvents = true,
             ) {
-                incoming.collect { event ->
+                incoming.endAfterSilence(EVENT_STREAM_SILENCE_LIMIT).collect { event ->
                     // Comment-only events (": keepalive") carry no data.
                     deserialize<ServerEvent>(event)?.let { emit(it) }
                 }

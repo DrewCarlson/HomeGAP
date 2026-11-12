@@ -130,9 +130,19 @@ class FakeControllerApi(
     var lastSetup: NodeSetupRequestDto? = null
     var setupStates = ArrayDeque(listOf("running", "succeeded"))
 
+    /** When set, the server's host key is not recorded: a password login needs this fingerprint. */
+    var unrecordedHostKey: String? = null
+    val logins = mutableListOf<SshLoginDto>()
+
     override suspend fun testConnection(login: SshLoginDto): ConnectionTestDto {
         calls += "connect ${login.user}@${login.host}:${login.port} ${if (login.password != null) "password" else "key"}"
-        return connection
+        logins += login
+        val hostKey = unrecordedHostKey
+        return if (hostKey != null && login.password != null && login.hostKeyFingerprint != hostKey) {
+            ConnectionTestDto(ok = false, hostKeyUnconfirmed = true, hostKeyFingerprint = hostKey)
+        } else {
+            connection
+        }
     }
 
     override suspend fun createKey(request: SshKeyRequestDto): SshKeyDto {

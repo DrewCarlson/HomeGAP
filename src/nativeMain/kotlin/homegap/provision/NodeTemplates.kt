@@ -56,6 +56,12 @@ object NodeTemplates {
     const val PROXY_PROTOCOL_VERSION = 2
     const val PROXY_PROTOCOL_TRANSPORT = "pp-transport-v$PROXY_PROTOCOL_VERSION"
     const val DYNAMIC_TLS = "config/traefik/dynamic/homegap-tls.yml"
+    const val DYNAMIC_HEADERS = "config/traefik/dynamic/homegap-headers.yml"
+    const val HSTS = "homegap-hsts"
+    private const val HSTS_SECONDS = 31_536_000
+    /** Requests in a second from one address to the public status page of a node, and the burst. */
+    private const val STATUS_RATE = 30
+    private const val STATUS_BURST = 150
     const val CERT = "config/traefik/certs/homegap.crt"
     const val KEY = "config/traefik/certs/homegap.key"
     /** Pangolin writes this resolver name into its routes. Traefik reads an empty name as no resolver. */
@@ -90,6 +96,7 @@ object NodeTemplates {
             RenderedFile(SECRETS, PRETTY_JSON.encodeToString(secrets), "0600"),
             RenderedFile(AI_CATALOG, OutsideCalls.EMPTY_AI_CATALOG),
         )
+        files += RenderedFile(DYNAMIC_HEADERS, headersDynamic())
         files += RenderedFile("${MaintenancePage.DIR}/server.py", MaintenancePage.SCRIPT).apply { restarts = MaintenancePage.SERVICE }
         files += RenderedFile("${MaintenancePage.DIR}/index.html", MaintenancePage.page(config.domain, node.id))
         if (cluster != null) {
@@ -101,7 +108,7 @@ object NodeTemplates {
                 putJsonArray("filenames") { add("/var/log/traefik/*.log") }
                 putJsonObject("labels") { put("type", "traefik") }
             }, HEADER)).apply { restarts = "crowdsec" }
-            files += RenderedFile("config/traefik/dynamic/homegap-crowdsec.yml", crowdsecDynamic(secrets), "0600")
+            files += RenderedFile("config/traefik/dynamic/homegap-crowdsec.yml", crowdsecDynamic(secrets, config.pangolin.crowdsecFailClosed), "0600")
         }
         return files
     }
@@ -395,7 +402,10 @@ object NodeTemplates {
                     putJsonObject("http3") { put("advertisedPort", 443) }
                     putJsonObject("http") {
                         putJsonObject("tls") {}
-                        if (p.crowdsec) putJsonArray("middlewares") { add("crowdsec@file") }
+                        putJsonArray("middlewares") {
+                            add("$HSTS@file")
+                            if (p.crowdsec) add("crowdsec@file")
+                        }
                         putJsonObject("encodedCharacters") {
                             put("allowEncodedSlash", true)
                             put("allowEncodedQuestionMark", true)
@@ -428,7 +438,19 @@ object NodeTemplates {
         return YamlEmitter.emit(root, HEADER)
     }
 
-    private fun crowdsecDynamic(secrets: NodeSecrets): String = YamlEmitter.emit(buildJsonObject {
+    /**
+     * The headers of each HTTPS answer of the node. HSTS tells a browser to use HTTPS for the name
+     * for one year. It covers only the name itself: a node must not set a rule for other names.
+     */
+    fun headersDynamic(): String = YamlEmitter.emit(buildJsonObject {
+        putJsonObject("http") {
+            putJsonObject("middlewares") {
+                putJsonObject(HSTS) { putJsonObject("headers") { put("stsSeconds", HSTS_SECONDS) } }
+            }
+        }
+    }, HEADER)
+
+    private fun crowdsecDynamic(secrets: NodeSecrets, failClosed: Boolean): String = YamlEmitter.emit(buildJsonObject {
         putJsonObject("http") {
             putJsonObject("middlewares") {
                 putJsonObject("crowdsec") {
@@ -439,7 +461,7 @@ object NodeTemplates {
                             put("crowdsecAppsecEnabled", true)
                             put("crowdsecAppsecHost", "crowdsec:7422")
                             put("crowdsecAppsecFailureBlock", true)
-                            put("crowdsecAppsecUnreachableBlock", false)
+                            put("crowdsecAppsecUnreachableBlock", failClosed)
                             put("crowdsecLapiKey", secrets.crowdsecBouncerKey)
                             put("crowdsecLapiHost", "crowdsec:8080")
                             put("crowdsecLapiScheme", "http")
@@ -469,6 +491,10 @@ object NodeTemplates {
                 putJsonObject("middlewares") {
                     putJsonObject("homegap-redirect-https") { putJsonObject("redirectScheme") { put("scheme", "https"); put("permanent", true) } }
                     putJsonObject("homegap-health-path") { putJsonObject("replacePath") { put("path", desired.healthPath) } }
+                    // The status page needs no token, so one address gets a limit on it.
+                    if (desired.statusRedirect != null) putJsonObject("homegap-status-rate") {
+                        putJsonObject("rateLimit") { put("average", STATUS_RATE); put("burst", STATUS_BURST) }
+                    }
                     // A shared name's requests continue under this node's own name (see [selfVia]).
                     for ((name, pair) in sharedNames(desired)) putJsonObject("homegap-$name-via") {
                         putJsonObject("headers") { putJsonObject("customRequestHeaders") { put("Host", pair.second) } }
@@ -537,7 +563,10 @@ object NodeTemplates {
                         putJsonObject("homegap-$name-via") {
                             put("rule", "Host(`$from`)")
                             putJsonArray("entryPoints") { add("websecure") }
-                            putJsonArray("middlewares") { add("homegap-$name-via") }
+                            putJsonArray("middlewares") {
+                                if (name == "status") add("homegap-status-rate")
+                                add("homegap-$name-via")
+                            }
                             put("service", "homegap-$name-via")
                             put("priority", 10000)
                             putJsonObject("tls") {}

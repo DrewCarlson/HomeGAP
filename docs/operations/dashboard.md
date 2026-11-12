@@ -19,6 +19,8 @@ To remove the token from the browser, click **Sign out** at the bottom of the me
 
 The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that change. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens the stream again when you return to the tab.
 
+The orchestrator writes to the stream every 25 seconds or less. If the dashboard gets nothing for 60 seconds, it opens a new stream. The orchestrator keeps 32 streams open at most. A dashboard above that number gets an error until a different one closes.
+
 If the dashboard cannot reach the orchestrator for more than 5 seconds, a dialog says so. The dialog shows the error and the time to the next try, and it has **Reconnect now**. It closes by itself when the orchestrator answers again. Until then, the page shows the last data from the orchestrator.
 
 ## The layout
@@ -36,7 +38,7 @@ Select a node, a service or another item to open it in the **Inspector**. On a w
 
 Press ⌘K, Ctrl+K or `/` to search everything: nodes, services, DNS records, tunnels, pages, actions such as **Resync now**, and on the orchestrator the log, the config keys and the secrets. The search shows the names of config keys and secrets, never their values.
 
-Actions that are risky ask first. To remove a node or a person, you type its name. After you remove a node or a person, a message with **Undo** shows for 30 seconds. A removed person stays until then, and **Undo** keeps them. **Undo** on a removed node adds it back with its config.
+Actions that are risky ask first. To remove a node or a person, you type its name. After you remove a node or a person, a message with **Undo** shows for 30 seconds. A later message does not replace it. **Dismiss** removes it. A removed person stays until then, and **Undo** keeps them. **Undo** on a removed node adds it back with its config.
 
 ## The pages
 

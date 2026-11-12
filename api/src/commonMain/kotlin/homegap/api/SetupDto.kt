@@ -19,6 +19,11 @@ data class SshLoginDto(
     val keyFile: String? = null,
     /** Forget a previously recorded host key for this address first (the server was rebuilt). */
     val resetHostKey: Boolean = false,
+    /**
+     * The host key fingerprint that the operator confirmed. A password login to a server with no
+     * recorded host key needs it: the password goes only to a confirmed key.
+     */
+    val hostKeyFingerprint: String? = null,
 )
 
 /** Result of the wizard's "Test connection". */
@@ -30,6 +35,11 @@ data class ConnectionTestDto(
     val hostKeyChanged: Boolean = false,
     /** SHA256 fingerprint of the server's host key, to compare with the provider's console. */
     val hostKeyFingerprint: String? = null,
+    /**
+     * The server is new to HomeGAP, and no login was tried. The operator must compare
+     * [hostKeyFingerprint] and send the test again with it in [SshLoginDto.hostKeyFingerprint].
+     */
+    val hostKeyUnconfirmed: Boolean = false,
     val os: String? = null,
     val osVersion: String? = null,
     val arch: String? = null,

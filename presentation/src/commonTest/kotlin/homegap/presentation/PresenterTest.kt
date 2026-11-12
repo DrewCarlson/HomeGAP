@@ -44,10 +44,12 @@ import homegap.presentation.speedtest.SpeedTestScreenPresenter
 import homegap.presentation.speedtest.SpeedTestScreenProps
 import homegap.presentation.tunnels.TunnelsScreenPresenter
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.*
+import kotlin.time.Duration.Companion.seconds
 
 class PresenterTest {
     private class Graph(scope: CoroutineScope, val api: FakeControllerApi = FakeControllerApi()) {
@@ -280,6 +282,114 @@ class PresenterTest {
     }
 
     @Test
+    fun wizardSendsThePasswordOnlyAfterTheHostKeyIsConfirmed() = runTest {
+        val g = graph
+        g.api.unrecordedHostKey = "SHA256:new"
+        val models = present(g.addNode, AddNodeScreenProps(existingNodeIds = emptySet()) {})
+        fun send(event: WizardEvent) = models.value.onEvent(event)
+
+        send(WizardEvent.Edit(WizardField.NodeId, "eu1"))
+        send(WizardEvent.Edit(WizardField.Host, "203.0.113.30"))
+        send(WizardEvent.Edit(WizardField.Region, "EU"))
+        send(WizardEvent.Next)
+        models.first { it.step == WizardStep.Login }
+        send(WizardEvent.Edit(WizardField.Password, "hunter2"))
+
+        // The first test only fetches the fingerprint, which is not shown as a failure.
+        send(WizardEvent.TestConnection)
+        val unconfirmed = assertNotNull(models.first { it.connection != null }.connection)
+        assertTrue(unconfirmed.hostKeyUnconfirmed && !unconfirmed.ok)
+        assertEquals("Check the server's fingerprint", unconfirmed.headline)
+        assertNull(unconfirmed.error)
+        assertTrue("Compare this fingerprint" in unconfirmed.note.orEmpty())
+        assertEquals(listOf(ReviewLine("Host key", "SHA256:new")), unconfirmed.facts)
+        assertNull(g.api.logins.single().hostKeyFingerprint)
+        send(WizardEvent.Next)
+        assertTrue(models.first { it.errors.isNotEmpty() }.errors.any { "Confirm the server's fingerprint" in it })
+
+        // Confirming repeats the test with the same login and the fingerprint.
+        send(WizardEvent.ConfirmHostKey)
+        val connected = assertNotNull(models.first { it.connection?.ok == true }.connection)
+        assertFalse(connected.hostKeyUnconfirmed)
+        assertEquals(g.api.logins[0].copy(hostKeyFingerprint = "SHA256:new"), g.api.logins[1])
+
+        // Another port is another server: its key needs its own confirmation.
+        send(WizardEvent.Edit(WizardField.Port, "2222"))
+        assertNull(models.first { it[WizardField.Port] == "2222" }.connection)
+        send(WizardEvent.TestConnection)
+        assertTrue(models.first { it.connection != null }.connection?.hostKeyUnconfirmed == true)
+        assertNull(g.api.logins.last().hostKeyFingerprint)
+        send(WizardEvent.ConfirmHostKey)
+        models.first { it.connection?.ok == true }
+
+        // The setup request carries the confirmed fingerprint.
+        send(WizardEvent.Next)
+        models.first { it.step == WizardStep.Access }
+        send(WizardEvent.CreateKey)
+        models.first { it.key != null }
+        send(WizardEvent.Next)
+        send(WizardEvent.Next)
+        models.first { it.step == WizardStep.Review }
+        send(WizardEvent.Run)
+        models.first { it.job != null }
+        assertEquals("SHA256:new", g.api.lastSetup?.login?.hostKeyFingerprint)
+    }
+
+    @Test
+    fun wizardNeedsNoHostKeyConfirmationForAKeyLogin() = runTest {
+        val g = graph
+        g.api.unrecordedHostKey = "SHA256:new"
+        val models = present(g.addNode, AddNodeScreenProps(existingNodeIds = emptySet()) {})
+        fun send(event: WizardEvent) = models.value.onEvent(event)
+
+        send(WizardEvent.Edit(WizardField.Host, "203.0.113.30"))
+        send(WizardEvent.ChooseAuth(AuthMethod.Key))
+        send(WizardEvent.Edit(WizardField.LoginKeyFile, "/secrets/ssh/provider"))
+        send(WizardEvent.TestConnection)
+        assertTrue(models.first { it.connection != null }.connection?.ok == true)
+    }
+
+    @Test
+    fun anUndoToastStaysWhileOtherMessagesArrive() = runTest {
+        val g = graph
+        fun texts() = g.actions.toasts.value.map { it.text }
+        fun removeNode(undo: String) {
+            g.actions.run("Remove") { homegap.api.ActionResponse(ok = true, message = "Removed $undo", undo = undo) }
+        }
+
+        removeNode("u1")
+        g.actions.toasts.first { it.isNotEmpty() }
+        g.actions.notify("first")
+        g.actions.notify("second")
+        assertEquals(listOf("Removed u1", "second"), texts(), "a plain message replaces only the plain one before it")
+
+        // Used: the toast goes away and the undo runs once.
+        val used = g.actions.toasts.value.first()
+        assertEquals("Undo", used.actionLabel)
+        assertNotNull(used.action).invoke()
+        g.actions.toasts.first { toasts -> toasts.any { it.text == "ok: undo u1" } }
+        assertEquals(listOf("ok: undo u1"), texts())
+        assertEquals(1, g.api.calls.count { it == "undo u1" })
+
+        // Dismissed: the toast goes away and nothing is undone.
+        removeNode("u2")
+        val dismissed = g.actions.toasts.first { toasts -> toasts.any { it.action != null } }.first { it.action != null }
+        assertNotNull(dismissed.dismiss).invoke()
+        assertTrue(g.actions.toasts.value.none { it.action != null })
+        assertFalse("undo u2" in g.api.calls)
+
+        // Timed out: it outlives a plain message, then goes away by itself.
+        removeNode("u3")
+        g.actions.toasts.first { toasts -> toasts.any { it.action != null } }
+        g.actions.notify("later")
+        assertEquals(listOf("Removed u3", "later"), texts())
+        delay(6.seconds)
+        assertEquals(listOf("Removed u3"), texts())
+        delay(30.seconds)
+        assertEquals(emptyList(), texts())
+    }
+
+    @Test
     fun wizardRefusesToDisableRootLoginForRoot() = runTest {
         val draft = AddNodeDraft(toggles = setOf(WizardToggle.DisableRootLogin), values = mapOf(WizardField.LoginUser to "root"))
         assertTrue(AddNodeValidation.errors(draft, WizardStep.Access, emptySet()).any { "Root login" in it })
@@ -337,9 +447,9 @@ class PresenterTest {
         ready.onSelectStreams(8)
         val eight = models.first { (it as? SpeedTestScreenModel.Ready)?.streams == 8 } as SpeedTestScreenModel.Ready
         eight.onRunTest("a1")
-        enabled.actions.toast.first { it != null }
+        enabled.actions.toasts.first { it.isNotEmpty() }
         assertEquals(listOf("test a1 8"), enabled.api.calls)
-        assertEquals("a1: 250 Mb/s down, 40.0 Mb/s up, 170.0 ms ping", enabled.actions.toast.value?.text)
+        assertEquals("a1: 250 Mb/s down, 40.0 Mb/s up, 170.0 ms ping", enabled.actions.toasts.value.single().text)
     }
 
     @Test
@@ -354,7 +464,7 @@ class PresenterTest {
         g.session.onEvent(ServerEvent.SpeedTestLive(homegap.api.SpeedTestLiveDto("a1", "download", pingMs = 170.0, mbps = 180.0, mbpsSamples = listOf(90.0, 180.0))))
         assertEquals("180", (models.first { (it as? SpeedTestScreenModel.Ready)?.live != null } as SpeedTestScreenModel.Ready).live?.value)
         ready.onRunAll()
-        g.actions.toast.first { it != null }
+        g.actions.toasts.first { it.isNotEmpty() }
         assertEquals(listOf("speed run 4"), g.api.calls, "the orchestrator runs the nodes one at a time")
     }
 
@@ -426,7 +536,7 @@ class PresenterTest {
         assertTrue(g.api.calls.none { "device" in it }, "blocking asks first")
         assertEquals("Block phone?", g.confirmations.pending.value?.model?.title)
         g.confirmations.resolve(confirmed = true)
-        g.actions.toast.first { it?.text == "ok: device 7 block" }
+        g.actions.toasts.first { toasts -> toasts.any { it.text == "ok: device 7 block" } }
     }
 
     @Test

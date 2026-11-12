@@ -178,7 +178,19 @@ class SpeedTestServer(
         return hosts.any { origin.equals("https://$it", ignoreCase = true) }
     }
 
+    private val publicPages = RateLimiter(PUBLIC_REQUESTS_PER_MINUTE, 60_000)
+
     fun Application.module() {
+        // The status page, the map and the fonts need no token. A speed test has its own limits.
+        install(createApplicationPlugin("PublicPageLimit") {
+            onCall { call ->
+                if (call.request.path().startsWith("/speedtest/")) return@onCall
+                // The reverse proxy of the homelab puts the address of the client here.
+                val client = call.request.header(HttpHeaders.XForwardedFor)?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: call.request.local.remoteHost
+                if (!publicPages.allow(client)) call.respond(HttpStatusCode.TooManyRequests, "too many requests")
+            }
+        })
         install(createApplicationPlugin("SpeedTestCors") {
             onCall { call ->
                 val origin = call.request.header(HttpHeaders.Origin) ?: return@onCall
@@ -418,6 +430,9 @@ class SpeedTestServer(
         private const val LINK_AUTH = "speedtest-link"
 
         /** Measurements must never be served from a cache. */
+        /** One address gets this many requests in a minute for the pages without a token. */
+        const val PUBLIC_REQUESTS_PER_MINUTE = 1200
+
         private val NoStore = createRouteScopedPlugin("NoStore") {
             onCall { call -> call.response.header(HttpHeaders.CacheControl, "no-store") }
         }

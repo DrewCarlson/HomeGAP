@@ -47,6 +47,16 @@ class NodeSetupService(private val controller: Controller) {
     suspend fun test(dto: SshLoginDto): ConnectionTestDto {
         val login = dto.toLogin()
         if (dto.resetHostKey) shell.forgetHostKey(login.host, login.port)
+        // The password goes only to a host key that the operator confirmed. For a server with no
+        // recorded key, the first test returns the fingerprint and sends no password.
+        if (login is SetupLogin.Password && shell.recordedHostKey(login.host, login.port) == null) {
+            // A confirmed fingerprint is compared with the key of the first test: no second scan.
+            val scanned = shell.scannedHostKey(login)?.takeIf { it == dto.hostKeyFingerprint }
+                ?: shell.scanHostKey(login)
+                ?: return ConnectionTestDto(ok = false, error = "HomeGAP cannot read the host key of ${login.host}. Check the address and the port.")
+            if (dto.hostKeyFingerprint != scanned) return ConnectionTestDto(ok = false, hostKeyFingerprint = scanned, hostKeyUnconfirmed = true)
+            shell.trustScannedHostKey(login)
+        }
         val connection = try {
             shell.connect(login)
         } catch (e: SetupConnectionException) {

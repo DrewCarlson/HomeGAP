@@ -86,4 +86,46 @@ class HardeningTest {
         repeat(homegap.speedtest.TunnelSpeedTest.MAX_STREAMS) { assertTrue(tokens.acquire(internal)) }
         assertTrue(tokens.spend(internal, 5000, budget = 1000))
     }
+
+    @Test
+    fun aKeyGetsItsLimitInEachWindow() {
+        var now = 0L
+        val limiter = homegap.speedtest.RateLimiter(limit = 3, windowMillis = 1000, now = { now })
+        repeat(3) { assertTrue(limiter.allow("a")) }
+        assertTrue(!limiter.allow("a"), "the fourth request in the window")
+        assertTrue(limiter.allow("b"), "another address has its own count")
+        now = 1000
+        assertTrue(limiter.allow("a"), "a new window")
+    }
+
+    @Test
+    fun nodesSendHstsAndLimitTheStatusPage() {
+        val cfg = testConfig().copy(statusPage = testConfig().statusPage.copy(enabled = true))
+        val plan = Planner.plan(cfg, listOf(TRAEFIK))
+        val nd = plan.nodes.getValue("na1")
+        val secrets = homegap.provision.NodeSecrets("t", "s", "a@b", "p", "k")
+        val files = homegap.provision.NodeTemplates.staticFiles(cfg, nd.node, secrets, nd.rawPorts, 0).associateBy { it.path }
+        val headers = files.getValue(homegap.provision.NodeTemplates.DYNAMIC_HEADERS).content
+        assertTrue("stsSeconds: 31536000" in headers, headers)
+        assertTrue("includeSubdomains" !in headers.lowercase(), "a node sets no rule for other names")
+        assertTrue("homegap-hsts@file" in files.getValue("config/traefik/traefik_config.yml").content)
+        val routes = homegap.provision.NodeTemplates.dynamicRoutes(nd, emptyMap())
+        assertTrue("homegap-status-rate" in routes && "rateLimit" in routes, routes)
+        // Without the status page, there is no limit to define.
+        val off = Planner.plan(testConfig(), listOf(TRAEFIK)).nodes.getValue("na1")
+        assertTrue("homegap-status-rate" !in homegap.provision.NodeTemplates.dynamicRoutes(off, emptyMap()))
+    }
+
+    @Test
+    fun crowdsecCanRefuseRequestsWhenItsCheckIsDown() {
+        fun crowdsec(failClosed: Boolean): String {
+            val cfg = testConfig().let { it.copy(pangolin = it.pangolin.copy(crowdsec = true, crowdsecFailClosed = failClosed)) }
+            val nd = Planner.plan(cfg, listOf(TRAEFIK)).nodes.getValue("na1")
+            val secrets = homegap.provision.NodeSecrets("t", "s", "a@b", "p", "k")
+            return homegap.provision.NodeTemplates.staticFiles(cfg, nd.node, secrets, nd.rawPorts, 0)
+                .single { it.path.endsWith("homegap-crowdsec.yml") }.content
+        }
+        assertTrue("crowdsecAppsecUnreachableBlock: false" in crowdsec(false))
+        assertTrue("crowdsecAppsecUnreachableBlock: true" in crowdsec(true))
+    }
 }

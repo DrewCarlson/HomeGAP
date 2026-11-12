@@ -64,6 +64,7 @@ This page lists every key of the config file, with its type and its default. A k
 | `license_key_file` | string | None. | A file with the EE license key. |
 | `install_dir` | string | `/opt/homegap` | The directory of the stack on each node. |
 | `crowdsec` | boolean | `false` | Enables the CrowdSec bouncer on the Traefik of each node. |
+| `crowdsec_fail_closed` | boolean | `false` | Refuses terminated requests while the node cannot reach the AppSec component of CrowdSec. See [Pangolin options](pangolin.md#crowdsec). |
 | `site_name` | string | `homelab` | The name of the homelab site on each node. |
 | `base_blueprint` | string | None. | A Pangolin blueprint (YAML or JSON) that HomeGAP applies before the managed resources. |
 | `passthrough_port_base` | integer | `40000` | The start of the internal proxy ports for passthrough resources. HomeGAP never publishes them. |

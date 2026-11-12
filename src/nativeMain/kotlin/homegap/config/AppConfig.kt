@@ -121,6 +121,11 @@ data class PangolinNodeDefaults(
     @SerialName("install_dir") val installDir: String = "/opt/homegap",
     /** Enable the CrowdSec bouncer on every node's Traefik. */
     val crowdsec: Boolean = false,
+    /**
+     * What a node does with a request when it cannot reach the CrowdSec AppSec component: refuse
+     * it (true) or let it through (false).
+     */
+    @SerialName("crowdsec_fail_closed") val crowdsecFailClosed: Boolean = false,
     /** Site name given to the homelab on each node's Pangolin. */
     @SerialName("site_name") val siteName: String = "homelab",
     /** Optional Pangolin blueprint (YAML or JSON) applied to every node before managed resources. */

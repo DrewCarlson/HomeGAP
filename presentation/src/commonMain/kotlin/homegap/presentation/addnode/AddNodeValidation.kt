@@ -25,6 +25,7 @@ internal object AddNodeValidation {
         password = draft[WizardField.Password].takeIf { draft.auth == AuthMethod.Password },
         keyFile = draft[WizardField.LoginKeyFile].trim().takeIf { draft.auth == AuthMethod.Key },
         resetHostKey = resetHostKey,
+        hostKeyFingerprint = draft.confirmedHostKey.takeIf { draft.auth == AuthMethod.Password },
     )
 
     fun errors(draft: AddNodeDraft, step: WizardStep, existingNodeIds: Set<String>): List<String> = buildList {
@@ -54,6 +55,7 @@ internal object AddNodeValidation {
                 val test = draft.test
                 when {
                     test == null || draft.testedLogin != login(draft) -> add("Test the connection before continuing.")
+                    test.hostKeyUnconfirmed -> add("Confirm the server's fingerprint before continuing.")
                     !test.ok -> add(test.error ?: "The connection test failed.")
                 }
             }

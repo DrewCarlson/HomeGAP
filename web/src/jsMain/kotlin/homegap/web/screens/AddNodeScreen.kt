@@ -268,8 +268,16 @@ private fun ConnectionResult(
     testing: Boolean,
     send: (WizardEvent) -> Unit
 ) {
-    Div({ classes("result-card", if (result.ok) "ok" else "bad") }) {
+    Div({
+        classes("result-card")
+        if (result.ok) {
+            classes("ok")
+        } else if (!result.hostKeyUnconfirmed) {
+            classes("bad")
+        }
+    }) {
         B { Text(result.headline) }
+        result.note?.let { Muted(it) }
         result.error?.let { ErrorText(it, mono = false) }
         if (result.hostKeyChanged) {
             ActionButton(
@@ -282,6 +290,16 @@ private fun ConnectionResult(
         }
         if (result.facts.isNotEmpty()) {
             Facts(result.facts)
+        }
+        if (result.hostKeyUnconfirmed) {
+            ActionButton(
+                text = "The fingerprint matches",
+                style = ButtonStyle.Primary,
+                small = true,
+                enabled = !testing
+            ) {
+                send(WizardEvent.ConfirmHostKey)
+            }
         }
         if (result.ok) {
             Muted("Compare the host key with the one shown in your provider's console before continuing.")

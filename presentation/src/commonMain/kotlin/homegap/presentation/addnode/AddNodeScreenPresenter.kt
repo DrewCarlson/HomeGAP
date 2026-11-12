@@ -93,8 +93,16 @@ class AddNodeScreenPresenter(
                         }
                     }
 
-                    WizardEvent.TestConnection, WizardEvent.ForgetHostKeyAndTest -> if (!testing) {
+                    WizardEvent.TestConnection,
+                    WizardEvent.ForgetHostKeyAndTest,
+                    WizardEvent.ConfirmHostKey -> if (!testing) {
                         testing = true
+                        when (event) {
+                            WizardEvent.ConfirmHostKey -> store.update { confirmHostKey(it) }
+                            // A rebuilt server has a new key, which needs its own confirmation.
+                            WizardEvent.ForgetHostKeyAndTest -> store.update { it.copy(confirmedHostKey = null) }
+                            else -> Unit
+                        }
                         appScope.launch {
                             try {
                                 testConnection(resetHostKey = event == WizardEvent.ForgetHostKeyAndTest)
@@ -265,8 +273,18 @@ class AddNodeScreenPresenter(
 
     // ---------------------------------------------------------------------- state
 
+    /** Takes the fingerprint of the current test as confirmed, when that test asks for it. */
+    private fun confirmHostKey(draft: AddNodeDraft): AddNodeDraft {
+        val test = draft.test?.takeIf { it.hostKeyUnconfirmed && draft.testedLogin == AddNodeValidation.login(draft) }
+        return draft.copy(confirmedHostKey = test?.hostKeyFingerprint ?: draft.confirmedHostKey)
+    }
+
     private fun edit(draft: AddNodeDraft, field: WizardField, value: String): AddNodeDraft {
-        val next = draft.copy(values = draft.values + (field to value))
+        val sameServer = (field != WizardField.Host && field != WizardField.Port) || draft[field].trim() == value.trim()
+        val next = draft.copy(
+            values = draft.values + (field to value),
+            confirmedHostKey = draft.confirmedHostKey.takeIf { sameServer },
+        )
         // A different node id needs its own key.
         return if (field == WizardField.NodeId && draft.keyFor != null && draft.keyFor != value.trim()) next.copy(
             key = null,
@@ -316,6 +334,7 @@ class AddNodeScreenPresenter(
     private fun ConnectionTestDto.toModel() = ConnectionResultModel(
         ok = ok,
         headline = when {
+            hostKeyUnconfirmed -> "Check the server's fingerprint"
             ok -> "Connected to $os $osVersion ($arch)"
             os != null -> "Connected, but this server cannot be used"
             else -> "Could not connect"
@@ -331,6 +350,8 @@ class AddNodeScreenPresenter(
         },
         error = error,
         hostKeyChanged = hostKeyChanged,
+        hostKeyUnconfirmed = hostKeyUnconfirmed,
+        note = HOST_KEY_NOTE.takeIf { hostKeyUnconfirmed },
     )
 
     private fun firewallRules(draft: AddNodeDraft): List<String> {
@@ -463,6 +484,8 @@ class AddNodeScreenPresenter(
     )
 
     private companion object {
+        const val HOST_KEY_NOTE = "HomeGAP has not connected to this server before. Compare this fingerprint with " +
+            "the one your provider shows for the server. HomeGAP sends the password only after you confirm."
         val PRIVILEGE_LABELS = mapOf(
             "root" to "logged in as root",
             "nopasswd" to "sudo without a password",
