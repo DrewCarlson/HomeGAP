@@ -54,7 +54,7 @@ A node shows a "back shortly" page with HTTP status 503 for the names that it te
 
 The page starts approximately 15 seconds after the node loses the homelab.
 
-A passthrough name has no page, because the node holds no certificate for it. The browser shows a connection error. The shared name of the status page tells your users that the homelab is unreachable. Raw ports fail.
+A passthrough name has no page, because the node holds no certificate for it. The node closes the connection immediately, and the browser shows a connection error. The shared name of the status page tells your users that the homelab is unreachable. Raw ports fail.
 
 ## When a browser uses one connection for two names
 

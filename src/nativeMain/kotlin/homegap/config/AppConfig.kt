@@ -24,8 +24,6 @@ data class AppConfig(
     val bunny: BunnyConfig,
     val pangolin: PangolinNodeDefaults = PangolinNodeDefaults(),
     val acme: AcmeConfig = AcmeConfig(),
-    /** Not used. HomeGAP reads the section so that an old config file still loads. */
-    val certificates: CertificatesConfig = CertificatesConfig(),
     val tunnels: TunnelsConfig = TunnelsConfig(),
     /** Clustered Pangolin across the nodes; null keeps one independent Pangolin per node. */
     val cluster: ClusterConfig? = null,
@@ -170,16 +168,6 @@ data class AcmeConfig(
         const val STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
     }
 }
-
-@Serializable
-data class CertificatesConfig(
-    val source: String = "none",
-    @SerialName("cert_file") val certFile: String? = null,
-    @SerialName("key_file") val keyFile: String? = null,
-    @SerialName("acme_json") val acmeJson: String? = null,
-    /** Resolver name inside acme.json; when null every resolver is searched. */
-    val resolver: String? = null,
-)
 
 /** The cluster: what the nodes and the homelab share. */
 @Serializable

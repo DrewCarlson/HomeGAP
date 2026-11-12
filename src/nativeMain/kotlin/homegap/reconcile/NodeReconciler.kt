@@ -553,9 +553,8 @@ class NodeReconciler(
         val d = shQuote(dir)
         appendLine("install -d -m 0755 $d $d/config $d/config/traefik $d/config/traefik/dynamic $d/config/letsencrypt $d/config/traefik/logs $d/config/certificates $d/${MaintenancePage.DIR}")
         appendLine("install -d -m 0700 $d/secrets $d/config/traefik/certs")
-        // A node orders no certificate, so this ACME store stays empty. Pangolin's certificate sync
-        // reads the file and accepts an empty JSON object. An older HomeGAP let the node order
-        // certificates: that account key and those certificate keys go away here.
+        // A node orders no certificate, so this ACME store is always empty. Pangolin's certificate
+        // sync reads the file and accepts an empty JSON object.
         val acme = shQuote("$dir/config/letsencrypt/acme.json")
         appendLine("printf '{}\\n' > $acme; chmod 600 $acme")
         appendLine("RESTART=\"\"")

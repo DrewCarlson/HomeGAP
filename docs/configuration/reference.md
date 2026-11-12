@@ -80,7 +80,7 @@ For the use of these keys, see [Pangolin options](pangolin.md).
 | `caa` | boolean | `true` | Publishes CAA records that permit only `caa_issuer` with the DNS challenge. |
 | `caa_issuer` | string | `letsencrypt.org` | The certificate authority in the CAA records. |
 
-See [Certificates](certificates.md). HomeGAP does not use the `certificates` section of an older config.
+See [Certificates](certificates.md).
 
 ## tunnels
 

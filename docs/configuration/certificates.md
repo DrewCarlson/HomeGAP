@@ -1,10 +1,10 @@
 # Certificates
 
-A node holds a certificate only for a name that it terminates. This page tells you which names those are, how HomeGAP orders the certificate, and how HomeGAP stops a node from getting other certificates.
+A node holds a certificate only for a name that it terminates. This page tells you which names those are, how HomeGAP orders the certificate, and why a node cannot get other certificates.
 
 ## Why this matters
 
-A browser accepts each valid certificate for a name. All traffic to your domain goes through a node. Thus a person with root on a node can read the traffic of each name on the certificate of that node. That person ends TLS on the node, reads or changes the request, and sends it on to the homelab. The browser and the homelab see no difference.
+A browser accepts each valid certificate for a name. All traffic to your domain goes through a node. Thus a person with root on a node can read the traffic of each name on the certificate of that node. That person ends TLS on the node, reads or changes the request, and sends the request to the homelab. The browser and the homelab see no difference.
 
 For this reason, HomeGAP gives a node no certificate for a passthrough name.
 
@@ -20,7 +20,7 @@ For this reason, HomeGAP gives a node no certificate for a passthrough name.
 | The front door with `passthrough`, with or without `homegap.wildcard`. | No. |
 | The front door with `terminate`. | Yes: the root name, and `*.<domain>` if the front door has `homegap.wildcard`. |
 
-The **Certificates** entry in the activity log shows each order with the number of names.
+The activity log shows each order, with the number of names.
 
 ### The front door in terminate mode with a wildcard
 
@@ -53,7 +53,7 @@ HomeGAP orders a new certificate, with a new key, in these cases:
 - One third of the lifetime of the certificate remains.
 - The ACME directory in the config changes.
 
-If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes held its key. This occurs when you remove a node, or when you change a service from `terminate` to `passthrough`.
+If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes have its key. This occurs when you remove a node, or when you change a service from `terminate` to `passthrough`.
 
 A new certificate does not restart the stack of a node. Traefik loads it in a few seconds.
 
@@ -92,8 +92,6 @@ acme:
 | `caa` | `true` | Publishes the CAA records. |
 | `caa_issuer` | `letsencrypt.org` | The certificate authority in the CAA records. |
 
-HomeGAP does not use the `certificates` section of an older config. You can remove it.
-
 ## Where HomeGAP keeps the certificate
 
 The ACME account key, the certificate and its key are in `acme/` in the data directory of the orchestrator. Include this folder in your backup of the data directory. If you lose it, HomeGAP makes a new account and orders a new certificate.
@@ -106,7 +104,7 @@ The **Nodes** page on the dashboard shows the expiry of the certificate on each 
 
 If an order fails, the nodes keep the certificate that they have. HomeGAP writes the error in the activity log and tries again after one hour. A node without a certificate answers its names with the default certificate of Traefik, and browsers show a warning.
 
-These are the usual causes of a failed order:
+These are possible causes of a failed order:
 
 - The Bunny API key is not set, or it cannot change the zone.
 - The homelab cannot reach Let's Encrypt.

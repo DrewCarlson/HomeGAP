@@ -103,7 +103,6 @@ class Controller(
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
     @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
     private val nodeCert by lazy { NodeCertificate("${config.dataDir}/acme") }
-    private var certificatesWarned = false
 
     private val clusterRec by lazy {
         ClusterReconciler(
@@ -394,10 +393,6 @@ class Controller(
             val pausedKeys = effective.services.filter { it.paused }.map { it.key }.toSet() + pauses.services
             val discoveryOk = containers != null && routers != null
 
-            if (cfg.certificates.source != "none" && !certificatesWarned) {
-                certificatesWarned = true
-                log.warn("certificates", "the `certificates` section of the config is not used and can be removed: HomeGAP orders the certificate of the nodes itself (see `acme`)")
-            }
             // A failed discovery gives a plan without services: keep the certificate as it is.
             val certs: CertMaterial? = if (!discoveryOk) nodeCert.current() else runDomain("certificates", null) {
                 val bunny = cfg.bunny.apiKey.resolve()?.let { BunnyClient(externalHttp, cfg.bunny.apiUrl, it) }
