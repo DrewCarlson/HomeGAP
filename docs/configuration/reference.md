@@ -53,7 +53,7 @@ This page lists every key of the config file, with its type and its default. A k
 | `gerbil_image` | string | `docker.io/fosrl/gerbil:1.6.0` | The Gerbil image. |
 | `traefik_image` | string | `docker.io/traefik:v3.7.16` | The Traefik image. |
 | `maintenance_image` | string | `docker.io/library/python:3.13-alpine` | Runs the "back shortly" page on standalone nodes. Clustered nodes use the cluster image. |
-| `crowdsec_image` | string | `docker.io/crowdsecurity/crowdsec:latest` | The CrowdSec image. |
+| `crowdsec_image` | string | `docker.io/crowdsecurity/crowdsec:v1.8.2` | The CrowdSec image. |
 | `badger_version` | string | `v1.8.0` | The version of the Badger plugin of Pangolin for Traefik. |
 | `crowdsec_bouncer_version` | string | `v1.4.6` | The version of the CrowdSec bouncer. |
 | `acme_email` | string | None. | The contact address of the ACME account, if `acme.email` is not set. |

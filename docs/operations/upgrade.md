@@ -22,6 +22,25 @@ The script gives its arguments to every `docker compose` call. If your compose f
 | `--no-pull` | Uses the images that are already on the host. |
 | `-h`, `--help` | Shows the help. |
 
+## Check the image signatures
+
+The release build signs the `homegap` image and the `homegap-cluster` image with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/). A signature shows that the build workflow of the HomeGAP repository made the image. The check is optional, and HomeGAP does not do it for you.
+
+To check an image before an upgrade:
+
+1. Install cosign on the homelab.
+2. Do the check for the `homegap` image:
+
+    ```bash
+    cosign verify ghcr.io/drewcarlson/homegap:latest \
+      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+      --certificate-identity-regexp '^https://github\.com/DrewCarlson/HomeGAP/\.github/workflows/build\.yml@refs/tags/v'
+    ```
+
+3. Do the same check for `ghcr.io/drewcarlson/homegap-cluster:latest`.
+
+If the image has a signature from a release build, the command shows the signature and exits with 0. If the command fails, do not run the upgrade.
+
 ## What the script does
 
 1. It pulls the new images.

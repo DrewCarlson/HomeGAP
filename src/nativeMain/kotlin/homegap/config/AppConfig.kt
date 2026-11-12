@@ -108,7 +108,7 @@ data class PangolinNodeDefaults(
      * on nodes without `cluster:`. Clustered nodes run it from the cluster image they already have.
      */
     @SerialName("maintenance_image") val maintenanceImage: String = "docker.io/library/python:3.13-alpine",
-    @SerialName("crowdsec_image") val crowdsecImage: String = "docker.io/crowdsecurity/crowdsec:latest",
+    @SerialName("crowdsec_image") val crowdsecImage: String = "docker.io/crowdsecurity/crowdsec:v1.8.2",
     @SerialName("badger_version") val badgerVersion: String = "v1.8.0",
     @SerialName("crowdsec_bouncer_version") val crowdsecBouncerVersion: String = "v1.4.6",
     @SerialName("acme_email") val acmeEmail: String? = null,

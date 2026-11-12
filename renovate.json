@@ -1,0 +1,92 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "schedule": ["before 6am on monday"],
+  "prConcurrentLimit": 5,
+  "ignorePaths": ["local/**", "**/node_modules/**"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Default images of the node stack, in the code, its tests and the docs",
+      "managerFilePatterns": [
+        "/^src/nativeMain/kotlin/homegap/config/AppConfig\\.kt$/",
+        "/^src/nativeTest/kotlin/homegap/.+\\.kt$/",
+        "/^docs/configuration/reference\\.md$/",
+        "/^docs/cluster/index\\.md$/"
+      ],
+      "matchStrings": [
+        "docker\\.io/(?<depName>fosrl/[a-z]+|traefik|crowdsecurity/crowdsec|library/python):(?<currentValue>[A-Za-z0-9][A-Za-z0-9.-]*)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Version of the Badger plugin for Traefik",
+      "managerFilePatterns": [
+        "/^src/nativeMain/kotlin/homegap/config/AppConfig\\.kt$/",
+        "/^docs/configuration/reference\\.md$/"
+      ],
+      "matchStrings": [
+        "val badgerVersion: String = \"(?<currentValue>v[0-9.]+)\"",
+        "`badger_version` \\| string \\| `(?<currentValue>v[0-9.]+)`"
+      ],
+      "depNameTemplate": "fosrl/badger",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Version of the CrowdSec bouncer plugin for Traefik",
+      "managerFilePatterns": [
+        "/^src/nativeMain/kotlin/homegap/config/AppConfig\\.kt$/",
+        "/^docs/configuration/reference\\.md$/"
+      ],
+      "matchStrings": [
+        "val crowdsecBouncerVersion: String = \"(?<currentValue>v[0-9.]+)\"",
+        "`crowdsec_bouncer_version` \\| string \\| `(?<currentValue>v[0-9.]+)`"
+      ],
+      "depNameTemplate": "maxlerebourg/crowdsec-bouncer-traefik-plugin",
+      "datasourceTemplate": "github-releases"
+    },
+    {
+      "customType": "regex",
+      "description": "Lego release that the image builds download. Change the SHA-256 values by hand in the same pull request.",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/", "/^e2e/.+\\.Dockerfile$/"],
+      "matchStrings": ["ARG LEGO_VERSION=(?<currentValue>[0-9.]+)"],
+      "depNameTemplate": "go-acme/lego",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "customType": "regex",
+      "description": "etcd release that the cluster image downloads. Change the SHA-256 values by hand in the same pull request.",
+      "managerFilePatterns": ["/^cluster/Dockerfile$/"],
+      "matchStrings": ["ARG ETCD_VERSION=(?<currentValue>[0-9.]+)"],
+      "depNameTemplate": "etcd-io/etcd",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Pangolin tags have an edition before the version: ee-1.26.0, ee-postgresql-1.26.0",
+      "matchPackageNames": ["fosrl/pangolin", "docker.io/fosrl/pangolin"],
+      "versioning": "regex:^(?<compatibility>ee-(?:postgresql-)?)(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "description": "The cluster stays on its PostgreSQL major and its etcd minor. A change of those is a migration.",
+      "matchPackageNames": ["postgres", "docker.io/library/postgres", "etcd-io/etcd"],
+      "matchUpdateTypes": ["major", "minor"],
+      "enabled": false
+    },
+    {
+      "description": "The image of the mesh namespace never changes: a new image restarts the mesh.",
+      "matchPackageNames": ["busybox", "docker.io/library/busybox"],
+      "enabled": false
+    },
+    {
+      "description": "The HomeGAP images get their version at a release",
+      "matchPackageNames": ["/^ghcr\\.io/drewcarlson/homegap/"],
+      "enabled": false
+    }
+  ]
+}

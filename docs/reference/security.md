@@ -59,6 +59,12 @@ HomeGAP never publishes the IP address of the homelab. Every tunnel goes outboun
 
 The add-node wizard sends a password only to a host key that you confirmed. After that, HomeGAP connects to a node only if it shows the host key from its first connection.
 
+## Images
+
+The default images of the node stack have a version tag. A node gets a new version only when the default or your config changes. See [Node updates and rollback](../operations/node-updates.md).
+
+The release build signs the HomeGAP images. HomeGAP does not check a signature before it uses an image. To check the images yourself, see [Check the image signatures](../operations/upgrade.md#check-the-image-signatures).
+
 ## Traffic
 
 With `passthrough`, a node cannot read the traffic. It holds no certificate for a passthrough name. With the CAA records of the domain, it cannot order one. A node can see the name, the address of the client, and the size and time of the traffic.
