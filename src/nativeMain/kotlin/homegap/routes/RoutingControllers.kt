@@ -4,12 +4,6 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.dashboard.DashboardAuth
-import homegap.reconcile.ControllerLoop
-import io.ktor.server.application.ApplicationCallPipeline
-import io.ktor.server.application.Hook
-import io.ktor.server.application.createRouteScopedPlugin
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
@@ -32,7 +26,6 @@ class RoutingControllers(
     private val controllers: Set<RoutingController>,
     private val auth: DashboardAuth,
     private val open: Set<OpenRoutingController>,
-    private val loop: ControllerLoop,
 ) {
     fun init(application: Application) {
         application.install(Authentication) {
@@ -47,7 +40,6 @@ class RoutingControllers(
             open.forEach { it.init(this, auth) }
             route("/api") {
                 authenticate(AUTH) {
-                    install(OnControllerLoop) { dispatcher = { loop.dispatcher } }
                     controllers.forEach { it.init(this) }
                 }
             }
@@ -56,25 +48,6 @@ class RoutingControllers(
 
     private companion object {
         const val AUTH = "dashboard"
-    }
-}
-
-class OnControllerLoopConfig {
-    var dispatcher: () -> CoroutineDispatcher? = { null }
-}
-
-/** Runs each call of its routes on the event loop of the controller. See [ControllerLoop]. */
-private val OnControllerLoop = createRouteScopedPlugin("OnControllerLoop", ::OnControllerLoopConfig) {
-    val dispatcher = pluginConfig.dispatcher
-    on(AroundCall) { proceed ->
-        val loop = dispatcher()
-        if (loop == null) proceed() else withContext(loop) { proceed() }
-    }
-}
-
-private object AroundCall : Hook<suspend (suspend () -> Unit) -> Unit> {
-    override fun install(pipeline: ApplicationCallPipeline, handler: suspend (suspend () -> Unit) -> Unit) {
-        pipeline.intercept(ApplicationCallPipeline.Plugins) { handler { proceed() } }
     }
 }
 

@@ -41,7 +41,7 @@ The agent is the only container in the namespace of `homegap-mesh` that can chan
 
 ### `orchestrator`
 
-The published ports and the Traefik labels of the dashboard go on this service. It is on three networks: `traefik`, `homegap-docker` (where it reaches `docker-proxy`) and `homegap-cluster` (where it reaches the cluster).
+Put the published ports and the Traefik labels of the dashboard on this service. It is on three networks: `traefik`, `homegap-docker` (where it reaches `docker-proxy`) and `homegap-cluster` (where it reaches the cluster).
 
 The orchestrator reads these environment variables:
 
@@ -65,7 +65,7 @@ The orchestrator does not mount the Docker socket. See [Security model](../refer
 
 ### `docker-proxy`
 
-The service mounts the Docker socket and lets through only `GET` requests for containers, images and events. It is only on the `homegap-docker` network, so no other container can reach it.
+The service mounts the Docker socket and accepts only `GET` requests for containers, images and events. It is only on the `homegap-docker` network, so no other container can reach it.
 
 ### The cluster member
 

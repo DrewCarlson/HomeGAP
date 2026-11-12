@@ -17,7 +17,9 @@ The dashboard asks for the token in a sign-in dialog and keeps it in the browser
 
 To remove the token from the browser, click **Sign out** at the bottom of the menu, or search for "Sign out". Do this on a computer that other people use.
 
-The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back. If the orchestrator can't be reached for more than 5 seconds, a dialog says so. It shows the error, counts down to the next try and has **Reconnect now**. It closes by itself when the orchestrator answers again. Until then the page shows the last data it received.
+The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that change. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens the stream again when you return to the tab.
+
+If the dashboard cannot reach the orchestrator for more than 5 seconds, a dialog says so. The dialog shows the error and the time to the next try, and it has **Reconnect now**. It closes by itself when the orchestrator answers again. Until then, the page shows the last data from the orchestrator.
 
 ## The layout
 

@@ -2,7 +2,7 @@
 
 A node holds a certificate only for a name that it terminates. This page tells you which names those are, how HomeGAP orders the certificate, and why a node cannot get other certificates.
 
-## Why this matters
+## The risk of a certificate on a node
 
 A browser accepts each valid certificate for a name. All traffic to your domain goes through a node. Thus a person with root on a node can read the traffic of each name on the certificate of that node. That person ends TLS on the node, reads or changes the request, and sends the request to the homelab. The browser and the homelab see no difference.
 
@@ -24,7 +24,7 @@ The activity log shows each order, with the number of names.
 
 ### The front door in terminate mode with a wildcard
 
-This is the only setup that puts a wildcard certificate on the nodes. The nodes then end TLS for each name one label under your domain, and a person with root on a node can read all of that traffic.
+This is the only setup that puts a wildcard certificate on the nodes. The nodes then end TLS for each name one label under your domain. A person with root on a node can read all of that traffic.
 
 !!! danger "Warning"
     With `homegap.tls: terminate` and `homegap.wildcard: "true"` on the front door, the nodes hold a certificate for `*.<domain>`. Use this setup only if you trust each node and its provider with all web traffic of the domain.
@@ -60,7 +60,7 @@ A new certificate does not restart the stack of a node. Traefik loads it in a fe
 ### Limits
 
 - One certificate has at most 100 names. With more names, the order fails, and the activity log shows the error.
-- Let's Encrypt permits approximately 50 new certificates for a domain in a week. HomeGAP uses one for each change of the list of names.
+- Let's Encrypt has a limit of approximately 50 new certificates for a domain in a week. HomeGAP uses one for each change of the list of names.
 
 ## The CAA records
 
@@ -70,9 +70,9 @@ HomeGAP publishes two CAA records for `domain`, with the tags `issue` and `issue
 letsencrypt.org; validationmethods=dns-01
 ```
 
-The records permit only Let's Encrypt to issue a certificate for the domain, and only with the DNS challenge. A node has no DNS key. Thus a compromised node cannot order a certificate for one of your names, although the traffic for that name goes through it.
+With these records, only Let's Encrypt can issue a certificate for the domain, and only with the DNS challenge. A node has no DNS key. Thus a compromised node cannot order a certificate for one of your names, although the traffic for that name goes through it.
 
-HomeGAP removes other CAA records for `domain`, because they can permit more.
+HomeGAP removes other CAA records for `domain`, because they can give more permissions.
 
 !!! warning "Caution"
     The CAA records also apply to the Traefik of your homelab. It must order its certificates from Let's Encrypt with the DNS challenge. If it uses a different certificate authority or a different challenge, its renewals fail. In that case, set `acme.caa: false`, or set `acme.caa_issuer` to the CAA name of your certificate authority.

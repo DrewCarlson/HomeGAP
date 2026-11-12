@@ -14,7 +14,7 @@ Use the add-node wizard, or add an entry to `nodes[]` in the config. HomeGAP pro
 
 The API call is `POST /api/nodes/{id}/decommission?confirm={id}`.
 
-Until the decommission, you can undo the removal. The dashboard offers **Undo** for one day, and you can add the node to the config again. The node never left the cluster, so it needs no new join.
+Until the decommission, you can undo the removal. The dashboard offers **Undo** for one day, and you can add the node to the config again. The node stays in the cluster, so it needs no new join.
 
 HomeGAP removes only its own records. In cluster mode, the decommission also does these steps:
 

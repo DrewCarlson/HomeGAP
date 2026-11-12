@@ -44,7 +44,7 @@ The dashboard of the harness is at `http://127.0.0.1:18088`.
 - The health endpoint on port 80, which Bunny probes.
 - The redirect from HTTP to HTTPS.
 - A dedicated passthrough service, with the certificate of the origin.
-- A dedicated terminate service, with the certificate that HomeGAP ordered for the nodes.
+- A dedicated terminate service, with the certificate that HomeGAP orders for the nodes.
 - Raw TCP on the public port 19000.
 - The certificate on the node has no wildcard and no passthrough name. The ACME store of the node is empty.
 
@@ -52,7 +52,7 @@ The script also checks that the zone has the two CAA records.
 
 ## The certificate of the nodes
 
-The `pebble` service is a local ACME server in place of Let's Encrypt. It accepts each challenge without a DNS lookup. Thus the harness checks that HomeGAP writes and removes the challenge records, and it does not check that they resolve.
+The `pebble` service is a local ACME server in place of Let's Encrypt. It accepts each challenge without a DNS lookup. Thus the harness checks that HomeGAP writes and removes the challenge records. It does not check that they resolve.
 
 Pebble makes a new root certificate each time its container starts. `run.sh` reads the root and writes `work/certs/trust.pem`, which the viewer and the tunnels trust. After a new root, `run.sh` removes `work/data/acme`, so HomeGAP orders the certificate again.
 
@@ -77,16 +77,16 @@ To run only some sections, set `ONLY`, for example `ONLY="3 5"`.
 
 ### The homelab as a vote only
 
-To test `cluster.homelab_role: vote`, start a new harness with `E2E_HOMELAB_ROLE=vote`. The role does not change on a cluster that runs, so use a different project name and an empty `e2e/work` folder:
+To test `cluster.homelab_role: vote`, start a new harness with `E2E_HOMELAB_ROLE=vote`. The role does not change on a cluster that runs. Thus use a different project name and an empty `e2e/work` folder:
 
 ```bash
 COMPOSE_PROJECT_NAME=homegap-e2e-vote E2E_HOMELAB_ROLE=vote E2E_NO_ENV=1 e2e/run.sh
 COMPOSE_PROJECT_NAME=homegap-e2e-vote e2e/verify-cluster.sh
 ```
 
-`E2E_NO_ENV=1` makes `run.sh` ignore the `.env` file, so the harness does not activate a license key on the new database. In this mode, section 1 also checks that the database containers of the homelab are idle and that a dump is at home. Section 4 cuts off the homelab, then stops the database of the primary node.
+`E2E_NO_ENV=1` makes `run.sh` ignore the `.env` file, so the harness does not activate a license key on the new database. In this mode, section 1 also checks that the database containers of the homelab are idle and that a dump is at home. Section 4 isolates the homelab from the mesh, then stops the database of the primary node.
 
-Two harnesses cannot run at the same time, because they use the same addresses and ports. Run `docker compose down` in `e2e/` for the first one before you start the second.
+Two harnesses cannot run at the same time, because they use the same addresses and ports. Before you start the second harness, run `docker compose down` in `e2e/` for the first one.
 
 !!! note
-    If you recreate a node container of the harness, recreate the `gerbil`, `traefik` and `maintenance` containers in it, and the connector in `/opt/homegap/exit`. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.
+    If you recreate a node container of the harness, recreate the `gerbil`, `traefik` and `maintenance` containers in it. Also recreate the connector in `/opt/homegap/exit`. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.

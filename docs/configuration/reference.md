@@ -78,7 +78,7 @@ For the use of these keys, see [Pangolin options](pangolin.md).
 | `email` | string | `pangolin.acme_email`, then the admin email. | The contact address of the ACME account. |
 | `staging` | boolean | `false` | Uses the staging directory of Let's Encrypt. |
 | `directory` | string | The directory of Let's Encrypt. | The address of a different ACME directory. It must start with `https://`. |
-| `caa` | boolean | `true` | Publishes CAA records that permit only `caa_issuer` with the DNS challenge. |
+| `caa` | boolean | `true` | Publishes CAA records that let only `caa_issuer` issue certificates, and only with the DNS challenge. |
 | `caa_issuer` | string | `letsencrypt.org` | The certificate authority in the CAA records. |
 
 See [Certificates](certificates.md).

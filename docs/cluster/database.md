@@ -33,7 +33,7 @@ With `cluster.homelab_role: vote`, the homelab only votes. It runs etcd and Valk
 Each node is a member of the database, and members share their settings. Thus a person with root on a node can run commands in each container that runs a database member. In this mode, no such container is on the homelab. Use it if you do not trust your nodes as much as your homelab. The price is that the live data is on the nodes, not at home.
 
 !!! warning "Caution"
-    Set `homelab_role` before the first start of the cluster. HomeGAP records the role when it creates the cluster. If you change the value later, the cluster part of each pass fails until you set it back.
+    Set `homelab_role` before the first start of the cluster. HomeGAP records the role when it creates the cluster. If you change the value later, the cluster part of each pass fails until you restore the first value.
 
 With this role, use two or more nodes. With one node, the database has no second copy.
 
@@ -102,7 +102,7 @@ A dump holds the database `pangolin`: the users, the devices, the sites and the 
 - The data directory of the orchestrator (the `homegap-data` volume). It holds the state cache, the cluster passwords and the ACME account.
 - The config file.
 
-The dumps are on the same disk as the database of the homelab. Copy them to a different machine at regular intervals.
+The dumps are on the same disk as the database of the homelab. We recommend that you copy them to a different machine each day.
 
 !!! danger "Warning"
     A dump is not encrypted. It contains the email addresses and the password hashes of your Pangolin users. Encrypt each copy that leaves the homelab.
@@ -115,7 +115,7 @@ tar -cz backups | openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:backup.pass 
 
 ### Check that a dump restores
 
-Do this check from time to time. It restores the newest dump into an empty database and then removes that database. The primary must be on the homelab.
+We recommend that you do this check each month. It restores the newest dump into an empty database and then removes that database. The primary must be on the homelab.
 
 ```bash
 docker compose exec homegap-db sh -c 'gosu postgres createdb -h /var/run/postgresql -U postgres hg_restore_check \
@@ -128,7 +128,8 @@ The command prints the number of tables in the dump. A number above zero and no 
 
 ### Restore a dump
 
-A restore replaces the contents of the database `pangolin` with the contents of the dump. Each change after the time of the dump is lost.
+!!! danger "Warning"
+    A restore replaces the contents of the database `pangolin` with the contents of the dump. You lose each change after the time of the dump.
 
 1. On the dashboard, click **Pause**. HomeGAP then makes no changes.
 2. In the **Cluster database** panel, make sure that the primary is on the homelab. If it is not, click **Make primary** on the homelab member.

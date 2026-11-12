@@ -27,7 +27,7 @@ Each passthrough resource has an internal proxy port on the node. The ports star
 
 With `homegap.tls: terminate` on the front door, HomeGAP uses Pangolin HTTP resources for the root and the wildcard. The node ends TLS and sends the request again to the homelab Traefik. The request keeps its host.
 
-The nodes hold a certificate for the root name. With `homegap.wildcard`, they also hold a certificate for `*.<domain>`, and HomeGAP then refuses passthrough on other hostnames under the domain. See [Certificates](../configuration/certificates.md#the-front-door-in-terminate-mode-with-a-wildcard).
+The nodes hold a certificate for the root name. With `homegap.wildcard`, they also hold a certificate for `*.<domain>`. HomeGAP then refuses passthrough on other hostnames under the domain. See [Certificates](../configuration/certificates.md#the-front-door-in-terminate-mode-with-a-wildcard).
 
 Wildcard HTTP resources are a Pangolin EE feature, so every node needs a license. See [Pangolin EE licenses](../configuration/licenses.md). If a node refuses the wildcard, HomeGAP removes that node from the wildcard DNS set. Thus viewers never go to a node that answers 404.
 
@@ -49,7 +49,7 @@ The health resource goes to the front door. If there is no front door, it goes t
 
 A node shows a "back shortly" page with HTTP status 503 for the names that it terminates:
 
-- Each service with `homegap.tls: terminate`. To turn the page off for a service, set `homegap.maintenance_page: "false"`.
+- Each service with `homegap.tls: terminate`. To disable the page for a service, set `homegap.maintenance_page: "false"`.
 - The shared names of the status page and the speed test.
 
 The page starts approximately 15 seconds after the node loses the homelab.
@@ -58,7 +58,7 @@ A passthrough name has no page, because the node holds no certificate for it. Th
 
 ## When a browser uses one connection for two names
 
-The names on a node have the same IP address. If one certificate is valid for two of them, a browser can use one connection for both names. For example, Firefox opens `pangolin.example.net` and then sends the requests for `app.example.net` on the same connection. But the node ends TLS for `pangolin.example.net` and passes `app.example.net` through to the homelab. Without a correction, the wrong Traefik gets the request and answers 404.
+The names on a node have the same IP address. If one certificate is valid for two of them, a browser can use one connection for both names. For example, Firefox opens `pangolin.example.net` and then sends the requests for `app.example.net` on the same connection. But the node ends TLS for `pangolin.example.net` and uses passthrough for `app.example.net`. Without a correction, the wrong Traefik gets the request and answers 404.
 
 HomeGAP makes each Traefik answer 421 (Misdirected Request) for these requests. The browser then opens a new connection for the name, and the request goes to the correct location.
 
@@ -76,7 +76,7 @@ A service that ends TLS itself, with no Traefik in front of it, cannot answer 42
 | What the node sees | Only the SNI. | Plaintext. |
 | Where TLS ends | On the homelab Traefik, or on the service. | On the node. |
 | Certificates on the node | None for your services. | A certificate for each name. See [Certificates](../configuration/certificates.md). |
-| Maintenance page | Not possible. | On by default. |
+| Maintenance page | Not possible. | Enabled by default. |
 | EE license | Not necessary. | Necessary for wildcard resources. |
 | Pangolin sign-in | Not possible. | Possible. |
 | CrowdSec | Not possible. | Possible. |

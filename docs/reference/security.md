@@ -33,7 +33,7 @@ The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. The 
 
 ## The homelab
 
-The orchestrator has no Docker socket. It reads Docker through the `docker-proxy` service, which lets through only `GET` requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries traffic.
+The orchestrator has no Docker socket. It reads Docker through the `docker-proxy` service, which accepts only `GET` requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries traffic.
 
 The orchestrator runs with two capabilities: `NET_ADMIN` for its route to the mesh, and `DAC_OVERRIDE` to read the mounted keys and config.
 
@@ -44,22 +44,22 @@ Only the orchestrator mounts the `homegap-data` volume, which holds the state ca
 
 In cluster mode, Pangolin on each node uses its own database role, `pangolin`. This role owns the `pangolin` database and is not a superuser. The superuser `postgres` can sign in only from inside a member, never over the mesh.
 
-The containers of a node cannot control the cluster. etcd and Sentinel ask for a password that Pangolin does not hold, and a firewall on each node keeps its containers off the etcd peer port and the Sentinel port. See [Cluster mesh](../cluster/mesh.md#what-a-container-on-a-node-can-reach).
+The containers of a node cannot control the cluster. etcd and Sentinel need a password that Pangolin does not hold. A firewall on each node keeps its containers away from the etcd peer port and the Sentinel port. See [Cluster mesh](../cluster/mesh.md#what-a-container-on-a-node-can-reach).
 
-Each node is also a voting member of the cluster database. Patroni members share their config, so a person with root on a node can still run commands in the cluster containers of the homelab. HomeGAP therefore isolates those containers:
+Each node also votes in the cluster database. Patroni members share their config, so a person with root on a node can still run commands in the cluster containers of the homelab. HomeGAP therefore isolates those containers:
 
 - They are in their own network namespace, without the orchestrator. A firewall there lets them open connections only on the mesh. They cannot reach the dashboard, your other containers or your home network.
 - They mount the cluster database and their own config, and nothing else of the orchestrator.
 
 See [Cluster mesh](../cluster/mesh.md#the-isolation-of-the-homelab-member).
 
-To keep every database member off the homelab, set `cluster.homelab_role: vote`. Then the homelab only votes, and the database is on the nodes. See [The homelab as a vote only](../cluster/database.md#the-homelab-as-a-vote-only).
+To have no database member on the homelab, set `cluster.homelab_role: vote`. Then the homelab only votes, and the database is on the nodes. See [The homelab as a vote only](../cluster/database.md#the-homelab-as-a-vote-only).
 
 HomeGAP never publishes the IP address of the homelab. Every tunnel goes outbound from home. In cluster mode, the homelab dials the mesh. On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database.
 
 ## Traffic
 
-With `passthrough`, a node cannot read the traffic. It holds no certificate for a passthrough name, and the CAA records of the domain stop it from ordering one. A node can see the name, the address of the client, and the size and time of the traffic.
+With `passthrough`, a node cannot read the traffic. It holds no certificate for a passthrough name. With the CAA records of the domain, it cannot order one. A node can see the name, the address of the client, and the size and time of the traffic.
 
 A node can read the traffic of each name that it terminates. These are its own Pangolin, the shared names of the status page and the speed test, and each service with `homegap.tls: terminate`. A front door with `terminate` and `homegap.wildcard` gives the nodes all web traffic of the domain. See [Certificates](../configuration/certificates.md).
 

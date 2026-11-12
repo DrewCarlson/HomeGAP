@@ -48,7 +48,7 @@ When a container with `homegap.*` labels stops, HomeGAP keeps its services for `
 
 The grace period prevents a short outage after a restart of the homelab. The orchestrator can start before your app containers. Without the grace period, HomeGAP removes each service and creates it again a moment later.
 
-A new container that claims the same hostname replaces the container that is gone immediately. If the orchestrator cannot list the containers at all, it uses the containers of the last list until Docker answers again.
+A new container that claims the same hostname immediately replaces the container that is gone. If the orchestrator cannot list the containers at all, it uses the containers of the last list until Docker answers again.
 
 ## Errors and warnings
 

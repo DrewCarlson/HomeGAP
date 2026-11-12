@@ -36,7 +36,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.produceIn
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.milliseconds
@@ -50,7 +49,6 @@ class StatusRoutes(
     private val controller: Controller,
     private val setup: NodeSetupService,
     private val access: AccessService,
-    private val loop: homegap.reconcile.ControllerLoop,
 ) : RoutingController {
     override fun init(parent: Route) {
         parent.get("/status") { getStatus() }
@@ -84,10 +82,7 @@ class StatusRoutes(
         if (lastSeq > controller.log.revision.value) lastSeq = 0L
         call.response.header(HttpHeaders.CacheControl, "no-cache")
         call.response.header("X-Accel-Buffering", "no")
-        // The server runs the writer on its own threads, so the stream goes back to the loop.
-        call.respondBytesWriter(ContentType.Text.EventStream) {
-            withContext(loop.dispatcher ?: kotlin.coroutines.EmptyCoroutineContext) { writeEvents(afterSeq = lastSeq) }
-        }
+        call.respondBytesWriter(ContentType.Text.EventStream) { writeEvents(afterSeq = lastSeq) }
     }
 
     private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long) = coroutineScope {

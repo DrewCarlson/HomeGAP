@@ -24,7 +24,7 @@ These routes need no token:
 | Route | What it does |
 | --- | --- |
 | `GET /healthz` | Returns `ok`. |
-| `GET /map/...` | The tiles of the map (with range requests), its scripts, its fonts and its icons. The public listener also serves them when the status page is on. |
+| `GET /map/...` | The tiles of the map (with range requests), its scripts, its fonts and its icons. The public listener also serves them when the status page is enabled. |
 | `GET /docs/...` | These docs. |
 | `GET /...` | Any other path returns the dashboard app. |
 

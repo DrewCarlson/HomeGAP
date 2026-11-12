@@ -24,7 +24,7 @@ On each node, `wg-quick` manages the interface, and it starts at boot. Changes t
 
 On the homelab, the interface is in the network namespace of the `homegap-mesh` container. The cluster containers of the homelab share this namespace. The orchestrator is not in it. `deploy/upgrade.sh` never recreates `homegap-mesh`, so the interface stays up during an upgrade.
 
-The `homegap-mesh-agent` container manages the interface. The orchestrator writes the description of the mesh to the `homegap-mesh` volume. The agent applies it and writes back its public key and the state of each peer. The private key of the homelab stays in that volume.
+The `homegap-mesh-agent` container manages the interface. The orchestrator writes the description of the mesh to the `homegap-mesh` volume. The agent applies it. Then it writes its public key and the state of each peer to the same volume. The private key of the homelab stays in that volume.
 
 ## The isolation of the homelab member
 
@@ -42,10 +42,10 @@ The orchestrator reaches the members through this namespace. It adds a route for
 
 Pangolin on a node faces the internet. HomeGAP keeps the containers of a node away from the services that control the cluster:
 
-- **The firewall of the node** admits the containers only to PostgreSQL, Valkey and the health check of Patroni on the member of their own node.
-- **A forward rule** in the `DOCKER-USER` chain drops each packet from a container to the etcd peer port (`2380`) or the Sentinel port (`26379`) of another member. Docker forwards a container to the mesh as the node itself, so the other member cannot tell them apart. The rule is on the node that sends. `wg-quick` adds it again at boot.
-- **etcd asks for a password.** The etcd client port (`2379`) stays reachable for the probe of HAProxy, but each read and each write needs the etcd `root` user. Only the members and the orchestrator hold that password.
-- **Sentinel asks for a password.** It is not the Valkey password, which Pangolin holds.
+- The firewall of the node admits the containers only to PostgreSQL, Valkey and the health check of Patroni on the member of their own node.
+- A forward rule in the `DOCKER-USER` chain drops packets from a container to two ports of another member. The ports are the etcd peer port (`2380`) and the Sentinel port (`26379`). Docker forwards a container to the mesh as the node itself, so the other member sees no difference between them. The rule is on the node that sends. `wg-quick` adds it again at boot.
+- etcd needs a password. The etcd client port (`2379`) stays reachable for the probe of HAProxy, but each read and each write needs the etcd `root` user. Only the members and the orchestrator hold that password.
+- Sentinel needs a password. It is not the Valkey password, which Pangolin holds.
 
 A person with root on a node holds these passwords, because the member of that node needs them. See [Security model](../reference/security.md#the-homelab).
 
