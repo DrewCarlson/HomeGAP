@@ -35,6 +35,11 @@ data class NodeState(
     val facts: Map<String, String> = emptyMap(),
     val drift: List<String> = emptyList(),
     val pendingDecommission: Boolean = false,
+    /**
+     * Why the teardown of a removed node did not finish. The node is out of the cluster vote from
+     * the start of its teardown, so a value here also means that it is not a member.
+     */
+    val teardownError: String? = null,
     /** Outcome of the last stack update that did not go through (rolled back or skipped). */
     val update: UpdateState? = null,
     /** Permanent tunnel slot (subnet, interface name, local ports); see TunnelSlots. */

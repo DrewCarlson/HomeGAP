@@ -76,6 +76,7 @@ object ConfigLoader {
             c.reconcile.debounceDuration
             c.reconcile.nodeCheck
             c.reconcile.dnsCheck
+            c.reconcile.removalGraceDuration
         } catch (e: Exception) {
             errors += e.message ?: "bad duration"
         }

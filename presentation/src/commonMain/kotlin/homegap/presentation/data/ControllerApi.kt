@@ -48,7 +48,7 @@ interface ControllerApi {
     suspend fun pause(scope: PauseScope, id: String?, paused: Boolean): ActionResponse
     suspend fun addNode(node: NodeConfigDto): ActionResponse
     suspend fun removeNode(id: String): ActionResponse
-    suspend fun decommission(id: String, confirm: String): ActionResponse
+    suspend fun decommission(id: String, confirm: String, force: Boolean = false): ActionResponse
     suspend fun speedLink(): SpeedTestLinkDto
     suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto
 

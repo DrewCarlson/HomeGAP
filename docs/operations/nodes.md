@@ -9,21 +9,33 @@ Use the add-node wizard, or add an entry to `nodes[]` in the config. HomeGAP pro
 ## Remove a region
 
 1. Remove the node from the config. Or click **Remove** on the **Nodes** page, which writes the config again. The DNS records of the node drain on the next pass.
-2. The stack on the node continues to run. When you are ready, click **Confirm decommission**.
-3. Type the node id at the prompt "Type the node id to stop its stack and forget it:".
+2. The stack on the node continues to run. In cluster mode, the node stays a member of the cluster. When you are ready, click **Decommission**.
+3. Type the node id to confirm.
 
 The API call is `POST /api/nodes/{id}/decommission?confirm={id}`.
+
+Until the decommission, you can undo the removal. The dashboard offers **Undo** for one day, and you can add the node to the config again. The node never left the cluster, so it needs no new join.
 
 HomeGAP removes only its own records. In cluster mode, the decommission also does these steps:
 
 - It removes the homelab site and the exit site of the node from the Pangolin of the cluster.
 - It removes the exit node of the node from the Pangolin of the cluster.
-- It removes the member of the node from the vote, and deletes its data.
+- It removes the member of the node from the vote before it stops the stack, and deletes its data.
 
 In both modes, the decommission then removes the install directory from the node, with the data and the secrets of the stack. If you add the node again, it starts as a new node.
 
 !!! danger "Warning"
     A decommission deletes the data of the node. In standalone mode, that includes the Pangolin database of the node.
+
+### If the teardown fails
+
+If HomeGAP cannot connect to the node, or a step of the teardown fails, the node stays on the **Nodes** page with the status "teardown failed". The activity log shows the error. The node is out of the cluster vote, but its stack and its secrets can still be on the server.
+
+- To try again, click **Decommission again**.
+- If the server is gone, click **Forget node**. HomeGAP then removes the node from its list and does not connect to the server. The API call is `POST /api/nodes/{id}/decommission?confirm={id}&force=true`.
+
+!!! danger "Warning"
+    **Forget node** leaves the stack and the secrets on a server that still runs. Use it only when the server is deleted at the provider.
 
 ## Re-provision a node
 

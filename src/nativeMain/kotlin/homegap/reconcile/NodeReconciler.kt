@@ -973,7 +973,7 @@ class NodeReconciler(
         }
         // The directory itself can be a mount point, so its contents go first.
         val q = shQuote(dir)
-        ssh.runScriptOrThrow("decommission", "find $q -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; rmdir $q 2>/dev/null; [ -z \"\$(ls -A $q 2>/dev/null)\" ]", 120)
+        ssh.runScriptOrThrow("decommission", "find $q -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true; rmdir $q 2>/dev/null || true; [ -z \"\$(ls -A $q 2>/dev/null)\" ]", 120)
         ctx.ssh.drop(node.id)
     }
 

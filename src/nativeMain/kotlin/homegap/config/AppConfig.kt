@@ -72,11 +72,14 @@ data class ReconcileConfig(
      * catch edits made in the Bunny console). Changes to desired records sync immediately.
      */
     @SerialName("dns_check_interval") val dnsCheckInterval: String = "5m",
+    /** How long the services of a container stay after the container is gone. */
+    @SerialName("removal_grace") val removalGrace: String = "3m",
 ) {
     val resync: Duration get() = parseDuration(resyncInterval)
     val debounceDuration: Duration get() = parseDuration(debounce)
     val nodeCheck: Duration get() = parseDuration(nodeCheckInterval)
     val dnsCheck: Duration get() = parseDuration(dnsCheckInterval)
+    val removalGraceDuration: Duration get() = parseDuration(removalGrace)
 }
 
 @Serializable

@@ -59,11 +59,11 @@ These routes need no token:
 | Route | What it does |
 | --- | --- |
 | `POST /api/nodes` | Adds a node. The body is a node entry. HomeGAP writes the config file again, with a backup. |
-| `DELETE /api/nodes/{id}` | Removes a node from the config. DNS drains first. The stack stays up until the decommission. |
+| `DELETE /api/nodes/{id}` | Removes a node from the config. DNS drains first. The stack stays up, and the node stays in the cluster, until the decommission. |
 | `POST /api/nodes/{id}/provision` | Queues a full provisioning of the node. |
 | `POST /api/nodes/{id}/update/retry` | Applies a held update to the node again. |
 | `POST /api/nodes/{id}/update/skip` | Leaves the node on its current stack, and continues the rollout. |
-| `POST /api/nodes/{id}/decommission?confirm={id}` | Stops the stack of a removed node and forgets the node. `confirm` must repeat the node id. |
+| `POST /api/nodes/{id}/decommission?confirm={id}` | Stops the stack of a removed node and forgets the node. `confirm` must repeat the node id. If the teardown fails, the call returns an error and the node stays. With `force=true`, HomeGAP forgets the node without a teardown. |
 | `GET /api/nodes/{id}/logs?service=&since=&tail=` | Returns the logs of a container. See [Diagnostics and troubleshooting](../operations/troubleshooting.md#log-services). The default of `since` is `30m`. The default of `tail` is 300 lines, and the maximum is 5000. |
 | `GET /api/nodes/{id}/diagnostics` | Returns the read-only diagnostics bundle of the node: `{node, title, text, at}`. |
 

@@ -42,6 +42,14 @@ Raw services can share a hostname with each other, and with one `http` or `https
 
 The tunnel connects to the container by its name, or by the value of `homegap.host`. The name must resolve on a Docker network that the container shares with the `tunnels` container.
 
+## When a container is gone
+
+When a container with `homegap.*` labels stops, HomeGAP keeps its services for `reconcile.removal_grace` (default 3 minutes). After that time, HomeGAP removes the resources and the DNS records of the container.
+
+The grace period prevents a short outage after a restart of the homelab. The orchestrator can start before your app containers. Without the grace period, HomeGAP removes each service and creates it again a moment later.
+
+A new container that claims the same hostname replaces the container that is gone immediately. If the orchestrator cannot list the containers at all, it uses the containers of the last list until Docker answers again.
+
 ## Errors and warnings
 
 The **Services** page on the dashboard and the log show the label errors of each container. HomeGAP does not publish a service with errors. The errors of one container never stop the other services. The errors of a named service start with `services.<name>:`, and they drop only that service.

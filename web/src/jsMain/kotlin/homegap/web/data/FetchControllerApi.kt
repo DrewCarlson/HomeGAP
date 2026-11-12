@@ -98,9 +98,12 @@ class FetchControllerApi(
     override suspend fun removeNode(id: String): ActionResponse =
         http.delete("/api/nodes/$id").body()
 
-    override suspend fun decommission(id: String, confirm: String): ActionResponse =
+    override suspend fun decommission(id: String, confirm: String, force: Boolean): ActionResponse =
         http.post("/api/nodes/$id/decommission") {
             parameter("confirm", confirm)
+            if (force) {
+                parameter("force", true)
+            }
         }.body()
 
     override suspend fun speedLink(): SpeedTestLinkDto =

@@ -102,9 +102,10 @@ class ClusterReconciler(
         keepRole(cluster)
         val secrets = secrets()
         val homelab = Member(Mesh.HOMELAB, Mesh.homelabAddress(cluster.mesh))
-        // Nodes take part once they have joined the mesh.
+        // Nodes take part once they have joined the mesh. A node that left the config stays a
+        // member until its teardown starts.
         val nodeMembers = nodes
-            .filter { !ctx.state.node(it.id).pendingDecommission && ctx.state.node(it.id).meshPublicKey != null }
+            .filter { ctx.state.node(it.id).teardownError == null && ctx.state.node(it.id).meshPublicKey != null }
             .mapNotNull { n -> slots[n.id]?.let { n to Member(n.id, Mesh.nodeAddress(cluster.mesh, it)) } }
         val members = listOf(homelab) + nodeMembers.map { it.second }
 
@@ -629,6 +630,18 @@ class ClusterReconciler(
         val write = "(umask 077; printf '%s' '$b64' | base64 -d > $q.new) && chmod $mode $q.new && mv -f $q.new $q && CHANGED=yes"
         return if (writeOnce) "[ -s $q ] || { $write; }"
         else "(umask 077; printf '%s' '$b64' | base64 -d > $q.new); if cmp -s $q.new $q; then rm -f $q.new; else chmod $mode $q.new; mv -f $q.new $q; CHANGED=yes; fi"
+    }
+
+    /**
+     * Removes the etcd member of [nodeId] before the teardown of the node. etcd needs a majority
+     * to remove a member, and with two members the stop of one leaves no majority.
+     */
+    suspend fun dropMember(ctx: ReconcileContext, nodeId: String) {
+        val cluster = ctx.config.cluster ?: return
+        val etcd = EtcdClient(http, "http://${Mesh.homelabAddress(cluster.mesh)}:${ClusterTemplates.ETCD_CLIENT_PORT}")
+        val member = etcd.members().firstOrNull { it.name == nodeId } ?: return
+        etcd.remove(member.id)
+        ctx.log.change(domain, "removed $nodeId from the cluster vote")
     }
 
     /** Removes etcd members whose node left the cluster (never the homelab). */

@@ -41,7 +41,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>): MeshStatusDto? {
         val mesh = ctx.config.cluster?.mesh ?: return null
-        val members = nodes.filter { !ctx.state.node(it.id).pendingDecommission && slots[it.id] != null }
+        val members = nodes.filter { ctx.state.node(it.id).teardownError == null && slots[it.id] != null }
         val homelabAddress = Mesh.homelabAddress(mesh)
         val addresses = members.associate { it.id to Mesh.nodeAddress(mesh, slots.getValue(it.id)) }
 

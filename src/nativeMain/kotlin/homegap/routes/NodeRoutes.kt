@@ -65,10 +65,14 @@ class NodeRoutes(private val controller: Controller) : RoutingController {
         call.respond(ActionResponse(true, message, undo))
     }
 
-    /** Stops a removed node's stack; `?confirm=` must repeat the node id. */
+    /**
+     * Stops a removed node's stack; `?confirm=` must repeat the node id. `?force=true` forgets the
+     * node without a teardown.
+     */
     suspend fun RoutingContext.decommission() {
         val confirm = call.request.queryParameters["confirm"].orEmpty()
-        call.respond(ActionResponse(true, controller.confirmDecommission(nodeId(), confirm)))
+        val force = call.request.queryParameters["force"] == "true"
+        call.respond(ActionResponse(true, controller.confirmDecommission(nodeId(), confirm, force)))
     }
 
     private fun RoutingContext.nodeId(): String = requireNotNull(call.parameters["id"]) { "node id required" }

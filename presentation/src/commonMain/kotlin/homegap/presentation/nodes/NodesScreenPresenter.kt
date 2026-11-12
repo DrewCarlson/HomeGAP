@@ -155,6 +155,7 @@ class NodesScreenPresenter(
             update?.status == "failed" -> if (update.rolledBack) "update rolled back" else "update failed"
             update?.status == "skipped" -> "update skipped"
             node.updateWaiting != null -> "update waiting"
+            node.teardownError != null -> "teardown failed"
             node.pendingDecommission -> "pending decommission"
             else -> node.stack ?: "current"
         }

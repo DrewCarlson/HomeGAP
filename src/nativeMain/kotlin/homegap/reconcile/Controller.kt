@@ -103,6 +103,8 @@ class Controller(
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
     @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
     private val nodeCert by lazy { NodeCertificate("${config.dataDir}/acme") }
+    private val discoveryMemory by lazy { homegap.discovery.DiscoveryMemory("${config.dataDir}/discovery.json") }
+    private val heldContainers = mutableSetOf<String>()
 
     private val clusterRec by lazy {
         ClusterReconciler(
@@ -358,7 +360,7 @@ class Controller(
             if (applyOnce && state.snapshot().pauses.global) log.change("controller", "applying waiting changes once while paused")
 
             // Remember how to reach each node so it can be torn down after removal from config.
-            if (!dryRun) for (n in cfg.nodes) state.updateNode(n.id) { it.copy(facts = it.facts + nodeFacts(n), pendingDecommission = false) }
+            if (!dryRun) for (n in cfg.nodes) state.updateNode(n.id) { it.copy(facts = it.facts + nodeFacts(n), pendingDecommission = false, teardownError = null) }
             // Track removed nodes (decommission needs explicit confirmation).
             val configured = cfg.nodes.map { it.id }.toSet()
             for (id in state.snapshot().nodes.keys - configured) {
@@ -369,7 +371,7 @@ class Controller(
             }
 
             // 1. Service discovery (abort destructive domains if it fails: an empty view must never delete everything).
-            val containers: List<DockerContainerSummary>? = try {
+            val listed: List<DockerContainerSummary>? = try {
                 docker.listContainers(mapOf("status" to listOf("running"), "label" to listOf(Labels.EXPOSE)))
             } catch (e: Exception) {
                 if (e is CancellationException) {
@@ -378,9 +380,19 @@ class Controller(
                 log.error("discovery", "cannot list containers: ${e.message}")
                 null
             }
-            containers?.let { homelabContainers = it.size }
+            listed?.let { homelabContainers = it.size }
+            // A container that is gone stays for a grace period, and a failed discovery plans from
+            // the last one. See [DiscoveryMemory].
+            val remembered = discoveryMemory.merge(listed, nowMillis(), cfg.reconcile.removalGraceDuration.inWholeMilliseconds, save = !dryRun)
+            remembered?.held?.forEach { (name, left) ->
+                if (heldContainers.add(name)) log.warn("discovery", "the container is gone: HomeGAP keeps its services for ${(left + 59_999) / 60_000} min, in case it starts again", name)
+            }
+            remembered?.dropped?.forEach { log.info("discovery", "the container did not come back: its services go away", it) }
+            heldContainers.retainAll(remembered?.held?.keys.orEmpty())
+            val known = remembered?.containers
+            val containers = known.takeIf { listed != null }
             val routers = containers?.let { traefikRouters(it) }
-            val plan = Planner.plan(cfg, containers ?: emptyList(), pauses.services, traefikRouters = routers.orEmpty())
+            val plan = Planner.plan(cfg, known ?: emptyList(), pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
                 frontDoorAddresses = plan.frontDoor?.let { fd -> containers.firstOrNull { it.name == fd.containerName } }
@@ -392,6 +404,7 @@ class Controller(
             val effective = if (containers != null && routers != null) plan else desired ?: plan
             val pausedKeys = effective.services.filter { it.paused }.map { it.key }.toSet() + pauses.services
             val discoveryOk = containers != null && routers != null
+            val servicesKnown = discoveryOk || desired != null || known != null
 
             // A failed discovery gives a plan without services: keep the certificate as it is.
             val certs: CertMaterial? = if (!discoveryOk) nodeCert.current() else runDomain("certificates", null) {
@@ -441,6 +454,8 @@ class Controller(
                             val decision = if (a.paused || a.kind == NodeReconciler.Kind.NONE) RolloutPolicy.Decision.Start
                             // Until the slot is checked against the live subnet, the rendered stack may be wrong.
                             else if (a.kind == NodeReconciler.Kind.UPDATE && !state.node(node.id).tunnelSlotConfirmed) RolloutPolicy.Decision.Wait("confirming the node's tunnel slot")
+                            // Without one discovery, the plan has no services, and the stack would lose their ports.
+                            else if (a.kind == NodeReconciler.Kind.UPDATE && !servicesKnown) RolloutPolicy.Decision.Wait("waiting for the first service discovery")
                             else RolloutPolicy.decide(
                                 node.id, a.kind, a.hash, force, state.snapshot().nodes,
                                 jobs.filter { (_, j) -> j.first == NodeReconciler.Kind.UPDATE && j.second.isActive }.keys, nowMillis(),
@@ -551,7 +566,7 @@ class Controller(
 
             // The cluster mesh (host-level, independent of each node's stack).
             meshStatus = if (cfg.cluster == null || dryRun) null
-            else runDomain("mesh", null) { meshRec.reconcile(ctx, cfg.nodes, state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap()) } ?: meshStatus
+            else runDomain("mesh", null) { meshRec.reconcile(ctx, clusterNodes(cfg), state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap()) } ?: meshStatus
             // The cluster's database layer, over the mesh.
             clusterStatus = if (cfg.cluster == null || dryRun) null
             else runDomain("cluster", null) {
@@ -559,7 +574,7 @@ class Controller(
                 val image = cfg.cluster.image.let { ref ->
                     runCatching { docker.image(ref) }.getOrNull()?.takeIf { it.created.isNotEmpty() }?.let { MemberImage(it.pinned(ref), it.created) }
                 }
-                clusterRec.reconcile(ctx, cfg.nodes, state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap(), image)
+                clusterRec.reconcile(ctx, clusterNodes(cfg), state.snapshot().nodes.mapNotNull { (id, s) -> s.tunnelSlot?.let { id to it } }.toMap(), image)
             } ?: clusterStatus
             clusterStatus = clusterStatus?.let { cs ->
                 val shared = state.snapshot().clusterPangolin
@@ -882,6 +897,7 @@ class Controller(
                 drift = ns?.drift ?: emptyList(),
                 paused = st.pauses.global || id in st.pauses.nodes,
                 pendingDecommission = ns?.pendingDecommission == true || n == null,
+                teardownError = ns?.teardownError,
                 facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "vcpu", "disk_free_gb", "tcp_cc", "qdisc", "edge_tcp") } +
                     (tunnel?.let { mapOf("newt_restarts" to it.restarts.toString()) } ?: emptyMap()),
                 job = jobs[id]?.takeIf { it.second.isActive }?.let { if (it.first == NodeReconciler.Kind.UPDATE) "updating" else "provisioning" },
@@ -1231,7 +1247,7 @@ class Controller(
         val next = config.copy(nodes = config.nodes + node)
         ConfigLoader.save(configPath, next)
         config = next
-        state.updateNode(node.id) { it.copy(pendingDecommission = false) }
+        state.updateNode(node.id) { it.copy(pendingDecommission = false, teardownError = null) }
         log.change("controller", "added node ${node.id} to config", node.id)
         trigger("config")
         return "Node ${node.id} added; provisioning will start on the next pass"
@@ -1302,6 +1318,7 @@ class Controller(
         trigger("config")
         val undo = offerUndo(ttlMs = UNDO_NODE_MS) {
             check(state.node(id).pendingDecommission) { "$id was already decommissioned" }
+            check(state.node(id).teardownError == null) { "the teardown of $id already started" }
             addNode(node)
             "Added $id back"
         }
@@ -1310,31 +1327,72 @@ class Controller(
 
     private fun nodeFacts(n: NodeConfig) = mapOf(
         "cfg.host" to n.host, "cfg.user" to n.sshUser, "cfg.port" to n.sshPort.toString(), "cfg.key" to n.sshKeyFile,
-    )
+    ) + listOfNotNull(n.ipv4()?.let { "cfg.ipv4" to it }, n.publicIpv6?.let { "cfg.ipv6" to it })
 
-    /** Tears down a node already removed from config. Requires typing the node id to confirm. */
-    suspend fun confirmDecommission(id: String, confirm: String): String {
+    /** A node that is not in the config, from what the state knows about its SSH access. */
+    private fun removedNode(id: String, ns: homegap.state.NodeState): NodeConfig? {
+        val host = ns.facts["cfg.host"] ?: return null
+        return NodeConfig(
+            id = id,
+            host = host,
+            sshUser = ns.facts["cfg.user"] ?: "root",
+            sshPort = ns.facts["cfg.port"]?.toIntOrNull() ?: 22,
+            sshKeyFile = ns.facts["cfg.key"].orEmpty(),
+            publicIpv4 = ns.facts["cfg.ipv4"] ?: "0.0.0.0",
+            publicIpv6 = ns.facts["cfg.ipv6"],
+        )
+    }
+
+    /**
+     * The nodes of the mesh and the cluster: the nodes in the config, and each removed node whose
+     * teardown did not start. A removed node stays in the cluster vote until then, so an undo of
+     * the removal needs no new join.
+     */
+    private fun clusterNodes(cfg: AppConfig): List<NodeConfig> {
+        val configured = cfg.nodes.map { it.id }.toSet()
+        return cfg.nodes + state.snapshot().nodes.mapNotNull { (id, ns) ->
+            // The pending flag is not a condition: a pass that began before an undo has the old config
+            // and the new state, and it must not drop the node.
+            if (id in configured || ns.teardownError != null) null else removedNode(id, ns)
+        }
+    }
+
+    /**
+     * Tears down a node already removed from config. Requires typing the node id to confirm.
+     *
+     * The node leaves the cluster vote first. If the teardown fails, the node stays in the state
+     * with the error, because its stack can still run. A second call tries again. With [force],
+     * HomeGAP forgets the node without a teardown.
+     */
+    suspend fun confirmDecommission(id: String, confirm: String, force: Boolean = false): String {
         require(confirm == id) { "confirmation must equal the node id" }
         require(config.node(id) == null) { "node $id is still in the config; remove it first" }
-        val ns = state.node(id)
-        val host = ns.facts["cfg.host"]
-        if (host != null && !dryRun) {
-            val n = NodeConfig(id = id, host = host, sshUser = ns.facts["cfg.user"] ?: "root", sshPort = ns.facts["cfg.port"]?.toIntOrNull() ?: 22, sshKeyFile = ns.facts["cfg.key"].orEmpty(), publicIpv4 = "0.0.0.0")
-            val ctx = ReconcileContext(config, state, log, ssh, localHttp, externalHttp, dryRun, DiffCollector())
-            runCatching {
-                NodeReconciler(ctx).decommission(n)
-            }.onFailure {
-                if (it is CancellationException) {
-                    currentCoroutineContext().ensureActive()
+        val ctx = ReconcileContext(config, state, log, ssh, localHttp, externalHttp, dryRun, DiffCollector())
+        val node = removedNode(id, state.node(id))
+        if (node != null && !dryRun && !force) {
+            state.updateNode(id) { it.copy(pendingDecommission = true, teardownError = TEARDOWN_STARTED) }
+            if (config.cluster != null) {
+                runCatching { clusterRec.dropMember(ctx, id) }.onFailure {
+                    if (it is CancellationException) currentCoroutineContext().ensureActive()
+                    log.warn("cluster", "could not remove $id from the cluster vote before its teardown: ${it.message}", id)
                 }
-                log.warn("nodes", "stack teardown failed (${it.message}); removing from state anyway", id)
+            }
+            try {
+                NodeReconciler(ctx).decommission(node)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                val reason = e.message ?: e.toString()
+                state.updateNode(id) { it.copy(teardownError = reason) }
+                log.error("nodes", "teardown failed: $reason. The stack of the node can still run. Decommission the node again, or forget it", id)
+                trigger("decommission")
+                throw IllegalStateException("The teardown of $id failed: $reason")
             }
         }
         state.removeNode(id)
-        TunnelReconciler(ReconcileContext(config, state, log, ssh, localHttp, externalHttp, dryRun, DiffCollector())).prune(config.nodes.map { it.id }.toSet())
-        log.change("nodes", "decommissioned", id)
+        TunnelReconciler(ctx).prune(config.nodes.map { it.id }.toSet())
+        log.change("nodes", if (force) "forgotten without a teardown" else "decommissioned", id)
         trigger("decommission")
-        return "Node $id decommissioned"
+        return if (force) "Node $id forgotten" else "Node $id decommissioned"
     }
 }
 
@@ -1400,6 +1458,8 @@ internal fun ServiceNodeHealthDto.withProbe(probe: Controller.ServiceProbe?): Se
         else -> measured
     }
 }
+
+private const val TEARDOWN_STARTED = "the teardown did not finish"
 
 /** How long removing a node can be undone (until it is decommissioned). */
 private const val UNDO_NODE_MS = 24 * 3_600_000L

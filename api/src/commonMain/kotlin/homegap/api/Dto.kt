@@ -179,6 +179,8 @@ data class NodeStatusDto(
     val drift: List<String> = emptyList(),
     val paused: Boolean = false,
     val pendingDecommission: Boolean = false,
+    /** The teardown of the removed node started and did not finish. Its stack can still run. */
+    val teardownError: String? = null,
     val facts: Map<String, String> = emptyMap(),
     /** Background work in progress: `provisioning` (new or repair) or `updating` (rolling update). */
     val job: String? = null,

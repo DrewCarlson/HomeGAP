@@ -86,11 +86,22 @@ class NodeActions(
         if (node.pendingDecommission) {
             add(
                 ActionModel(
-                    label = "Decommission",
+                    label = if (node.teardownError != null) "Decommission again" else "Decommission",
+                    tooltip = node.teardownError?.let { "The last teardown failed: $it" },
                     style = ActionStyle.Danger,
                     onClick = { decommission(node.id) },
                 )
             )
+            if (node.teardownError != null) {
+                add(
+                    ActionModel(
+                        label = "Forget node",
+                        tooltip = "Remove the node from HomeGAP without a teardown",
+                        style = ActionStyle.Danger,
+                        onClick = { forget(node.id) },
+                    )
+                )
+            }
         } else {
             add(
                 ActionModel(
@@ -171,6 +182,24 @@ class NodeActions(
             )
         ) {
             actions.run("Decommission") { api.decommission(id, id) }
+        }
+    }
+
+    fun forget(id: String) {
+        confirmations.ask(
+            ConfirmModel(
+                title = "Forget $id?",
+                text = "HomeGAP removes $id from its list and does not connect to the server. Use this when the server is gone.",
+                confirmLabel = "Forget $id",
+                consequences = listOf(
+                    "If the server still runs, its stack and its secrets stay on it",
+                    "Its Pangolin site and DNS records are deleted",
+                ),
+                typeToConfirm = id,
+                danger = true,
+            )
+        ) {
+            actions.run("Forget node") { api.decommission(id, id, force = true) }
         }
     }
 

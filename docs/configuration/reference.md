@@ -30,6 +30,7 @@ This page lists every key of the config file, with its type and its default. A k
 | `debounce` | duration | `2s` | The debounce of Docker events. |
 | `dry_run` | boolean | `false` | Does discovery and writes the desired state to the log, but makes no changes. |
 | `node_check_interval` | duration | `5m` | The interval of the SSH drift check on each node. |
+| `removal_grace` | duration | `3m` | How long the services of a container stay after the container is gone. See [When a container is gone](../services/index.md#when-a-container-is-gone). |
 | `dns_check_interval` | duration | `5m` | How often HomeGAP reads the full Bunny zone again when the desired records do not change. Changes to the desired records sync at once. |
 
 ## bunny

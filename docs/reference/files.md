@@ -10,6 +10,7 @@ The data directory is `data_dir` (default `/data`), on the `homegap-data` volume
 | --- | --- |
 | `state.json` | The state cache, with mode 0600. |
 | `state.json.bak` | A copy of the state cache from the last start. HomeGAP uses it if `state.json` is damaged. |
+| `discovery.json` | The containers of the last discovery, with their labels. HomeGAP uses it for the grace period of a container that is gone. |
 | `dashboard-token` | The dashboard token that HomeGAP creates if the config gives none, with mode 0600. |
 | `known_hosts` | The SSH host keys of the nodes. |
 | `ssh/` | The SSH keys that the add-node wizard generates, with mode 0600. |

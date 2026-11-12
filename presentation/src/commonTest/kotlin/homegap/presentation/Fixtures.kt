@@ -83,7 +83,7 @@ class FakeControllerApi(
     override suspend fun pause(scope: PauseScope, id: String?, paused: Boolean) = ok("pause ${scope.wire} $id $paused")
     override suspend fun addNode(node: NodeConfigDto) = ok("add ${node.id} ${node.host} ${node.sshKeyFile}")
     override suspend fun removeNode(id: String) = ok("remove $id")
-    override suspend fun decommission(id: String, confirm: String) = ok("decommission $id $confirm")
+    override suspend fun decommission(id: String, confirm: String, force: Boolean) = ok("decommission $id $confirm${if (force) " force" else ""}")
     override suspend fun speedLink() = SpeedTestLinkDto("http://speedtest.x/", mapOf("a1" to "https://speedtest-a1.x/#t=1"), NOW)
     override suspend fun runTunnelTest(node: String, streams: Int): SpeedTestResultDto {
         calls += "test $node $streams"
