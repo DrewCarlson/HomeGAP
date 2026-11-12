@@ -16,9 +16,20 @@ With `status_page.enabled: true`, anybody can open `https://status.<domain>/`. T
 | Degraded | The node carries traffic, but a check fails. |
 | Offline | The node is down, paused or in removal, or its tunnel to the homelab is down. |
 
-The page never shows addresses or hostnames. While it is open, it refreshes every minute.
+While the page is open, it refreshes every minute.
 
 The page also has a map of the nodes in their status colors. The node of the visitor is highlighted, with the round trip through each node. The map shows the homelab only as a soft area at the center of its region, for example "Home · North America". HomeGAP never sends the location of the homelab to the page.
+
+### What the page tells a visitor
+
+The page and its data are public. For each node, a visitor can read these values:
+
+- The node id and the region.
+- The state.
+- The location that you set for the node: its name and its coordinates. The map uses them.
+- The name `status-<node>.<domain>`. The browser measures the round trip through each node on this name. The name resolves to the public address of the node.
+
+The page does not show IP addresses or the management hosts. But a visitor can find the public address of each node from its `status-<node>` name. The public DNS records of your services give the same addresses.
 
 ## How the page works
 
