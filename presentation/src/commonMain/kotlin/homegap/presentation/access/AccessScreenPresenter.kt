@@ -89,7 +89,6 @@ class AccessScreenPresenter(
             head = PageHeadModel(
                 caption = "Access · Pangolin users and devices",
                 headline = "Access isn't available right now.",
-                actions = listOf(SHARE_LINKS),
             ),
         )
 
@@ -140,7 +139,6 @@ class AccessScreenPresenter(
                     )
                 },
                 actions = listOf(
-                    SHARE_LINKS,
                     ActionModel(
                         label = "+ Add user",
                         style = ActionStyle.Primary,
@@ -474,12 +472,6 @@ class AccessScreenPresenter(
         }
     }
 }
-
-/** Opens the read-only share links of the dashboard itself. */
-private val SHARE_LINKS = ActionModel(
-    label = "Share links",
-    location = Location(Route.ShareLinks),
-)
 
 /** "in 6 days", "in 5 h", "in 20 min", or "now" once it has passed. Days are rounded. */
 internal fun expiresIn(at: Long, now: Long): String {

@@ -68,7 +68,6 @@ class NodesScreenPresenter(
                         label = "+ Add node",
                         style = ActionStyle.Primary,
                         location = Location(Route.AddNode),
-                        mutates = true,
                     ),
                 ),
             ),
@@ -107,7 +106,6 @@ class NodesScreenPresenter(
                         label = "+ Add node",
                         style = ActionStyle.Primary,
                         location = Location(Route.AddNode),
-                        mutates = true,
                     ),
                 )
             } else {

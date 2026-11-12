@@ -18,9 +18,6 @@ import io.ktor.server.routing.*
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
 class AccessRoutes(private val access: AccessService) : RoutingController {
-    /** People's emails and devices. */
-    override val adminOnly: Boolean get() = true
-
     override fun init(parent: Route) {
         parent.route("/access") {
             get { respondRevalidated(access.overview()) }

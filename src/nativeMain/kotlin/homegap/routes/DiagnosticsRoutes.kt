@@ -12,15 +12,12 @@ import io.ktor.server.routing.*
 /**
  * Read-only views of a node: `GET /nodes/{id}/logs?service=&since=&tail=` (a container's logs)
  * and `GET /nodes/{id}/diagnostics` (a bundle of the node's state). Both answer [homegap.api.NodeTextDto].
- * Admin only: container logs hold people's email addresses and client addresses, and each read
- * runs a script on the node.
+ * Each read runs a script on the node.
  */
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
 class DiagnosticsRoutes(private val diagnostics: NodeDiagnostics) : RoutingController {
-    override val adminOnly: Boolean get() = true
-
     override fun init(parent: Route) {
         parent.route("/nodes/{id}") {
             get("/logs") { logs() }

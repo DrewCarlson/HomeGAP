@@ -3,32 +3,25 @@ package homegap.web.data
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
-import homegap.presentation.data.PageAddress
 import homegap.presentation.data.PageVisibility
 import homegap.presentation.data.Preferences
 import homegap.presentation.data.TokenStore
 import homegap.presentation.format.TimeFormatter
 import kotlinx.browser.document
 import kotlinx.browser.localStorage
-import kotlinx.browser.sessionStorage
-import kotlinx.browser.window
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.w3c.dom.Storage
 import kotlin.js.Date
 import kotlin.js.dateLocaleOptions
 
-/** Keeps the dashboard token in localStorage, and a share link's in this tab's sessionStorage. */
+/** Keeps the dashboard token in localStorage. */
 @ContributesBinding(AppScope::class)
 @Inject
 class LocalStorageTokenStore : TokenStore {
     override var token: String?
         get() = localStorage.getItem(KEY)
         set(value) = localStorage.put(KEY, value)
-
-    override var viewToken: String?
-        get() = sessionStorage.getItem(VIEW_KEY)
-        set(value) = sessionStorage.put(VIEW_KEY, value)
 
     private fun Storage.put(key: String, value: String?) {
         if (value.isNullOrBlank()) {
@@ -40,15 +33,7 @@ class LocalStorageTokenStore : TokenStore {
 
     private companion object {
         const val KEY = "homegap.token"
-        const val VIEW_KEY = "homegap.viewToken"
     }
-}
-
-/** The page's own origin. */
-@ContributesBinding(AppScope::class)
-@Inject
-class BrowserPageAddress : PageAddress {
-    override val origin: String get() = window.location.origin
 }
 
 /** Formats times in the browser's locale. */

@@ -272,7 +272,6 @@ html.overlay-open { overflow: hidden; padding-right: var(--scrollbar-width, 0px)
 .banner { padding: 11px 14px; border-radius: var(--radius); border: 1px solid; font-size: 13.5px; }
 .paused-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-color: color-mix(in srgb, var(--amber) 60%, transparent) !important; }
 .paused-banner .btn.primary { background: var(--amber); border-color: var(--amber); }
-.read-only-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .banner.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, transparent); color: var(--text); }
 .banner.error { background: var(--down-soft); border-color: color-mix(in srgb, var(--down) 40%, transparent); }
 .banner.info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -312,7 +311,6 @@ table.data tr.empty:hover td { background: none; }
 
 /* ---------------------------------------------------------------- forms */
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
-.share-form { display: grid; gap: 14px; max-width: 520px; }
 .form-actions { display: flex; justify-content: flex-end; }
 
 /* ---------------------------------------------------------------- speed test */

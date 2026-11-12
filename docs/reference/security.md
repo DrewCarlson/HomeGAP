@@ -13,7 +13,7 @@ The orchestrator holds every SSH key and every API key. Thus:
 !!! danger "Warning"
     If somebody gets access to the dashboard or to the orchestrator host, that person has control of every node.
 
-A [share link](../operations/dashboard.md#share-a-read-only-view) gives a read-only view of the dashboard. The orchestrator refuses each change from a share link. It also refuses the data that contains people's email addresses and devices: the **Access** page, the activity log, and the logs and diagnostics of the nodes. The PIN of a service is never in the data that the dashboard shows. The orchestrator keeps only a hash of each share link token.
+The PIN of a service is never in the data that the dashboard shows.
 
 ## Secrets
 

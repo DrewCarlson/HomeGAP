@@ -3,30 +3,14 @@ package homegap.routes
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-import homegap.api.ActionResponse
-import homegap.api.ApiJson
-import homegap.api.ShareLinkDto
 import homegap.dashboard.DashboardAuth
-import homegap.dashboard.ShareLinks
-import io.ktor.http.ContentType
-import io.ktor.http.HttpMethod
-import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
-import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
-import io.ktor.server.auth.AuthenticationChecked
 import io.ktor.server.auth.UserIdPrincipal
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.bearer
-import io.ktor.server.auth.principal
-import io.ktor.server.request.httpMethod
-import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
-import io.ktor.server.routing.RouteSelector
-import io.ktor.server.routing.RouteSelectorEvaluation
-import io.ktor.server.routing.RoutingResolveContext
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 
@@ -35,9 +19,6 @@ import io.ktor.server.routing.routing
  * bearer token (Ktor's `Authentication` with a `bearer` provider). There is always a token (see
  * [DashboardAuth]): the API gives control of every node, so it is never served without one. An
  * [OpenRoutingController] is mounted outside it and does its own check.
- *
- * A [ShareLinks] token also signs in, as a [Viewer]: it may only read (GET), and never the routes
- * of a controller marked [RoutingController.adminOnly].
  */
 @SingleIn(AppScope::class)
 @Inject
@@ -45,16 +26,12 @@ class RoutingControllers(
     private val controllers: Set<RoutingController>,
     private val auth: DashboardAuth,
     private val open: Set<OpenRoutingController>,
-    private val shareLinks: ShareLinks,
 ) {
     fun init(application: Application) {
         application.install(Authentication) {
             bearer(AUTH) {
                 authenticate { credential ->
-                    when {
-                        auth.matches(credential.token) -> UserIdPrincipal("dashboard")
-                        else -> shareLinks.verify(credential.token)?.let(::Viewer)
-                    }
+                    if (auth.matches(credential.token)) UserIdPrincipal("dashboard") else null
                 }
             }
         }
@@ -63,20 +40,8 @@ class RoutingControllers(
             open.forEach { it.init(this, auth) }
             route("/api") {
                 authenticate(AUTH) {
-                    install(ReadOnlyViewers)
-                    mount()
+                    controllers.forEach { it.init(this) }
                 }
-            }
-        }
-    }
-
-    private fun Route.mount() {
-        val (adminOnly, shared) = controllers.partition { it.adminOnly }
-        shared.forEach { it.init(this) }
-        if (adminOnly.isNotEmpty()) {
-            createChild(AdminOnlySelector).apply {
-                install(AdminOnly)
-                adminOnly.forEach { it.init(this) }
             }
         }
     }
@@ -86,46 +51,8 @@ class RoutingControllers(
     }
 }
 
-/** Signed in with a share link: may look, never change. */
-data class Viewer(val link: ShareLinkDto)
-
-/** A viewer only reads: anything but GET and HEAD is refused. */
-private val ReadOnlyViewers = createRouteScopedPlugin("ReadOnlyViewers") {
-    on(AuthenticationChecked) { call ->
-        if (call.principal<Viewer>() != null && call.request.httpMethod != HttpMethod.Get && call.request.httpMethod != HttpMethod.Head) {
-            call.forbid("This is a read-only view.")
-        }
-    }
-}
-
-/** Refuses viewers on every method. */
-private val AdminOnly = createRouteScopedPlugin("AdminOnly") {
-    on(AuthenticationChecked) { call ->
-        if (call.principal<Viewer>() != null) {
-            call.forbid("Only an admin can see this.")
-        }
-    }
-}
-
-/** 403 with an [ActionResponse], encoded here so it does not depend on content negotiation. */
-private suspend fun ApplicationCall.forbid(message: String) = respondText(
-    text = ApiJson.encodeToString(ActionResponse(false, message)),
-    contentType = ContentType.Application.Json,
-    status = HttpStatusCode.Forbidden,
-)
-
-/** Groups an admin-only controller's routes without adding to their paths. */
-private object AdminOnlySelector : RouteSelector() {
-    override suspend fun evaluate(context: RoutingResolveContext, segmentIndex: Int) = RouteSelectorEvaluation.Transparent
-
-    override fun toString() = "(admin only)"
-}
-
 /** A group of related `/api` routes; contributed to the graph with `@ContributesIntoSet`. */
 interface RoutingController {
-    /** Hidden from share-link viewers, even for reading (people's details, the share links). */
-    val adminOnly: Boolean get() = false
-
     fun init(parent: Route)
 }
 

@@ -24,7 +24,6 @@ The data directory is `data_dir` (default `/data`), on the `homegap-data` volume
 | `mesh/` | The description of the mesh for the mesh agent, its status and the mesh key of the homelab. With the shipped compose file, this is the `homegap-mesh` volume at `/mesh`. |
 | `locations.yml` | Your edits to the location catalog. |
 | `speedtests.json` | The results of the speed tests. |
-| `share-links.json` | The read-only share links of the dashboard, with mode 0600. It holds only a hash of each token. |
 
 ## The config file
 

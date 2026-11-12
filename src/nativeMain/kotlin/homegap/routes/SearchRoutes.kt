@@ -10,7 +10,6 @@ import homegap.api.SearchResponse
 import homegap.config.ConfigLoader
 import homegap.config.referencedSecrets
 import homegap.reconcile.Controller
-import io.ktor.server.auth.principal
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.RoutingContext
@@ -18,8 +17,7 @@ import io.ktor.server.routing.get
 
 /**
  * `GET /search?q=`: what the dashboard can't search on its own. Config keys (never their values),
- * referenced secrets (name and whether they resolve), and log entries older than it holds. A
- * share-link viewer gets no log entries: they name people.
+ * referenced secrets (name and whether they resolve), and log entries older than it holds.
  */
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
@@ -59,7 +57,7 @@ class SearchRoutes(private val controller: Controller) : RoutingController {
                     route = "config",
                 )
             }
-        val entries = if (call.principal<Viewer>() == null) controller.log.recent(limit = LIMIT, query = query) else emptyList()
+        val entries = controller.log.recent(limit = LIMIT, query = query)
         val log = entries.map { entry ->
             SearchHitDto(
                 kind = "log",

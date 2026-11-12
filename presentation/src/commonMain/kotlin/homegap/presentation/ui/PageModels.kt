@@ -66,8 +66,7 @@ enum class ActionStyle {
 /**
  * A button: it either runs [onClick] or opens [location]. [href] is for links that leave the
  * dashboard (documentation, a service). Actions that need confirming ask through
- * [homegap.presentation.data.Confirmations] inside [onClick]. [mutates] when it changes something,
- * so a read-only view turns it off: by default the ones that run [onClick].
+ * [homegap.presentation.data.Confirmations] inside [onClick].
  */
 @Immutable
 data class ActionModel(
@@ -78,7 +77,6 @@ data class ActionModel(
     val location: Location? = null,
     val href: String? = null,
     val onClick: (() -> Unit)? = null,
-    val mutates: Boolean = onClick != null,
 )
 
 /**

@@ -8,16 +8,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/**
- * The confirm dialog: one question at a time, asked by presenters before risky actions. In a
- * read-only view nothing is asked: there is nothing to confirm.
- */
+/** The confirm dialog: one question at a time, asked by presenters before risky actions. */
 @SingleIn(AppScope::class)
 @Inject
-class Confirmations(
-    private val session: ControllerSession,
-    private val actions: ActionRunner,
-) {
+class Confirmations {
     private val _pending = MutableStateFlow<Pending?>(null)
 
     /** The question shown now, or null. */
@@ -25,10 +19,6 @@ class Confirmations(
 
     /** Shows [model] and runs [onConfirm] only if the user confirms ([onSecondary] for its second button). */
     fun ask(model: ConfirmModel, onSecondary: () -> Unit = {}, onConfirm: () -> Unit) {
-        if (session.readOnly) {
-            actions.notify(ActionRunner.READ_ONLY)
-            return
-        }
         _pending.value = Pending(
             model = model,
             onConfirm = onConfirm,

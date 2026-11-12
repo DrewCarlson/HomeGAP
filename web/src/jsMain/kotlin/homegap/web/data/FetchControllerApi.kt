@@ -183,13 +183,4 @@ class FetchControllerApi(
 
     override suspend fun deviceAction(id: Int, action: String): ActionResponse =
         http.post("/api/access/devices/$id/$action").body()
-
-    override suspend fun session(): SessionDto = http.get("/api/session").body()
-    override suspend fun shareLinks(): ShareLinksResponse = http.get("/api/share-links").body()
-    override suspend fun createShareLink(request: CreateShareLinkRequest): CreateShareLinkResponse =
-        http.post("/api/share-links") {
-            setBody(request)
-        }.body()
-
-    override suspend fun revokeShareLink(id: String): ActionResponse = http.delete("/api/share-links/$id").body()
 }

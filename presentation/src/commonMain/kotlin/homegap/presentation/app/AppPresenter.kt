@@ -5,14 +5,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.Health
-import homegap.api.SessionDto
-import homegap.api.SessionRole
 import homegap.api.StatusSnapshot
-import homegap.presentation.access.expiresIn
-import homegap.presentation.sharing.ShareLinksScreenPresenter
-import homegap.presentation.sharing.ShareLinksScreenProps
-import homegap.presentation.ui.EmptyStateModel
-import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.activity.ActivityScreenPresenter
 import homegap.presentation.activity.ActivityScreenProps
 import homegap.presentation.config.ConfigScreenPresenter
@@ -98,7 +91,6 @@ class AppPresenter(
     private val diagnostics: DiagnosticsScreenPresenter,
     private val locations: homegap.presentation.locations.LocationsScreenPresenter,
     private val addNode: AddNodeScreenPresenter,
-    private val shareLinks: ShareLinksScreenPresenter,
     private val nodeLocation: homegap.presentation.nodes.NodeLocationPresenter,
 ) : Presenter<AppProps, AppModel> {
     private companion object {
@@ -116,8 +108,6 @@ class AppPresenter(
         val metrics by session.metrics.collectAsState()
         val pendingConfirm by confirmations.pending.collectAsState()
         val busy by actions.busy.collectAsState()
-        val sessionInfo by session.session.collectAsState()
-        val readOnly = sessionInfo?.role == SessionRole.VIEWER
         val now by clock.rememberNow()
         val router by rememberUpdatedState(props.router)
 
@@ -125,16 +115,14 @@ class AppPresenter(
         val attention = remember(snapshot) { snapshot?.attentionCounts().orEmpty() }
         return AppModel(
             route = props.route,
-            // People's details stay with admins: a read-only view has no Access, Activity or
-            // Diagnostics page (the log and the nodes' container logs name people).
-            nav = Route.NAV.filter { !readOnly || it !in VIEWER_HIDDEN }.map { route ->
+            nav = Route.NAV.map { route ->
                 NavItem(
                     route = route,
                     selected = route == props.route.navSection,
                     attention = attention[route],
                 )
             },
-            header = snapshot?.let { header(it, busy, now, readOnly) },
+            header = snapshot?.let { header(it, busy, now) },
             nodeLocation = nodeLocation.model(status = snapshot),
             connection = problem?.let {
                 connection(
@@ -155,41 +143,18 @@ class AppPresenter(
                     now = now,
                     metrics = metrics,
                     log = log,
-                    readOnly = readOnly,
                 )
             },
-            overlay = snapshot?.let { overlay(props, it, now, readOnly) },
+            overlay = snapshot?.let { overlay(props, it) },
             toast = toast,
             search = search(
                 snapshot = snapshot,
                 log = log,
                 router = router,
-                readOnly = readOnly,
             ),
             confirm = pendingConfirm?.let { confirmDialog(it) },
             onNavigate = remember { { route: Route -> router.navigate(route) } },
             onOpen = remember { { location: Location -> router.open(location) } },
-            readOnly = sessionInfo?.takeIf { readOnly }?.let { readOnlyModel(it, now) },
-        )
-    }
-
-    @Composable
-    private fun readOnlyModel(info: SessionDto, now: Long): ReadOnlyModel {
-        val signIn = appScope.rememberEventTrigger {
-            // Back to this browser's admin token, or to the sign-in dialog when it has none.
-            tokens.viewToken = null
-            session.loadSession()
-            session.refresh()
-        }
-        val text = buildString {
-            append("Read-only view")
-            info.label?.let { append(", shared as “$it”") }
-            append(". You can look around, but nothing can be changed here.")
-            info.expiresAt?.let { append(" The link expires ${expiresIn(it, now)}.") }
-        }
-        return ReadOnlyModel(
-            text = text,
-            onSignIn = signIn::trigger,
         )
     }
 
@@ -211,33 +176,32 @@ class AppPresenter(
         snapshot: StatusSnapshot?,
         log: List<homegap.api.LogEntryDto>,
         router: Router,
-        readOnly: Boolean,
     ): SearchModel {
         var isOpen by remember { mutableStateOf(false) }
         var query by remember { mutableStateOf("") }
         var kind by remember { mutableStateOf<SearchKind?>(null) }
         var highlighted by remember { mutableStateOf(0) }
         val paused = snapshot?.paused == true
-        val actionHits = remember(paused, readOnly) {
+        val actionHits = remember(paused) {
             listOfNotNull(
                 SearchHit(
                     kind = SearchKind.Action,
                     title = "Resync now",
                     subtitle = "Run a reconcile pass",
                     run = { actions.run("Resync") { api.resync() } },
-                ).takeUnless { readOnly },
+                ),
                 SearchHit(
                     kind = SearchKind.Action,
                     title = "Add node",
                     subtitle = "Open the setup wizard",
                     location = Location(Route.AddNode),
-                ).takeUnless { readOnly },
+                ),
                 SearchHit(
                     kind = SearchKind.Action,
                     title = if (paused) "Resume changes" else "Pause all changes",
                     subtitle = if (paused) "Apply waiting changes" else "Observe only",
                     run = { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } },
-                ).takeUnless { readOnly },
+                ),
                 SearchHit(
                     kind = SearchKind.Action,
                     title = "Test all nodes",
@@ -246,14 +210,14 @@ class AppPresenter(
                 ),
             )
         }
-        val index = remember(snapshot, log, actionHits, readOnly) {
+        val index = remember(snapshot, log, actionHits) {
             snapshot?.let {
                 searchIndex(
                     snapshot = it,
                     log = log,
                     actions = actionHits,
                 )
-            }.orEmpty().filter { !readOnly || it.location?.route !in ADMIN_PAGES }
+            }.orEmpty()
         }
         // Config keys, secrets and older log entries come from the server, a moment after typing stops.
         val serverHits by produceState(emptyList<SearchHit>(), query) {
@@ -320,7 +284,6 @@ class AppPresenter(
         now: Long,
         metrics: Map<String, Map<String, Samples>>,
         log: List<homegap.api.LogEntryDto>,
-        readOnly: Boolean,
     ): ScreenModel = when (props.route) {
         Route.Overview -> overview.model(
             OverviewScreenProps(
@@ -361,16 +324,6 @@ class AppPresenter(
             )
         )
         Route.SpeedTest -> speedTest.model(SpeedTestScreenProps(now, status))
-        Route.Access if readOnly -> RestrictedScreenModel(
-            head = PageHeadModel(
-                caption = "Access",
-                headline = "Only an admin can see this page.",
-            ),
-            empty = EmptyStateModel(
-                title = "Not part of the read-only view",
-                text = "Access lists people's email addresses and devices, so a share link doesn't show it.",
-            ),
-        )
         Route.Access -> {
             val currentRouter by rememberUpdatedState(props.router)
             access.model(
@@ -381,16 +334,6 @@ class AppPresenter(
                 )
             )
         }
-        Route.Activity if readOnly -> RestrictedScreenModel(
-            head = PageHeadModel(
-                caption = "Activity",
-                headline = "Only an admin can see this page.",
-            ),
-            empty = EmptyStateModel(
-                title = "Not part of the read-only view",
-                text = "The activity log names the people who were invited or removed, so a share link doesn't show it.",
-            ),
-        )
         Route.Activity -> activity.model(
             ActivityScreenProps(
                 now = now,
@@ -398,33 +341,19 @@ class AppPresenter(
             )
         )
         Route.Config -> config.model(ConfigScreenProps)
-        Route.Diagnostics if readOnly -> RestrictedScreenModel(
-            head = PageHeadModel(
-                caption = "Diagnostics",
-                headline = "Only an admin can see this page.",
-            ),
-            empty = EmptyStateModel(
-                title = "Not part of the read-only view",
-                text = "Container logs hold people's email addresses and client addresses, so a share link doesn't show them.",
-            ),
-        )
         Route.Diagnostics -> diagnostics.model(
             DiagnosticsScreenProps(
                 status = status,
                 selection = props.selection,
             )
         )
-        Route.Locations, Route.AddNode, Route.ShareLinks -> error("${props.route} opens over its section's page")
+        Route.Locations, Route.AddNode -> error("${props.route} opens over its section's page")
     }
 
     /** The page that opens over its section: the Add node wizard over Nodes, Locations over Config. */
     @Composable
-    private fun overlay(props: AppProps, status: StatusSnapshot, now: Long, readOnly: Boolean): ScreenModel? = when (props.route) {
+    private fun overlay(props: AppProps, status: StatusSnapshot): ScreenModel? = when (props.route) {
         Route.Locations -> locations.model(homegap.presentation.locations.LocationsScreenProps)
-        // A read-only view can't add nodes or make links: its page opens without them.
-        Route.AddNode if readOnly -> null
-        Route.ShareLinks if readOnly -> null
-        Route.ShareLinks -> shareLinks.model(ShareLinksScreenProps(now))
         Route.AddNode -> {
             val currentRouter by rememberUpdatedState(props.router)
             addNode.model(
@@ -439,7 +368,7 @@ class AppPresenter(
     }
 
     @Composable
-    private fun header(status: StatusSnapshot, busy: Boolean, now: Long, readOnly: Boolean): HeaderModel {
+    private fun header(status: StatusSnapshot, busy: Boolean, now: Long): HeaderModel {
         val paused by rememberUpdatedState(status.paused)
         return HeaderModel(
             domain = status.domain,
@@ -452,7 +381,6 @@ class AppPresenter(
             onTogglePause = remember {
                 { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } }
             },
-            readOnly = readOnly,
         )
     }
 
@@ -468,9 +396,6 @@ class AppPresenter(
         var rejected by remember { mutableStateOf(tokens.token != null) }
         val save = appScope.rememberEventTrigger {
             tokens.token = draft.ifBlank { null }
-            // Signing in replaces a share link that stopped working.
-            tokens.viewToken = null
-            session.loadSession()
             session.refresh()
             session.reconnect()
             rejected = tokens.token != null && session.problem.value == ConnectionProblem.Unauthorized
@@ -488,14 +413,9 @@ class AppPresenter(
         )
         return when (problem) {
             ConnectionProblem.Unauthorized -> ConnectionModel(
-                message = if (tokens.viewToken != null) {
-                    "This share link has expired or was revoked. Ask the person who shared it for a new one."
-                } else {
-                    "Enter the dashboard token to continue."
-                },
+                message = "Enter the dashboard token to continue.",
                 tokenPrompt = prompt,
                 signInRequired = true,
-                linkExpired = tokens.viewToken != null,
             )
 
             is ConnectionProblem.Failed -> lostConnection(
@@ -626,19 +546,6 @@ internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
         )
     }
 }
-
-/** Pages a read-only view leaves out: people's details, and the wizard and links it can't use. */
-private val ADMIN_PAGES = setOf(Route.Access, Route.Activity, Route.Diagnostics, Route.AddNode, Route.ShareLinks)
-
-/** Pages a read-only view has no menu entry for: the server refuses their data to a share link. */
-private val VIEWER_HIDDEN = setOf(Route.Access, Route.Activity, Route.Diagnostics)
-
-/** A page a read-only view may not see: its head and why. */
-@Immutable
-data class RestrictedScreenModel(
-    override val head: PageHeadModel,
-    override val empty: EmptyStateModel,
-) : ScreenModel
 
 /** How long search waits after the last keystroke before asking the server. */
 private val SEARCH_DELAY = 200.milliseconds

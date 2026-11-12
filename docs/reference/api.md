@@ -11,7 +11,6 @@ An action returns `{"ok": true, "message": "..."}`. An error returns `{"ok": fal
 | Code | When |
 | --- | --- |
 | 400 | The input is not valid. |
-| 403 | A share link tried to change something, or to read an admin-only route. |
 | 409 | The request conflicts with the current state. |
 | 500 | Any other error. |
 
@@ -29,24 +28,13 @@ These routes need no token:
 | `GET /docs/...` | These docs. |
 | `GET /...` | Any other path returns the dashboard app. |
 
-A [share link](../operations/dashboard.md#share-a-read-only-view) token also works as the bearer token, for `GET` routes only. These routes refuse it, because their data contains email addresses: `/api/access`, `/api/share-links`, `/api/log`, `/api/nodes/{id}/logs` and `/api/nodes/{id}/diagnostics`.
-
-## Session and share links
-
-| Route | What it does |
-| --- | --- |
-| `GET /api/session` | Returns the role of the token, `ADMIN` or `VIEWER`, and if share links are available. For a share link, it also returns its label and when it expires. |
-| `GET /api/share-links` | Returns the share links that did not expire. Admin only. |
-| `POST /api/share-links` | Makes a share link. Body: `{"label": "Sam", "expiresInDays": 7}`. A `null` value for `expiresInDays` makes a link that does not expire. The response holds the token, one time only. Admin only. |
-| `DELETE /api/share-links/{id}` | Revokes a share link. Admin only. |
-
 ## Status and log
 
 | Route | What it does |
 | --- | --- |
 | `GET /api/status` | Returns the full status snapshot. |
-| `GET /api/events?after=SEQ` | Server-sent events. The `status` event sends the snapshot when it changes. The `log` event sends the new log entries after `SEQ`, to an admin only. |
-| `GET /api/log?domain=&limit=` | Returns the recent reconcile log. The default of `limit` is 300. Admin only. |
+| `GET /api/events?after=SEQ` | Server-sent events. The `status` event sends the snapshot when it changes. The `log` event sends the new log entries after `SEQ`. |
+| `GET /api/log?domain=&limit=` | Returns the recent reconcile log. The default of `limit` is 300. |
 
 ## Config
 
@@ -76,8 +64,8 @@ A [share link](../operations/dashboard.md#share-a-read-only-view) token also wor
 | `POST /api/nodes/{id}/update/retry` | Applies a held update to the node again. |
 | `POST /api/nodes/{id}/update/skip` | Leaves the node on its current stack, and continues the rollout. |
 | `POST /api/nodes/{id}/decommission?confirm={id}` | Stops the stack of a removed node and forgets the node. `confirm` must repeat the node id. |
-| `GET /api/nodes/{id}/logs?service=&since=&tail=` | Returns the logs of a container. See [Diagnostics and troubleshooting](../operations/troubleshooting.md#log-services). The default of `since` is `30m`. The default of `tail` is 300 lines, and the maximum is 5000. Admin only. |
-| `GET /api/nodes/{id}/diagnostics` | Returns the read-only diagnostics bundle of the node: `{node, title, text, at}`. Admin only. |
+| `GET /api/nodes/{id}/logs?service=&since=&tail=` | Returns the logs of a container. See [Diagnostics and troubleshooting](../operations/troubleshooting.md#log-services). The default of `since` is `30m`. The default of `tail` is 300 lines, and the maximum is 5000. |
+| `GET /api/nodes/{id}/diagnostics` | Returns the read-only diagnostics bundle of the node: `{node, title, text, at}`. |
 
 ## Node setup (the add-node wizard)
 

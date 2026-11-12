@@ -83,7 +83,6 @@ class TunnelsScreenPresenter(
                     action = ActionModel(
                         label = "+ Add node",
                         location = Location(Route.AddNode),
-                        mutates = true,
                     ),
                 )
             } else {

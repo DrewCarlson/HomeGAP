@@ -19,13 +19,11 @@ import homegap.api.name
 import homegap.api.StatusSnapshot
 import homegap.api.snapshotFields
 import homegap.api.snapshotPatch
-import homegap.dashboard.ShareLinks
 import homegap.platform.nowMillis
 import homegap.reconcile.Controller
 import homegap.setup.NodeSetupService
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
-import io.ktor.server.auth.principal
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
@@ -43,7 +41,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
-/** The status snapshot and the event stream that pushes it (and, to an admin, the reconcile log). */
+/** The status snapshot and the event stream that pushes it, with the reconcile log. */
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -51,7 +49,6 @@ class StatusRoutes(
     private val controller: Controller,
     private val setup: NodeSetupService,
     private val access: AccessService,
-    private val shareLinks: ShareLinks,
 ) : RoutingController {
     override fun init(parent: Route) {
         parent.get("/status") { getStatus() }
@@ -76,8 +73,7 @@ class StatusRoutes(
 
     /**
      * Server-sent events: `status` (the whole snapshot, first), then `patch` (only the top-level
-     * fields that changed) and `log` (entries after `?after=SEQ`, for an admin only: the log
-     * names people). Tunnel status comes from files the supervisor writes, so the snapshot is
+     * fields that changed) and `log` (entries after `?after=SEQ`). Tunnel status comes from files the supervisor writes, so the snapshot is
      * also re-checked every few seconds without a change signal.
      */
     suspend fun RoutingContext.streamEvents() {
@@ -86,18 +82,10 @@ class StatusRoutes(
         if (lastSeq > controller.log.revision.value) lastSeq = 0L
         call.response.header(HttpHeaders.CacheControl, "no-cache")
         call.response.header("X-Accel-Buffering", "no")
-        // A share link that is revoked or expires ends its stream; reconnecting then fails.
-        val viewer = call.principal<Viewer>()
-        call.respondBytesWriter(ContentType.Text.EventStream) {
-            writeEvents(
-                afterSeq = lastSeq,
-                withLog = viewer == null,
-                allowed = { viewer == null || shareLinks.isLive(viewer.link.id) },
-            )
-        }
+        call.respondBytesWriter(ContentType.Text.EventStream) { writeEvents(afterSeq = lastSeq) }
     }
 
-    private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long, withLog: Boolean, allowed: () -> Boolean) = coroutineScope {
+    private suspend fun ByteWriteChannel.writeEvents(afterSeq: Long) = coroutineScope {
         var lastSeq = afterSeq
         var sentFields: JsonObject? = null
         var sentState: StatusSnapshot? = null
@@ -111,7 +99,7 @@ class StatusRoutes(
         var sentLive: SpeedTestLiveDto? = null
         val changes = merge(controller.changes, setup.changes, access.revision).conflate().produceIn(this)
         try {
-            while (allowed()) {
+            while (true) {
                 val snapshot = controller.snapshot()
                 val state = snapshot.withoutLiveValues()
                 val now = nowMillis()
@@ -169,7 +157,7 @@ class StatusRoutes(
                     sentLive = live
                     lastWrite = nowMillis()
                 }
-                val entries = if (withLog) controller.log.since(lastSeq) else emptyList()
+                val entries = controller.log.since(lastSeq)
                 if (entries.isNotEmpty()) {
                     writeEvent(ServerEvent.Log(entries))
                     lastSeq = entries.last().seq
@@ -247,16 +235,11 @@ private fun MeshProbeDto.withoutLiveValues(): MeshProbeDto = copy(
     at = 0,
 )
 
-/**
- * `GET /log`: the reconcile log. Admin only: its entries name people (invitations, users) and
- * carry output from the nodes.
- */
+/** `GET /log`: the reconcile log. */
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
 class LogRoutes(private val controller: Controller) : RoutingController {
-    override val adminOnly: Boolean get() = true
-
     override fun init(parent: Route) {
         parent.get("/log") { getLog() }
     }
