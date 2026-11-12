@@ -922,6 +922,7 @@ class ClusterReconciler(
                 lastErrors[id] = error
                 ctx.log.error(domain, error, id.takeIf { it != "etcd" && it != "backup" })
             }
+            error != null -> ctx.log.stillFailing()
             error == null && previous != null -> {
                 lastErrors.remove(id)
                 ctx.log.info(domain, "recovered", id.takeIf { it != "etcd" && it != "backup" })

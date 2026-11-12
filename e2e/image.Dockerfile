@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && tar -xzf /tmp/lego.tar.gz -C /usr/local/bin lego
 
 FROM docker.io/library/ubuntu:24.04
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssh-client tini curl iputils-ping iproute2 iptables wireguard-tools redis-tools && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssh-client tini curl iputils-ping iproute2 iptables wireguard-tools redis-tools && rm -rf /var/lib/apt/lists/* \
+    && install -d -m 0755 /mesh /tunnels /cluster-config
 COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
 COPY --from=lego /usr/local/bin/lego /usr/local/bin/lego
 ARG BINARY=build/bin/linuxArm64/releaseExecutable/homegap.kexe

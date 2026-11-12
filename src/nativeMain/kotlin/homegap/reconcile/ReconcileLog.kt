@@ -133,6 +133,9 @@ class ReconcileLog(
         entries.filter { it.seq > afterSeq }.takeLast(limit)
     }
 
+    /** Counts an error that is already in the log and is still there in this pass. */
+    fun stillFailing() = synchronized(lock) { errorCount++ }
+
     /** Counters since the last call (used to summarise one reconcile pass). */
     fun drainCounters(): Pair<Int, Int> = synchronized(lock) {
         (changeCount to errorCount).also { changeCount = 0; errorCount = 0 }

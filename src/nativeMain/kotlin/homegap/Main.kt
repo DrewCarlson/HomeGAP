@@ -1,5 +1,6 @@
 package homegap
 
+import homegap.config.SharedDirs
 import dev.zacsweers.metro.createGraphFactory
 import homegap.api.ActionResponse
 import homegap.config.ConfigLoader
@@ -87,8 +88,8 @@ fun main(args: Array<String>) {
                 println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
             }
             "maintenance" -> maintenance(configPath, rest.firstOrNull { it == "start" || it == "end" } ?: error("maintenance start|end"), opt("--minutes")?.toIntOrNull() ?: 30)
-            "mesh" -> runBlocking { homegap.mesh.MeshAgent(opt("--dir") ?: env("HOMEGAP_MESH_DIR") ?: "/data/mesh").run() }
-            "tunnels" -> runTunnels(opt("--dir") ?: env("HOMEGAP_TUNNELS_DIR") ?: "/data/tunnels", opt("--newt") ?: env("HOMEGAP_NEWT") ?: "/usr/local/bin/newt")
+            "mesh" -> runBlocking { homegap.mesh.MeshAgent(sharedDir(opt("--dir") ?: SharedDirs.mesh("/data"), "homegap-mesh", "orchestrator")).run() }
+            "tunnels" -> runTunnels(sharedDir(opt("--dir") ?: SharedDirs.tunnels("/data"), "homegap-tunnels", "orchestrator"), opt("--newt") ?: env("HOMEGAP_NEWT") ?: "/usr/local/bin/newt")
             "run" -> runController(configPath, flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in setOf("1", "true", "yes"), flag("--once"))
             else -> {
                 println(USAGE)
@@ -152,4 +153,10 @@ private fun maintenance(configPath: String, action: String, minutes: Int) = runB
         }
         println(message)
     }
+}
+
+/** Returns [path], and says so on stderr if it is not a volume that the [other] container can see. */
+private fun sharedDir(path: String, volume: String, other: String): String {
+    if (SharedDirs.notAVolume(path)) eprintln("warning: " + SharedDirs.notAVolumeHint(path, volume, other))
+    return path
 }

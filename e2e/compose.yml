@@ -194,7 +194,6 @@ services:
     cap_add: [NET_ADMIN, NET_RAW]
     security_opt: ["no-new-privileges:true"]
     depends_on: { mesh: { condition: service_started, restart: true } }
-    environment: { HOMEGAP_MESH_DIR: /mesh }
     volumes: ["mesh-state:/mesh"]
 
   # The homelab's cluster member (etcd, PostgreSQL with Patroni, Valkey, Sentinel) in the mesh
@@ -206,8 +205,7 @@ services:
     command: [etcd]
     network_mode: service:mesh
     depends_on: { mesh: { condition: service_started, restart: true } }
-    environment: { HG_CONFIG: /cluster-config }
-    volumes: ["./work/cluster-config:/cluster-config:ro", "cluster-etcd:/var/lib/etcd"]
+    volumes: ["./work/cluster-config:/config:ro", "cluster-etcd:/var/lib/etcd"]
   cluster-db:
     image: homegap-cluster:e2e
     restart: unless-stopped
@@ -216,24 +214,22 @@ services:
     depends_on: { mesh: { condition: service_started, restart: true } }
     shm_size: 256m
     stop_grace_period: 60s
-    environment: { HG_CONFIG: /cluster-config, HG_BACKUP_DIR: /backups }
-    volumes: ["./work/cluster-config:/cluster-config:ro", "cluster-pgdata:/var/lib/postgresql/data", "cluster-backups:/backups"]
+    environment: { HG_BACKUP_DIR: /backups }
+    volumes: ["./work/cluster-config:/config:ro", "cluster-pgdata:/var/lib/postgresql/data", "cluster-backups:/backups"]
   cluster-valkey:
     image: homegap-cluster:e2e
     restart: unless-stopped
     command: [valkey]
     network_mode: service:mesh
     depends_on: { mesh: { condition: service_started, restart: true } }
-    environment: { HG_CONFIG: /cluster-config, HG_VALKEY_DIR: /var/lib/valkey }
-    volumes: ["./work/cluster-config:/cluster-config:ro", "cluster-valkey:/var/lib/valkey"]
+    volumes: ["./work/cluster-config:/config:ro", "cluster-valkey:/data"]
   cluster-sentinel:
     image: homegap-cluster:e2e
     restart: unless-stopped
     command: [sentinel]
     network_mode: service:mesh
     depends_on: { mesh: { condition: service_started, restart: true } }
-    environment: { HG_CONFIG: /cluster-config }
-    volumes: ["./work/cluster-config:/cluster-config:ro", "cluster-sentinel:/var/lib/sentinel"]
+    volumes: ["./work/cluster-config:/config:ro", "cluster-sentinel:/var/lib/sentinel"]
 
   # The orchestrator reads Docker only through this proxy (container list, events, images).
   docker-proxy:
@@ -272,9 +268,6 @@ services:
       # challenge records of the Bunny stand-in.
       LEGO_TLS_SKIP_VERIFY: "true"
       LEGO_DNS_PROPAGATION_WAIT: 1s
-      HOMEGAP_MESH_DIR: /mesh
-      HOMEGAP_CLUSTER_CONFIG_DIR: /cluster-config
-      HOMEGAP_TUNNELS_DIR: /tunnels
       # The mesh namespace's name on the network the orchestrator shares with it.
       HOMEGAP_MESH_HOST: mesh
       DOCKER_HOST: tcp://docker-proxy:2375
@@ -292,7 +285,7 @@ services:
 
   tunnels:
     image: homegap:e2e
-    command: ["tunnels", "--dir", "/tunnels"]
+    command: ["tunnels"]
     environment:
       # Newt (Go) trusts the local ACME server that issued the certificate of the nodes.
       SSL_CERT_FILE: /certs/trust.pem

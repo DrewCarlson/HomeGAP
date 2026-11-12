@@ -64,7 +64,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates openssh-client tini iputils-ping iproute2 iptables wireguard-tools redis-tools \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin homegap \
-    && install -d -o homegap -g homegap -m 0700 /data
+    && install -d -o homegap -g homegap -m 0700 /data \
+    && install -d -m 0755 /mesh /tunnels /cluster-config
 
 COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
 COPY --from=lego /usr/local/bin/lego /usr/local/bin/lego

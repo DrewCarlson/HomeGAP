@@ -48,7 +48,6 @@ The orchestrator reads these environment variables:
 - `BUNNY_API_KEY`. It is necessary.
 - `PANGOLIN_LICENSE_KEY`. It is optional.
 - `HOMEGAP_DASHBOARD_TOKEN`. The bearer token of the dashboard. If it is empty, HomeGAP creates a token.
-- `HOMEGAP_CLUSTER_CONFIG_DIR`, `HOMEGAP_TUNNELS_DIR` and `HOMEGAP_MESH_DIR`. The mount points of the three shared volumes.
 - `DOCKER_HOST`. The address of `docker-proxy`.
 - `HOMEGAP_DRY_RUN`. It is optional.
 
@@ -57,9 +56,13 @@ The orchestrator has these volumes:
 - `./config/config.yml:/config/config.yml`. This mount must be writable only if you enable config edits on the dashboard.
 - `./secrets/ssh:/secrets/ssh:ro`. The SSH keys of the nodes.
 - `homegap-data:/data`. The state cache, `known_hosts`, the generated SSH keys and the dashboard token. No other container mounts this volume.
-- `homegap-cluster-config:/cluster-config`. The config that the orchestrator writes for the cluster containers. They mount it read-only.
-- `homegap-tunnels:/tunnels`. The connector specs. The `tunnels` container mounts the same volume.
-- `homegap-mesh:/mesh`. The description of the mesh, for the mesh agent.
+- `homegap-cluster-config:/cluster-config`. The config that the orchestrator writes for the cluster containers. They mount it read-only at `/config`.
+- `homegap-tunnels:/tunnels`. The connector specs. The `tunnels` container mounts the same volume at `/tunnels`.
+- `homegap-mesh:/mesh`. The description of the mesh. The mesh agent mounts the same volume at `/mesh`.
+
+The paths `/cluster-config`, `/tunnels` and `/mesh` are fixed in the HomeGAP image. You set no variable for them. Mount each volume at its path in both containers that share it.
+
+If a shared directory is not a volume, the other container cannot see it. Then the orchestrator writes an error with the path and the name of the volume to its log at start.
 
 The orchestrator does not mount the Docker socket. See [Security model](../reference/security.md#the-homelab).
 

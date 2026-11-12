@@ -1,5 +1,6 @@
 package homegap.reconcile
 
+import homegap.config.SharedDirs
 import homegap.config.MeshConfig
 import homegap.platform.Files
 import homegap.platform.ProcessResult
@@ -42,7 +43,8 @@ class HomelabMesh(
     /** The homelab's public key, which the agent creates with its key pair. */
     fun publicKey(): String {
         val status = status() ?: throw IllegalStateException(
-            "the mesh agent has not reported (the homegap-mesh-agent container shares the homegap-mesh namespace and the mesh volume)",
+            if (SharedDirs.notAVolume(dir)) "the mesh agent has not reported. " + SharedDirs.notAVolumeHint(dir, "homegap-mesh", "homegap-mesh-agent")
+            else "the mesh agent has not reported in $dir (the homegap-mesh-agent container shares the homegap-mesh namespace and the mesh volume)",
         )
         return status.publicKey ?: throw IllegalStateException(status.error ?: "the mesh agent has no key yet")
     }

@@ -3,6 +3,7 @@ package homegap.reconcile
 import homegap.config.adoptSharedDirs
 import homegap.config.clusterConfigDir
 import homegap.config.meshDir
+import homegap.config.sharedDirProblems
 import homegap.config.tunnelsDir
 import homegap.provision.ExitNodes
 import homegap.provision.TunnelDns
@@ -342,6 +343,7 @@ class Controller(
         if (!dryRun) {
             runCatching { config.adoptSharedDirs() }.onFailure { log.error("controller", "could not bring the shared files to their new place: ${it.message}") }
         }
+        config.sharedDirProblems().forEach { log.error("controller", it) }
         if (once) {
             reconcileOnce("startup")
             return

@@ -172,7 +172,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         }
     }
 
-    /** Logs a member's error when it first appears or changes, and its recovery once. */
+    /** Logs a member's error when it first appears or changes, and its recovery once. An error that stays counts in each pass. */
     private fun report(ctx: ReconcileContext, id: String, error: String?) {
         val previous = lastErrors[id]
         when {
@@ -180,6 +180,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
                 lastErrors[id] = error
                 ctx.log.error(domain, error, id)
             }
+            error != null -> ctx.log.stillFailing()
             error == null && previous != null -> {
                 lastErrors.remove(id)
                 ctx.log.info(domain, "mesh is healthy again", id)

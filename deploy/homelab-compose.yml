@@ -79,7 +79,6 @@ services:
     cap_add: [NET_ADMIN, NET_RAW]
     security_opt: ["no-new-privileges:true"]
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
-    environment: { HOMEGAP_MESH_DIR: /mesh }
     volumes: [homegap-mesh:/mesh]
 
   orchestrator:
@@ -112,9 +111,6 @@ services:
       # The dashboard's bearer token (dashboard.auth_token_env). Without one, HomeGAP generates a
       # token and keeps it in /data/dashboard-token.
       HOMEGAP_DASHBOARD_TOKEN: ${HOMEGAP_DASHBOARD_TOKEN:-}
-      HOMEGAP_CLUSTER_CONFIG_DIR: /cluster-config
-      HOMEGAP_TUNNELS_DIR: /tunnels
-      HOMEGAP_MESH_DIR: /mesh
       # Docker is read through the docker-proxy service: the orchestrator has no Docker socket.
       DOCKER_HOST: tcp://docker-proxy:2375
       # HOMEGAP_DRY_RUN: "true"     # discovery + logged desired state, no writes
@@ -122,6 +118,7 @@ services:
       - ./config/config.yml:/config/config.yml          # writable only if dashboard config edits are enabled
       - ./secrets/ssh:/secrets/ssh:ro                   # one private key per node
       - homegap-data:/data                              # state cache, known_hosts, generated keys
+      # The next three paths are fixed in the image: mount each volume there, with no variable.
       - homegap-cluster-config:/cluster-config          # written here, read by the cluster containers
       - homegap-tunnels:/tunnels                        # connector specs, shared with the tunnels container
       - homegap-mesh:/mesh                              # the mesh description, shared with the mesh agent
@@ -157,8 +154,7 @@ services:
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     security_opt: ["no-new-privileges:true"]
-    environment: { HG_CONFIG: /cluster-config }
-    volumes: [homegap-cluster-config:/cluster-config:ro, homegap-etcd:/var/lib/etcd]
+    volumes: [homegap-cluster-config:/config:ro, homegap-etcd:/var/lib/etcd]
 
   homegap-db:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
@@ -171,10 +167,9 @@ services:
     stop_grace_period: 60s
     security_opt: ["no-new-privileges:true"]
     environment:
-      HG_CONFIG: /cluster-config
       HG_BACKUP_DIR: /backups          # nightly pg_dump, newest seven kept
     volumes:
-      - homegap-cluster-config:/cluster-config:ro
+      - homegap-cluster-config:/config:ro
       - homegap-pgdata:/var/lib/postgresql/data
       - ./backups:/backups
 
@@ -186,8 +181,7 @@ services:
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     security_opt: ["no-new-privileges:true"]
-    environment: { HG_CONFIG: /cluster-config, HG_VALKEY_DIR: /var/lib/valkey }
-    volumes: [homegap-cluster-config:/cluster-config:ro, homegap-valkey:/var/lib/valkey]
+    volumes: [homegap-cluster-config:/config:ro, homegap-valkey:/data]
 
   homegap-sentinel:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
@@ -197,14 +191,13 @@ services:
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     security_opt: ["no-new-privileges:true"]
-    environment: { HG_CONFIG: /cluster-config }
-    volumes: [homegap-cluster-config:/cluster-config:ro, homegap-sentinel:/var/lib/sentinel]
+    volumes: [homegap-cluster-config:/config:ro, homegap-sentinel:/var/lib/sentinel]
 
   # Keeps one Newt connector per regional node running. Independent of the orchestrator:
   # if the controller stops or restarts, tunnels stay up.
   tunnels:
     image: ghcr.io/drewcarlson/homegap:latest
-    command: ["tunnels", "--dir", "/tunnels"]
+    command: ["tunnels"]
     restart: unless-stopped
     logging: *logging
     # Kernel WireGuard (tunnels.native: true) needs these:
