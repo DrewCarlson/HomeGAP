@@ -414,6 +414,12 @@ private fun NavFoot(header: HeaderModel) {
         }) {
             Text("Documentation ↗")
         }
+        Button({
+            classes("sign-out")
+            onClick { header.onSignOut() }
+        }) {
+            Text("Sign out")
+        }
     }
 }
 

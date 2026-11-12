@@ -49,7 +49,7 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 | `homegap.private_network` | None. | Names a Docker network that only `tunnels` and this service share. Pangolin clients reach the service at its address on that network. |
 | `homegap.private_hosts` | The hostname of the service, if `homegap.private_middleware` is not set. | Lists the names, separated by commas, that Pangolin clients reach through the private network. |
 | `homegap.private_middleware` | None. | Gives a private path to each name that this Traefik routes through this middleware, for example `private-only@file`. |
-| `homegap.traefik_api` | `http://<container name>:8080` | Sets the URL of the API of this Traefik, for `homegap.private_middleware`. |
+| `homegap.traefik_api` | `http://<container name>:8080` | Sets the URL of the API of this Traefik, for `homegap.private_middleware`. The form is `http://<host>:<port>`, with no path. The host must be a container name or a private IPv4 address. For other values, HomeGAP gives a warning and uses the default. |
 
 ### Rules for the extension labels
 

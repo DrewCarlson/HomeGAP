@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.FlowPreview
@@ -93,6 +94,9 @@ class ControllerSession(
     /** The current snapshot's fields, which `patch` events update. */
     private var fields: JsonObject? = null
 
+    /** A new value closes the event stream and opens a new one. */
+    private val restarts = MutableStateFlow(0)
+
     /**
      * Follows the event stream until canceled, while the page is visible: 30 s after the tab is
      * hidden the stream closes, and it opens again (with a fresh snapshot) once the tab is back.
@@ -102,6 +106,7 @@ class ControllerSession(
         visibility.visible
             .debounce { visible -> if (visible) 0L else HIDDEN_GRACE.inWholeMilliseconds }
             .distinctUntilChanged()
+            .combine(restarts) { visible, _ -> visible }
             .collectLatest { visible ->
                 if (visible) {
                     stream()
@@ -140,6 +145,19 @@ class ControllerSession(
                 }
             }
         }
+    }
+
+    /**
+     * Forgets the data of the controller and closes the event stream. The caller removes the
+     * token first, so the new stream gets no answer and the sign-in dialog opens.
+     */
+    fun signOut() {
+        fields = null
+        lastLogSeq = 0
+        _status.value = null
+        _log.value = emptyList()
+        _problem.value = ConnectionProblem.Unauthorized
+        restarts.value += 1
     }
 
     /** Tries to reach the controller now instead of at the end of the current wait. */

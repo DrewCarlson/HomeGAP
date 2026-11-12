@@ -160,6 +160,21 @@ class PresenterTest {
     }
 
     @Test
+    fun signOutRemovesTheTokenAndAsksForItAgain() = runTest {
+        val g = graph
+        g.tokens.token = "s3cret"
+        val models = present(g.app, AppProps(Route.Nodes, RecordingRouter()))
+        g.session.refresh()
+        val ready = models.first { it.header != null }
+
+        ready.header?.onSignOut?.invoke()
+        val signedOut = models.first { it.connection?.signInRequired == true }
+        assertNull(g.tokens.token)
+        assertNull(signedOut.header, "the data of the controller is gone")
+        assertEquals("", signedOut.connection?.tokenPrompt?.value)
+    }
+
+    @Test
     fun appFlagsTabsAndHoldsRollouts() = runTest {
         val g = graph
         val failed = node("a1", Health.DOWN, update = NodeUpdateDto("failed", "boom", NOW - 60_000, rolledBack = true))

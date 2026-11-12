@@ -94,6 +94,7 @@ object ConfigLoader {
         if (c.speedtest.enabled) {
             if (!Regex("^[a-z][a-z0-9]{0,20}$").matches(c.speedtest.hostname)) errors += "speedtest.hostname must be a single lowercase label"
             if (c.speedtest.phaseSeconds !in 2..30) errors += "speedtest.phase_seconds must be 2..30"
+            if (c.speedtest.linkBudgetGb !in 1..1000) errors += "speedtest.link_budget_gb must be 1..1000"
             if (c.speedtest.streams !in 1..homegap.speedtest.TunnelSpeedTest.MAX_STREAMS) errors += "speedtest.streams must be 1..${homegap.speedtest.TunnelSpeedTest.MAX_STREAMS}"
             try {
                 parseDuration(c.speedtest.linkTtl)

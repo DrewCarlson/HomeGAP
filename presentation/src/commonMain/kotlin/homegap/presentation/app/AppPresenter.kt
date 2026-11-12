@@ -208,6 +208,12 @@ class AppPresenter(
                     subtitle = "Speed test each edge, one at a time",
                     location = Location(Route.SpeedTest),
                 ),
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = "Sign out",
+                    subtitle = "Remove the dashboard token from this browser",
+                    run = ::signOut,
+                ),
             )
         }
         val index = remember(snapshot, log, actionHits) {
@@ -381,7 +387,13 @@ class AppPresenter(
             onTogglePause = remember {
                 { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } }
             },
+            onSignOut = remember { ::signOut },
         )
+    }
+
+    private fun signOut() {
+        tokens.token = null
+        session.signOut()
     }
 
     /**

@@ -153,8 +153,27 @@ fun routerHosts(routers: List<TraefikRouter>, middleware: String): Pair<List<Str
 
 /** The Traefik API of a front door container: `homegap.traefik_api`, or its name on port 8080. */
 fun traefikApiUrl(containerName: String, labels: Map<String, String>): String =
-    labels[Labels.TRAEFIK_API]?.trim()?.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.trimEnd('/')
-        ?: "http://$containerName:8080"
+    labels[Labels.TRAEFIK_API]?.trim()?.trimEnd('/')?.takeIf(::isLocalApiUrl) ?: "http://$containerName:8080"
+
+/**
+ * True if [url] is `http(s)://host[:port]` with no path, and the host is a name without a dot (a
+ * container on a Docker network) or a private IPv4 address. A label must not make the
+ * orchestrator send requests to other hosts.
+ */
+fun isLocalApiUrl(url: String): Boolean {
+    val m = API_URL.matchEntire(url) ?: return false
+    val host = m.groupValues[1]
+    val port = m.groupValues[2]
+    if (port.isNotEmpty() && port.toIntOrNull() !in 1..65535) return false
+    val octets = host.split('.').map { it.toIntOrNull() }
+    if (octets.size == 4 && octets.all { it != null && it in 0..255 }) {
+        val (a, b) = octets[0]!! to octets[1]!!
+        return a == 10 || (a == 172 && b in 16..31) || (a == 192 && b == 168)
+    }
+    return '.' !in host
+}
+
+private val API_URL = Regex("^https?://([A-Za-z0-9][A-Za-z0-9_.-]{0,252})(?::(\\d{1,5}))?$")
 
 private val HOST_RULE = Regex("""\bHost\(([^)]*)\)""")
 private val RULE_STRING = Regex("""[`"']([^`"']+)[`"']""")
@@ -330,6 +349,9 @@ fun parseLabels(
         privateHosts.filter { !PRIVATE_ALIAS.matches(it) }.forEach { errors += "${Labels.PRIVATE_HOSTS}: '$it' is not a valid name" }
     }
     val privateMiddleware = labels[Labels.PRIVATE_MIDDLEWARE]?.trim()?.substringBefore('@')?.takeIf { it.isNotEmpty() }
+    labels[Labels.TRAEFIK_API]?.trim()?.trimEnd('/')?.let {
+        if (!isLocalApiUrl(it)) warnings += "${Labels.TRAEFIK_API} must be http(s)://<container name or private address>[:port] with no path; HomeGAP uses http://$containerName:8080"
+    }
     if (privateMiddleware != null && privateNetwork == null) errors += "${Labels.PRIVATE_MIDDLEWARE} needs ${Labels.PRIVATE_NETWORK}"
 
     val host = labels[Labels.HOST]?.trim()?.takeIf { it.isNotEmpty() } ?: containerName

@@ -147,6 +147,8 @@ p { margin: 0; }
 .nav-foot { padding: 0 10px; font: 11px/1.6 var(--mono); color: var(--ink-faint); word-break: break-all; }
 .nav-foot .docs-link { color: var(--ink-dim); text-decoration: underline; word-break: normal; }
 .nav-foot .docs-link:hover { color: var(--ink); }
+.nav-foot .sign-out { display: block; padding: 0; border: 0; background: none; font: inherit; color: var(--ink-dim); text-decoration: underline; cursor: pointer; }
+.nav-foot .sign-out:hover { color: var(--ink); }
 
 /* One column that may shrink below its content (minmax(0, 1fr)): a long value inside a figure
    wraps or scrolls there instead of widening the whole page. Long unbroken words (hostnames,

@@ -1130,7 +1130,7 @@ class Controller(
         val node = cfg.node(nodeId) ?: throw IllegalArgumentException("unknown node $nodeId")
         check(!dryRun) { "speed tests need remote access (dry-run is on)" }
         check(speedRunning.add(nodeId)) { "a speed test for $nodeId is already running" }
-        val (token, _) = speedTokens.issue(5 * 60_000L)
+        val (token, _) = speedTokens.issue(5 * 60_000L, limited = false)
         speedTokens.live.start(token, nodeId)
         // Wakes the event streams, which then send the live gauge a few times a second.
         revision.value++

@@ -62,6 +62,8 @@ data class HeaderModel(
     val onTogglePause: () -> Unit,
     /** While paused: one pass that applies the waiting changes. */
     val onApplyOnce: () -> Unit = {},
+    /** Removes the dashboard token from this browser. */
+    val onSignOut: () -> Unit = {},
 )
 
 /** "Synced 12s ago" with a colored dot; details in the tooltip. */

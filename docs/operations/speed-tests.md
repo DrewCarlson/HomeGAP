@@ -13,6 +13,7 @@ With `speedtest.enabled: true`, the orchestrator serves a speed test origin on `
 | `speedtest.bind` | `0.0.0.0:8089` |
 | `speedtest.link_ttl` | `2h` |
 | `speedtest.phase_seconds` | `8` |
+| `speedtest.link_budget_gb` | `20` |
 | `speedtest.streams` | `4` |
 
 A change of `speedtest.enabled` or `speedtest.bind` needs a restart of the orchestrator.
@@ -57,6 +58,14 @@ This test uses a short-lived link that you open on any device. The link is valid
 The page shows a gauge for each phase as it runs. **Test all nodes** tests each node in turn through its own name, `speedtest-<node>.<domain>`, from the same page. Each result belongs to its node. For this, the speed test origin accepts requests from its own pages under any of its names.
 
 The token is in the fragment of the URL. The browser never sends the fragment to a server, so no log contains the token.
+
+A test link has these limits, so that a person with the link cannot use your bandwidth without end:
+
+- 8 streams at the same time for one link, and 32 streams for all links together.
+- `speedtest.link_budget_gb` (default 20) GiB of download and upload in total for one link. After that, the link sends and accepts no more data.
+- 20 saved results for one link.
+
+The page uses 4 streams. A test from the homelab to a node has no limit.
 
 <img src="../img/dashboard/speedtest-results.png" alt="The Speed test page with the homelab to edge results and the device test">
 

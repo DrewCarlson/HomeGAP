@@ -94,6 +94,7 @@ When the speed test is enabled:
 
 - `speedtest.hostname` is a single lowercase label.
 - `speedtest.phase_seconds` is from 2 to 30.
+- `speedtest.link_budget_gb` is from 1 to 1000.
 - `speedtest.streams` is from 1 to 16.
 - `speedtest.link_ttl` is a valid duration, and `speedtest.bind` is in the form `host:port`.
 - `speedtest.bind` is different from `dashboard.bind`.

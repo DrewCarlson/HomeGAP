@@ -19,8 +19,11 @@ import io.ktor.server.routing.RoutingContext
  */
 object MapFiles {
     const val TILES_PATH = "/map/world.pmtiles"
-    /** The largest range one request may read: PMTiles asks for directories and single tiles. */
-    private const val MAX_RANGE = 4 * 1024 * 1024
+    /**
+     * The largest range one request may read. PMTiles asks for directories and single tiles, and
+     * the largest tile of the map to zoom 6 is below 150 KiB.
+     */
+    private const val MAX_RANGE = 512 * 1024
     private val RANGE = Regex("^bytes=(\\d+)-(\\d*)$")
     /** Content fingerprints of the embedded map files, computed once each. */
     private val etags = mutableMapOf<String, String>()

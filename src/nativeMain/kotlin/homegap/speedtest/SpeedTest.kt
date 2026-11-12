@@ -29,23 +29,72 @@ class SpeedTestTokens {
     /** The homelab ↔ node test running now (its token is one of these). */
     val live = SpeedTestLive()
     private val lock = SynchronizedObject()
-    private val tokens = mutableMapOf<String, Long>()
+    private val tokens = mutableMapOf<String, Grant>()
+    private var limitedStreams = 0
 
-    fun issue(ttlMillis: Long): Pair<String, Long> = synchronized(lock) {
+    private class Grant(val expiresAt: Long, val limited: Boolean) {
+        var streams = 0
+        var bytes = 0L
+        var results = 0
+    }
+
+    /**
+     * A new token. A [limited] token is for a device link, which leaves the homelab: it has a cap
+     * on streams, bytes and saved results. The token of a homelab-to-node test has no cap.
+     */
+    fun issue(ttlMillis: Long, limited: Boolean = true): Pair<String, Long> = synchronized(lock) {
         val now = nowMillis()
-        tokens.entries.removeAll { it.value < now }
+        tokens.entries.removeAll { it.value.expiresAt < now && it.value.streams == 0 }
         val t = Crypto.token(32)
         val exp = now + ttlMillis
-        tokens[t] = exp
+        tokens[t] = Grant(exp, limited)
         t to exp
     }
 
     fun valid(token: String?): Boolean {
         if (token.isNullOrEmpty()) return false
-        return synchronized(lock) { (tokens[token] ?: 0) > nowMillis() }
+        return synchronized(lock) { (tokens[token]?.expiresAt ?: 0) > nowMillis() }
     }
 
-    fun revoke(token: String) = synchronized(lock) { tokens.remove(token) }
+    fun revoke(token: String): Unit = synchronized(lock) { tokens.remove(token) }
+
+    /** Takes a stream for [token]. False if the link or the listener has no stream left. */
+    fun acquire(token: String?): Boolean = synchronized(lock) {
+        val grant = tokens[token] ?: return@synchronized false
+        if (grant.limited) {
+            if (grant.streams >= STREAMS_PER_LINK || limitedStreams >= STREAMS_TOTAL) return@synchronized false
+            limitedStreams++
+        }
+        grant.streams++
+        true
+    }
+
+    fun release(token: String?): Unit = synchronized(lock) {
+        val grant = tokens[token] ?: return@synchronized
+        if (grant.streams > 0) {
+            grant.streams--
+            if (grant.limited) limitedStreams--
+        }
+    }
+
+    /** Counts [n] bytes for [token]. False when the link has used its [budget]. */
+    fun spend(token: String?, n: Int, budget: Long): Boolean = synchronized(lock) {
+        val grant = tokens[token] ?: return@synchronized false
+        grant.bytes += n
+        !grant.limited || grant.bytes <= budget
+    }
+
+    /** Counts a saved result for [token]. False when the link has saved [RESULTS_PER_LINK]. */
+    fun result(token: String?): Boolean = synchronized(lock) {
+        val grant = tokens[token] ?: return@synchronized false
+        !grant.limited || ++grant.results <= RESULTS_PER_LINK
+    }
+
+    companion object {
+        const val STREAMS_PER_LINK = 8
+        const val STREAMS_TOTAL = 32
+        const val RESULTS_PER_LINK = 20
+    }
 }
 
 /** Recent results, persisted next to the controller state. */
@@ -180,11 +229,14 @@ class SpeedTestServer(
                     page()
                 }
             }
-            // The status page's map: the tiles and the map's scripts, fonts and icons only.
+            // The status page's map: the tiles and the map's scripts, fonts and icons only. Without
+            // the status page, nothing public uses the map.
             get(homegap.dashboard.MapFiles.TILES_PATH) {
+                if (!config().statusPage.enabled) return@get call.respond(HttpStatusCode.NotFound)
                 with(homegap.dashboard.MapFiles) { serveTiles(config().map.tiles) }
             }
             get("/map/{path...}") {
+                if (!config().statusPage.enabled) return@get call.respond(HttpStatusCode.NotFound)
                 with(homegap.dashboard.MapFiles) { serveMapAsset() }
             }
             // The pages' fonts, the same files the dashboard ships.
@@ -246,12 +298,18 @@ class SpeedTestServer(
             (call.request.queryParameters["seconds"]?.toIntOrNull() ?: config().speedtest.phaseSeconds).coerceIn(1, 30)
         val end = nowMillis() + seconds * 1000L
         val token = call.request.header(TOKEN_HEADER)
-        call.respondBytesWriter(ContentType.Application.OctetStream) {
-            while (nowMillis() < end) {
-                writeFully(payload, 0, payload.size)
-                flush()
-                tokens.live.bytes(token, upload = false, n = payload.size)
+        val budget = config().speedtest.linkBudgetBytes
+        if (!tokens.acquire(token)) return call.respond(HttpStatusCode.TooManyRequests, "too many streams")
+        try {
+            call.respondBytesWriter(ContentType.Application.OctetStream) {
+                while (nowMillis() < end && tokens.spend(token, payload.size, budget)) {
+                    writeFully(payload, 0, payload.size)
+                    flush()
+                    tokens.live.bytes(token, upload = false, n = payload.size)
+                }
             }
+        } finally {
+            tokens.release(token)
         }
     }
 
@@ -260,6 +318,10 @@ class SpeedTestServer(
         val length = call.request.contentLength()
         if (length == null || length > MAX_RESULT_BYTES) {
             call.respond(HttpStatusCode.PayloadTooLarge)
+            return
+        }
+        if (!tokens.result(call.request.header(TOKEN_HEADER))) {
+            call.respond(HttpStatusCode.TooManyRequests, "too many results for this link")
             return
         }
         val request = call.receive<DeviceResultRequest>()
@@ -333,12 +395,18 @@ class SpeedTestServer(
         val start = nowMillis()
         var total = 0L
         val token = call.request.header(TOKEN_HEADER)
-        while (true) {
-            val n = ch.readAvailable(buf, 0, buf.size)
-            if (n < 0) break
-            total += n
-            tokens.live.bytes(token, upload = true, n = n)
-            if (nowMillis() - start > 120_000) break
+        val budget = config().speedtest.linkBudgetBytes
+        if (!tokens.acquire(token)) return call.respond(HttpStatusCode.TooManyRequests, "too many streams")
+        try {
+            while (true) {
+                val n = ch.readAvailable(buf, 0, buf.size)
+                if (n < 0) break
+                total += n
+                tokens.live.bytes(token, upload = true, n = n)
+                if (!tokens.spend(token, n, budget) || nowMillis() - start > 120_000) break
+            }
+        } finally {
+            tokens.release(token)
         }
         val ms = (nowMillis() - start).coerceAtLeast(1)
         call.respond(buildJsonObject { put("bytes", total); put("ms", ms) })

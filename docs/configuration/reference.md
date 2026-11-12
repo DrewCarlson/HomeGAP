@@ -167,6 +167,7 @@ Every `/api` route needs the bearer token. If neither key gives a token, HomeGAP
 | `bind` | string | `0.0.0.0:8089` | The listener that the homelab proxy reaches. Never publish it directly. |
 | `link_ttl` | duration | `2h` | The lifetime of the test links for devices. |
 | `phase_seconds` | integer | `8` | The duration of each download and upload phase, from 2 to 30. |
+| `link_budget_gb` | integer | `20` | The data that one device link can download and upload in total, in GiB, from 1 to 1000. |
 | `streams` | integer | `4` | The number of parallel TCP streams for tests between the homelab and a node, from 1 to 16. |
 
 ## status_page
