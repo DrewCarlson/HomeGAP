@@ -35,9 +35,10 @@ fun ElementScope<HTMLElement>.ScrollHint() {
             }
             val showing = direction != null
             hint.classList.toggle("shown", showing)
-            hint.classList.toggle("right", direction == "right")
-            hint.classList.toggle("down", direction == "down")
             if (showing) {
+                // Set only while showing, so a fading arrow keeps pointing the way it did.
+                hint.classList.toggle("right", direction == "right")
+                hint.classList.toggle("down", direction == "down")
                 // The host is the offset parent, so offsets place the arrow over the box's edge.
                 if (direction == "right") {
                     hint.style.left = "${box.offsetLeft + box.offsetWidth - HINT_PX - EDGE_PX}px"
