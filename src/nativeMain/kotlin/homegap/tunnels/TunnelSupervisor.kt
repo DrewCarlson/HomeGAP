@@ -17,6 +17,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /** Written by the orchestrator: one per regional node. */
@@ -80,6 +81,13 @@ object TunnelFiles {
         .mapNotNull { f ->
             runCatching { json.decodeFromString<TunnelSpec>(Files.readText("$dir/$f")) }.getOrNull()
         }
+    /** The node ids whose spec file exists but does not parse. */
+    fun unreadableSpecs(dir: String): Set<String> =
+        Files.list(dir)
+            .filter { it.endsWith(".tunnel.json") }
+            .filter { f -> runCatching { json.decodeFromString<TunnelSpec>(Files.readText("$dir/$f")) }.isFailure }
+            .mapTo(mutableSetOf()) { it.removeSuffix(".tunnel.json") }
+
     fun readStatus(dir: String, nodeId: String): TunnelStatus? =
         Files.readTextOrNull(statusPath(dir, nodeId))
             ?.let { runCatching { json.decodeFromString<TunnelStatus>(it) }.getOrNull() }
@@ -122,6 +130,8 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
     private val procs = mutableMapOf<String, Proc>()
     private val backoffUntil = mutableMapOf<String, Long>()
     private val restartCounts = mutableMapOf<String, Int>()
+    private val failures = mutableMapOf<String, Int>()
+    private val unreadableWarned = mutableSetOf<String>()
     private val lastExit = mutableMapOf<String, String>()
     private val exits = mutableMapOf<String, List<TunnelExit>>()
 
@@ -172,8 +182,14 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         // Pins first, so a connector started below already resolves its endpoint to them.
         syncHosts(specs.values)
         // Stop removed / changed first, so their interfaces and ports are free before starts.
+        val unreadable = TunnelFiles.unreadableSpecs(dir)
+        unreadableWarned.retainAll(unreadable)
         for ((id, p) in procs.toMap()) {
             val spec = specs[id]
+            if (spec == null && id in unreadable) {
+                if (unreadableWarned.add(id)) logger.warn { "the spec of tunnel $id is not readable; the tunnel keeps its last spec" }
+                continue
+            }
             // New pins need no restart: the hosts file changes under the running connector.
             if (spec != null && spec != p.spec && spec.withoutPins() == p.spec.withoutPins()) p.spec = spec
             if (spec == null || spec != p.spec) {
@@ -181,7 +197,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
                 stop(id, p)
                 if (spec == null) {
                     Files.delete(TunnelFiles.statusPath(dir, id))
-                    restartCounts.remove(id); published.remove(id); metrics.remove(id)
+                    restartCounts.remove(id); failures.remove(id); published.remove(id); metrics.remove(id)
                 } else {
                     backoffUntil.remove(id)
                 }
@@ -227,7 +243,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         } catch (e: Exception) {
             logger.error { "could not start newt for $id: ${e.message}" }
             lastExit[id] = "start failed: ${e.message}"
-            scheduleRetry(scope, id)
+            scheduleRetry(scope, id, null)
             return
         }
         val proc = Proc(spec, child, nowMillis(), logOffset)
@@ -246,14 +262,20 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         logger.warn { "newt for ${e.id} exited (exit ${e.code})" }
         procs.remove(e.id)
         recordExit(e.id, "exit ${e.code}")
-        scheduleRetry(scope, e.id)
+        scheduleRetry(scope, e.id, e.proc.startedAt)
     }
 
-    private fun scheduleRetry(scope: CoroutineScope, id: String) {
-        val n = (restartCounts[id] ?: 0) + 1
-        restartCounts[id] = n
-        val wait = backoff(n)
-        backoffUntil[id] = nowMillis() + wait.inWholeMilliseconds
+    /** Counts a restart of [id] and returns the wait before it. A connector that ran for [STABLE] starts again from the shortest wait. */
+    private fun nextBackoff(id: String, startedAt: Long?): Duration {
+        restartCounts[id] = (restartCounts[id] ?: 0) + 1
+        val stable = startedAt != null && nowMillis() - startedAt >= STABLE.inWholeMilliseconds
+        val n = if (stable) 1 else (failures[id] ?: 0) + 1
+        failures[id] = n
+        return backoff(n).also { backoffUntil[id] = nowMillis() + it.inWholeMilliseconds }
+    }
+
+    private fun scheduleRetry(scope: CoroutineScope, id: String, startedAt: Long?) {
+        val wait = nextBackoff(id, startedAt)
         scope.launch { delay(wait); events.send(Event.Rescan) }
         publish(force = true)
     }
@@ -282,6 +304,10 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             if (size == p.logOffset) continue
             val fresh = Files.readFrom(log, p.logOffset, 262_144)
             p.logOffset = size
+            if (size > MAX_LOG_BYTES) {
+                Files.truncate(log)
+                p.logOffset = 0
+            }
             val reason = when {
                 p.spec.nativeInterface != null && NATIVE_FAILURES.any { it in fresh } ->
                     "kernel interface ${p.spec.nativeInterface} could not be created"
@@ -297,9 +323,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             logger.warn { "newt for $id: $reason; restarting" }
             stop(id, p)
             recordExit(id, reason)
-            val n = (restartCounts[id] ?: 0) + 1
-            restartCounts[id] = n
-            backoffUntil[id] = nowMillis() + backoff(n).inWholeMilliseconds
+            nextBackoff(id, p.startedAt)
             events.send(Event.Rescan)
         }
     }
@@ -388,6 +412,8 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
 
         /** Restart delay after the [restarts]th failure: 2 s, 4 s, … up to a minute. */
         fun backoff(restarts: Int): Duration = minOf(2.seconds * restarts, 60.seconds)
+        val STABLE = 10.minutes
+        const val MAX_LOG_BYTES = 16L * 1024 * 1024
 
         /** Newt log lines meaning the kernel WireGuard tunnel was not set up. */
         val NATIVE_FAILURES = listOf("Failed to create native main TUN device")

@@ -57,6 +57,7 @@ class DockerClient(
     fun streamEvents(filters: Map<String, List<String>>): Flow<DockerEvent> = callbackFlow {
         httpClient.prepareGet("$baseUrl/events") {
             parameter("filters", json.encodeToString(filters))
+            timeout { requestTimeoutMillis = HttpTimeoutConfig.INFINITE_TIMEOUT_MS }
         }.execute { response ->
             val channel: ByteReadChannel = response.bodyAsChannel()
             while (!channel.isClosedForRead) {

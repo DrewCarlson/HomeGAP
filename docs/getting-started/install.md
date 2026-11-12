@@ -72,6 +72,8 @@ The service mounts the Docker socket and lets through only `GET` requests for co
 
 Without cluster mode, you can remove `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. In cluster mode, they wait until the orchestrator writes their config to the `homegap-cluster-config` volume. While they wait, their log shows "waiting for ... (written by the HomeGAP orchestrator)".
 
+The file limits the log of each service to 30 MB (`x-logging`).
+
 ### `tunnels`
 
 The tunnel supervisor is independent of the orchestrator. If the orchestrator stops, the tunnels stay up. It shares only the `homegap-tunnels` volume with the orchestrator.

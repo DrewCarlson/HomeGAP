@@ -180,5 +180,5 @@ data class ConfirmDialogModel(
     val onSecondary: () -> Unit = {},
 ) {
     /** Typing the name is needed only for irreversible actions. */
-    val canConfirm: Boolean get() = model.typeToConfirm == null || typed.trim() == model.typeToConfirm
+    val canConfirm: Boolean get() = model.typeToConfirm == null || (typed.isNotBlank() && typed.trim() == model.typeToConfirm.trim())
 }

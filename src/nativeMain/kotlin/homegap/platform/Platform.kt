@@ -106,6 +106,11 @@ object Files {
     }
 
     /** Copies each regular file of [from] that [to] does not have yet (mode 0600); no-op when they are the same place. */
+    /** Empties [path] in place, so a process that appends to it keeps its file. */
+    fun truncate(path: String) {
+        platform.posix.truncate(path, 0)
+    }
+
     fun copyMissing(from: String, to: String) {
         if (from.trimEnd('/') == to.trimEnd('/') || !isDirectory(from)) return
         for (name in list(from)) {

@@ -142,8 +142,13 @@ class ControllerSession(
             if (failing) {
                 _failedAttempts.value += 1
             }
-            withTimeoutOrNull(if (failing) retryDelayAfter(_failedAttempts.value) else RETRY_AFTER_DROP) {
+            // A rejected token stays rejected: wait for a new one, not for a timer.
+            if (_problem.value == ConnectionProblem.Unauthorized) {
                 retryNow.receive()
+            } else {
+                withTimeoutOrNull(if (failing) retryDelayAfter(_failedAttempts.value) else RETRY_AFTER_DROP) {
+                    retryNow.receive()
+                }
             }
         }
     }

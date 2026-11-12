@@ -540,12 +540,12 @@ class Controller(
                 }
             }
             // What departed nodes left in the cluster's Pangolin (their sites and exit nodes).
-            if (clustered && !dryRun && readyNodes.isNotEmpty()) {
+            if (clustered && !dryRun && !pauses.global && readyNodes.isNotEmpty()) {
                 val via = readyNodes.getValue(cfg.nodes.first { it.id in readyNodes }.id).first
                 val known = cfg.nodes.map { it.id }.toSet() + state.snapshot().nodes.keys
                 runDomain("cluster", null) { clusterRec.pruneDeparted(ctx, via, known) }
             }
-            if (!dryRun) runDomain("tunnels", null) { tunnelRec.prune(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.map { it.id }.toSet()) }
+            if (!dryRun && !pauses.global) runDomain("tunnels", null) { tunnelRec.prune(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.map { it.id }.toSet()) }
 
             // The cluster mesh (host-level, independent of each node's stack).
             meshStatus = if (cfg.cluster == null || dryRun) null

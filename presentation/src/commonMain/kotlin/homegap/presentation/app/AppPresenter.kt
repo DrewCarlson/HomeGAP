@@ -472,6 +472,7 @@ class AppPresenter(
             tokens.viewToken = null
             session.loadSession()
             session.refresh()
+            session.reconnect()
             rejected = tokens.token != null && session.problem.value == ConnectionProblem.Unauthorized
         }
         val prompt = TokenPromptModel(

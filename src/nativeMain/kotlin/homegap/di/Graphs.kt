@@ -58,7 +58,11 @@ interface ControllerGraph {
     @Provides @SingleIn(AppScope::class) @LocalHttp
     fun localHttp(): HttpClient = HttpClient(CIO) {
         engine { requestTimeout = 0 }
-        install(HttpTimeout) { connectTimeoutMillis = 10_000 }
+        install(HttpTimeout) {
+            connectTimeoutMillis = 10_000
+            // The Docker event stream sets its own, with no limit.
+            requestTimeoutMillis = 120_000
+        }
         expectSuccess = false
     }
 

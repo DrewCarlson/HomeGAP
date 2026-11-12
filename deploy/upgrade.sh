@@ -88,6 +88,14 @@ if has "$MESH_AGENT"; then
 fi
 
 held=no
+# Runs at every exit, so an upgrade that stops early does not leave the hold in place.
+end_maintenance() {
+  [ "$held" = yes ] || return 0
+  held=no
+  say "Ending maintenance"
+  dx "$ORCHESTRATOR" homegap maintenance end || warn "could not end maintenance; the hold expires on its own within 30 minutes"
+}
+trap end_maintenance EXIT
 if [ ${#cluster_services[@]} -gt 0 ]; then
   say "Moving the cluster primaries off the homelab"
   echo "(a planned switchover of the database and a Sentinel failover of Valkey; usually under a minute)"
@@ -119,7 +127,7 @@ for pair in ${cluster_services[@]+"${cluster_services[@]}"}; do
   say "Updating $svc"
   dc up -d --no-deps "$svc"
   if ! wait_until 300 dx "$svc" hg-member ready "$role"; then
-    die "$svc is not serving after 5 minutes; the primaries stay on the nodes (for 30 minutes at most). See: docker compose logs $svc"
+    die "$svc is not serving after 5 minutes; the primaries stay on the nodes until the homelab member is healthy. See: docker compose logs $svc"
   fi
 done
 
@@ -136,10 +144,7 @@ if has "$TUNNELS"; then
   fi
 fi
 
-if [ "$held" = yes ]; then
-  say "Ending maintenance"
-  dx "$ORCHESTRATOR" homegap maintenance end || warn "could not end maintenance; the hold expires on its own within 30 minutes"
-fi
+end_maintenance
 
 say "Done"
 dc ps

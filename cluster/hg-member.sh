@@ -19,14 +19,19 @@ backup_loop() {
   install -d -o postgres -g postgres -m 0700 "$HG_BACKUP_DIR"
   sleep 300
   while true; do
+    # A container that restarts often must not replace a week of dumps with dumps of one day.
+    newest=$(ls -1t "$HG_BACKUP_DIR"/homegap-*.dump 2>/dev/null | head -n 1)
+    if [ -n "$newest" ] && [ -n "$(find "$newest" -mmin -1200)" ]; then sleep 3600; continue; fi
     out="$HG_BACKUP_DIR/homegap-$(date -u +%Y%m%dT%H%M%SZ).dump"
     if gosu postgres pg_dump -h /var/run/postgresql -U postgres -Fc -f "$out.part" pangolin; then
       mv "$out.part" "$out"
       ls -1t "$HG_BACKUP_DIR"/homegap-*.dump 2>/dev/null | tail -n +8 | xargs -r rm -f
+      sleep 86400
     else
       rm -f "$out.part"
+      echo "hg-member $ROLE: the backup of the database failed; the next try is in 1 hour" >&2
+      sleep 3600
     fi
-    sleep 86400
   done
 }
 

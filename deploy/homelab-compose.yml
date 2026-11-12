@@ -14,6 +14,11 @@
 
 name: homegap
 
+# Each service keeps at most 30 MB of logs.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
 networks:
   # Your existing Traefik network. Create it beforehand or replace with your own name.
   traefik:
@@ -55,6 +60,7 @@ services:
     image: docker.io/library/busybox:1.37
     entrypoint: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait; done"]
     restart: unless-stopped
+    logging: *logging
     # The orchestrator reaches the nodes' members through this namespace.
     sysctls:
       net.ipv4.ip_forward: "1"
@@ -67,6 +73,7 @@ services:
     image: ghcr.io/drewcarlson/homegap:latest
     command: ["mesh"]
     restart: unless-stopped
+    logging: *logging
     network_mode: service:homegap-mesh
     cap_drop: [ALL]
     cap_add: [NET_ADMIN, NET_RAW]
@@ -79,6 +86,7 @@ services:
     image: ghcr.io/drewcarlson/homegap:latest
     command: ["run"]
     restart: unless-stopped
+    logging: *logging
     networks:
       traefik: {}
       homegap-docker: {}
@@ -129,6 +137,7 @@ services:
   docker-proxy:
     image: docker.io/tecnativa/docker-socket-proxy:v0.5.0
     restart: unless-stopped
+    logging: *logging
     environment:
       CONTAINERS: 1
       IMAGES: 1
@@ -146,6 +155,7 @@ services:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
     command: [etcd]
     restart: unless-stopped
+    logging: *logging
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     security_opt: ["no-new-privileges:true"]
@@ -156,6 +166,7 @@ services:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
     command: [patroni]
     restart: unless-stopped
+    logging: *logging
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     shm_size: 256m
@@ -173,6 +184,7 @@ services:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
     command: [valkey]
     restart: unless-stopped
+    logging: *logging
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     security_opt: ["no-new-privileges:true"]
@@ -183,6 +195,7 @@ services:
     image: ghcr.io/drewcarlson/homegap-cluster:latest
     command: [sentinel]
     restart: unless-stopped
+    logging: *logging
     network_mode: service:homegap-mesh
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     security_opt: ["no-new-privileges:true"]
@@ -195,6 +208,7 @@ services:
     image: ghcr.io/drewcarlson/homegap:latest
     command: ["tunnels", "--dir", "/tunnels"]
     restart: unless-stopped
+    logging: *logging
     # Kernel WireGuard (tunnels.native: true) needs these:
     # cap_add: [NET_ADMIN]
     # devices: ["/dev/net/tun:/dev/net/tun"]

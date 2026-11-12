@@ -136,7 +136,7 @@ class ClusterReconciler(
             else -> null
         }
         if (etcdMembers != null) {
-            removeDeparted(ctx, etcd, etcdMembers, nodeMembers.map { it.second })
+            if (!ctx.pauses().global) removeDeparted(ctx, etcd, etcdMembers, nodeMembers.map { it.second })
             var joining = etcdMembers.any { it.learner }
             for ((node, member) in nodeMembers) {
                 if (ctx.nodePaused(node.id)) continue
@@ -626,9 +626,9 @@ class ClusterReconciler(
     private fun fileStep(path: String, content: String, mode: String = "0600", writeOnce: Boolean = false): String {
         val b64 = Base64.encode(content.encodeToByteArray())
         val q = shQuote(path)
-        val write = "printf '%s' '$b64' | base64 -d > $q.new && chmod $mode $q.new && mv -f $q.new $q && CHANGED=yes"
+        val write = "(umask 077; printf '%s' '$b64' | base64 -d > $q.new) && chmod $mode $q.new && mv -f $q.new $q && CHANGED=yes"
         return if (writeOnce) "[ -s $q ] || { $write; }"
-        else "printf '%s' '$b64' | base64 -d > $q.new; if cmp -s $q.new $q; then rm -f $q.new; else chmod $mode $q.new; mv -f $q.new $q; CHANGED=yes; fi"
+        else "(umask 077; printf '%s' '$b64' | base64 -d > $q.new); if cmp -s $q.new $q; then rm -f $q.new; else chmod $mode $q.new; mv -f $q.new $q; CHANGED=yes; fi"
     }
 
     /** Removes etcd members whose node left the cluster (never the homelab). */

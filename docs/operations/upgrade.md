@@ -33,7 +33,7 @@ The script gives its arguments to every `docker compose` call. If your compose f
 
 If the script cannot move the primaries, it stops and does not touch the cluster containers. Correct the cause and run the script again.
 
-If a cluster container does not serve after 5 minutes, the script stops. The primaries stay on the nodes for 30 minutes at most.
+If a cluster container does not serve after 5 minutes, the script stops. When the script stops early, it ends the hold. The primaries then return to the homelab when its member is healthy again.
 
 ## The mesh container
 

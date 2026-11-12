@@ -184,10 +184,13 @@ class SshPool(private val controlDir: String, private val knownHostsFile: String
 
     suspend fun session(node: NodeConfig): SshSession = lock.withLock {
         val existing = sessions[node.id]
-        if (existing != null && existing.node == node) return@withLock existing
+        if (existing != null && existing.node.sameConnection(node)) return@withLock existing
         existing?.close()
         SshSession(node, controlDir, knownHostsFile).also { sessions[node.id] = it }
     }
+
+    private fun NodeConfig.sameConnection(o: NodeConfig) =
+        host == o.host && sshUser == o.sshUser && sshPort == o.sshPort && sshKeyFile == o.sshKeyFile
 
     suspend fun drop(nodeId: String) = lock.withLock { sessions.remove(nodeId)?.close() }
 }

@@ -321,7 +321,7 @@ class AccessScreenPresenter(
                     title = "Delete ${device.name}?",
                     text = "The device is removed from Pangolin. To connect again it has to sign in again.",
                     confirmLabel = "Delete ${device.name}",
-                    typeToConfirm = device.name,
+                    typeToConfirm = device.name.ifBlank { "delete" },
                     danger = true,
                 ),
                 onConfirm = { run() },

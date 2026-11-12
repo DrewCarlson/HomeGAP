@@ -49,9 +49,10 @@ class DnsReconciler(
         val actual = zone.records
         val claimed = mutableSetOf<Long>()
         val observed = mutableListOf<Observed>()
-        val pausedNodes = ctx.pauses().let { p -> if (p.global) ctx.config.nodes.map { it.id }.toSet() else p.nodes }
+        val global = ctx.pauses().global
+        val pausedNodes = ctx.pauses().nodes
 
-        fun isPaused(d: DesiredDnsRecord) = d.nodeId in pausedNodes || pausedServiceKeys.any { d.purpose == "service:$it" }
+        fun isPaused(d: DesiredDnsRecord) = global || d.nodeId in pausedNodes || pausedServiceKeys.any { d.purpose == "service:$it" }
 
         for (d in desired) {
             val typeCode = BunnyRecord.typeCode(d.type)
@@ -97,7 +98,7 @@ class DnsReconciler(
                 (a.type == BunnyRecord.typeCode("CNAME") && desiredNames.any { it.first == a.name.lowercase() })
             if (!managed && !collides) continue
             val node = a.comment?.substringAfter("node=", "")?.takeIf { managed }
-            if ((node != null && node in pausedNodes) || (managed && pausedServiceKeys.any { a.comment.contains("service:$it ") })) {
+            if (global || (node != null && node in pausedNodes) || (managed && pausedServiceKeys.any { a.comment.contains("service:$it ") })) {
                 observed += Observed(a, null, false, "kept: paused")
                 continue
             }
