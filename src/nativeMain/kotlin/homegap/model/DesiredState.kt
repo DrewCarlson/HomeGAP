@@ -254,7 +254,7 @@ object Planner {
             }
         }
 
-        val services = claim(parsed, errors)
+        val services = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
         val frontDoor =
             services.firstOrNull { it.hostname == config.domain && it.access == Access.PUBLIC && !it.protocol.isRaw }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
@@ -271,13 +271,16 @@ object Planner {
      * each other and with one http/https service); one service per key; and on nodes they share,
      * one public service per public port and protocol.
      */
-    private fun claim(parsed: List<ServiceSpec>, errors: MutableList<LabelIssue>): List<ServiceSpec> {
+    private fun claim(parsed: List<ServiceSpec>, errors: MutableList<LabelIssue>, reserved: Set<String>, meshPort: Int?): List<ServiceSpec> {
         val kept = mutableListOf<ServiceSpec>()
         for (s in parsed) {
             fun refuse(why: String) {
                 errors += LabelIssue(s.containerName, (s.name?.let { "services.$it: " }.orEmpty()) + why)
             }
 
+            if (s.hostname.lowercase() in reserved) {
+                refuse("hostname ${s.hostname} is reserved for HomeGAP"); continue
+            }
             val byHost = kept.filter { it.hostname == s.hostname }
             val httpOwner = byHost.firstOrNull { !it.protocol.isRaw }
             if (!s.protocol.isRaw && httpOwner != null) {
@@ -290,6 +293,9 @@ object Planner {
                 }
             if (s.access == Access.PUBLIC) {
                 val mine = s.publicPorts()
+                if (mine.any { it.port == meshPort && it.protocol == "udp" }) {
+                    refuse("public port $meshPort/udp is the port of the cluster mesh"); continue
+                }
                 val clash = kept.filter { o -> o.access == Access.PUBLIC && overlaps(o.regions, s.regions) }
                     .firstNotNullOfOrNull { o -> o.publicPorts().firstOrNull { it in mine }?.let { o to it } }
                 if (clash != null) {

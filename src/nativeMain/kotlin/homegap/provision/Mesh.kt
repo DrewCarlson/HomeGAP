@@ -122,7 +122,7 @@ object Mesh {
             |command -v wg >/dev/null 2>&1 || { hg_apt update -q && hg_apt install -yq --no-install-recommends wireguard-tools; } || exit 1
             |install -d -m 0700 /etc/wireguard
             |if [ ! -s "$KEY" ]; then (umask 077; wg genkey > "$KEY"); echo "CHANGED created the node's mesh key"; fi
-            |cat > "$CONF.new" <<'HOMEGAP_MESH'
+            |(umask 077; cat > "$CONF.new") <<'HOMEGAP_MESH'
             |$${config.trimEnd()}
             |HOMEGAP_MESH
             |sed -i "s|$${KEY_PLACEHOLDER}|$(cat "$KEY")|" "$CONF.new"
@@ -150,7 +150,7 @@ object Mesh {
             |    echo "CHANGED Docker now starts after the mesh interface"
             |  fi
             |fi
-            |$${if (openFirewall) OPEN_PORT.replace("@PORT@", mesh.port.toString()) else ":"}
+            |$${if (openFirewall) firewallStep(mesh.port) else ":"}
             |echo "PUBKEY=$(wg pubkey < "$KEY")"
             |echo DUMP-BEGIN
             |wg show "$IFACE" dump
@@ -172,10 +172,9 @@ object Mesh {
 
     private const val DOCKER_DROPIN = "/etc/systemd/system/docker.service.d/10-homegap-mesh.conf"
 
-    private const val OPEN_PORT =
+    private fun firewallStep(port: Int) =
         "if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then " +
-            "ufw allow @PORT@/udp comment homegap >/dev/null; ufw allow in on $INTERFACE comment homegap >/dev/null; " +
-            "ufw allow in on ${ClusterTemplates.BRIDGE} comment homegap >/dev/null; fi"
+            FirewallRules.meshSpecs(port).joinToString("; ") { "ufw $it comment homegap >/dev/null" } + "; fi"
 
     /** What the orchestrator writes for the homelab's mesh agent: the interface it keeps. */
     const val SPEC_FILE = "mesh.json"

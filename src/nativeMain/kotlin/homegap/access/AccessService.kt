@@ -207,6 +207,7 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
     }
 
     suspend fun removeInvitation(inviteId: String): String {
+        require(INVITE_ID.matches(inviteId)) { "not an invitation id" }
         val (ready, _) = pangolin()
         ready.api.removeInvitation(org, inviteId)
         controller.log.change(domain, "removed an open invitation")
@@ -234,6 +235,7 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
         val EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
         /** Long enough to hand the link over; the person sets their own password with it. */
         const val INVITE_HOURS = 7 * 24
+        val INVITE_ID = Regex("^[A-Za-z0-9_-]{1,64}$")
         /** How long a removal of a person waits, so it can be undone. */
         val REMOVE_DELAY = 30.seconds
         val PAST = mapOf("archive" to "archived", "unarchive" to "unarchived", "block" to "blocked", "unblock" to "unblocked", "delete" to "deleted")

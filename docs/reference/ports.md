@@ -27,7 +27,7 @@ A firewall at the provider level must open the same ports.
 
 ## Node: reserved ports
 
-The node uses these ports itself: `22`, `80`, `443`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `8080`, `21820` and `51820`. A public raw service cannot use them.
+The node uses these ports itself: `22`, `80`, `443`, `2379`, `2380`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `5432`, `5433`, `6379`, `6380`, `8008`, `8080`, `8082`, `8090`, `21820`, `26379` and `51820`. A public raw service cannot use them. In cluster mode, it also cannot use `cluster.mesh.port`/udp.
 
 ## Node: internal ports
 

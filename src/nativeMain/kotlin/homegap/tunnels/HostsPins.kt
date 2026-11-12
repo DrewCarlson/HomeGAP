@@ -1,6 +1,7 @@
 package homegap.tunnels
 
 import homegap.provision.OutsideCalls
+import homegap.setup.SetupScripts
 
 /**
  * The block of the tunnels container's hosts file that pins each connector's endpoint name to
@@ -13,13 +14,16 @@ import homegap.provision.OutsideCalls
 object HostsPins {
     const val BEGIN = "# BEGIN homegap tunnels: node addresses, as published in DNS"
     const val END = "# END homegap tunnels"
+    private val HOST = Regex("^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 
     /**
      * One (address, host) line per published address, in a stable order, then Newt's version
      * check sent nowhere (see [OutsideCalls]).
      */
     fun entries(specs: Collection<TunnelSpec>): List<Pair<String, String>> =
-        specs.sortedBy { it.nodeId }.flatMap { s -> s.addresses.distinct().map { it to s.host } } +
+        specs.sortedBy { it.nodeId }
+            .filter { HOST.matches(it.host) }
+            .flatMap { s -> s.addresses.distinct().filter(SetupScripts::isIpAddress).map { it to s.host } } +
             OutsideCalls.NEWT.map { OutsideCalls.NOWHERE to it }
 
     /** [current] with our block replaced by [entries] (or removed when there are none). */

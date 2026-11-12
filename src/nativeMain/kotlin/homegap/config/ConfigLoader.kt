@@ -29,6 +29,12 @@ object ConfigLoader {
         validate(config)
         if (Files.exists(path)) {
             Files.writeAtomic("$path.bak-${nowMillis()}", Files.readText(path), "600".toInt(8))
+            val dir = path.substringBeforeLast('/', ".")
+            val prefix = path.substringAfterLast('/') + ".bak-"
+            Files.list(dir).filter { it.startsWith(prefix) }
+                .sortedByDescending { it.removePrefix(prefix).toLongOrNull() ?: 0 }
+                .drop(BACKUPS_KEPT)
+                .forEach { Files.delete("$dir/$it") }
         }
         Files.writeAtomic(
             path,
@@ -66,9 +72,7 @@ object ConfigLoader {
         for (n in c.nodes) {
             if (!NODE_ID.matches(n.id)) errors += "node id '${n.id}' must match ${NODE_ID.pattern}"
             if (!ids.add(n.id)) errors += "duplicate node id '${n.id}'"
-            n.sshAllowFrom.filterNot { SSH_SOURCE.matches(it) }.forEach {
-                errors += "node ${n.id}: ssh_allow_from entry '$it' is not an IP address or CIDR"
-            }
+            errors += nodeErrors(n)
             if (n.ipv4() == null && n.publicIpv6 == null) errors += "node ${n.id}: set public_ipv4 (host is not an IPv4 literal)"
             if (c.bunny.routing == "geolocation" && n.effectiveLocation() == null) {
                 errors += "node ${n.id}: geolocation routing needs `location` or a known region code (${REGION_CENTROIDS.keys.joinToString()})"
@@ -76,9 +80,10 @@ object ConfigLoader {
             if (c.bunny.routing == "latency" && n.latencyZone == null) errors += "node ${n.id}: latency routing needs latency_zone"
         }
         try {
-            c.reconcile.resync
+            if (c.reconcile.resync.inWholeSeconds < 1) errors += "reconcile.resync_interval must be 1s or more"
             c.reconcile.debounceDuration
             c.reconcile.nodeCheck
+            c.reconcile.dnsCheck
         } catch (e: Exception) {
             errors += e.message ?: "bad duration"
         }
@@ -141,6 +146,29 @@ object ConfigLoader {
             "Invalid configuration:\n  - " + errors.joinToString("\n  - ")
         }
     }
+
+    /** Returns the errors in the fields of one node that go into scripts, SSH commands and Traefik rules. */
+    fun nodeErrors(n: NodeConfig): List<String> = buildList {
+        fun bad(what: String) = add("node ${n.id}: $what")
+        if (!HOST.matches(n.host)) bad("host '${n.host}' is not a hostname or an IP address")
+        if (!UNIX_USER.matches(n.sshUser)) bad("ssh_user '${n.sshUser}' is not a valid user name")
+        if (n.sshPort !in 1..65535) bad("ssh_port must be 1-65535")
+        if (n.sshKeyFile.isBlank() || n.sshKeyFile.any { it.isISOControl() }) bad("ssh_key_file is not a valid path")
+        n.managementHost?.let { if (!DNS_NAME.matches(it)) bad("management_host '$it' is not a hostname") }
+        listOfNotNull(n.publicIpv4, n.publicIpv6).filterNot { homegap.setup.SetupScripts.isIpAddress(it) }.forEach {
+            bad("'$it' is not an IP address")
+        }
+        n.sshAllowFrom.filterNot { SSH_SOURCE.matches(it) }.forEach {
+            bad("ssh_allow_from entry '$it' is not an IP address or CIDR")
+        }
+    }
+
+    /** A hostname, an IPv4 address or an IPv6 address. */
+    val HOST = Regex("^[A-Za-z0-9]([A-Za-z0-9.:-]{0,251}[A-Za-z0-9])?$")
+
+    val DNS_NAME = Regex("^(?i)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$")
+
+    private const val BACKUPS_KEPT = 10
 
     val NODE_ID = Regex("^[a-z][a-z0-9-]{0,30}$")
 

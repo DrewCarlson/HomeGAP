@@ -391,8 +391,7 @@ class NodeReconciler(
         val st = ctx.state.node(node.id)
         val known = ctx.state.snapshot().clusterPangolin
         st.facts["crowdsecKey"]?.takeIf { known != null && it.isNotEmpty() }?.let { return sharedSecrets(known!!, it) }
-        val remote = ssh.runScript("cat ${shQuote("$dir/${NodeTemplates.SECRETS}")} 2>/dev/null || true", 60).stdout.trim()
-            .takeIf { it.startsWith("{") }
+        val remote = remoteSecrets(ssh)
             ?.let { runCatching { LENIENT_JSON.decodeFromString<NodeSecrets>(it) }.getOrNull() }
         val shared = known ?: run {
             val recovered = remote?.takeIf { it.cluster }?.let {
@@ -419,12 +418,21 @@ class NodeReconciler(
         return sharedSecrets(shared, crowdsec)
     }
 
+    /** Reads the secrets file of the node. Returns null if the node has none. Throws if the read fails, so a failed read never causes new secrets. */
+    private suspend fun remoteSecrets(ssh: SshSession): String? {
+        val q = shQuote("$dir/${NodeTemplates.SECRETS}")
+        val r = ssh.runScript("[ -s $q ] || exit 0; cat $q", 60)
+        val text = r.stdout.trim()
+        check(r.ok && (text.isEmpty() || text.startsWith("{"))) { "could not read $dir/${NodeTemplates.SECRETS} on the node" }
+        return text.ifEmpty { null }
+    }
+
     /** Node-held secrets are authoritative; the local cache is refilled from them when lost. */
     private suspend fun ensureSecrets(node: NodeConfig, ssh: SshSession): NodeSecrets {
         if (clustered) return ensureClusterSecrets(node, ssh)
         ctx.state.node(node.id).toSecrets()?.takeIf { it.crowdsecBouncerKey.isNotEmpty() }?.let { return it }
-        val remote = ssh.runScript("cat ${shQuote("$dir/${NodeTemplates.SECRETS}")} 2>/dev/null || true", 60).stdout.trim()
-        val secrets = if (remote.startsWith("{")) {
+        val remote = remoteSecrets(ssh)
+        val secrets = if (remote != null) {
             log.info(domain, "recovered node secrets from the node", node.id)
             LENIENT_JSON.decodeFromString<NodeSecrets>(remote).let {
                 if (it.crowdsecBouncerKey.isEmpty()) it.copy(crowdsecBouncerKey = Crypto.token(40)) else it
@@ -593,7 +601,7 @@ class NodeReconciler(
         val b64 = Base64.encode(content.encodeToByteArray())
         val q = shQuote(path)
         return """
-            |printf '%s' '$b64' | base64 -d > $q.homegap-new
+            |(umask 077; printf '%s' '$b64' | base64 -d > $q.homegap-new)
             |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod $mode $q.homegap-new; mv -f $q.homegap-new $q; $onChange; else rm -f $q.homegap-new; chmod $mode $q; fi
         """.trimMargin()
     }
@@ -665,6 +673,9 @@ class NodeReconciler(
             } ?: break
             val rejected = failure is PangolinApiException && failure.status in setOf(401, 403)
             if (rejected || ++attempt >= KEY_CHECK_ATTEMPTS) {
+                // A Pangolin that does not answer (a database failover) cannot mint a key either.
+                val down = failure !is PangolinApiException || failure.status >= 500
+                if (!rejected && down) throw IllegalStateException("Pangolin does not answer (${failure.message})")
                 if (warn) log.warn(domain, "cached API key ${if (rejected) "rejected" else "not usable"} (${failure.message}); minting a new one", node.id)
                 return null
             }
@@ -960,6 +971,7 @@ class NodeReconciler(
         val ssh = ctx.ssh.session(node)
         ssh.runScriptOrThrow("decommission", "cd ${shQuote(dir)} 2>/dev/null && docker compose down --remove-orphans || true", 300)
         ssh.runScript(homegap.provision.ExitNodes.teardownScript(ctx.config.pangolin.installDir), 120)
+        ssh.runScript("rm -f ${shQuote("$dir/${NodeTemplates.CERT}")} ${shQuote("$dir/${NodeTemplates.KEY}")}", 60)
         if (ctx.config.cluster != null) {
             val cluster = shQuote("$dir/cluster")
             ssh.runScript("cd $cluster 2>/dev/null && docker compose down --remove-orphans || true; rm -rf $cluster", 300)
@@ -1036,6 +1048,11 @@ class NodeReconciler(
             |  [ "$REPO" = "$CODENAME" ] || echo "Docker has no packages for $CODENAME yet; using $REPO"
             |  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $REPO stable" > /etc/apt/sources.list.d/docker.list
             |  hg_apt update -q || exit 1
+            |  # Container logs have no size limit by default, and a small disk fills.
+            |  if [ ! -e /etc/docker/daemon.json ]; then
+            |    install -m 0755 -d /etc/docker
+            |    printf '%s\n' '{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"3"}}' > /etc/docker/daemon.json
+            |  fi
             |  hg_apt install -yq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || exit 1
             |  systemctl enable --now docker
             |  echo "CHANGED docker installed"

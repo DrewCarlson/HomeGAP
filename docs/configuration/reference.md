@@ -26,7 +26,7 @@ This page lists every key of the config file, with its type and its default. A k
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `resync_interval` | duration | `60s` | The interval of the full resync. |
+| `resync_interval` | duration | `60s` | The interval of the full resync. The minimum is `1s`. |
 | `debounce` | duration | `2s` | The debounce of Docker events. |
 | `dry_run` | boolean | `false` | Does discovery and writes the desired state to the log, but makes no changes. |
 | `node_check_interval` | duration | `5m` | The interval of the SSH drift check on each node. |
@@ -133,7 +133,7 @@ The `cluster` section is optional. Without it, HomeGAP runs in standalone mode. 
 | `license_key_file` | string | None. | A file with the EE license key of this node. |
 | `firewall` | boolean | `true` | Lets HomeGAP manage `ufw` on the node. |
 | `ssh_allow_from` | list | `[]` | The sources (IP addresses or CIDRs) that can reach SSH. An empty list means anywhere. |
-| `install_docker` | boolean | `true` | Installs Docker Engine if it is not on the node. |
+| `install_docker` | boolean | `true` | Installs Docker Engine if it is not on the node. HomeGAP then limits the log of each container on the node to 30 MB. |
 
 If a node has a `region` but no `location`, HomeGAP uses a rough center of the region:
 

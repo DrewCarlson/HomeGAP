@@ -120,7 +120,9 @@ class ClusterTest {
     fun nodeFirewallAdmitsTheMesh() {
         val node = NodeConfig(id = "eu1", host = "203.0.113.30", sshKeyFile = "/k")
         val specs = FirewallRules.specs(node, meshPort = 51821)
-        assertTrue("allow in on hg-mesh" in specs)
+        assertTrue("allow in on hg-mesh to any port 5432 proto tcp" in specs)
+        assertTrue("allow in on hg-mesh to any port 3004 proto tcp" in specs)
+        assertTrue("allow in on hg-mesh" !in specs, "the mesh reaches only the cluster ports")
         assertTrue("allow in on hg-cluster" in specs, "the node's own containers reach its cluster services")
         assertTrue("com.docker.network.bridge.name: hg-cluster" in ClusterTemplates.nodeCompose("x", emptyMap()))
     }

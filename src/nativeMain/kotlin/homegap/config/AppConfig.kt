@@ -43,6 +43,18 @@ data class AppConfig(
     /** The cluster's client address (see [ClusterConfig.clientHostname]); null without a cluster. */
     val clientHost: String? get() = cluster?.let { "${it.clientHostname}.$domain" }
 
+    /** The hostnames that HomeGAP routes itself. A service label cannot claim one of them. */
+    fun reservedHosts(): Set<String> = buildSet {
+        clientHost?.let(::add)
+        for (n in nodes) {
+            add(n.managementHost(domain))
+            if (speedtest.enabled) add(speedtest.nodeHost(domain, n.id))
+            if (statusPage.enabled) add(statusPage.nodeHost(domain, n.id))
+        }
+        if (speedtest.enabled) add(speedtest.autoHost(domain))
+        if (statusPage.enabled) add(statusPage.autoHost(domain))
+    }.mapTo(mutableSetOf()) { it.lowercase() }
+
     fun siteNiceId(nodeId: String): String = if (cluster != null) "${pangolin.siteName}-$nodeId" else pangolin.siteName
     val wildcardDomain: String get() = "*.$domain"
     fun node(id: String): NodeConfig? = nodes.firstOrNull { it.id == id }

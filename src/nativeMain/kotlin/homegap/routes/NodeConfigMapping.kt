@@ -26,7 +26,7 @@ internal fun NodeConfigDto.toConfig(): NodeConfig {
     require(ConfigLoader.NODE_ID.matches(id)) { "node id must match ${ConfigLoader.NODE_ID.pattern}" }
     require(host.isNotBlank()) { "host is required" }
     require(sshKeyFile.isNotBlank()) { "ssh key file is required" }
-    return NodeConfig(
+    val node = NodeConfig(
         id = id,
         region = region,
         provider = provider,
@@ -39,4 +39,6 @@ internal fun NodeConfigDto.toConfig(): NodeConfig {
         managementHost = managementHost?.takeIf { it.isNotBlank() },
         sshAllowFrom = sshAllowFrom.map { it.trim() }.filter { it.isNotEmpty() },
     )
+    ConfigLoader.nodeErrors(node).firstOrNull()?.let { throw IllegalArgumentException(it) }
+    return node
 }

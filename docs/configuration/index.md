@@ -52,7 +52,7 @@ To check a different file, add `--config PATH`. If the file is valid, the comman
 
 With `dashboard.allow_config_edits: true` (the default), the dashboard can add and remove nodes. Each such change writes the config file again. The config mount must be writable for this.
 
-Before each write, HomeGAP saves the previous file next to it as `<file>.bak-<epoch ms>`, with mode 0600. The new file starts with this comment:
+Before each write, HomeGAP saves the previous file next to it as `<file>.bak-<epoch ms>`, with mode 0600. It keeps the newest 10 backups. The new file starts with this comment:
 
 ```text
 # Managed by HomeGAP; edited from the dashboard. Previous version saved alongside as .bak-*

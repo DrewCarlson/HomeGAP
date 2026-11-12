@@ -257,6 +257,11 @@ class SpeedTestServer(
 
     /** A device test result, attributed to the node whose hostname served it. */
     private suspend fun RoutingContext.saveResult() {
+        val length = call.request.contentLength()
+        if (length == null || length > MAX_RESULT_BYTES) {
+            call.respond(HttpStatusCode.PayloadTooLarge)
+            return
+        }
         val request = call.receive<DeviceResultRequest>()
         store.add(
             SpeedTestResultDto(
@@ -280,6 +285,13 @@ class SpeedTestServer(
     private suspend fun RoutingContext.page() {
         call.response.header(HttpHeaders.CacheControl, "no-store")
         call.response.header("Referrer-Policy", "no-referrer")
+        call.response.header("X-Content-Type-Options", "nosniff")
+        // The page measures against each node's own name, so it connects to other hosts.
+        call.response.header(
+            "Content-Security-Policy",
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; " +
+                    "font-src 'self'; connect-src 'self' http: https:; base-uri 'none'; frame-ancestors 'none'",
+        )
         call.respondText(SpeedTestPage.HTML, ContentType.Text.Html)
     }
 
@@ -334,6 +346,7 @@ class SpeedTestServer(
 
     companion object {
         const val TOKEN_HEADER = "X-HomeGAP-Token"
+        private const val MAX_RESULT_BYTES = 16 * 1024L
         private const val LINK_AUTH = "speedtest-link"
 
         /** Measurements must never be served from a cache. */

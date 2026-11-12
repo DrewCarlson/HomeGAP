@@ -20,6 +20,8 @@ HomeGAP removes only its own records. In cluster mode, the decommission also doe
 - It removes the exit node of the node from the Pangolin of the cluster.
 - It removes the member of the node from the vote, and deletes its data.
 
+In both modes, the decommission removes the wildcard certificate and its key from the node. The other files stay in the install directory.
+
 ## Re-provision a node
 
 Click **Re-provision** on the **Nodes** page. The API call is `POST /api/nodes/{id}/provision`.

@@ -51,8 +51,9 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 ### Rules for the extension labels
 
 - `homegap.public_port` on an `http` or `https` service gives the warning "... only applies to tcp/udp".
+- A hostname that HomeGAP routes itself is an error: the management host of a node, the client address of the cluster, and the names of the status page and the speed test. The error is `hostname N is reserved for HomeGAP`.
 - With more than one port, `homegap.public_port` is an error. Write `public:port` in `homegap.port` instead.
-- The node uses these ports itself: `22`, `80`, `443`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `8080`, `21820` and `51820`. A public raw service cannot use them as public ports. The error is `public port N is reserved on nodes; publish it on another port (public:port in homegap.port, or homegap.public_port)`. HomeGAP does not check private services, because they publish nothing on the nodes.
+- The node uses these ports itself: `22`, `80`, `443`, `2379`, `2380`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `5432`, `5433`, `6379`, `6380`, `8008`, `8080`, `8082`, `8090`, `21820`, `26379` and `51820`. A public raw service cannot use them as public ports. The error is `public port N is reserved on nodes; publish it on another port (public:port in homegap.port, or homegap.public_port)`. In cluster mode, `cluster.mesh.port`/udp is reserved too. HomeGAP does not check private services, because they publish nothing on the nodes.
 - HomeGAP removes `Admin` from the roles that it sends to Pangolin, because Pangolin refuses it there. The `Admin` role can reach everything.
 - The PIN must be a number from 100000 to 999999. If there is no PIN, or the PIN is not valid, HomeGAP writes an error to the log.
 - `homegap.proxy_protocol` works only on `https` services in `passthrough` mode and on raw services with TCP ports, and only on public services. On a raw service, it applies only to the TCP ports. See [Client addresses and private-only services](client-addresses.md).

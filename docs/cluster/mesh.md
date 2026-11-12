@@ -14,7 +14,7 @@ Each node creates its own key during its first setup. The private key stays on t
 
 The homelab can be behind NAT. It dials every node and keeps the paths open, so HomeGAP never publishes its address. The nodes connect to each other directly on their public addresses.
 
-The firewall of each node opens `cluster.mesh.port`/udp to anywhere. WireGuard authenticates every packet, and the address of the homelab can change.
+The firewall of each node opens `cluster.mesh.port`/udp to anywhere. WireGuard authenticates every packet, and the address of the homelab can change. On the mesh interface, the firewall accepts only the ports of the cluster services. A member cannot reach SSH or other ports of a node through the mesh.
 
 On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database. Thus the nodes reach only the cluster services of the homelab.
 

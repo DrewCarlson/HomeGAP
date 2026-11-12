@@ -147,7 +147,8 @@ fun routerHosts(routers: List<TraefikRouter>, middleware: String): Pair<List<Str
 
 /** The Traefik API of a front door container: `homegap.traefik_api`, or its name on port 8080. */
 fun traefikApiUrl(containerName: String, labels: Map<String, String>): String =
-    labels[Labels.TRAEFIK_API]?.trim()?.takeIf { it.isNotEmpty() }?.trimEnd('/') ?: "http://$containerName:8080"
+    labels[Labels.TRAEFIK_API]?.trim()?.takeIf { it.startsWith("http://") || it.startsWith("https://") }?.trimEnd('/')
+        ?: "http://$containerName:8080"
 
 private val HOST_RULE = Regex("""\bHost\(([^)]*)\)""")
 private val RULE_STRING = Regex("""[`"']([^`"']+)[`"']""")
@@ -402,4 +403,8 @@ fun parseContainerLabels(containerId: String, containerName: String, labels: Map
 }
 
 /** Ports a regional node already uses for itself (SSH, web, tunnels, Pangolin internals). */
-val RESERVED_NODE_PORTS = setOf(22, 80, 443, 3000, 3001, 3002, 3003, 3004, 3005, 8080, 21820, 51820)
+val RESERVED_NODE_PORTS = setOf(
+    22, 80, 443, 3000, 3001, 3002, 3003, 3004, 3005, 8080, 21820, 51820,
+    // The cluster services, the Traefik metrics and the maintenance page of the node.
+    2379, 2380, 5432, 5433, 6379, 6380, 8008, 8082, 8090, 26379,
+)

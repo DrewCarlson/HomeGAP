@@ -14,7 +14,7 @@ object FirewallRules {
         if (node.sshAllowFrom.isEmpty()) {
             add("allow ${node.sshPort}/tcp")
         } else {
-            node.sshAllowFrom.forEach { add("allow from $it to any port ${node.sshPort} proto tcp") }
+            node.sshAllowFrom.forEach { add("allow from ${canonical(it)} to any port ${node.sshPort} proto tcp") }
         }
         add("allow 80/tcp")
         add("allow 443/tcp")
@@ -22,15 +22,21 @@ object FirewallRules {
         add("allow 51820/udp")
         add("allow 21820/udp")
         // WireGuard authenticates every packet, and the homelab dials in from a changing address.
-        meshPort?.let {
-            add("allow $it/udp")
-            // Cluster services listen on the mesh address; only mesh members can reach it, and
-            // the node's own containers on the cluster network (HAProxy, Pangolin).
-            add("allow in on ${Mesh.INTERFACE}")
-            add("allow in on ${ClusterTemplates.BRIDGE}")
-        }
+        meshPort?.let { addAll(meshSpecs(it)) }
         rawPorts.forEach { add("allow ${it.port}/${it.protocol}") }
     }.distinct()
+
+    /**
+     * The rules for the cluster mesh on [port]. The other members reach only the cluster ports on
+     * the mesh address. The containers of the node (HAProxy, Pangolin) reach them from the cluster bridge.
+     */
+    fun meshSpecs(port: Int): List<String> = buildList {
+        add("allow $port/udp")
+        (ClusterTemplates.MESH_PORTS + NodeTemplates.GERBIL_API_PORT).sorted().forEach {
+            add("allow in on ${Mesh.INTERFACE} to any port $it proto tcp")
+        }
+        add("allow in on ${ClusterTemplates.BRIDGE}")
+    }
 
     /**
      * Applies [specs]: adds the wanted rules first (so narrowing SSH access never drops the
@@ -55,6 +61,12 @@ object FirewallRules {
         |done
         |$${if (enable) ENABLE else ""}
     """.trimMargin()
+
+    /**
+     * Returns [source] as `ufw show added` prints it. The cleanup compares text, so a rule in
+     * another form looks unwanted and the cleanup deletes it.
+     */
+    fun canonical(source: String): String = source.lowercase().removeSuffix("/32").removeSuffix("/128")
 
     private const val ENABLE =
         "ufw status | grep -q '^Status: active' || { ufw --force enable >/dev/null && echo \"CHANGED ufw enabled\"; }"
