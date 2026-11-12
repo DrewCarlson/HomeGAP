@@ -107,7 +107,7 @@ interface ControllerGraph {
 
     @Provides @SingleIn(AppScope::class)
     fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer =
-        SpeedTestServer({ controller.config }, tokens, store, PublicStatus({ controller.config }, { controller.snapshot().nodes }))
+        SpeedTestServer({ controller.config }, tokens, store, PublicStatus({ controller.config }, { controller.publicNodes }))
 
     @DependencyGraph.Factory
     fun interface Factory {

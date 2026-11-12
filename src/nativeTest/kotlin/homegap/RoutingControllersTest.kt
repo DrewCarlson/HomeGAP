@@ -30,7 +30,7 @@ class RoutingControllersTest {
 
     @Test
     fun mountsEveryControllerUnderApi() = testApplication {
-        application { RoutingControllers(controllers, DashboardAuth("s3cret", null), emptySet()).init(this) }
+        application { RoutingControllers(controllers, DashboardAuth("s3cret", null), emptySet(), homegap.reconcile.ControllerLoop()).init(this) }
         assertEquals("one", client.get("/api/one") { bearerAuth("s3cret") }.bodyAsText())
         assertEquals("two", client.get("/api/two") { bearerAuth("s3cret") }.bodyAsText())
         assertEquals(HttpStatusCode.NotFound, client.get("/one").status)
@@ -63,7 +63,7 @@ class RoutingControllersTest {
                 parent.get("/api/open") { call.respondText(if (auth.matches("s3cret")) "own check" else "no token") }
             }
         }
-        application { RoutingControllers(controllers, DashboardAuth.resolve(config), setOf(open)).init(this) }
+        application { RoutingControllers(controllers, DashboardAuth.resolve(config), setOf(open), homegap.reconcile.ControllerLoop()).init(this) }
         assertEquals("own check", client.get("/api/open").bodyAsText())
 
         assertEquals(HttpStatusCode.Unauthorized, client.get("/api/one").status)

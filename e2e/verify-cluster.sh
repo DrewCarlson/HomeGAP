@@ -52,6 +52,21 @@ else
 fi
 fi
 
+if want 1 && [ "$HOMELAB_ROLE" = database ]; then
+  # A dump is only a backup if it restores: the newest goes into an empty database, which is removed again.
+  tables=$(docker compose exec -T cluster-db sh -c '
+    f=$(ls -1t /backups/homegap-*.dump 2>/dev/null | head -n 1); [ -n "$f" ] || exit 3
+    pg() { gosu postgres "$@" -h /var/run/postgresql -U postgres; }
+    pg dropdb --if-exists hg_restore_check >/dev/null 2>&1
+    pg createdb hg_restore_check && pg pg_restore --no-owner -d hg_restore_check "$f" \
+      && pg psql -d hg_restore_check -Atc "select count(*) from information_schema.tables where table_schema = '"'"'public'"'"'"
+    pg dropdb --if-exists hg_restore_check >/dev/null 2>&1' 2>/dev/null | tail -n 1)
+  case "$tables" in
+    ""|*[!0-9]*|0) fail "the newest dump of the database does not restore (or there is no dump yet)" ;;
+    *) pass "the newest dump of the database restores into an empty database ($tables tables)" ;;
+  esac
+fi
+
 if want 2; then
 echo "--- 2. a user from the dashboard signs in through every node"
 EMAIL="verify-$(date +%s)@test.example.net"

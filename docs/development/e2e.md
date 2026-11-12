@@ -66,7 +66,7 @@ e2e/verify-cluster.sh
 
 The script has these sections:
 
-1. The database: every member is `streaming`, and the primary is on the homelab.
+1. The database: every member is `streaming`, and the primary is on the homelab. The newest dump restores into an empty database.
 2. A user that the dashboard creates signs in at `pangolin.<domain>` through every node.
 3. A Pangolin client (the `client` service) reaches a private service through the node that it goes to. `CLIENT_NODE_IP` takes the role of DNS. Private-only names arrive from the private network.
 4. The homelab is cut off from the mesh. A node becomes the primary and takes writes, and the homelab stops writes. After the repair, HomeGAP switches the primary back.

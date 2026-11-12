@@ -92,6 +92,67 @@ HomeGAP creates the passwords one time and keeps them in `cluster/secrets.json` 
 
 The homelab member writes a nightly `pg_dump` to `./backups`, next to the homelab compose file (`HG_BACKUP_DIR: /backups`). It keeps the newest seven.
 
+## Backup and restore
+
+### What to keep
+
+A dump holds the database `pangolin`: the users, the devices, the sites and the resources of Pangolin. To restore a homelab, keep these items together:
+
+- The dumps in `./backups`. With `cluster.homelab_role: vote`, they are in `cluster/backups` in the data directory.
+- The data directory of the orchestrator (the `homegap-data` volume). It holds the state cache, the cluster passwords and the ACME account.
+- The config file.
+
+The dumps are on the same disk as the database of the homelab. Copy them to a different machine at regular intervals.
+
+!!! danger "Warning"
+    A dump is not encrypted. It contains the email addresses and the password hashes of your Pangolin users. Encrypt each copy that leaves the homelab.
+
+This command makes one encrypted file from the dumps. It reads the passphrase from a file:
+
+```bash
+tar -cz backups | openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:backup.pass -out homegap-backups.tar.gz.enc
+```
+
+### Check that a dump restores
+
+Do this check from time to time. It restores the newest dump into an empty database and then removes that database. The primary must be on the homelab.
+
+```bash
+docker compose exec homegap-db sh -c 'gosu postgres createdb -h /var/run/postgresql -U postgres hg_restore_check \
+  && gosu postgres pg_restore -h /var/run/postgresql -U postgres --no-owner -d hg_restore_check "$(ls -1t /backups/homegap-*.dump | head -n 1)" \
+  && gosu postgres psql -h /var/run/postgresql -U postgres -d hg_restore_check -Atc "select count(*) from information_schema.tables where table_schema = '"'"'public'"'"'"; \
+  gosu postgres dropdb -h /var/run/postgresql -U postgres hg_restore_check'
+```
+
+The command prints the number of tables in the dump. A number above zero and no error show that the dump is good.
+
+### Restore a dump
+
+A restore replaces the contents of the database `pangolin` with the contents of the dump. Each change after the time of the dump is lost.
+
+1. On the dashboard, click **Pause**. HomeGAP then makes no changes.
+2. In the **Cluster database** panel, make sure that the primary is on the homelab. If it is not, click **Make primary** on the homelab member.
+3. On each node, stop Pangolin:
+    ```bash
+    docker stop pangolin
+    ```
+4. On the homelab, restore the dump. Replace the file name:
+    ```bash
+    docker compose exec homegap-db gosu postgres pg_restore -h /var/run/postgresql -U postgres --clean --if-exists -d pangolin /backups/homegap-20261101T030000Z.dump
+    ```
+5. On each node, start Pangolin:
+    ```bash
+    docker start pangolin
+    ```
+6. On the dashboard, click **Resume**.
+
+The members on the nodes follow the primary. They need no restore.
+
+With `cluster.homelab_role: vote`, the database is on the nodes. Copy the dump to the node that holds the primary. Then run `pg_restore` in the `db` container of that node, in `/opt/homegap/cluster`, with the same options.
+
+!!! warning "Caution"
+    After a restore, a node that you added after the time of the dump has no site in Pangolin. HomeGAP creates the site again on the next pass, and the tunnel of that node reconnects.
+
 ## Maintenance of the homelab member
 
 Before you work on the homelab member, move the primaries to the nodes. Run this command:

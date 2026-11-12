@@ -33,7 +33,11 @@ The script gives its arguments to every `docker compose` call. If your compose f
 
 If the script cannot move the primaries, it stops and does not touch the cluster containers. Correct the cause and run the script again.
 
-If a cluster container does not serve after 5 minutes, the script stops. When the script stops early, it ends the hold. The primaries then return to the homelab when its member is healthy again.
+If the orchestrator or a cluster container does not serve with its new image, the script puts that service back on the image that it had. Then it stops. The services after it keep their previous image. The script does this with a tag: it gives the previous image the image name of the compose file. A later `docker compose pull` gets the new image again.
+
+If the service does not serve with its previous image either, the script stops and shows the last lines of its log.
+
+When the script stops early, it ends the hold. The primaries then return to the homelab when its member is healthy again. If the start of the maintenance fails, HomeGAP removes the hold at once.
 
 ## The mesh container
 

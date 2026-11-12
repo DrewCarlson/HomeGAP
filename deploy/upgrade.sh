@@ -16,6 +16,10 @@
 #   6. ends the hold (`homegap maintenance end`); the primaries return to the homelab once it has
 #      been caught up for the cluster's switch-back delay.
 #
+# If the orchestrator or a cluster container does not serve with its new image, the script puts
+# that service back on the image it had, and stops. It gives the old image the tag of the compose
+# file, so a later `docker compose pull` gets the new image again.
+#
 # The mesh container (homegap-mesh) is never recreated: the mesh and everything in its network
 # namespace would restart with it.
 #
@@ -35,7 +39,7 @@ for a in "$@"; do
   case "$a" in
     --tunnels) FORCE_TUNNELS=yes ;;
     --no-pull) PULL=no ;;
-    -h|--help) sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) ARGS+=("$a") ;;
   esac
 done
@@ -56,6 +60,30 @@ die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 services=$(dc config --services)
 has() { printf '%s\n' "$services" | grep -qx "$1"; }
 running() { [ -n "$(dc ps -q --status running "$1" 2>/dev/null)" ]; }
+
+# The image id that the container of service $1 runs now, or nothing.
+image_of() {
+  local id
+  id=$(dc ps -q "$1" 2>/dev/null | head -n 1)
+  [ -n "$id" ] && docker inspect -f '{{.Image}}' "$id" 2>/dev/null || true
+}
+
+# Puts service $1 back on image id $2: the tag of the compose file goes to that image again.
+# The image name comes from the container that `up` made for the service. `config --images` is
+# no source for it: it also lists the images of the services that the service depends on.
+rollback() {
+  local svc=$1 old=$2 ref id
+  [ -n "$old" ] || { warn "$svc had no container before the upgrade, so there is no image to go back to"; return 1; }
+  id=$(dc ps -aq "$svc" 2>/dev/null | head -n 1)
+  ref=$([ -n "$id" ] && docker inspect -f '{{.Config.Image}}' "$id" 2>/dev/null || true)
+  case "$ref" in ""|sha256:*) warn "cannot read the image name of $svc"; return 1 ;; esac
+  [ "$(docker image inspect -f '{{.Id}}' "$ref" 2>/dev/null)" != "$old" ] || { warn "$svc already has the image from before the upgrade"; return 1; }
+  say "Putting $svc back on its previous image"
+  docker tag "$old" "$ref" && dc up -d --no-deps "$svc"
+}
+
+# How long a service gets to serve after its restart, in seconds.
+READY_TIMEOUT=${HG_READY_TIMEOUT:-300}
 
 # Waits until `cmd...` succeeds, for at most $1 seconds.
 wait_until() {
@@ -80,8 +108,15 @@ if [ "$PULL" = yes ]; then
 fi
 
 say "Updating the orchestrator"
+previous=$(image_of "$ORCHESTRATOR")
 dc up -d --no-deps "$ORCHESTRATOR"
-wait_until 120 dx "$ORCHESTRATOR" homegap version || die "the orchestrator did not start; see: docker compose logs $ORCHESTRATOR"
+if ! wait_until 120 dx "$ORCHESTRATOR" homegap version; then
+  dc logs --tail 20 "$ORCHESTRATOR" >&2 || true
+  if rollback "$ORCHESTRATOR" "$previous" && wait_until 120 dx "$ORCHESTRATOR" homegap version; then
+    die "the orchestrator did not start with the new image. It runs the previous image again, and nothing else changed."
+  fi
+  die "the orchestrator did not start; see: docker compose logs $ORCHESTRATOR"
+fi
 if has "$MESH_AGENT"; then
   say "Updating the mesh agent"
   dc up -d --no-deps "$MESH_AGENT"
@@ -125,16 +160,20 @@ fi
 for pair in ${cluster_services[@]+"${cluster_services[@]}"}; do
   svc=${pair%%:*} role=${pair#*:}
   say "Updating $svc"
+  previous=$(image_of "$svc")
   dc up -d --no-deps "$svc"
-  if ! wait_until 300 dx "$svc" hg-member ready "$role"; then
-    die "$svc is not serving after 5 minutes; the primaries stay on the nodes until the homelab member is healthy. See: docker compose logs $svc"
+  if ! wait_until "$READY_TIMEOUT" dx "$svc" hg-member ready "$role"; then
+    dc logs --tail 20 "$svc" >&2 || true
+    if rollback "$svc" "$previous" && wait_until "$READY_TIMEOUT" dx "$svc" hg-member ready "$role"; then
+      die "$svc did not serve with the new image. It runs the previous image again. The cluster containers after it keep their previous image too."
+    fi
+    die "$svc is not serving after $READY_TIMEOUT seconds; the primaries stay on the nodes until the homelab member is healthy. See: docker compose logs $svc"
   fi
 done
 
 if has "$TUNNELS"; then
-  image=$(dc config --images "$TUNNELS" 2>/dev/null | head -n 1)
-  [ -n "$image" ] || image=$(docker inspect -f '{{.Config.Image}}' "$(dc ps -q "$TUNNELS")")
-  new=$(docker run --rm --entrypoint cat "$image" "$TUNNELS_VERSION_FILE" 2>/dev/null || echo unknown)
+  # A one-off container of the service reads the version of the image in the compose file.
+  new=$(dc run --rm --no-deps -T --entrypoint cat "$TUNNELS" "$TUNNELS_VERSION_FILE" </dev/null 2>/dev/null || echo unknown)
   current=$(dx "$TUNNELS" cat "$TUNNELS_VERSION_FILE" 2>/dev/null || echo none)
   if [ "$FORCE_TUNNELS" = yes ] || ! running "$TUNNELS" || [ "$new" != "$current" ] || [ "$new" = unknown ]; then
     say "Updating the tunnel connectors (every node reconnects to the homelab: a few seconds without access)"

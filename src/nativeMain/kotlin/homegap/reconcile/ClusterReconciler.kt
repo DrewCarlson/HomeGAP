@@ -252,6 +252,16 @@ class ClusterReconciler(
         val start = nowMillis()
         Files.writeAtomic(maintenanceFile, (start + holdMs).toString(), "644".toInt(8))
         preferredCaughtUpSince = null
+        try {
+            return movePrimariesForMaintenance(start, holdMs)
+        } catch (e: Exception) {
+            // The start failed, so there is nothing to hold: the switch-back must not wait for it.
+            Files.delete(maintenanceFile)
+            throw e
+        }
+    }
+
+    private suspend fun movePrimariesForMaintenance(start: Long, holdMs: Long): String {
         // The homelab's member is about to restart: let a node already restarting its own finish
         // first (no new one starts once the hold is written), so two are never down together.
         check(waitFor(10 * 60_000) { updatingNode == null }) { "node ${updatingNode} is still updating its cluster member after 10 minutes" }

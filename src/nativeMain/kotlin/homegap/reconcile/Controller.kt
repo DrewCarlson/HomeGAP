@@ -68,6 +68,7 @@ class Controller(
     private val ssh: SshPool,
     val speedTokens: homegap.speedtest.SpeedTestTokens,
     val speedStore: homegap.speedtest.SpeedTestStore,
+    private val loop: ControllerLoop,
 ) {
     private val configPath = options.configPath
     private val dryRunOverride = options.dryRun
@@ -283,6 +284,7 @@ class Controller(
     }
 
     suspend fun run(scope: CoroutineScope, once: Boolean) {
+        loop.dispatcher = currentCoroutineContext()[kotlin.coroutines.ContinuationInterceptor] as? CoroutineDispatcher
         if (!dryRun) {
             runCatching { config.adoptSharedDirs() }.onFailure { log.error("controller", "could not bring the shared files to their new place: ${it.message}") }
         }
@@ -863,6 +865,13 @@ class Controller(
         return out
     }
 
+    /**
+     * The nodes of the last [snapshot]. The public listener reads them from its own threads, so
+     * it gets this finished list and does not build a snapshot from the state of a pass.
+     */
+    @Volatile var publicNodes: List<homegap.api.NodeStatusDto> = emptyList()
+        private set
+
     fun snapshot(): StatusSnapshot {
         val cfg = config
         val st = state.snapshot()
@@ -988,6 +997,7 @@ class Controller(
                 newtVersion = newtVersions[n.id],
             )
         }
+        publicNodes = nodes
         return StatusSnapshot(
             generatedAt = nowMillis(),
             version = VERSION,
@@ -1241,12 +1251,28 @@ class Controller(
         return "${if (paused) "Paused" else "Resumed"} $scope${id?.let { " $it" }.orEmpty()}"
     }
 
-    suspend fun addNode(node: NodeConfig): String {
-        require(config.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
-        require(config.node(node.id) == null) { "node ${node.id} already exists" }
-        val next = config.copy(nodes = config.nodes + node)
+    /**
+     * Changes the config file. The change starts from the file on disk and not from the copy in
+     * memory, so an edit of the file by hand since the last pass stays.
+     */
+    private fun editConfig(change: (AppConfig) -> AppConfig): AppConfig {
+        val current = try {
+            ConfigLoader.load(configPath)
+        } catch (e: Exception) {
+            throw IllegalStateException("The config file has an error, so HomeGAP does not write it: ${e.message}")
+        }
+        require(current.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
+        val next = change(current)
         ConfigLoader.save(configPath, next)
         config = next
+        return next
+    }
+
+    suspend fun addNode(node: NodeConfig): String {
+        editConfig { current ->
+            require(current.node(node.id) == null) { "node ${node.id} already exists" }
+            current.copy(nodes = current.nodes + node)
+        }
         state.updateNode(node.id) { it.copy(pendingDecommission = false, teardownError = null) }
         log.change("controller", "added node ${node.id} to config", node.id)
         trigger("config")
@@ -1255,14 +1281,11 @@ class Controller(
 
     /** Sets (or with null, clears) where the homelab is, for the maps. Rewrites the config file. */
     fun setHomelabLocation(place: homegap.api.PlaceDto?): String {
-        require(config.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
         val location = place?.let {
             require(it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0) { "coordinates are out of range" }
             homegap.config.GeoLocation(it.latitude, it.longitude, it.name?.trim()?.ifBlank { null })
         }
-        val next = config.copy(homelab = config.homelab.copy(location = location))
-        ConfigLoader.save(configPath, next)
-        config = next
+        editConfig { it.copy(homelab = it.homelab.copy(location = location)) }
         revision.value++
         log.change("controller", if (location == null) "cleared the homelab's location" else "set the homelab's location${location.name?.let { " to $it" }.orEmpty()}")
         return if (location == null) "Homelab location cleared" else "Homelab location saved"
@@ -1273,13 +1296,12 @@ class Controller(
      * its config entry and runs a pass so DNS follows.
      */
     fun setNodeLocation(id: String, place: homegap.api.PlaceDto): String {
-        require(config.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
         require(place.latitude in -90.0..90.0 && place.longitude in -180.0..180.0) { "coordinates are out of range" }
-        val node = config.node(id) ?: throw IllegalArgumentException("unknown node $id")
         val location = homegap.config.GeoLocation(place.latitude, place.longitude, place.name?.trim()?.ifBlank { null })
-        val next = config.copy(nodes = config.nodes.map { if (it.id == id) node.copy(location = location) else it })
-        ConfigLoader.save(configPath, next)
-        config = next
+        editConfig { current ->
+            requireNotNull(current.node(id)) { "unknown node $id" }
+            current.copy(nodes = current.nodes.map { if (it.id == id) it.copy(location = location) else it })
+        }
         log.change("controller", "moved $id to ${location.name ?: "${location.latitude}, ${location.longitude}"}", id, fields = mapOf("node" to id))
         trigger("config")
         return "$id is now in ${location.name ?: "the picked place"}; DNS follows on the next pass"
@@ -1308,11 +1330,13 @@ class Controller(
 
     /** Removes [id] from the config (DNS drains at once); it can be added back for a day. Returns the message and undo id. */
     suspend fun removeNode(id: String): Pair<String, String> {
-        require(config.dashboard.allowConfigEdits) { "config edits are disabled (dashboard.allow_config_edits=false)" }
-        val node = config.node(id) ?: throw IllegalArgumentException("unknown node $id")
-        val next = config.copy(nodes = config.nodes - node)
-        ConfigLoader.save(configPath, next)
-        config = next
+        var removed: NodeConfig? = null
+        editConfig { current ->
+            val found = requireNotNull(current.node(id)) { "unknown node $id" }
+            removed = found
+            current.copy(nodes = current.nodes - found)
+        }
+        val node = removed!!
         state.updateNode(id) { it.copy(pendingDecommission = true, facts = it.facts + nodeFacts(node)) }
         log.change("controller", "removed node $id from config (pending decommission)", id)
         trigger("config")
