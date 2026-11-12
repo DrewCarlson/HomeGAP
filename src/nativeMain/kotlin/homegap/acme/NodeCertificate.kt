@@ -99,9 +99,11 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
         Files.chmodPath(dir, "700".toInt(8))
         val certName = "homegap-${now / 1000}"
         val server = ChallengeServer(dns)
+        // Lego waits for the record on the name servers of the zone only, as Let's Encrypt reads it
+        // there. A resolver can hold the answer "no such record" from before the record was made.
         val result = server.use { endpoint ->
             Subprocess.run(
-                account(config, directory, "run") + listOf("--accept-tos", "--dns", "httpreq", "--cert.name", certName, "--key-type", "EC256") + names.flatMap { listOf("-d", it) },
+                account(config, directory, "run") + listOf("--accept-tos", "--dns", "httpreq", "--dns.propagation.disable-rns", "--cert.name", certName, "--key-type", "EC256") + names.flatMap { listOf("-d", it) },
                 timeout = 20.minutes,
                 env = mapOf(
                     "HTTPREQ_ENDPOINT" to endpoint,
@@ -112,7 +114,7 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
                 ),
             )
         }
-        if (!result.ok) error("lego exit ${result.exitCode}: ${(result.stderr.ifBlank { result.stdout }).trim().takeLast(800)}")
+        if (!result.ok) error("lego exit ${result.exitCode}: ${failure(result.stderr.ifBlank { result.stdout })}")
         val cert = Files.readText("$store/certificates/$certName.crt")
         val key = Files.readText("$store/certificates/$certName.key")
         val validity = X509.validity(cert) ?: error("cannot read the new certificate")
@@ -121,6 +123,12 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
         Files.writeAtomic(certFile, cert, "600".toInt(8))
         Files.writeAtomic(metaFile, Json.encodeToString(meta), "600".toInt(8))
         return meta
+    }
+
+    /** The error lines of Lego's [output], or its end if Lego marks no line as an error. */
+    internal fun failure(output: String): String {
+        val errors = output.lines().filter { "level=ERROR" in it }.map { it.substringAfter("level=ERROR").trim() }
+        return (if (errors.isEmpty()) output.trim() else errors.joinToString(" ")).takeLast(800)
     }
 
     /** Removes the files of the certificate [old] from Lego's store, and revokes it first if [revoke]. */
