@@ -2265,6 +2265,16 @@
 <td>Bring the members back. The dashboard shows "no majority".</td>
 </tr>
 <tr>
+<td>The homelab restarts, and the orchestrator starts before the app containers.</td>
+<td>HomeGAP keeps the services of each container that is gone for <code>reconcile.removal_grace</code>.</td>
+<td>The containers start, and nothing changes.</td>
+</tr>
+<tr>
+<td>The teardown of a removed node fails.</td>
+<td>The node stays on the <strong>Nodes</strong> page as "teardown failed". Its stack can still run.</td>
+<td>Decommission the node again, or forget it. See <a href="../nodes/#if-the-teardown-fails">Manage nodes</a>.</td>
+</tr>
+<tr>
 <td>A Newt tunnel drops.</td>
 <td>The health probe of that node fails, so Bunny removes the node from DNS.</td>
 <td>The tunnel supervisor restarts Newt with a backoff. Failover covers the gap.</td>
@@ -2280,9 +2290,9 @@
 <td>After 5 failed logins (approximately 15 seconds), the tunnel supervisor restarts Newt. The Tunnels page shows the reason.</td>
 </tr>
 <tr>
-<td>The issuance of a certificate fails on a node.</td>
-<td>That node cannot serve TLS for the affected names.</td>
-<td>Send the wildcard certificate with <code>certificates</code>, or repair ACME. The dashboard shows the expiry. See <a href="../../configuration/certificates/">Certificates</a>.</td>
+<td>The order of the certificate of the nodes fails.</td>
+<td>The nodes keep the certificate that they have. A node without one shows a certificate warning for the names that it terminates.</td>
+<td>Read the error in the activity log. See <a href="../../configuration/certificates/#expiry-and-failures">Certificates</a>. The dashboard shows the expiry. See <a href="../../configuration/certificates/">Certificates</a>.</td>
 </tr>
 <tr>
 <td>A login blocker on a node (fail2ban, sshguard or CrowdSec) bans the orchestrator.</td>
@@ -2300,9 +2310,19 @@
 <td>None. Bunny is the single dependency that HomeGAP accepts.</td>
 </tr>
 <tr>
-<td>HomeGAP loses its state cache.</td>
-<td>None.</td>
+<td>The state cache is gone.</td>
+<td>HomeGAP loses the pauses and the update holds.</td>
 <td>HomeGAP reads the secrets from the nodes again, creates new API keys and recovers the Newt credentials from the connector spec.</td>
+</tr>
+<tr>
+<td>The state cache is there, but HomeGAP cannot read it.</td>
+<td>HomeGAP uses <code>state.json.bak</code>, the copy from its last start. Without a good copy, the orchestrator does not start. Live traffic does not change.</td>
+<td>Restore <code>state.json</code> from a backup. To start from an empty state, delete the file.</td>
+</tr>
+<tr>
+<td>The file <code>cluster/secrets.json</code> is gone or damaged while the cluster runs.</td>
+<td>The cluster part of each pass fails. HomeGAP does not create new passwords, because the database keeps the old ones.</td>
+<td>Restore the file from a backup of the data directory.</td>
 </tr>
 </tbody>
 </table>

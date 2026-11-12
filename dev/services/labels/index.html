@@ -2545,6 +2545,12 @@
 <td>Puts Pangolin sign-in in front of the service.</td>
 </tr>
 <tr>
+<td><code>homegap.maintenance_page</code></td>
+<td>Boolean.</td>
+<td><code>true</code> with <code>terminate</code>.</td>
+<td>While the homelab is unreachable, the nodes show a "back shortly" page for the service. See <a href="../traffic-paths/#when-the-homelab-is-down">Traffic paths</a>.</td>
+</tr>
+<tr>
 <td><code>homegap.healthcheck</code></td>
 <td>An HTTP path that starts with <code>/</code>, or <code>tcp</code>.</td>
 <td>None.</td>
@@ -2561,6 +2567,8 @@
 <li>An unknown node id in <code>homegap.regions</code> gives the warning "regions reference unknown node(s): ...".</li>
 <li><code>homegap.auth</code> needs <code>homegap.tls: terminate</code>. Without it, you get the error "...requires homegap.tls=terminate (the node cannot authenticate encrypted traffic)".</li>
 <li><code>homegap.auth: pin</code> needs <code>homegap.pin_env</code>.</li>
+<li><code>homegap.maintenance_page</code> needs <code>homegap.tls: terminate</code>. A passthrough service has no page, because the node holds no certificate for its name. If you set the label to <code>true</code> on a passthrough service, you get the error "...needs homegap.tls=terminate...".</li>
+<li>If the front door has <code>homegap.tls: terminate</code> and <code>homegap.wildcard</code>, HomeGAP refuses <code>homegap.tls: passthrough</code> on another hostname one label under the domain. See <a href="../../configuration/certificates/#the-front-door-in-terminate-mode-with-a-wildcard">Certificates</a>.</li>
 <li>Without <code>homegap.healthcheck</code>, Bunny still probes <code>/</code> through the front door. On raw services, the label applies only to the TCP ports.</li>
 </ul>
 <h2 id="extension-labels">Extension labels<a class="headerlink" href="#extension-labels" title="Permanent link">&para;</a></h2>
@@ -2621,15 +2629,16 @@
 <tr>
 <td><code>homegap.traefik_api</code></td>
 <td><code>http://&lt;container name&gt;:8080</code></td>
-<td>Sets the URL of the API of this Traefik, for <code>homegap.private_middleware</code>.</td>
+<td>Sets the URL of the API of this Traefik, for <code>homegap.private_middleware</code>. The form is <code>http://&lt;host&gt;:&lt;port&gt;</code>, with no path. The host must be a container name or a private IPv4 address. For other values, HomeGAP gives a warning and uses the default.</td>
 </tr>
 </tbody>
 </table>
 <h3 id="rules-for-the-extension-labels">Rules for the extension labels<a class="headerlink" href="#rules-for-the-extension-labels" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>homegap.public_port</code> on an <code>http</code> or <code>https</code> service gives the warning "... only applies to tcp/udp".</li>
+<li>A hostname that HomeGAP routes itself is an error. These are the management host of a node, the client address of the cluster, and the names of the status page and the speed test. The error is <code>hostname N is reserved for HomeGAP</code>.</li>
 <li>With more than one port, <code>homegap.public_port</code> is an error. Write <code>public:port</code> in <code>homegap.port</code> instead.</li>
-<li>The node uses these ports itself: <code>22</code>, <code>80</code>, <code>443</code>, <code>3000</code>, <code>3001</code>, <code>3002</code>, <code>3003</code>, <code>3004</code>, <code>3005</code>, <code>8080</code>, <code>21820</code> and <code>51820</code>. A public raw service cannot use them as public ports. The error is <code>public port N is reserved on nodes; publish it on another port (public:port in homegap.port, or homegap.public_port)</code>. HomeGAP does not check private services, because they publish nothing on the nodes.</li>
+<li>The node uses these ports itself: <code>22</code>, <code>80</code>, <code>443</code>, <code>2379</code>, <code>2380</code>, <code>3000</code>, <code>3001</code>, <code>3002</code>, <code>3003</code>, <code>3004</code>, <code>3005</code>, <code>5432</code>, <code>5433</code>, <code>6379</code>, <code>6380</code>, <code>8008</code>, <code>8080</code>, <code>8082</code>, <code>8090</code>, <code>21820</code>, <code>26379</code> and <code>51820</code>. A public raw service cannot use them as public ports. The error is <code>public port N is reserved on nodes; publish it on another port (public:port in homegap.port, or homegap.public_port)</code>. In cluster mode, <code>cluster.mesh.port</code>/udp is reserved too. HomeGAP does not check private services, because they publish nothing on the nodes.</li>
 <li>HomeGAP removes <code>Admin</code> from the roles that it sends to Pangolin, because Pangolin refuses it there. The <code>Admin</code> role can reach everything.</li>
 <li>The PIN must be a number from 100000 to 999999. If there is no PIN, or the PIN is not valid, HomeGAP writes an error to the log.</li>
 <li><code>homegap.proxy_protocol</code> works only on <code>https</code> services in <code>passthrough</code> mode and on raw services with TCP ports, and only on public services. On a raw service, it applies only to the TCP ports. See <a href="../client-addresses/">Client addresses and private-only services</a>.</li>

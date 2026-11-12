@@ -2253,6 +2253,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#when-a-container-is-gone" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When a container is gone
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#errors-and-warnings" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2302,7 +2313,7 @@
 <h1 id="services">Services<a class="headerlink" href="#services" title="Permanent link">&para;</a></h1>
 <p>This page tells you how HomeGAP publishes the services of your homelab, and when a service needs its own labels.</p>
 <h2 id="labels-are-the-source-of-truth">Labels are the source of truth<a class="headerlink" href="#labels-are-the-source-of-truth" title="Permanent link">&para;</a></h2>
-<p>The orchestrator reads the <code>homegap.*</code> labels of your containers through the Docker socket. The socket mount is read-only, and the orchestrator never writes labels. When a container starts, stops or changes, the Docker event starts a pass at once. The debounce is <code>reconcile.debounce</code> (default <code>2s</code>).</p>
+<p>The orchestrator reads the <code>homegap.*</code> labels of your containers from Docker. It reads through the <code>docker-proxy</code> service, which refuses each request that changes something. The orchestrator never writes labels. When a container starts, stops or changes, the Docker event starts a pass at once. The debounce is <code>reconcile.debounce</code> (default <code>2s</code>).</p>
 <h2 id="most-services-need-no-labels">Most services need no labels<a class="headerlink" href="#most-services-need-no-labels" title="Permanent link">&para;</a></h2>
 <p>The front door carries every name under your domain. The <strong>front door</strong> is the homelab Traefik container with the root domain in <code>homegap.expose</code> and <code>homegap.wildcard: "true"</code>. To publish a service through the front door, add a normal Traefik router at home.</p>
 <p>HomeGAP treats a service as the front door when its <code>homegap.expose</code> is equal to <code>domain</code> and its access is public. A raw service is never the front door.</p>
@@ -2325,6 +2336,10 @@
 <p>Raw services can share a hostname with each other, and with one <code>http</code> or <code>https</code> service. On the nodes that they share, only one public service can use a public port and protocol. See <a href="labels/#shared-hostnames-and-ports">Shared hostnames and ports</a>.</p>
 <h2 id="how-the-tunnel-finds-the-container">How the tunnel finds the container<a class="headerlink" href="#how-the-tunnel-finds-the-container" title="Permanent link">&para;</a></h2>
 <p>The tunnel connects to the container by its name, or by the value of <code>homegap.host</code>. The name must resolve on a Docker network that the container shares with the <code>tunnels</code> container.</p>
+<h2 id="when-a-container-is-gone">When a container is gone<a class="headerlink" href="#when-a-container-is-gone" title="Permanent link">&para;</a></h2>
+<p>When a container with <code>homegap.*</code> labels stops, HomeGAP keeps its services for <code>reconcile.removal_grace</code> (default 3 minutes). After that time, HomeGAP removes the resources and the DNS records of the container.</p>
+<p>The grace period prevents a short outage after a restart of the homelab. The orchestrator can start before your app containers. Without the grace period, HomeGAP removes each service and creates it again a moment later.</p>
+<p>A new container that claims the same hostname immediately replaces the container that is gone. If the orchestrator cannot list the containers at all, it uses the containers of the last list until Docker answers again.</p>
 <h2 id="errors-and-warnings">Errors and warnings<a class="headerlink" href="#errors-and-warnings" title="Permanent link">&para;</a></h2>
 <p>The <strong>Services</strong> page on the dashboard and the log show the label errors of each container. HomeGAP does not publish a service with errors. The errors of one container never stop the other services. The errors of a named service start with <code>services.&lt;name&gt;:</code>, and they drop only that service.</p>
 <p>A warning does not stop the publication of the service. An unknown <code>homegap.*</code> label gives this warning, and HomeGAP ignores the label:</p>

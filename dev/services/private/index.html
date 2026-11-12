@@ -2377,8 +2377,8 @@
 <p class="admonition-title">Warning</p>
 <p>If you publish the dashboard as a public service, everybody on the internet can reach the control of every node. Publish it only as a private resource.</p>
 </div>
-<p>Put the labels on the <code>homegap-mesh</code> service, because it owns the networks of the orchestrator. It is on the <code>traefik</code> network. For example:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">homegap-mesh</span><span class="p">:</span>
+<p>Put the labels on the <code>orchestrator</code> service. It is on the <code>traefik</code> network. For example:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">orchestrator</span><span class="p">:</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"homegap.example.net"</span>
 <a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">homegap.access</span><span class="p">:</span><span class="w"> </span><span class="s">"private"</span>
@@ -2386,7 +2386,7 @@
 <a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"8088"</span>
 <a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">homegap.host</span><span class="p">:</span><span class="w"> </span><span class="s">"orchestrator"</span>
 </code></pre></div>
-<p>The destination of the private resource is <code>orchestrator</code>, the alias of <code>homegap-mesh</code> on the <code>traefik</code> network. The port is 8088.</p>
+<p>The destination of the private resource is <code>orchestrator</code>, the name of the service on the <code>traefik</code> network. The port is 8088.</p>
 <p>The dashboard must listen on an address that the <code>tunnels</code> container can reach. The example config uses <code>dashboard.bind: 0.0.0.0:8088</code>. The default <code>127.0.0.1:8088</code> is not reachable from other containers.</p>
 <p>From a device with the Pangolin client, open <code>http://homegap.example.net:8088</code>.</p>
 <h2 id="reach-the-homelab-host-over-ssh">Reach the homelab host over SSH<a class="headerlink" href="#reach-the-homelab-host-over-ssh" title="Permanent link">&para;</a></h2>

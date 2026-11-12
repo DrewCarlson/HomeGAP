@@ -2484,6 +2484,7 @@
 <p>For the blueprint format, see the <a href="https://docs.pangolin.net/manage/blueprints">Pangolin blueprint reference</a>.</p>
 <h2 id="crowdsec">CrowdSec<a class="headerlink" href="#crowdsec" title="Permanent link">&para;</a></h2>
 <p><code>crowdsec: true</code> enables the CrowdSec bouncer on the Traefik of each node. It uses <code>crowdsec_image</code> and <code>crowdsec_bouncer_version</code>. CrowdSec protects only terminated traffic. It cannot examine passthrough streams.</p>
+<p>If a node cannot reach the AppSec component of CrowdSec, it lets the requests through. With <code>crowdsec_fail_closed: true</code>, the node refuses them. Then a stopped CrowdSec container stops the terminated traffic of that node, and its own Pangolin pages too.</p>
 <h2 id="ports-and-tuning">Ports and tuning<a class="headerlink" href="#ports-and-tuning" title="Permanent link">&para;</a></h2>
 <p><code>passthrough_port_base</code> (default 40000) is the start of the internal proxy ports for passthrough resources. HomeGAP never publishes these ports.</p>
 <p><code>tcp_tuning</code> (default <code>true</code>) applies TCP tuning on each node. See <a href="../../operations/performance/">Performance</a>.</p>

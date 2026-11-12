@@ -2577,9 +2577,11 @@
 <li>For <strong>Password</strong>, type the password.</li>
 <li>For <strong>Private key</strong>, type the path of the key file in <strong>Private key on the orchestrator</strong>.</li>
 <li>Click <strong>Test connection</strong>.</li>
-<li>Compare the <strong>Host key</strong> fingerprint with the fingerprint in the console of your provider.</li>
+<li>For a password login to a new server, the page shows "Check the server's fingerprint". Compare the <strong>Host key</strong> fingerprint with the fingerprint in the console of your provider.</li>
+<li>If the fingerprints are the same, click <strong>The fingerprint matches</strong>. HomeGAP then sends the password and does the test.</li>
 <li>Click <strong>Continue</strong>.</li>
 </ol>
+<p>HomeGAP sends a password only to a host key that you confirmed. A server that shows a different key later does not get the password.</p>
 <p>You must test the connection before you can continue. The test checks the login and shows this information:</p>
 <ul>
 <li>The OS, as <code>Connected to &lt;os&gt; &lt;version&gt; (&lt;arch&gt;)</code>.</li>

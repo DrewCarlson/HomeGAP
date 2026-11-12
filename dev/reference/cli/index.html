@@ -1887,6 +1887,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        mesh
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#validate" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2355,6 +2366,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        mesh
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#validate" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2510,30 +2532,50 @@
 </tr>
 </tbody>
 </table>
+<h2 id="mesh">mesh<a class="headerlink" href="#mesh" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>homegap mesh [--dir PATH]
+</code></pre></div>
+<p>Runs the mesh agent of the homelab. It keeps the mesh interface and the firewall of the namespace that it runs in. See <a href="../../cluster/mesh/#the-interfaces">Cluster mesh</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Environment variable</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dir PATH</code></td>
+<td><code>/data/mesh</code></td>
+<td><code>HOMEGAP_MESH_DIR</code></td>
+</tr>
+</tbody>
+</table>
 <h2 id="validate">validate<a class="headerlink" href="#validate" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>homegap validate [--config PATH]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>homegap validate [--config PATH]
 </code></pre></div>
 <p>Checks the config file. If the file is valid, the command prints <code>OK: &lt;n&gt; node(s), domain &lt;domain&gt;, zone &lt;zone&gt;</code>. If not, it prints <code>Invalid configuration:</code> and the list of errors.</p>
 <h2 id="plan">plan<a class="headerlink" href="#plan" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>homegap plan [--config PATH] --labels FILE
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>homegap plan [--config PATH] --labels FILE
 </code></pre></div>
 <p>Prints the desired state for a set of labels, without Docker. The file is a JSON map of container names to their labels. See <a href="../../services/#preview-the-result-of-labels">Services</a>.</p>
 <p>The output has these lines, in this order:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ERROR &lt;container&gt;: ...
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>WARN  &lt;container&gt;: ...
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>node &lt;id&gt; (&lt;management host&gt;)
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>  public  ...
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>  private ...
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>  sni     ...
-<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>  port    ...
-<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>dns &lt;type&gt; &lt;fqdn&gt; -&gt; &lt;value&gt; [&lt;node&gt;] &lt;purpose&gt; [geo] monitor=&lt;monitor&gt;
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ERROR &lt;container&gt;: ...
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>WARN  &lt;container&gt;: ...
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>node &lt;id&gt; (&lt;management host&gt;)
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>  public  ...
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>  private ...
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>  sni     ...
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>  port    ...
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>dns &lt;type&gt; &lt;fqdn&gt; -&gt; &lt;value&gt; [&lt;node&gt;] &lt;purpose&gt; [geo] monitor=&lt;monitor&gt;
 </code></pre></div>
 <h2 id="render-node">render-node<a class="headerlink" href="#render-node" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>homegap render-node ID [--config PATH]
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>homegap render-node ID [--config PATH]
 </code></pre></div>
 <p>Prints the stack files that HomeGAP writes to a node, with the secrets redacted. The last file is the dynamic routes file.</p>
 <h2 id="maintenance">maintenance<a class="headerlink" href="#maintenance" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>homegap maintenance start [--minutes N] | end
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>homegap maintenance start [--minutes N] | end
 </code></pre></div>
 <p>Asks the orchestrator in the same container to move the cluster primaries off the homelab. The orchestrator holds them there for up to N minutes (default 30). <code>end</code> ends the hold. The command uses the dashboard API, with the dashboard token if you set one. See <a href="../../cluster/database/#maintenance-of-the-homelab-member">Cluster database</a>.</p>
 <h2 id="version-and-help">version and help<a class="headerlink" href="#version-and-help" title="Permanent link">&para;</a></h2>

@@ -1323,10 +1323,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#certificates" class="md-nav__link">
+  <a href="#acme" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        certificates
+        acme
       </span>
     </span>
   </a>
@@ -2432,10 +2432,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#certificates" class="md-nav__link">
+  <a href="#acme" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        certificates
+        acme
       </span>
     </span>
   </a>
@@ -2686,7 +2686,7 @@
 <td><code>resync_interval</code></td>
 <td>duration</td>
 <td><code>60s</code></td>
-<td>The interval of the full resync.</td>
+<td>The interval of the full resync. The minimum is <code>1s</code>.</td>
 </tr>
 <tr>
 <td><code>debounce</code></td>
@@ -2705,6 +2705,12 @@
 <td>duration</td>
 <td><code>5m</code></td>
 <td>The interval of the SSH drift check on each node.</td>
+</tr>
+<tr>
+<td><code>removal_grace</code></td>
+<td>duration</td>
+<td><code>3m</code></td>
+<td>How long the services of a container stay after the container is gone. See <a href="../../services/#when-a-container-is-gone">When a container is gone</a>.</td>
 </tr>
 <tr>
 <td><code>dns_check_interval</code></td>
@@ -2807,7 +2813,7 @@
 <tr>
 <td><code>crowdsec_image</code></td>
 <td>string</td>
-<td><code>docker.io/crowdsecurity/crowdsec:latest</code></td>
+<td><code>docker.io/crowdsecurity/crowdsec:v1.8.2</code></td>
 <td>The CrowdSec image.</td>
 </tr>
 <tr>
@@ -2826,7 +2832,7 @@
 <td><code>acme_email</code></td>
 <td>string</td>
 <td>None.</td>
-<td>The email address for ACME.</td>
+<td>The contact address of the ACME account, if <code>acme.email</code> is not set.</td>
 </tr>
 <tr>
 <td><code>org_id</code></td>
@@ -2871,6 +2877,12 @@
 <td>Enables the CrowdSec bouncer on the Traefik of each node.</td>
 </tr>
 <tr>
+<td><code>crowdsec_fail_closed</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Refuses terminated requests while the node cannot reach the AppSec component of CrowdSec. See <a href="../pangolin/#crowdsec">Pangolin options</a>.</td>
+</tr>
+<tr>
 <td><code>site_name</code></td>
 <td>string</td>
 <td><code>homelab</code></td>
@@ -2897,7 +2909,7 @@
 </tbody>
 </table>
 <p>For the use of these keys, see <a href="../pangolin/">Pangolin options</a>.</p>
-<h2 id="certificates">certificates<a class="headerlink" href="#certificates" title="Permanent link">&para;</a></h2>
+<h2 id="acme">acme<a class="headerlink" href="#acme" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
@@ -2909,34 +2921,34 @@
 </thead>
 <tbody>
 <tr>
-<td><code>source</code></td>
+<td><code>email</code></td>
 <td>string</td>
-<td><code>none</code></td>
-<td><code>none</code>, <code>files</code> or <code>acme_json</code>.</td>
+<td><code>pangolin.acme_email</code>, then the admin email.</td>
+<td>The contact address of the ACME account.</td>
 </tr>
 <tr>
-<td><code>cert_file</code></td>
-<td>string</td>
-<td>None.</td>
-<td>The PEM certificate chain, for <code>files</code>.</td>
+<td><code>staging</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Uses the staging directory of Let's Encrypt.</td>
 </tr>
 <tr>
-<td><code>key_file</code></td>
+<td><code>directory</code></td>
 <td>string</td>
-<td>None.</td>
-<td>The PEM private key, for <code>files</code>.</td>
+<td>The directory of Let's Encrypt.</td>
+<td>The address of a different ACME directory. It must start with <code>https://</code>.</td>
 </tr>
 <tr>
-<td><code>acme_json</code></td>
-<td>string</td>
-<td>None.</td>
-<td>The path of the ACME store of the homelab Traefik, for <code>acme_json</code>.</td>
+<td><code>caa</code></td>
+<td>boolean</td>
+<td><code>true</code></td>
+<td>Publishes CAA records that let only <code>caa_issuer</code> issue certificates, and only with the DNS challenge.</td>
 </tr>
 <tr>
-<td><code>resolver</code></td>
+<td><code>caa_issuer</code></td>
 <td>string</td>
-<td>None.</td>
-<td>The resolver name in the ACME store. Without it, HomeGAP searches every resolver.</td>
+<td><code>letsencrypt.org</code></td>
+<td>The certificate authority in the CAA records.</td>
 </tr>
 </tbody>
 </table>
@@ -3009,6 +3021,12 @@
 <td>The image of the cluster members.</td>
 </tr>
 <tr>
+<td><code>homelab_role</code></td>
+<td>string</td>
+<td><code>database</code></td>
+<td>The role of the homelab in the cluster: <code>database</code> or <code>vote</code>. Set it before the first start of the cluster. See <a href="../../cluster/database/#the-homelab-as-a-vote-only">The homelab as a vote only</a>.</td>
+</tr>
+<tr>
 <td><code>primary.preferred</code></td>
 <td>string</td>
 <td><code>homelab</code></td>
@@ -3018,7 +3036,7 @@
 <td><code>primary.switch_back_after</code></td>
 <td>duration</td>
 <td><code>10m</code></td>
-<td>The time that the homelab must stay caught up before it becomes the primary again.</td>
+<td>The time that the homelab must stay caught up before it becomes the primary again. HomeGAP does not use it with <code>homelab_role: vote</code>.</td>
 </tr>
 <tr>
 <td><code>client_hostname</code></td>
@@ -3187,7 +3205,7 @@
 <td><code>install_docker</code></td>
 <td>boolean</td>
 <td><code>true</code></td>
-<td>Installs Docker Engine if it is not on the node.</td>
+<td>Installs Docker Engine if it is not on the node. HomeGAP then limits the log of each container on the node to 30 MB.</td>
 </tr>
 </tbody>
 </table>
@@ -3275,6 +3293,7 @@
 </tr>
 </tbody>
 </table>
+<p>Every <code>/api</code> route needs the bearer token. If neither key gives a token, HomeGAP creates one in <code>&lt;data_dir&gt;/dashboard-token</code>.</p>
 <h2 id="speedtest">speedtest<a class="headerlink" href="#speedtest" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3315,6 +3334,12 @@
 <td>integer</td>
 <td><code>8</code></td>
 <td>The duration of each download and upload phase, from 2 to 30.</td>
+</tr>
+<tr>
+<td><code>link_budget_gb</code></td>
+<td>integer</td>
+<td><code>20</code></td>
+<td>The data that one device link can download and upload in total, in GiB, from 1 to 1000.</td>
 </tr>
 <tr>
 <td><code>streams</code></td>
@@ -3419,9 +3444,29 @@
 <td>The path of the Docker socket.</td>
 </tr>
 <tr>
+<td><code>DOCKER_HOST</code></td>
+<td>None.</td>
+<td>The address of the Docker socket proxy, as <code>tcp://host:port</code>. With it, the orchestrator does not use the socket. The shipped compose file sets it.</td>
+</tr>
+<tr>
 <td><code>HOMEGAP_TUNNELS_DIR</code></td>
-<td><code>/data/tunnels</code></td>
-<td>The directory of the connector specs, for the tunnel supervisor.</td>
+<td><code>&lt;data_dir&gt;/tunnels</code></td>
+<td>The directory of the connector specs, for the orchestrator and the tunnel supervisor.</td>
+</tr>
+<tr>
+<td><code>HOMEGAP_MESH_DIR</code></td>
+<td><code>&lt;data_dir&gt;/mesh</code></td>
+<td>The directory that the orchestrator and the mesh agent share.</td>
+</tr>
+<tr>
+<td><code>HOMEGAP_MESH_HOST</code></td>
+<td><code>homegap-mesh</code></td>
+<td>The name of the mesh namespace on the network that it shares with the orchestrator.</td>
+</tr>
+<tr>
+<td><code>HOMEGAP_CLUSTER_CONFIG_DIR</code></td>
+<td><code>&lt;data_dir&gt;/cluster/config</code></td>
+<td>The directory where the orchestrator writes the config of the cluster containers of the homelab.</td>
 </tr>
 <tr>
 <td><code>HOMEGAP_NEWT</code></td>

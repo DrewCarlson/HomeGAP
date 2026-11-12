@@ -571,10 +571,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#homegap-mesh-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>homegap-mesh-agent</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#orchestrator" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code>orchestrator</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>docker-proxy</code>
       </span>
     </span>
   </a>
@@ -2406,10 +2428,32 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#homegap-mesh-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>homegap-mesh-agent</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#orchestrator" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code>orchestrator</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#docker-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>docker-proxy</code>
       </span>
     </span>
   </a>
@@ -2559,11 +2603,19 @@
 <tbody>
 <tr>
 <td><code>homegap-mesh</code></td>
-<td>A busybox container that holds the network namespace of the orchestrator. Thus the cluster mesh interface (<code>hg-mesh</code>) stays up when the orchestrator restarts.</td>
+<td>A busybox container that holds the network namespace of the cluster. The mesh interface (<code>hg-mesh</code>) and the cluster containers of the homelab are in it.</td>
+</tr>
+<tr>
+<td><code>homegap-mesh-agent</code></td>
+<td>The same image as the orchestrator, with the command <code>mesh</code>. It keeps the mesh interface and the firewall of that namespace. HomeGAP uses it only with <code>cluster:</code>.</td>
 </tr>
 <tr>
 <td><code>orchestrator</code></td>
-<td>The image <code>ghcr.io/drewcarlson/homegap:latest</code> with the command <code>run</code>. It uses <code>network_mode: service:homegap-mesh</code> and <code>cap_add: [NET_ADMIN]</code>, for the mesh in cluster mode.</td>
+<td>The image <code>ghcr.io/drewcarlson/homegap:latest</code> with the command <code>run</code>. It drops all capabilities except <code>NET_ADMIN</code> and <code>DAC_OVERRIDE</code>.</td>
+</tr>
+<tr>
+<td><code>docker-proxy</code></td>
+<td>A filter in front of the Docker socket. The orchestrator reads the container list, the events and the image data through it.</td>
 </tr>
 <tr>
 <td><code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code>, <code>homegap-sentinel</code></td>
@@ -2571,32 +2623,43 @@
 </tr>
 <tr>
 <td><code>tunnels</code></td>
-<td>The same image with the command <code>tunnels --dir /data/tunnels</code>. It keeps one Newt connector for each node.</td>
+<td>The same image with the command <code>tunnels --dir /tunnels</code>. It keeps one Newt connector for each node.</td>
 </tr>
 </tbody>
 </table>
 <h3 id="homegap-mesh"><code>homegap-mesh</code><a class="headerlink" href="#homegap-mesh" title="Permanent link">&para;</a></h3>
-<p>The networks, the published ports and the Traefik labels of the orchestrator go on this service, not on <code>orchestrator</code>. The service is on the <code>traefik</code> network with the alias <code>orchestrator</code>.</p>
+<p>The service holds a network namespace for the cluster only. The orchestrator is not in it. It is on one network, <code>homegap-cluster</code>, which it shares with the orchestrator. See <a href="../../cluster/mesh/#the-interfaces">Cluster mesh</a>.</p>
 <p>The service uses a fixed image. Do not recreate it when you update HomeGAP. A new container replaces the namespace and drops the mesh.</p>
+<h3 id="homegap-mesh-agent"><code>homegap-mesh-agent</code><a class="headerlink" href="#homegap-mesh-agent" title="Permanent link">&para;</a></h3>
+<p>The agent is the only container in the namespace of <code>homegap-mesh</code> that can change the network. It has <code>NET_ADMIN</code> and <code>NET_RAW</code>. It shares the <code>homegap-mesh</code> volume with the orchestrator. Without <code>cluster:</code>, it waits.</p>
 <h3 id="orchestrator"><code>orchestrator</code><a class="headerlink" href="#orchestrator" title="Permanent link">&para;</a></h3>
+<p>Put the published ports and the Traefik labels of the dashboard on this service. It is on three networks: <code>traefik</code>, <code>homegap-docker</code> (where it reaches <code>docker-proxy</code>) and <code>homegap-cluster</code> (where it reaches the cluster).</p>
 <p>The orchestrator reads these environment variables:</p>
 <ul>
 <li><code>BUNNY_API_KEY</code>. It is necessary.</li>
 <li><code>PANGOLIN_LICENSE_KEY</code>. It is optional.</li>
+<li><code>HOMEGAP_DASHBOARD_TOKEN</code>. The bearer token of the dashboard. If it is empty, HomeGAP creates a token.</li>
+<li><code>HOMEGAP_CLUSTER_CONFIG_DIR</code>, <code>HOMEGAP_TUNNELS_DIR</code> and <code>HOMEGAP_MESH_DIR</code>. The mount points of the three shared volumes.</li>
+<li><code>DOCKER_HOST</code>. The address of <code>docker-proxy</code>.</li>
 <li><code>HOMEGAP_DRY_RUN</code>. It is optional.</li>
 </ul>
 <p>The orchestrator has these volumes:</p>
 <ul>
-<li><code>/var/run/docker.sock:/var/run/docker.sock:ro</code>. The Docker socket is read-only, because the orchestrator only reads labels.</li>
 <li><code>./config/config.yml:/config/config.yml</code>. This mount must be writable only if you enable config edits on the dashboard.</li>
 <li><code>./secrets/ssh:/secrets/ssh:ro</code>. The SSH keys of the nodes.</li>
-<li><code>homegap-data:/data</code>. The state cache, <code>known_hosts</code> and the tunnel specs.</li>
-<li>Optional: the <code>acme.json</code> file of the homelab Traefik, read-only.</li>
+<li><code>homegap-data:/data</code>. The state cache, <code>known_hosts</code>, the generated SSH keys and the dashboard token. No other container mounts this volume.</li>
+<li><code>homegap-cluster-config:/cluster-config</code>. The config that the orchestrator writes for the cluster containers. They mount it read-only.</li>
+<li><code>homegap-tunnels:/tunnels</code>. The connector specs. The <code>tunnels</code> container mounts the same volume.</li>
+<li><code>homegap-mesh:/mesh</code>. The description of the mesh, for the mesh agent.</li>
 </ul>
+<p>The orchestrator does not mount the Docker socket. See <a href="../../reference/security/#the-homelab">Security model</a>.</p>
+<h3 id="docker-proxy"><code>docker-proxy</code><a class="headerlink" href="#docker-proxy" title="Permanent link">&para;</a></h3>
+<p>The service mounts the Docker socket and accepts only <code>GET</code> requests for containers, images and events. It is only on the <code>homegap-docker</code> network, so no other container can reach it.</p>
 <h3 id="the-cluster-member">The cluster member<a class="headerlink" href="#the-cluster-member" title="Permanent link">&para;</a></h3>
-<p>Without cluster mode, you can remove <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. In cluster mode, they wait until the orchestrator writes their config under <code>/data/cluster/config</code>. While they wait, their log shows "waiting for ... (written by the HomeGAP orchestrator)".</p>
+<p>Without cluster mode, you can remove <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. In cluster mode, they wait until the orchestrator writes their config to the <code>homegap-cluster-config</code> volume. While they wait, their log shows "waiting for ... (written by the HomeGAP orchestrator)".</p>
+<p>The file limits the log of each service to 30 MB (<code>x-logging</code>).</p>
 <h3 id="tunnels"><code>tunnels</code><a class="headerlink" href="#tunnels" title="Permanent link">&para;</a></h3>
-<p>The tunnel supervisor is independent of the orchestrator. If the orchestrator stops, the tunnels stay up. It shares the <code>homegap-data</code> volume with the orchestrator.</p>
+<p>The tunnel supervisor is independent of the orchestrator. If the orchestrator stops, the tunnels stay up. It shares only the <code>homegap-tunnels</code> volume with the orchestrator.</p>
 <p>The <code>tunnels</code> service must share a Docker network with Traefik. It must also share a network with each service that HomeGAP exposes directly, that is raw TCP and UDP services and dedicated subdomains.</p>
 <p>For <code>tunnels.native: true</code>, the service needs <code>cap_add: [NET_ADMIN]</code> and <code>devices: ["/dev/net/tun:/dev/net/tun"]</code>.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
@@ -2604,7 +2667,7 @@
 <li>Copy <code>deploy/homelab-compose.yml</code> to <code>compose.yml</code> in your folder.</li>
 <li>Copy <code>config/config.example.yml</code> to <code>config/config.yml</code>.</li>
 <li>In <code>config/config.yml</code>, set <code>domain</code>, <code>bunny.zone</code> and <code>pangolin.acme_email</code>.</li>
-<li>Set <code>certificates</code>. See <a href="../../configuration/certificates/">Certificates</a>.</li>
+<li>Read <a href="../../configuration/certificates/">Certificates</a>. HomeGAP publishes CAA records for your domain, and they also apply to the Traefik of your homelab.</li>
 <li>Add the nodes to <code>nodes[]</code>. To use the wizard, set <code>nodes: []</code> instead. The wizard writes each node to the config file.</li>
 <li>For cluster mode, add <code>cluster: {}</code>.</li>
 <li>For the first start, set <code>reconcile.dry_run: true</code>.</li>
@@ -2613,9 +2676,9 @@
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>PANGOLIN_LICENSE_KEY=...
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>HOMEGAP_DASHBOARD_TOKEN=...
 </code></pre></div>
-    <code>PANGOLIN_LICENSE_KEY</code> and <code>HOMEGAP_DASHBOARD_TOKEN</code> are optional. For the token, use a long random string.</li>
-<li>If you set a dashboard token, set <code>dashboard.auth_token_env: HOMEGAP_DASHBOARD_TOKEN</code> in the config.</li>
-<li>If you set a dashboard token, add <code>HOMEGAP_DASHBOARD_TOKEN</code> to the <code>environment</code> of the <code>orchestrator</code> service.</li>
+    <code>PANGOLIN_LICENSE_KEY</code> is optional. For <code>HOMEGAP_DASHBOARD_TOKEN</code>, use a long random string.</li>
+<li>Make sure that the config has <code>dashboard.auth_token_env: HOMEGAP_DASHBOARD_TOKEN</code>. The example config has it.</li>
+<li>If you set no dashboard token, read the token that HomeGAP creates after the first start. See <a href="../../operations/dashboard/#access">Dashboard</a>.</li>
 <li>Make the file readable only by you:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>.env
 </code></pre></div></li>
@@ -2654,11 +2717,10 @@
 </div>
 <p>For a first look, publish the dashboard only on the loopback address of the homelab. Then use an SSH tunnel from your workstation.</p>
 <ol>
-<li>On the <code>homegap-mesh</code> service, add <code>ports: ["127.0.0.1:8088:8088"]</code>.</li>
+<li>On the <code>orchestrator</code> service, add <code>ports: ["127.0.0.1:8088:8088"]</code>.</li>
 <li>Recreate the service:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
-</code></pre></div>
-    Docker also restarts the containers that share the namespace of <code>homegap-mesh</code>.</li>
+</code></pre></div></li>
 <li>On your workstation, open the SSH tunnel:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8088</span>:127.0.0.1:8088<span class="w"> </span>&lt;homelab&gt;
 </code></pre></div></li>

@@ -1914,17 +1914,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#session-and-share-links" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Session and share links
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#status-and-log" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2388,17 +2377,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#session-and-share-links" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Session and share links
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#status-and-log" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2525,7 +2503,7 @@
 <h1 id="http-api">HTTP API<a class="headerlink" href="#http-api" title="Permanent link">&para;</a></h1>
 <p>The dashboard uses an HTTP API on the orchestrator. You can use the same API from scripts. This page lists every route.</p>
 <h2 id="basics">Basics<a class="headerlink" href="#basics" title="Permanent link">&para;</a></h2>
-<p>The base URL is <code>http://&lt;dashboard.bind&gt;</code>. If you set <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>, every <code>/api/*</code> route needs the header <code>Authorization: Bearer &lt;token&gt;</code>.</p>
+<p>The base URL is <code>http://&lt;dashboard.bind&gt;</code>. Every <code>/api/*</code> route needs the header <code>Authorization: Bearer &lt;token&gt;</code>. The token comes from <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. Without them, HomeGAP creates a token. See <a href="../../operations/dashboard/#access">Dashboard</a>.</p>
 <p>An action returns <code>{"ok": true, "message": "..."}</code>. An error returns <code>{"ok": false, "message": "..."}</code>, with one of these HTTP status codes:</p>
 <table>
 <thead>
@@ -2538,10 +2516,6 @@
 <tr>
 <td>400</td>
 <td>The input is not valid.</td>
-</tr>
-<tr>
-<td>403</td>
-<td>A share link tried to change something, or to read an admin-only route.</td>
 </tr>
 <tr>
 <td>409</td>
@@ -2573,7 +2547,7 @@
 </tr>
 <tr>
 <td><code>GET /map/...</code></td>
-<td>The tiles of the map (with range requests), its scripts, its fonts and its icons. The public listener of the status page also serves them.</td>
+<td>The tiles of the map (with range requests), its scripts, its fonts and its icons. The public listener also serves them when the status page is enabled.</td>
 </tr>
 <tr>
 <td><code>GET /docs/...</code></td>
@@ -2582,34 +2556,6 @@
 <tr>
 <td><code>GET /...</code></td>
 <td>Any other path returns the dashboard app.</td>
-</tr>
-</tbody>
-</table>
-<p>A <a href="../../operations/dashboard/#share-a-read-only-view">share link</a> token also works as the bearer token, for <code>GET</code> routes only. The <code>/api/access</code> and <code>/api/share-links</code> routes refuse it.</p>
-<h2 id="session-and-share-links">Session and share links<a class="headerlink" href="#session-and-share-links" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Route</th>
-<th>What it does</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>GET /api/session</code></td>
-<td>Returns the role of the token, <code>ADMIN</code> or <code>VIEWER</code>, and if share links are available. For a share link, it also returns its label and when it expires.</td>
-</tr>
-<tr>
-<td><code>GET /api/share-links</code></td>
-<td>Returns the share links that did not expire. Admin only.</td>
-</tr>
-<tr>
-<td><code>POST /api/share-links</code></td>
-<td>Makes a share link. Body: <code>{"label": "Sam", "expiresInDays": 7}</code>. A <code>null</code> value for <code>expiresInDays</code> makes a link that does not expire. The response holds the token, one time only. Admin only.</td>
-</tr>
-<tr>
-<td><code>DELETE /api/share-links/{id}</code></td>
-<td>Revokes a share link. Admin only.</td>
 </tr>
 </tbody>
 </table>
@@ -2705,7 +2651,7 @@
 </tr>
 <tr>
 <td><code>DELETE /api/nodes/{id}</code></td>
-<td>Removes a node from the config. DNS drains first. The stack stays up until the decommission.</td>
+<td>Removes a node from the config. DNS drains first. The stack stays up, and the node stays in the cluster, until the decommission.</td>
 </tr>
 <tr>
 <td><code>POST /api/nodes/{id}/provision</code></td>
@@ -2721,7 +2667,7 @@
 </tr>
 <tr>
 <td><code>POST /api/nodes/{id}/decommission?confirm={id}</code></td>
-<td>Stops the stack of a removed node and forgets the node. <code>confirm</code> must repeat the node id.</td>
+<td>Stops the stack of a removed node and forgets the node. <code>confirm</code> must repeat the node id. If the teardown fails, the call returns an error and the node stays. With <code>force=true</code>, HomeGAP forgets the node without a teardown.</td>
 </tr>
 <tr>
 <td><code>GET /api/nodes/{id}/logs?service=&amp;since=&amp;tail=</code></td>

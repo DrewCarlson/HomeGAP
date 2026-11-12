@@ -1533,17 +1533,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#share-a-read-only-view" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Share a read-only view
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#the-layout" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2438,17 +2427,6 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#share-a-read-only-view" class="md-nav__link">
-    <span class="md-ellipsis">
-      <span class="md-typeset">
-        Share a read-only view
-      </span>
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
   <a href="#the-layout" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2651,24 +2629,14 @@
 <p>If the dashboard is public, anybody can control every node. Reach it only through a private Pangolin resource or an SSH tunnel. See <a href="../../services/private/">Private services</a>.</p>
 </div>
 <h2 id="access">Access<a class="headerlink" href="#access" title="Permanent link">&para;</a></h2>
-<p>An optional bearer token protects <code>/api</code>. Set it with <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. When a token is set, the dashboard asks for it in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.</p>
-<p>The dashboard updates live. It uses one server-sent event stream (<code>/api/events</code>). After the first snapshot, the stream sends only the parts that changed. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens it again when you come back. If the orchestrator can't be reached for more than 5 seconds, a dialog says so. It shows the error, counts down to the next try and has <strong>Reconnect now</strong>. It closes by itself when the orchestrator answers again. Until then the page shows the last data it received.</p>
-<h2 id="share-a-read-only-view">Share a read-only view<a class="headerlink" href="#share-a-read-only-view" title="Permanent link">&para;</a></h2>
-<p>A share link lets a person see the dashboard without the dashboard token. That person can read every page except <strong>Access</strong>, and cannot change anything. Share links need a dashboard token. Without a token, everybody who can open the dashboard has full control already.</p>
-<p>To make a share link:</p>
-<ol>
-<li>Open <strong>Access</strong>, then select <strong>Share links</strong>.</li>
-<li>Type a label, for example the name of the person.</li>
-<li>Select when the link expires: after 1 day, 7 days or 30 days, or never.</li>
-<li>Select <strong>Create link</strong>, then <strong>Copy link</strong>.</li>
-</ol>
-<p>The dashboard shows the link only one time. The orchestrator keeps only a hash of the token in <code>share-links.json</code> in its data directory. The token is in the fragment of the link (<code>#view=</code>). The browser never sends the fragment to a server, so no log contains it.</p>
-<p>When a person opens the link, the dashboard opens in a read-only view in that browser tab. A banner tells them that they cannot change anything. Buttons that change something are off, and the orchestrator refuses each change from a share link. <strong>Access</strong> and <strong>Share links</strong> are not in a read-only view, because they show email addresses and devices. <strong>Sign in as admin</strong> closes the read-only view. Then the dashboard uses the dashboard token that the browser keeps, or it asks for the token.</p>
-<p>To stop a link, select <strong>Revoke</strong> next to it on <strong>Share links</strong>. The link stops at once, also in a browser that has it open. An expired link stops too, and the person sees a message that asks for a new link.</p>
-<div class="admonition warning">
-<p class="admonition-title">Caution</p>
-<p>A read-only view shows the other pages in full: the config file with the host names and SSH users of the nodes, the names of the secrets, the logs of the nodes, the activity log and the speed test results. Give a share link only to a person that you trust with this information.</p>
-</div>
+<p>A bearer token protects every <code>/api</code> route. Set it with <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file <code>dashboard-token</code> in its data directory, with mode 0600. To read the token, run this command:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>cat<span class="w"> </span>/data/dashboard-token
+</code></pre></div>
+<p>The dashboard asks for the token in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.</p>
+<p>To remove the token from the browser, click <strong>Sign out</strong> at the bottom of the menu, or search for "Sign out". Do this on a computer that other people use.</p>
+<p>The dashboard updates live. It uses one server-sent event stream (<code>/api/events</code>). After the first snapshot, the stream sends only the parts that change. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens the stream again when you return to the tab.</p>
+<p>The orchestrator writes to the stream every 25 seconds or less. If the dashboard gets nothing for 60 seconds, it opens a new stream. The orchestrator keeps 32 streams open at most. A dashboard above that number gets an error until a different one closes.</p>
+<p>If the dashboard cannot reach the orchestrator for more than 5 seconds, a dialog says so. The dialog shows the error and the time to the next try, and it has <strong>Reconnect now</strong>. It closes by itself when the orchestrator answers again. Until then, the page shows the last data from the orchestrator.</p>
 <h2 id="the-layout">The layout<a class="headerlink" href="#the-layout" title="Permanent link">&para;</a></h2>
 <p>The menu has two groups: <strong>Operate</strong> (Overview, Nodes, Services, Access, Speed test) and <strong>Plumbing</strong> (DNS, Tunnels, Activity, Diagnostics, Config). A number next to a page is the count of items that need attention there. On a tablet the menu is a rail of icons. On a phone it is a grid of icons under the header, which gets smaller when you scroll.</p>
 <p>The box at the bottom of the menu shows the last pass, and two controls:</p>
@@ -2679,7 +2647,7 @@
 <p>Each page starts with a headline that states the answer, for example "5 of 6 edges healthy.". Under it, a status line shows the most important message. When there are more, <strong>+N more</strong> opens all of them.</p>
 <p>Select a node, a service or another item to open it in the <strong>Inspector</strong>. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.</p>
 <p>Press ⌘K, Ctrl+K or <code>/</code> to search everything: nodes, services, DNS records, tunnels, pages, actions such as <strong>Resync now</strong>, and on the orchestrator the log, the config keys and the secrets. The search shows the names of config keys and secrets, never their values.</p>
-<p>Actions that are risky ask first. To remove a node or a person, you type its name. After you remove a node or a person, a message with <strong>Undo</strong> shows for 30 seconds. A removed person stays until then, and <strong>Undo</strong> keeps them. <strong>Undo</strong> on a removed node adds it back with its config.</p>
+<p>Actions that are risky ask first. To remove a node or a person, you type its name. After you remove a node or a person, a message with <strong>Undo</strong> shows for 30 seconds. A later message does not replace it. <strong>Dismiss</strong> removes it. A removed person stays until then, and <strong>Undo</strong> keeps them. <strong>Undo</strong> on a removed node adds it back with its config.</p>
 <h2 id="the-pages">The pages<a class="headerlink" href="#the-pages" title="Permanent link">&para;</a></h2>
 <h3 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h3>
 <p>The whole system at a glance:</p>

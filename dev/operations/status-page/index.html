@@ -1746,6 +1746,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="What the page shows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-page-tells-a-visitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the page tells a visitor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limits-on-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Limits on requests
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2292,6 +2320,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="What the page shows">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-page-tells-a-visitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What the page tells a visitor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#limits-on-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Limits on requests
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2389,8 +2445,23 @@
 </tr>
 </tbody>
 </table>
-<p>The page never shows addresses or hostnames. While it is open, it refreshes every minute.</p>
+<p>While the page is open, it refreshes every minute.</p>
 <p>The page also has a map of the nodes in their status colors. The node of the visitor is highlighted, with the round trip through each node. The map shows the homelab only as a soft area at the center of its region, for example "Home · North America". HomeGAP never sends the location of the homelab to the page.</p>
+<h3 id="what-the-page-tells-a-visitor">What the page tells a visitor<a class="headerlink" href="#what-the-page-tells-a-visitor" title="Permanent link">&para;</a></h3>
+<p>The page and its data are public. For each node, a visitor can read these values:</p>
+<ul>
+<li>The node id and the region.</li>
+<li>The state.</li>
+<li>The location that you set for the node: its name and its coordinates. The map uses them.</li>
+<li>The name <code>status-&lt;node&gt;.&lt;domain&gt;</code>. The browser measures the round trip through each node on this name. The name resolves to the public address of the node.</li>
+</ul>
+<p>The page does not show IP addresses or the management hosts. But a visitor can find the public address of each node from its <code>status-&lt;node&gt;</code> name. The public DNS records of your services give the same addresses.</p>
+<h3 id="limits-on-requests">Limits on requests<a class="headerlink" href="#limits-on-requests" title="Permanent link">&para;</a></h3>
+<p>The page needs no token, so HomeGAP limits its requests:</p>
+<ul>
+<li>On the name <code>status.&lt;domain&gt;</code>, each node lets one address send 30 requests in a second, with a burst of 150.</li>
+<li>The orchestrator lets one address send 1200 requests in a minute to the page, its data and the map. Above that number, it answers 429.</li>
+</ul>
 <h2 id="how-the-page-works">How the page works<a class="headerlink" href="#how-the-page-works" title="Permanent link">&para;</a></h2>
 <p>Each node answers <code>status.&lt;domain&gt;</code> itself, with its own certificate. This name never goes through passthrough. On HTTP, the node redirects to HTTPS on the same name.</p>
 <p>On HTTPS, the node sends each request on to the homelab under its own name, <code>status-&lt;node&gt;.&lt;domain&gt;</code>. That name goes through the front door and the tunnel to the homelab. The address bar keeps <code>status.&lt;domain&gt;</code>, and the orchestrator always knows which node the visitor came through. Thus the page, the node list and every ping come from the orchestrator.</p>
@@ -2424,7 +2495,7 @@
 </tbody>
 </table>
 <h3 id="routing">Routing<a class="headerlink" href="#routing" title="Permanent link">&para;</a></h3>
-<p>The status page uses the listener of the speed test, <code>speedtest.bind</code>. Thus route <code>status-&lt;node&gt;.&lt;domain&gt;</code> to port 8089 too. With both features on, one rule covers both. Put the labels on the <code>homegap-mesh</code> service:</p>
+<p>The status page uses the listener of the speed test, <code>speedtest.bind</code>. Thus route <code>status-&lt;node&gt;.&lt;domain&gt;</code> to port 8089 too. When both features are enabled, one rule covers both. Put the labels on the <code>orchestrator</code> service:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">labels</span><span class="p">:</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">traefik.enable</span><span class="p">:</span><span class="w"> </span><span class="s">"true"</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">traefik.http.routers.homegap-speedtest.rule</span><span class="p">:</span><span class="w"> </span><span class="s">"Host(`speedtest.example.net`)</span><span class="nv"> </span><span class="s">||</span><span class="nv"> </span><span class="s">HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.example\\.net$`)"</span>

@@ -1064,6 +1064,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-isolation-of-the-homelab-member" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The isolation of the homelab member
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-container-on-a-node-can-reach" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a container on a node can reach
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#probes" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2322,6 +2344,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-isolation-of-the-homelab-member" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The isolation of the homelab member
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-a-container-on-a-node-can-reach" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What a container on a node can reach
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#probes" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2376,11 +2420,30 @@
 <h2 id="keys-and-connections">Keys and connections<a class="headerlink" href="#keys-and-connections" title="Permanent link">&para;</a></h2>
 <p>Each node creates its own key during its first setup. The private key stays on the node. HomeGAP knows only the public key.</p>
 <p>The homelab can be behind NAT. It dials every node and keeps the paths open, so HomeGAP never publishes its address. The nodes connect to each other directly on their public addresses.</p>
-<p>The firewall of each node opens <code>cluster.mesh.port</code>/udp to anywhere. WireGuard authenticates every packet, and the address of the homelab can change.</p>
-<p>On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database. Thus the nodes reach only the cluster services of the homelab, and the dashboard stays private.</p>
+<p>The firewall of each node opens <code>cluster.mesh.port</code>/udp to anywhere. WireGuard authenticates every packet, and the address of the homelab can change. On the mesh interface, the firewall accepts only the ports of the cluster services. A member cannot reach SSH or other ports of a node through the mesh.</p>
+<p>On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database. Thus the nodes reach only the cluster services of the homelab.</p>
 <h2 id="the-interfaces">The interfaces<a class="headerlink" href="#the-interfaces" title="Permanent link">&para;</a></h2>
 <p>On each node, <code>wg-quick</code> manages the interface, and it starts at boot. Changes to the peers apply in place. They do not drop the sessions.</p>
-<p>On the homelab, the interface is in the network namespace of the <code>homegap-mesh</code> container. The orchestrator joins this namespace with <code>NET_ADMIN</code>. Thus the interface stays up when the orchestrator restarts. <code>deploy/upgrade.sh</code> never recreates <code>homegap-mesh</code>.</p>
+<p>On the homelab, the interface is in the network namespace of the <code>homegap-mesh</code> container. The cluster containers of the homelab share this namespace. The orchestrator is not in it. <code>deploy/upgrade.sh</code> never recreates <code>homegap-mesh</code>, so the interface stays up during an upgrade.</p>
+<p>The <code>homegap-mesh-agent</code> container manages the interface. The orchestrator writes the description of the mesh to the <code>homegap-mesh</code> volume. The agent applies it. Then it writes its public key and the state of each peer to the same volume. The private key of the homelab stays in that volume.</p>
+<h2 id="the-isolation-of-the-homelab-member">The isolation of the homelab member<a class="headerlink" href="#the-isolation-of-the-homelab-member" title="Permanent link">&para;</a></h2>
+<p>Each node is a member of the cluster database, so HomeGAP treats the namespace of <code>homegap-mesh</code> as reachable from the nodes. The agent keeps a firewall there that refuses everything except these connections:</p>
+<ul>
+<li>Into the namespace: replies, ping and the ports of the cluster database.</li>
+<li>Out of the namespace: the mesh, replies and WireGuard to the nodes.</li>
+<li>Through the namespace: the orchestrator to the members on the mesh, and the replies.</li>
+</ul>
+<p>Thus a container in that namespace cannot open a connection to the orchestrator, to your other containers or to your home network. The agent installs the firewall before it starts the interface. If the firewall fails, the mesh stays down.</p>
+<p>The orchestrator reaches the members through this namespace. It adds a route for <code>cluster.mesh.subnet</code> through <code>homegap-mesh</code> on the <code>homegap-cluster</code> network. For that route it needs <code>NET_ADMIN</code>.</p>
+<h2 id="what-a-container-on-a-node-can-reach">What a container on a node can reach<a class="headerlink" href="#what-a-container-on-a-node-can-reach" title="Permanent link">&para;</a></h2>
+<p>Pangolin on a node faces the internet. HomeGAP keeps the containers of a node away from the services that control the cluster:</p>
+<ul>
+<li>The firewall of the node admits the containers only to PostgreSQL, Valkey and the health check of Patroni on the member of their own node.</li>
+<li>A forward rule in the <code>DOCKER-USER</code> chain drops packets from a container to two ports of another member. The ports are the etcd peer port (<code>2380</code>) and the Sentinel port (<code>26379</code>). Docker forwards a container to the mesh as the node itself, so the other member sees no difference between them. The rule is on the node that sends. <code>wg-quick</code> adds it again at boot.</li>
+<li>etcd needs a password. The etcd client port (<code>2379</code>) stays reachable for the probe of HAProxy, but each read and each write needs the etcd <code>root</code> user. Only the members and the orchestrator hold that password.</li>
+<li>Sentinel needs a password. It is not the Valkey password, which Pangolin holds.</li>
+</ul>
+<p>A person with root on a node holds these passwords, because the member of that node needs them. See <a href="../../reference/security/#the-homelab">Security model</a>.</p>
 <h2 id="probes">Probes<a class="headerlink" href="#probes" title="Permanent link">&para;</a></h2>
 <p>Once a second, each node opens a TCP connection to the etcd port of every other member. It does this on two paths:</p>
 <ul>

@@ -1622,6 +1622,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Remove a region">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#if-the-teardown-fails" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        If the teardown fails
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2341,6 +2358,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Remove a region">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#if-the-teardown-fails" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        If the teardown fails
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2441,16 +2475,32 @@
 <h2 id="remove-a-region">Remove a region<a class="headerlink" href="#remove-a-region" title="Permanent link">&para;</a></h2>
 <ol>
 <li>Remove the node from the config. Or click <strong>Remove</strong> on the <strong>Nodes</strong> page, which writes the config again. The DNS records of the node drain on the next pass.</li>
-<li>The stack on the node continues to run. When you are ready, click <strong>Confirm decommission</strong>.</li>
-<li>Type the node id at the prompt "Type the node id to stop its stack and forget it:".</li>
+<li>The stack on the node continues to run. In cluster mode, the node stays a member of the cluster. When you are ready, click <strong>Decommission</strong>.</li>
+<li>Type the node id to confirm.</li>
 </ol>
 <p>The API call is <code>POST /api/nodes/{id}/decommission?confirm={id}</code>.</p>
+<p>Until the decommission, you can undo the removal. The dashboard offers <strong>Undo</strong> for one day, and you can add the node to the config again. The node stays in the cluster, so it needs no new join.</p>
 <p>HomeGAP removes only its own records. In cluster mode, the decommission also does these steps:</p>
 <ul>
 <li>It removes the homelab site and the exit site of the node from the Pangolin of the cluster.</li>
 <li>It removes the exit node of the node from the Pangolin of the cluster.</li>
-<li>It removes the member of the node from the vote, and deletes its data.</li>
+<li>It removes the member of the node from the vote before it stops the stack, and deletes its data.</li>
 </ul>
+<p>In both modes, the decommission then removes the install directory from the node, with the data and the secrets of the stack. If you add the node again, it starts as a new node.</p>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p>A decommission deletes the data of the node. In standalone mode, that includes the Pangolin database of the node.</p>
+</div>
+<h3 id="if-the-teardown-fails">If the teardown fails<a class="headerlink" href="#if-the-teardown-fails" title="Permanent link">&para;</a></h3>
+<p>If HomeGAP cannot connect to the node, or a step of the teardown fails, the node stays on the <strong>Nodes</strong> page with the status "teardown failed". The activity log shows the error. The node is out of the cluster vote, but its stack and its secrets can still be on the server.</p>
+<ul>
+<li>To try again, click <strong>Decommission again</strong>.</li>
+<li>If the server is gone, click <strong>Forget node</strong>. HomeGAP then removes the node from its list and does not connect to the server. The API call is <code>POST /api/nodes/{id}/decommission?confirm={id}&amp;force=true</code>.</li>
+</ul>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p><strong>Forget node</strong> leaves the stack and the secrets on a server that still runs. Use it only when the server is deleted at the provider.</p>
+</div>
 <h2 id="re-provision-a-node">Re-provision a node<a class="headerlink" href="#re-provision-a-node" title="Permanent link">&para;</a></h2>
 <p>Click <strong>Re-provision</strong> on the <strong>Nodes</strong> page. The API call is <code>POST /api/nodes/{id}/provision</code>.</p>
 <p>You can destroy and recreate a VPS safely, because HomeGAP can build each node again from nothing. A rebuilt server has a new host key. In the wizard, click <strong>Forget the old host key and retry</strong>.</p>

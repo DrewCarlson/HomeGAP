@@ -1069,6 +1069,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-homelab-as-a-vote-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The homelab as a vote only
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-primary" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -1154,6 +1165,56 @@
       </span>
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-and-restore" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Backup and restore
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backup and restore">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-to-keep" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What to keep
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#check-that-a-dump-restores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check that a dump restores
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#restore-a-dump" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restore a dump
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2417,6 +2478,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-homelab-as-a-vote-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The homelab as a vote only
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-primary" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2502,6 +2574,56 @@
       </span>
     </span>
   </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-and-restore" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Backup and restore
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backup and restore">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-to-keep" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        What to keep
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#check-that-a-dump-restores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check that a dump restores
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#restore-a-dump" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restore a dump
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2649,6 +2771,21 @@
 </table>
 <p>Thus each node runs five cluster containers plus the probe, and the homelab runs four.</p>
 <p>Each node member is its own compose project in <code>/opt/homegap/cluster</code>, under <code>pangolin.install_dir</code>. It is separate from the Pangolin stack, so a stack update never restarts the database. When you remove a node, HomeGAP removes its member from the vote and deletes its data. The Valkey Sentinels never forget a member by themselves. While one still knows a removed member, it uses a full CPU core, so HomeGAP has it forget the member (<code>SENTINEL RESET</code>), one Sentinel at a time and at least 30 seconds apart. The log then shows "Sentinel forgot departed" and the member's address.</p>
+<h2 id="the-homelab-as-a-vote-only">The homelab as a vote only<a class="headerlink" href="#the-homelab-as-a-vote-only" title="Permanent link">&para;</a></h2>
+<p>By default, the homelab is a full member. It holds a copy of the database and is the primary when it can.</p>
+<p>With <code>cluster.homelab_role: vote</code>, the homelab only votes. It runs etcd and Valkey Sentinel, and it runs no PostgreSQL and no Valkey. The <code>homegap-db</code> and <code>homegap-valkey</code> containers wait and do nothing. The database and Valkey are on the nodes only:</p>
+<ul>
+<li>The nodes elect the primary between them. The vote of the homelab gives two nodes a majority when one node fails.</li>
+<li>There is no preferred member and no switch-back. The primary stays where the vote puts it.</li>
+<li>Once a day, HomeGAP makes a dump of the database on a node. It keeps the newest seven in <code>cluster/backups</code> in the data directory of the orchestrator.</li>
+<li><code>homegap maintenance start</code> moves nothing, because the homelab holds no primary.</li>
+</ul>
+<p>Each node is a member of the database, and members share their settings. Thus a person with root on a node can run commands in each container that runs a database member. In this mode, no such container is on the homelab. Use it if you do not trust your nodes as much as your homelab. The price is that the live data is on the nodes, not at home.</p>
+<div class="admonition warning">
+<p class="admonition-title">Caution</p>
+<p>Set <code>homelab_role</code> before the first start of the cluster. HomeGAP records the role when it creates the cluster. If you change the value later, the cluster part of each pass fails until you restore the first value.</p>
+</div>
+<p>With this role, use two or more nodes. With one node, the database has no second copy.</p>
 <h2 id="the-primary">The primary<a class="headerlink" href="#the-primary" title="Permanent link">&para;</a></h2>
 <p>The homelab is the primary. It starts the cluster. The nodes then join one at a time: first the vote, then as <code>streaming</code> replicas.</p>
 <h3 id="failover">Failover<a class="headerlink" href="#failover" title="Permanent link">&para;</a></h3>
@@ -2695,11 +2832,61 @@
 <h2 id="settings-passwords-and-backups">Settings, passwords and backups<a class="headerlink" href="#settings-passwords-and-backups" title="Permanent link">&para;</a></h2>
 <p>PostgreSQL runs without JIT compilation. Pangolin makes only small lookups, and a connection that uses JIT keeps approximately 40 MB.</p>
 <p>A change to the settings does not restart the database. Patroni reads <code>patroni.yml</code> again. The settings that need a restart of PostgreSQL show as pending. The <code>db</code> container of the homelab reads a changed file within ten seconds.</p>
-<p>HomeGAP creates the passwords one time and keeps them in <code>cluster/secrets.json</code> in the data directory.</p>
+<p>Pangolin uses the database <code>pangolin</code> with the role <code>pangolin</code>, which owns that database and is not a superuser. The homelab member creates both when it creates the cluster. The superuser <code>postgres</code> can sign in only from inside a member. Replication uses the role <code>replicator</code>, and <code>pg_rewind</code> uses the role <code>rewinder</code>.</p>
+<p>HomeGAP creates the passwords one time and keeps them in <code>cluster/secrets.json</code> in the data directory. The database keeps the passwords from its creation, so HomeGAP never creates new ones for a cluster that runs. If the file is gone or damaged, the cluster part of each pass fails until you restore the file. Keep a backup of it.</p>
 <p>The homelab member writes a nightly <code>pg_dump</code> to <code>./backups</code>, next to the homelab compose file (<code>HG_BACKUP_DIR: /backups</code>). It keeps the newest seven.</p>
+<h2 id="backup-and-restore">Backup and restore<a class="headerlink" href="#backup-and-restore" title="Permanent link">&para;</a></h2>
+<h3 id="what-to-keep">What to keep<a class="headerlink" href="#what-to-keep" title="Permanent link">&para;</a></h3>
+<p>A dump holds the database <code>pangolin</code>: the users, the devices, the sites and the resources of Pangolin. To restore a homelab, keep these items together:</p>
+<ul>
+<li>The dumps in <code>./backups</code>. With <code>cluster.homelab_role: vote</code>, they are in <code>cluster/backups</code> in the data directory.</li>
+<li>The data directory of the orchestrator (the <code>homegap-data</code> volume). It holds the state cache, the cluster passwords and the ACME account.</li>
+<li>The config file.</li>
+</ul>
+<p>The dumps are on the same disk as the database of the homelab. We recommend that you copy them to a different machine each day.</p>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p>A dump is not encrypted. It contains the email addresses and the password hashes of your Pangolin users. Encrypt each copy that leaves the homelab.</p>
+</div>
+<p>This command makes one encrypted file from the dumps. It reads the passphrase from a file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>tar<span class="w"> </span>-cz<span class="w"> </span>backups<span class="w"> </span><span class="p">|</span><span class="w"> </span>openssl<span class="w"> </span>enc<span class="w"> </span>-aes-256-cbc<span class="w"> </span>-pbkdf2<span class="w"> </span>-salt<span class="w"> </span>-pass<span class="w"> </span>file:backup.pass<span class="w"> </span>-out<span class="w"> </span>homegap-backups.tar.gz.enc
+</code></pre></div>
+<h3 id="check-that-a-dump-restores">Check that a dump restores<a class="headerlink" href="#check-that-a-dump-restores" title="Permanent link">&para;</a></h3>
+<p>We recommend that you do this check each month. It restores the newest dump into an empty database and then removes that database. The primary must be on the homelab.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>homegap-db<span class="w"> </span>sh<span class="w"> </span>-c<span class="w"> </span><span class="s1">'gosu postgres createdb -h /var/run/postgresql -U postgres hg_restore_check \</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="s1">  &amp;&amp; gosu postgres pg_restore -h /var/run/postgresql -U postgres --no-owner -d hg_restore_check "$(ls -1t /backups/homegap-*.dump | head -n 1)" \</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s1">  &amp;&amp; gosu postgres psql -h /var/run/postgresql -U postgres -d hg_restore_check -Atc "select count(*) from information_schema.tables where table_schema = '</span><span class="s2">"'"</span><span class="s1">'public'</span><span class="s2">"'"</span><span class="s1">'"; \</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="s1">  gosu postgres dropdb -h /var/run/postgresql -U postgres hg_restore_check'</span>
+</code></pre></div>
+<p>The command prints the number of tables in the dump. A number above zero and no error show that the dump is good.</p>
+<h3 id="restore-a-dump">Restore a dump<a class="headerlink" href="#restore-a-dump" title="Permanent link">&para;</a></h3>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p>A restore replaces the contents of the database <code>pangolin</code> with the contents of the dump. You lose each change after the time of the dump.</p>
+</div>
+<ol>
+<li>On the dashboard, click <strong>Pause</strong>. HomeGAP then makes no changes.</li>
+<li>In the <strong>Cluster database</strong> panel, make sure that the primary is on the homelab. If it is not, click <strong>Make primary</strong> on the homelab member.</li>
+<li>On each node, stop Pangolin:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>stop<span class="w"> </span>pangolin
+</code></pre></div></li>
+<li>On the homelab, restore the dump. Replace the file name:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>homegap-db<span class="w"> </span>gosu<span class="w"> </span>postgres<span class="w"> </span>pg_restore<span class="w"> </span>-h<span class="w"> </span>/var/run/postgresql<span class="w"> </span>-U<span class="w"> </span>postgres<span class="w"> </span>--clean<span class="w"> </span>--if-exists<span class="w"> </span>-d<span class="w"> </span>pangolin<span class="w"> </span>/backups/homegap-20261101T030000Z.dump
+</code></pre></div></li>
+<li>On each node, start Pangolin:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>start<span class="w"> </span>pangolin
+</code></pre></div></li>
+<li>On the dashboard, click <strong>Resume</strong>.</li>
+</ol>
+<p>The members on the nodes follow the primary. They need no restore.</p>
+<p>With <code>cluster.homelab_role: vote</code>, the database is on the nodes. Copy the dump to the node that holds the primary. Then run <code>pg_restore</code> in the <code>db</code> container of that node, in <code>/opt/homegap/cluster</code>, with the same options.</p>
+<div class="admonition warning">
+<p class="admonition-title">Caution</p>
+<p>After a restore, a node that you added after the time of the dump has no site in Pangolin. HomeGAP creates the site again on the next pass, and the tunnel of that node reconnects.</p>
+</div>
 <h2 id="maintenance-of-the-homelab-member">Maintenance of the homelab member<a class="headerlink" href="#maintenance-of-the-homelab-member" title="Permanent link">&para;</a></h2>
 <p>Before you work on the homelab member, move the primaries to the nodes. Run this command:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>maintenance<span class="w"> </span>start
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>maintenance<span class="w"> </span>start
 </code></pre></div>
 <p>The command does these steps:</p>
 <ol>
@@ -2710,7 +2897,7 @@
 <li>It holds them there, with no switch-back, until you end maintenance. The hold stops after <code>--minutes N</code> at most (default 30).</li>
 </ol>
 <p>To end the hold, run this command:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>maintenance<span class="w"> </span>end
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>maintenance<span class="w"> </span>end
 </code></pre></div>
 <p>After the end, the usual switch-back applies. <code>deploy/upgrade.sh</code> uses these commands. See <a href="../../operations/upgrade/">Upgrade the homelab</a>.</p>
 <h2 id="updates-of-the-node-members">Updates of the node members<a class="headerlink" href="#updates-of-the-node-members" title="Permanent link">&para;</a></h2>

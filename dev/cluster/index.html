@@ -2305,9 +2305,11 @@
 <h2 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Two or more nodes. The vote needs a majority. With the homelab and only one node, the loss of either one stops all writes.</li>
+<li>A decision about the role of the homelab, before the first start. The homelab can hold a copy of the database (the default) or only vote. See <a href="database/#the-homelab-as-a-vote-only">The homelab as a vote only</a>.</li>
 <li>WireGuard in the kernel of the homelab host. It is part of Linux 5.6 and later.</li>
-<li><code>cap_add: [NET_ADMIN]</code> on the orchestrator.</li>
-<li>The cluster containers of the homelab from <code>deploy/homelab-compose.yml</code>: <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. They share the network namespace of <code>homegap-mesh</code>.</li>
+<li>The <code>homegap-mesh</code> and <code>homegap-mesh-agent</code> services from <code>deploy/homelab-compose.yml</code>. The agent needs <code>cap_add: [NET_ADMIN, NET_RAW]</code>.</li>
+<li><code>cap_add: [NET_ADMIN]</code> on the orchestrator, for its route to the mesh.</li>
+<li>The cluster containers of the homelab from the same file: <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. They share the network namespace of <code>homegap-mesh</code>.</li>
 </ul>
 <h2 id="enable-cluster-mode">Enable cluster mode<a class="headerlink" href="#enable-cluster-mode" title="Permanent link">&para;</a></h2>
 <p>To use all the defaults, add this line to the config:</p>

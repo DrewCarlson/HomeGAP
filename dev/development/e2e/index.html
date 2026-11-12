@@ -2156,6 +2156,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-certificate-of-the-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The certificate of the nodes
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cluster-checks" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2163,6 +2174,23 @@
       </span>
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Cluster checks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-homelab-as-a-vote-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The homelab as a vote only
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2311,6 +2339,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-certificate-of-the-nodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The certificate of the nodes
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#cluster-checks" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2318,6 +2357,23 @@
       </span>
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Cluster checks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-homelab-as-a-vote-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The homelab as a vote only
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2383,22 +2439,39 @@
 <li>The health endpoint on port 80, which Bunny probes.</li>
 <li>The redirect from HTTP to HTTPS.</li>
 <li>A dedicated passthrough service, with the certificate of the origin.</li>
-<li>A dedicated terminate service, with the wildcard certificate of the node.</li>
+<li>A dedicated terminate service, with the certificate that HomeGAP orders for the nodes.</li>
 <li>Raw TCP on the public port 19000.</li>
+<li>The certificate on the node has no wildcard and no passthrough name. The ACME store of the node is empty.</li>
 </ul>
+<p>The script also checks that the zone has the two CAA records.</p>
+<h2 id="the-certificate-of-the-nodes">The certificate of the nodes<a class="headerlink" href="#the-certificate-of-the-nodes" title="Permanent link">&para;</a></h2>
+<p>The <code>pebble</code> service is a local ACME server in place of Let's Encrypt. It accepts each challenge without a DNS lookup. Thus the harness checks that HomeGAP writes and removes the challenge records. It does not check that they resolve.</p>
+<p>Pebble makes a new root certificate each time its container starts. <code>run.sh</code> reads the root and writes <code>work/certs/trust.pem</code>, which the viewer and the tunnels trust. After a new root, <code>run.sh</code> removes <code>work/data/acme</code>, so HomeGAP orders the certificate again.</p>
 <h2 id="cluster-checks">Cluster checks<a class="headerlink" href="#cluster-checks" title="Permanent link">&para;</a></h2>
 <p><code>e2e/config.e2e.yml</code> has cluster mode on. With the cluster, run <code>e2e/verify-cluster.sh</code> after <code>run.sh</code> and <code>verify.sh</code>. It takes approximately 5 minutes, and most of that time is the switch-back hold.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>e2e/verify-cluster.sh
 </code></pre></div>
 <p>The script has these sections:</p>
 <ol>
-<li>The database: every member is <code>streaming</code>, and the primary is on the homelab.</li>
+<li>The database: every member is <code>streaming</code>, and the primary is on the homelab. The newest dump restores into an empty database.</li>
 <li>A user that the dashboard creates signs in at <code>pangolin.&lt;domain&gt;</code> through every node.</li>
 <li>A Pangolin client (the <code>client</code> service) reaches a private service through the node that it goes to. <code>CLIENT_NODE_IP</code> takes the role of DNS. Private-only names arrive from the private network.</li>
 <li>The homelab is cut off from the mesh. A node becomes the primary and takes writes, and the homelab stops writes. After the repair, HomeGAP switches the primary back.</li>
 <li>Exit nodes: a client that selects <code>Exit via &lt;node&gt;</code> or <code>Exit via homelab</code> reaches the internet through that exit. This section needs internet access.</li>
+<li>The container of Pangolin on each node cannot reach the etcd peer port or the Sentinel of a member. etcd and Sentinel refuse a request without their password.</li>
 </ol>
 <p>To run only some sections, set <code>ONLY</code>, for example <code>ONLY="3 5"</code>.</p>
+<h3 id="the-homelab-as-a-vote-only">The homelab as a vote only<a class="headerlink" href="#the-homelab-as-a-vote-only" title="Permanent link">&para;</a></h3>
+<p>To test <code>cluster.homelab_role: vote</code>, start a new harness with <code>E2E_HOMELAB_ROLE=vote</code>. The role does not change on a cluster that runs. Thus use a different project name and an empty <code>e2e/work</code> folder:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">COMPOSE_PROJECT_NAME</span><span class="o">=</span>homegap-e2e-vote<span class="w"> </span><span class="nv">E2E_HOMELAB_ROLE</span><span class="o">=</span>vote<span class="w"> </span><span class="nv">E2E_NO_ENV</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>e2e/run.sh
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="nv">COMPOSE_PROJECT_NAME</span><span class="o">=</span>homegap-e2e-vote<span class="w"> </span>e2e/verify-cluster.sh
+</code></pre></div>
+<p><code>E2E_NO_ENV=1</code> makes <code>run.sh</code> ignore the <code>.env</code> file, so the harness does not activate a license key on the new database. In this mode, section 1 also checks that the database containers of the homelab are idle and that a dump is at home. Section 4 isolates the homelab from the mesh, then stops the database of the primary node.</p>
+<p>Two harnesses cannot run at the same time, because they use the same addresses and ports. Before you start the second harness, run <code>docker compose down</code> in <code>e2e/</code> for the first one.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you recreate a node container of the harness, recreate the <code>gerbil</code>, <code>traefik</code> and <code>maintenance</code> containers in it. Also recreate the connector in <code>/opt/homegap/exit</code>. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.</p>
+</div>
 
 
 

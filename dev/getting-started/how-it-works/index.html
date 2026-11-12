@@ -2419,7 +2419,7 @@
 <tbody>
 <tr>
 <td>Discovery</td>
-<td>Reads the <code>homegap.*</code> labels from the Docker socket (a read-only mount). If discovery fails, the orchestrator skips the Resources and DNS domains for that pass. An empty view can never delete anything.</td>
+<td>Reads the <code>homegap.*</code> labels from Docker, through a proxy that accepts only read requests. If discovery fails, the orchestrator skips the Resources and DNS domains for that pass. An empty view can never delete anything.</td>
 </tr>
 <tr>
 <td>Nodes</td>

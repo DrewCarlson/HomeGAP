@@ -1587,6 +1587,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#check-the-image-signatures" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the image signatures
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-script-does" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2322,6 +2333,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#check-the-image-signatures" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the image signatures
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-the-script-does" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2443,19 +2465,38 @@
 </tr>
 </tbody>
 </table>
+<h2 id="check-the-image-signatures">Check the image signatures<a class="headerlink" href="#check-the-image-signatures" title="Permanent link">&para;</a></h2>
+<p>The release build signs the <code>homegap</code> image and the <code>homegap-cluster</code> image with <a href="https://docs.sigstore.dev/cosign/system_config/installation/">cosign</a>. A signature shows that the build workflow of the HomeGAP repository made the image. The check is optional, and HomeGAP does not do it for you.</p>
+<p>To check an image before an upgrade:</p>
+<ol>
+<li>Install cosign on the homelab.</li>
+<li>
+<p>Do the check for the <code>homegap</code> image:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>cosign<span class="w"> </span>verify<span class="w"> </span>ghcr.io/drewcarlson/homegap:latest<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--certificate-oidc-issuer<span class="w"> </span>https://token.actions.githubusercontent.com<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--certificate-identity-regexp<span class="w"> </span><span class="s1">'^https://github\.com/DrewCarlson/HomeGAP/\.github/workflows/build\.yml@refs/tags/v'</span>
+</code></pre></div>
+</li>
+<li>
+<p>Do the same check for <code>ghcr.io/drewcarlson/homegap-cluster:latest</code>.</p>
+</li>
+</ol>
+<p>If the image has a signature from a release build, the command shows the signature and exits with 0. If the command fails, do not run the upgrade.</p>
 <h2 id="what-the-script-does">What the script does<a class="headerlink" href="#what-the-script-does" title="Permanent link">&para;</a></h2>
 <ol>
 <li>It pulls the new images.</li>
-<li>It recreates the orchestrator. Traffic never goes through the orchestrator, so this does not stop access. The script waits up to 120 seconds for the orchestrator to start.</li>
+<li>It recreates the orchestrator. Traffic never goes through the orchestrator, so this does not stop access. The script waits up to 120 seconds for the orchestrator to start. Then it recreates the mesh agent.</li>
 <li>It moves the database primary and the Valkey primary to a node, and holds them there (<code>homegap maintenance start --minutes 30</code>).</li>
 <li>It recreates the cluster containers of the homelab one at a time. It waits up to 5 minutes for each container to serve again.</li>
 <li>It recreates the tunnel connectors, but only if their code or Newt is different.</li>
 <li>It ends the hold (<code>homegap maintenance end</code>). The primaries return to the homelab after the switch-back delay of the cluster.</li>
 </ol>
 <p>If the script cannot move the primaries, it stops and does not touch the cluster containers. Correct the cause and run the script again.</p>
-<p>If a cluster container does not serve after 5 minutes, the script stops. The primaries stay on the nodes for 30 minutes at most.</p>
+<p>If the orchestrator or a cluster container does not serve with its new image, the script restores the previous image of that service. Then it stops. The services after it keep their previous image. The script restores the image with a tag: it gives the previous image the image name of the compose file. A later <code>docker compose pull</code> gets the new image again.</p>
+<p>If the service does not serve with its previous image either, the script stops and shows the last lines of its log.</p>
+<p>When the script stops early, it ends the hold. The primaries then return to the homelab when its member is healthy again. If the start of the maintenance fails, HomeGAP removes the hold at once.</p>
 <h2 id="the-mesh-container">The mesh container<a class="headerlink" href="#the-mesh-container" title="Permanent link">&para;</a></h2>
-<p>The script never recreates <code>homegap-mesh</code>. Everything in its network namespace restarts with it.</p>
+<p>The script never recreates <code>homegap-mesh</code>. The mesh and every container in its network namespace restart with it. The script does recreate <code>homegap-mesh-agent</code>. The mesh interface stays up without the agent.</p>
 <h2 id="the-tunnels-container">The tunnels container<a class="headerlink" href="#the-tunnels-container" title="Permanent link">&para;</a></h2>
 <p>The <code>tunnels</code> container restarts every Newt connector at once. Thus every node loses the homelab for a few seconds.</p>
 <p>The script recreates it only when the tunnels version of the new image is different. This version covers the code of the tunnel supervisor, its platform layer, the dependency versions and Newt. The script also recreates it when it does not run, or with <code>--tunnels</code>.</p>

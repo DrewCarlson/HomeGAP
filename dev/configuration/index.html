@@ -2325,7 +2325,8 @@
 <p>To check a different file, add <code>--config PATH</code>. If the file is valid, the command prints <code>OK: &lt;n&gt; node(s), domain &lt;domain&gt;, zone &lt;zone&gt;</code>. If not, it prints <code>Invalid configuration:</code> and the list of errors.</p>
 <h2 id="edits-from-the-dashboard">Edits from the dashboard<a class="headerlink" href="#edits-from-the-dashboard" title="Permanent link">&para;</a></h2>
 <p>With <code>dashboard.allow_config_edits: true</code> (the default), the dashboard can add and remove nodes. Each such change writes the config file again. The config mount must be writable for this.</p>
-<p>Before each write, HomeGAP saves the previous file next to it as <code>&lt;file&gt;.bak-&lt;epoch ms&gt;</code>, with mode 0600. The new file starts with this comment:</p>
+<p>Each change from the dashboard starts from the file on the disk. Thus an edit that you make by hand a moment before stays in the file. If the file has an error, HomeGAP does not write it, and the dashboard shows the error.</p>
+<p>Before each write, HomeGAP saves the previous file next to it as <code>&lt;file&gt;.bak-&lt;epoch ms&gt;</code>, with mode 0600. It keeps the newest 10 backups. The new file starts with this comment:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a># Managed by HomeGAP; edited from the dashboard. Previous version saved alongside as .bak-*
 </code></pre></div>
 <div class="admonition warning">
@@ -2341,8 +2342,7 @@
 <li><code>bunny.zone</code> is equal to <code>domain</code>, or a parent of it.</li>
 <li><code>bunny.routing</code> is <code>geolocation</code>, <code>latency</code> or <code>none</code>.</li>
 <li><code>bunny.monitor</code> is <code>http</code>, <code>ping</code> or <code>none</code>.</li>
-<li><code>certificates.source</code> is <code>none</code>, <code>files</code> or <code>acme_json</code>.</li>
-<li>With <code>files</code>, <code>cert_file</code> and <code>key_file</code> are set. With <code>acme_json</code>, <code>acme_json</code> is set.</li>
+<li><code>acme.directory</code> starts with <code>https://</code>.</li>
 <li>Each node id matches <code>^[a-z][a-z0-9-]{0,30}$</code>, and each node id is unique.</li>
 <li>Each <code>ssh_allow_from</code> entry is an IP address or a CIDR.</li>
 <li>Each node has an IPv4 address (<code>public_ipv4</code>, or a <code>host</code> that is an IPv4 literal), or a <code>public_ipv6</code>.</li>
@@ -2363,6 +2363,7 @@
 <ul>
 <li><code>speedtest.hostname</code> is a single lowercase label.</li>
 <li><code>speedtest.phase_seconds</code> is from 2 to 30.</li>
+<li><code>speedtest.link_budget_gb</code> is from 1 to 1000.</li>
 <li><code>speedtest.streams</code> is from 1 to 16.</li>
 <li><code>speedtest.link_ttl</code> is a valid duration, and <code>speedtest.bind</code> is in the form <code>host:port</code>.</li>
 <li><code>speedtest.bind</code> is different from <code>dashboard.bind</code>.</li>

@@ -2385,6 +2385,18 @@
 <td>The state cache, with mode 0600.</td>
 </tr>
 <tr>
+<td><code>state.json.bak</code></td>
+<td>A copy of the state cache from the last start. HomeGAP uses it if <code>state.json</code> is damaged.</td>
+</tr>
+<tr>
+<td><code>discovery.json</code></td>
+<td>The containers of the last discovery, with their labels. HomeGAP uses it for the grace period of a container that is gone.</td>
+</tr>
+<tr>
+<td><code>dashboard-token</code></td>
+<td>The dashboard token that HomeGAP creates if the config gives none, with mode 0600.</td>
+</tr>
+<tr>
 <td><code>known_hosts</code></td>
 <td>The SSH host keys of the nodes.</td>
 </tr>
@@ -2398,15 +2410,27 @@
 </tr>
 <tr>
 <td><code>tunnels/</code></td>
-<td>The connector specs, which the <code>tunnels</code> container also reads.</td>
+<td>The connector specs, which the <code>tunnels</code> container also reads. With the shipped compose file, this is the <code>homegap-tunnels</code> volume at <code>/tunnels</code>.</td>
+</tr>
+<tr>
+<td><code>acme/</code></td>
+<td>The ACME account key, and the certificate of the nodes with its key. See <a href="../../configuration/certificates/">Certificates</a>.</td>
 </tr>
 <tr>
 <td><code>cluster/secrets.json</code></td>
-<td>The cluster passwords.</td>
+<td>The cluster passwords: PostgreSQL, Valkey, Sentinel, etcd and the Patroni API.</td>
+</tr>
+<tr>
+<td><code>cluster/homelab-role</code></td>
+<td>The role of the homelab that HomeGAP records when it creates the cluster.</td>
+</tr>
+<tr>
+<td><code>cluster/backups/</code></td>
+<td>With <code>cluster.homelab_role: vote</code>, the daily dumps of the cluster database. HomeGAP keeps the newest seven.</td>
 </tr>
 <tr>
 <td><code>cluster/config/</code></td>
-<td>The configs of the homelab member, which the cluster containers read.</td>
+<td>The configs of the homelab member, which the cluster containers read. With the shipped compose file, this is the <code>homegap-cluster-config</code> volume at <code>/cluster-config</code>.</td>
 </tr>
 <tr>
 <td><code>cluster/maintenance</code></td>
@@ -2414,7 +2438,7 @@
 </tr>
 <tr>
 <td><code>mesh/</code></td>
-<td>The mesh state of the homelab.</td>
+<td>The description of the mesh for the mesh agent, its status and the mesh key of the homelab. With the shipped compose file, this is the <code>homegap-mesh</code> volume at <code>/mesh</code>.</td>
 </tr>
 <tr>
 <td><code>locations.yml</code></td>
@@ -2423,10 +2447,6 @@
 <tr>
 <td><code>speedtests.json</code></td>
 <td>The results of the speed tests.</td>
-</tr>
-<tr>
-<td><code>share-links.json</code></td>
-<td>The read-only share links of the dashboard, with mode 0600. It holds only a hash of each token.</td>
 </tr>
 </tbody>
 </table>
