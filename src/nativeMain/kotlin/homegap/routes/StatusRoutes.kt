@@ -34,6 +34,7 @@ import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeStringUtf8
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.withTimeoutOrNull
@@ -68,7 +69,7 @@ class StatusRoutes(
     }
 
     suspend fun RoutingContext.getStatus() {
-        call.respond(controller.snapshot())
+        call.respond(controller.status.value ?: controller.refreshStatus())
     }
 
     /**
@@ -97,10 +98,12 @@ class StatusRoutes(
         val sentJobs = mutableMapOf<String, SetupJobDto>()
         var sentAccess = access.revision.value
         var sentLive: SpeedTestLiveDto? = null
-        val changes = merge(controller.changes, setup.changes, access.revision).conflate().produceIn(this)
+        // The controller publishes the status; this stream only reads it.
+        val published = controller.status.map { it?.generatedAt ?: 0L }
+        val changes = merge(published, controller.log.revision, setup.changes, access.revision).conflate().produceIn(this)
         try {
             while (true) {
-                val snapshot = controller.snapshot()
+                val snapshot = controller.status.value ?: controller.refreshStatus()
                 val state = snapshot.withoutLiveValues()
                 val now = nowMillis()
                 val previous = sentFields

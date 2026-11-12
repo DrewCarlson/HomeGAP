@@ -42,7 +42,9 @@ import homegap.tunnels.TunnelFiles
 import io.ktor.client.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -68,13 +70,53 @@ class Controller(
     private val ssh: SshPool,
     val speedTokens: homegap.speedtest.SpeedTestTokens,
     val speedStore: homegap.speedtest.SpeedTestStore,
-    private val loop: ControllerLoop,
 ) {
     private val configPath = options.configPath
     private val dryRunOverride = options.dryRun
     @Volatile var config: AppConfig = initialConfig
         private set
     private val passMutex = Mutex()
+
+    /**
+     * The event loop that owns the state of the controller. The maps and lists below are plain,
+     * and only code on this loop reads or changes them. The HTTP server has its own threads:
+     *
+     * - A request that reads gets a finished value: [status], [config], [desired], [lastDiff].
+     *   It never waits for the loop.
+     * - A request that changes something goes to the loop through [onLoop].
+     */
+    @Volatile private var loop: CoroutineDispatcher? = null
+
+    private val published = kotlinx.coroutines.flow.MutableStateFlow<StatusSnapshot?>(null)
+
+    /** The newest status of the system. The loop builds it, and each reader gets the same value. */
+    val status: kotlinx.coroutines.flow.StateFlow<StatusSnapshot?> = published
+
+    /** Runs [action] on the loop, then publishes the status, so the caller reads its own change. */
+    private suspend fun <T> onLoop(action: suspend () -> T): T {
+        val run: suspend () -> T = { action().also { publishStatus() } }
+        return loop?.let { withContext(it) { run() } } ?: run()
+    }
+
+    /** Builds the status on the loop and publishes it. */
+    suspend fun refreshStatus(): StatusSnapshot = loop?.let { withContext(it) { publishStatus() } } ?: publishStatus()
+
+    private fun publishStatus(): StatusSnapshot = snapshot().also { published.value = it }
+
+    /**
+     * Keeps [status] current: after each change, and every few seconds while a dashboard listens,
+     * because the tunnel status comes from files with no change signal.
+     */
+    private suspend fun keepStatusCurrent(scope: CoroutineScope) {
+        val wake = changes.conflate().produceIn(scope)
+        while (true) {
+            publishStatus()
+            val listening = published.subscriptionCount.value > 0
+            withTimeoutOrNull(if (listening) STATUS_RECHECK_MS else STATUS_IDLE_MS) { wake.receive() }
+            // Changes come in groups (a pass writes many log entries): one build for the group.
+            delay(STATUS_SETTLE_MS)
+        }
+    }
     /** Bumped when in-memory status changes (passes, background jobs). */
     private val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
 
@@ -167,7 +209,9 @@ class Controller(
      * map, for dashboard actions on its users and devices; null without a cluster or a ready node.
      */
     /** Moves the database primary to [to] now (dashboard); see [ClusterReconciler.switchover]. */
-    suspend fun switchPrimary(to: String): String {
+    suspend fun switchPrimary(to: String): String = onLoop { switchPrimaryOnLoop(to) }
+
+    private suspend fun switchPrimaryOnLoop(to: String): String {
         check(config.cluster != null && !dryRun) { "the cluster is not enabled" }
         val message = clusterRec.switchover(to)
         log.change("cluster", "$message (requested from the dashboard)")
@@ -176,7 +220,9 @@ class Controller(
     }
 
     /** Moves the primaries off the homelab and holds them there (see [ClusterReconciler.beginMaintenance]). */
-    suspend fun beginMaintenance(holdMinutes: Int): String {
+    suspend fun beginMaintenance(holdMinutes: Int): String = onLoop { beginMaintenanceOnLoop(holdMinutes) }
+
+    private suspend fun beginMaintenanceOnLoop(holdMinutes: Int): String {
         val cluster = config.cluster
         check(cluster != null && !dryRun) { "the cluster is not enabled" }
         // No pass right away: Pangolin's connections are still moving to the new primary.
@@ -185,7 +231,9 @@ class Controller(
         return message
     }
 
-    fun endMaintenance(): String {
+    suspend fun endMaintenance(): String = onLoop { endMaintenanceOnLoop() }
+
+    private fun endMaintenanceOnLoop(): String {
         check(config.cluster != null) { "the cluster is not enabled" }
         val message = clusterRec.endMaintenance()
         log.change("cluster", message)
@@ -259,13 +307,17 @@ class Controller(
         triggers.trySend(reason)
     }
 
-    fun requestProvision(nodeId: String) {
+    suspend fun requestProvision(nodeId: String) = onLoop { requestProvisionOnLoop(nodeId) }
+
+    private fun requestProvisionOnLoop(nodeId: String) {
         forceProvision += nodeId
         trigger("provision:$nodeId")
     }
 
     /** Clears a failed or skipped update and applies it to [nodeId] now, with rollback. */
-    suspend fun retryUpdate(nodeId: String): String {
+    suspend fun retryUpdate(nodeId: String): String = onLoop { retryUpdateOnLoop(nodeId) }
+
+    private suspend fun retryUpdateOnLoop(nodeId: String): String {
         requireNotNull(config.node(nodeId)) { "unknown node $nodeId" }
         check(jobs[nodeId]?.second?.isActive != true) { "$nodeId is already being provisioned" }
         state.updateNode(nodeId) { it.copy(update = null) }
@@ -275,7 +327,9 @@ class Controller(
     }
 
     /** Releases the rollout hold caused by [nodeId]: it stays on its current stack. */
-    suspend fun skipUpdate(nodeId: String): String {
+    suspend fun skipUpdate(nodeId: String): String = onLoop { skipUpdateOnLoop(nodeId) }
+
+    private suspend fun skipUpdateOnLoop(nodeId: String): String {
         val u = state.node(nodeId).update ?: throw IllegalStateException("$nodeId has no failed update")
         state.updateNode(nodeId) { it.copy(update = u.copy(status = "skipped")) }
         log.change("nodes", "update skipped; the rollout continues without this node", nodeId)
@@ -284,7 +338,7 @@ class Controller(
     }
 
     suspend fun run(scope: CoroutineScope, once: Boolean) {
-        loop.dispatcher = currentCoroutineContext()[kotlin.coroutines.ContinuationInterceptor] as? CoroutineDispatcher
+        loop = currentCoroutineContext()[kotlin.coroutines.ContinuationInterceptor] as? CoroutineDispatcher
         if (!dryRun) {
             runCatching { config.adoptSharedDirs() }.onFailure { log.error("controller", "could not bring the shared files to their new place: ${it.message}") }
         }
@@ -293,6 +347,7 @@ class Controller(
             return
         }
         jobScope = scope
+        scope.launch { keepStatusCurrent(scope) }
         scope.launch { watchDocker() }
         scope.launch {
             while (isActive) {
@@ -865,14 +920,8 @@ class Controller(
         return out
     }
 
-    /**
-     * The nodes of the last [snapshot]. The public listener reads them from its own threads, so
-     * it gets this finished list and does not build a snapshot from the state of a pass.
-     */
-    @Volatile var publicNodes: List<homegap.api.NodeStatusDto> = emptyList()
-        private set
-
-    fun snapshot(): StatusSnapshot {
+    /** Reads the state of the controller, so only code on the loop calls it. See [status]. */
+    private fun snapshot(): StatusSnapshot {
         val cfg = config
         val st = state.snapshot()
         val plan = desired
@@ -997,7 +1046,6 @@ class Controller(
                 newtVersion = newtVersions[n.id],
             )
         }
-        publicNodes = nodes
         return StatusSnapshot(
             generatedAt = nowMillis(),
             version = VERSION,
@@ -1150,7 +1198,9 @@ class Controller(
     /** The homelab ↔ node test running now, as far as it has got; null when none runs. */
     fun speedLive(): homegap.api.SpeedTestLiveDto? = speedTokens.live.snapshot()
 
-    suspend fun runTunnelSpeedTest(nodeId: String, streams: Int? = null): SpeedTestResultDto {
+    suspend fun runTunnelSpeedTest(nodeId: String, streams: Int? = null): SpeedTestResultDto = onLoop { runTunnelSpeedTestOnLoop(nodeId, streams) }
+
+    private suspend fun runTunnelSpeedTestOnLoop(nodeId: String, streams: Int?): SpeedTestResultDto {
         val cfg = config
         require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
         val node = cfg.node(nodeId) ?: throw IllegalArgumentException("unknown node $nodeId")
@@ -1192,7 +1242,9 @@ class Controller(
      * Tests every node, one at a time, on the orchestrator: the run goes on if the dashboard is
      * closed, and its progress is in the snapshot ([StatusSnapshot.speedRun]).
      */
-    fun startSpeedRun(streams: Int?): String {
+    suspend fun startSpeedRun(streams: Int?): String = onLoop { startSpeedRunOnLoop(streams) }
+
+    private fun startSpeedRunOnLoop(streams: Int?): String {
         val cfg = config
         require(cfg.speedtest.enabled) { "speed tests are disabled (speedtest.enabled=false)" }
         check(speedRunJob?.isActive != true) { "a test of all nodes is already running" }
@@ -1225,7 +1277,9 @@ class Controller(
     }
 
     /** Stops a run after the node being tested now. */
-    fun cancelSpeedRun(): String {
+    suspend fun cancelSpeedRun(): String = onLoop { cancelSpeedRunOnLoop() }
+
+    private fun cancelSpeedRunOnLoop(): String {
         val job = speedRunJob?.takeIf { it.isActive } ?: return "No test of all nodes is running"
         job.cancel()
         return "Stopped the test of all nodes"
@@ -1233,7 +1287,9 @@ class Controller(
 
     // ------------------------------------------------------------------ dashboard actions
 
-    suspend fun setPause(scope: String, id: String?, paused: Boolean): String {
+    suspend fun setPause(scope: String, id: String?, paused: Boolean): String = onLoop { setPauseOnLoop(scope, id, paused) }
+
+    private suspend fun setPauseOnLoop(scope: String, id: String?, paused: Boolean): String {
         when (scope) {
             "global" -> state.update { it.copy(pauses = it.pauses.copy(global = paused)) }
             "node" -> {
@@ -1268,7 +1324,9 @@ class Controller(
         return next
     }
 
-    suspend fun addNode(node: NodeConfig): String {
+    suspend fun addNode(node: NodeConfig): String = onLoop { addNodeOnLoop(node) }
+
+    private suspend fun addNodeOnLoop(node: NodeConfig): String {
         editConfig { current ->
             require(current.node(node.id) == null) { "node ${node.id} already exists" }
             current.copy(nodes = current.nodes + node)
@@ -1280,7 +1338,9 @@ class Controller(
     }
 
     /** Sets (or with null, clears) where the homelab is, for the maps. Rewrites the config file. */
-    fun setHomelabLocation(place: homegap.api.PlaceDto?): String {
+    suspend fun setHomelabLocation(place: homegap.api.PlaceDto?): String = onLoop { setHomelabLocationOnLoop(place) }
+
+    private fun setHomelabLocationOnLoop(place: homegap.api.PlaceDto?): String {
         val location = place?.let {
             require(it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0) { "coordinates are out of range" }
             homegap.config.GeoLocation(it.latitude, it.longitude, it.name?.trim()?.ifBlank { null })
@@ -1295,7 +1355,9 @@ class Controller(
      * Sets where node [id] is: its coordinates steer geo DNS and place it on the maps. Rewrites
      * its config entry and runs a pass so DNS follows.
      */
-    fun setNodeLocation(id: String, place: homegap.api.PlaceDto): String {
+    suspend fun setNodeLocation(id: String, place: homegap.api.PlaceDto): String = onLoop { setNodeLocationOnLoop(id, place) }
+
+    private fun setNodeLocationOnLoop(id: String, place: homegap.api.PlaceDto): String {
         require(place.latitude in -90.0..90.0 && place.longitude in -180.0..180.0) { "coordinates are out of range" }
         val location = homegap.config.GeoLocation(place.latitude, place.longitude, place.name?.trim()?.ifBlank { null })
         editConfig { current ->
@@ -1313,7 +1375,9 @@ class Controller(
     private val undoables = mutableMapOf<String, Undoable>()
 
     /** Keeps [undo] for [ttlMs] and returns the id that runs it ([undo]). */
-    fun offerUndo(ttlMs: Long, undo: suspend () -> String): String {
+    suspend fun offerUndo(ttlMs: Long, undo: suspend () -> String): String = onLoop { offerUndoOnLoop(ttlMs, undo) }
+
+    private fun offerUndoOnLoop(ttlMs: Long, undo: suspend () -> String): String {
         val now = nowMillis()
         undoables.entries.removeAll { it.value.expiresAt < now }
         val id = homegap.platform.Crypto.token(12)
@@ -1322,14 +1386,18 @@ class Controller(
     }
 
     /** Undoes an earlier action, while it still can be. */
-    suspend fun undo(id: String): String {
+    suspend fun undo(id: String): String = onLoop { undoOnLoop(id) }
+
+    private suspend fun undoOnLoop(id: String): String {
         val undoable = undoables.remove(id)?.takeIf { it.expiresAt >= nowMillis() }
             ?: throw IllegalArgumentException("that can no longer be undone")
         return undoable.undo()
     }
 
     /** Removes [id] from the config (DNS drains at once); it can be added back for a day. Returns the message and undo id. */
-    suspend fun removeNode(id: String): Pair<String, String> {
+    suspend fun removeNode(id: String): Pair<String, String> = onLoop { removeNodeOnLoop(id) }
+
+    private suspend fun removeNodeOnLoop(id: String): Pair<String, String> {
         var removed: NodeConfig? = null
         editConfig { current ->
             val found = requireNotNull(current.node(id)) { "unknown node $id" }
@@ -1388,7 +1456,9 @@ class Controller(
      * with the error, because its stack can still run. A second call tries again. With [force],
      * HomeGAP forgets the node without a teardown.
      */
-    suspend fun confirmDecommission(id: String, confirm: String, force: Boolean = false): String {
+    suspend fun confirmDecommission(id: String, confirm: String, force: Boolean = false): String = onLoop { confirmDecommissionOnLoop(id, confirm, force) }
+
+    private suspend fun confirmDecommissionOnLoop(id: String, confirm: String, force: Boolean): String {
         require(confirm == id) { "confirmation must equal the node id" }
         require(config.node(id) == null) { "node $id is still in the config; remove it first" }
         val ctx = ReconcileContext(config, state, log, ssh, localHttp, externalHttp, dryRun, DiffCollector())
@@ -1483,6 +1553,9 @@ internal fun ServiceNodeHealthDto.withProbe(probe: Controller.ServiceProbe?): Se
     }
 }
 
+private const val STATUS_RECHECK_MS = 5_000L
+private const val STATUS_IDLE_MS = 60_000L
+private const val STATUS_SETTLE_MS = 100L
 private const val TEARDOWN_STARTED = "the teardown did not finish"
 
 /** How long removing a node can be undone (until it is decommissioned). */
