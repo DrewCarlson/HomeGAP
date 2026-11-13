@@ -93,6 +93,8 @@ class AppPresenter(
     private val locations: homegap.presentation.locations.LocationsScreenPresenter,
     private val addNode: AddNodeScreenPresenter,
     private val nodeLocation: homegap.presentation.nodes.NodeLocationPresenter,
+    private val terminal: homegap.presentation.terminal.TerminalPresenter,
+    private val terminals: homegap.presentation.terminal.TerminalSessions,
 ) : Presenter<AppProps, AppModel> {
     private companion object {
         /** How long the controller must stay out of reach before the dashboard says so. */
@@ -153,6 +155,7 @@ class AppPresenter(
                 log = log,
                 router = router,
             ),
+            terminal = terminal.model(homegap.presentation.terminal.TerminalProps(connected = snapshot != null)),
             confirm = pendingConfirm?.let { confirmDialog(it) },
             onNavigate = remember { { route: Route -> router.navigate(route) } },
             onOpen = remember { { location: Location -> router.open(location) } },
@@ -183,7 +186,8 @@ class AppPresenter(
         var kind by remember { mutableStateOf<SearchKind?>(null) }
         var highlighted by remember { mutableStateOf(0) }
         val paused = snapshot?.paused == true
-        val actionHits = remember(paused) {
+        val terminalNodes = if (terminals.enabled) snapshot?.nodes?.map { it.id }.orEmpty() else emptyList()
+        val actionHits = remember(paused, terminalNodes) {
             listOfNotNull(
                 SearchHit(
                     kind = SearchKind.Action,
@@ -227,7 +231,14 @@ class AppPresenter(
                     subtitle = "Remove the dashboard token from this browser",
                     run = ::signOut,
                 ),
-            )
+            ) + terminalNodes.map { id ->
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = "Terminal on $id",
+                    subtitle = "Open a shell on the node",
+                    run = { terminals.open(id) },
+                )
+            }
         }
         val index = remember(snapshot, log, actionHits) {
             snapshot?.let {

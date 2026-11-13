@@ -46,6 +46,8 @@ data class FleetRowModel(
     val stack: String,
     val drift: String,
     val location: Location,
+    /** The row's own actions, behind its ⋮ button. */
+    val menu: List<ActionModel> = emptyList(),
 )
 
 /** A stack update rolling through the nodes one at a time. */

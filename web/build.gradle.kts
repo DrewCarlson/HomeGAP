@@ -39,6 +39,10 @@ kotlin {
             implementation(npm("@protomaps/basemaps", libs.versions.protomaps.basemaps.get()))
             implementation(npm("@fontsource/sora", libs.versions.fontsource.sora.get()))
             implementation(npm("@fontsource/jetbrains-mono", libs.versions.fontsource.jetbrains.mono.get()))
+            implementation(npm("@xterm/xterm", libs.versions.xterm.core.get()))
+            implementation(npm("@xterm/addon-fit", libs.versions.xterm.addon.fit.get()))
+            implementation(npm("@xterm/addon-web-links", libs.versions.xterm.addon.web.links.get()))
+            implementation(npm("@xterm/addon-search", libs.versions.xterm.addon.search.get()))
         }
     }
 }

@@ -127,6 +127,28 @@ class FakeControllerApi(
     override suspend fun removeInvitation(id: String) = ok("remove-invite $id")
     override suspend fun deviceAction(id: Int, action: String) = ok("device $id $action")
 
+    var terminalsValue = TerminalOverviewDto(enabled = false)
+
+    /** Terminals that the ticket call no longer knows. */
+    val goneTerminals = mutableSetOf<String>()
+    private var terminalCount = 0
+    private var ticketCount = 0
+
+    override suspend fun terminals() = terminalsValue
+
+    override suspend fun openTerminal(node: String, rows: Int, columns: Int): TerminalSessionDto {
+        calls += "terminal $node $rows $columns"
+        return TerminalSessionDto(id = "t${++terminalCount}", nodeId = node, startedAt = NOW)
+    }
+
+    override suspend fun terminalTicket(id: String): TerminalTicketDto {
+        calls += "ticket $id"
+        if (id in goneTerminals) throw ApiException(400, "unknown terminal $id")
+        return TerminalTicketDto("$id-ticket-${++ticketCount}")
+    }
+
+    override suspend fun closeTerminal(id: String) = ok("close terminal $id")
+
     var connection = ConnectionTestDto(
         ok = true, hostKeyFingerprint = "SHA256:abc", os = "ubuntu", osVersion = "24.04", arch = "x86_64",
         supported = true, privilege = "root", clientIp = "198.51.100.7",

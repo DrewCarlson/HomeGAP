@@ -31,7 +31,10 @@ fun SearchField(search: SearchModel) {
     }
 }
 
-/** ⌘K, Ctrl+K or "/" opens search from anywhere, except while typing in a field. */
+/**
+ * ⌘K, Ctrl+K or "/" opens search from anywhere, except while typing in a field. The terminal
+ * panel keeps every key: Ctrl+K belongs to the shell there.
+ */
 @Composable
 fun SearchShortcut(search: SearchModel) {
     val open by rememberUpdatedState(search.onOpen)
@@ -41,8 +44,9 @@ fun SearchShortcut(search: SearchModel) {
             val target = key.target
             val typing = target is HTMLInputElement || target is HTMLTextAreaElement ||
                 (target as? HTMLElement)?.isContentEditable == true
+            val inTerminal = (target as? HTMLElement)?.closest(".terminal-panel") != null
             val command = (key.metaKey || key.ctrlKey) && key.key.lowercase() == "k"
-            if (command || (key.key == "/" && !typing)) {
+            if (!inTerminal && (command || (key.key == "/" && !typing))) {
                 key.preventDefault()
                 open()
             }

@@ -79,6 +79,9 @@ private fun Fleet(rows: List<FleetRowModel>, onOpen: (Location) -> Unit) {
             Thead {
                 Tr {
                     headers.forEach { header -> Th { Text(header) } }
+                    if (rows.any { it.menu.isNotEmpty() }) {
+                        Th({ attr("aria-label", "Actions") })
+                    }
                 }
             }
             Tbody {
@@ -121,6 +124,23 @@ private fun Fleet(rows: List<FleetRowModel>, onOpen: (Location) -> Unit) {
                                 attr("data-label", "Drift")
                             }) {
                                 Text(row.drift)
+                            }
+                            if (row.menu.isNotEmpty()) {
+                                Td({
+                                    classes("fleet-menu")
+                                    // The menu is not the row: a click on it does not open the Inspector.
+                                    onClick { it.stopPropagation() }
+                                }) {
+                                    KebabMenu(
+                                        label = "Actions for ${row.id}",
+                                        items = row.menu.map { action ->
+                                            MenuItem(
+                                                label = action.label,
+                                                onClick = { action.onClick?.invoke() },
+                                            )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

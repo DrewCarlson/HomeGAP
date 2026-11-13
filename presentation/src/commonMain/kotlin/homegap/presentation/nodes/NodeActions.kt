@@ -23,6 +23,7 @@ class NodeActions(
     private val confirmations: Confirmations,
     private val pausedGuard: homegap.presentation.data.PausedGuard,
     private val relocation: NodeRelocation,
+    private val terminals: homegap.presentation.terminal.TerminalSessions,
 ) {
     /** The buttons for [node] in the Inspector, most used first. */
     fun forNode(node: NodeStatusDto): List<ActionModel> = buildList {
@@ -61,6 +62,7 @@ class NodeActions(
                 location = Location(Route.SpeedTest, node.id),
             )
         )
+        addAll(rowMenu(node.id))
         add(
             ActionModel(
                 label = "Re-provision",
@@ -111,6 +113,19 @@ class NodeActions(
                 )
             )
         }
+    }
+
+    /** The menu of node [id] in the fleet table: a terminal, when the orchestrator allows them. */
+    fun rowMenu(id: String): List<ActionModel> = if (terminals.enabled) {
+        listOf(
+            ActionModel(
+                label = "Terminal",
+                tooltip = "Open a shell on $id",
+                onClick = { terminals.open(id) },
+            )
+        )
+    } else {
+        emptyList()
     }
 
     fun reprovision(id: String) {

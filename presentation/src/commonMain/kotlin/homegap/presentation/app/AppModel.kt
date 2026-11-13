@@ -28,6 +28,8 @@ data class AppModel(
     val search: SearchModel,
     /** Change location for a node, over whichever screen opened it. */
     val nodeLocation: homegap.presentation.nodes.NodeLocationModel? = null,
+    /** The terminal panel, while a shell is open on a node. */
+    val terminal: homegap.presentation.terminal.TerminalPanelModel? = null,
     /** The confirm dialog, while a presenter asks. */
     val confirm: ConfirmDialogModel?,
     val onNavigate: (Route) -> Unit,

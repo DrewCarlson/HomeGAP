@@ -60,7 +60,8 @@ class PresenterTest {
         val confirmations = Confirmations()
         val pausedGuard = homegap.presentation.data.PausedGuard(session, api, actions, confirmations)
         val relocation = homegap.presentation.nodes.NodeRelocation()
-        val nodeActions = NodeActions(api, actions, confirmations, pausedGuard, relocation)
+        val terminals = homegap.presentation.terminal.TerminalSessions(api, actions, confirmations, preferences, scope)
+        val nodeActions = NodeActions(api, actions, confirmations, pausedGuard, relocation, terminals)
         val serviceActions = ServiceActions(api, actions, confirmations)
         val nodes = NodesScreenPresenter(nodeActions, preferences)
         val speedTest = SpeedTestScreenPresenter(api, session, actions, FakeTimeFormatter, scope)
@@ -91,6 +92,8 @@ class PresenterTest {
             locations = homegap.presentation.locations.LocationsScreenPresenter(api, actions, confirmations),
             addNode = addNode,
             nodeLocation = homegap.presentation.nodes.NodeLocationPresenter(relocation, api, actions),
+            terminal = homegap.presentation.terminal.TerminalPresenter(terminals),
+            terminals = terminals,
         )
     }
 

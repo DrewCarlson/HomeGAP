@@ -25,6 +25,7 @@ import homegap.presentation.speedtest.SpeedTestScreenModel
 import homegap.presentation.tunnels.TunnelsScreenModel
 import homegap.web.routing.HashRouter
 import homegap.web.screens.*
+import homegap.web.terminal.TerminalPanel
 import org.jetbrains.compose.web.attributes.ATarget
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.autoFocus
@@ -32,6 +33,7 @@ import org.jetbrains.compose.web.attributes.onSubmit
 import org.jetbrains.compose.web.attributes.target
 import org.jetbrains.compose.web.dom.*
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import kotlinx.browser.document
 import org.w3c.dom.HTMLElement
 
@@ -75,22 +77,38 @@ fun AppShell(model: AppModel) {
                 NavFoot(header)
             }
         }
-        Main({ classes("page") }) {
-            // Tablets and desktops scroll the page here, not the window; a new section starts at the top.
-            ScrollReset(model.route)
-            val head = model.screen?.head
-            if (head != null) {
-                PageHead(
-                    head = head,
-                    onOpen = model.onOpen,
+        // The page, with the terminal panel docked under it.
+        Div({ classes("workspace") }) {
+            Main({ classes("page") }) {
+                // Tablets and desktops scroll the page here, not the window; a new section starts at the top.
+                ScrollReset(model.route)
+                val head = model.screen?.head
+                if (head != null) {
+                    PageHead(
+                        head = head,
+                        onOpen = model.onOpen,
+                    )
+                } else {
+                    RouteHead(model.route)
+                }
+                Content(
+                    model = model,
+                    viewport = viewport,
                 )
-            } else {
-                RouteHead(model.route)
             }
-            Content(
-                model = model,
-                viewport = viewport,
-            )
+            model.terminal?.let { terminal ->
+                // A drawer or a sheet is a modal dialog: it would cover the terminal that its action opened.
+                val covered = inspector != null && viewport != Viewport.Desktop
+                LaunchedEffect(terminal.focusRequests) {
+                    if (terminal.focusRequests > 0 && covered) {
+                        model.onOpen(Location(model.route))
+                    }
+                }
+                TerminalPanel(
+                    model = terminal,
+                    covered = covered,
+                )
+            }
         }
         if (inspector != null) {
             InspectorHost(

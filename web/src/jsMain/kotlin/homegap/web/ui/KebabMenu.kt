@@ -23,22 +23,32 @@ data class MenuItem(
  * A row's less frequent actions behind a ⋮ button. The menu is a native popover: Esc and a
  * click outside close it, it sits above dialogs, and focus returns to the button. Arrow keys
  * move between the items; it opens under the button, or above it near the bottom of the screen.
+ * With [text] the button shows that word, not ⋮.
  */
 @Composable
 fun KebabMenu(
     label: String,
     items: List<MenuItem>,
+    text: String? = null,
 ) {
     val menuId = remember { "menu-${nextMenuId++}" }
     Button({
-        classes("btn", "icon-btn", "kebab")
+        if (text != null) {
+            classes("btn", "sm")
+        } else {
+            classes("btn", "icon-btn", "kebab")
+        }
         attr("type", "button")
         attr("aria-label", label)
         attr("aria-haspopup", "menu")
         attr("aria-controls", menuId)
         attr("popovertarget", menuId)
     }) {
-        Icon(Icons.MORE, size = 18)
+        if (text != null) {
+            Text(text)
+        } else {
+            Icon(Icons.MORE, size = 18)
+        }
     }
     Div({
         id(menuId)

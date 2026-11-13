@@ -198,4 +198,16 @@ class FetchControllerApi(
 
     override suspend fun deviceAction(id: Int, action: String): ActionResponse =
         http.post("/api/access/devices/$id/$action").body()
+
+    override suspend fun terminals(): TerminalOverviewDto = http.get("/api/terminal").body()
+
+    override suspend fun openTerminal(node: String, rows: Int, columns: Int): TerminalSessionDto =
+        http.post("/api/nodes/$node/terminal") {
+            parameter("rows", rows)
+            parameter("columns", columns)
+        }.body()
+
+    override suspend fun terminalTicket(id: String): TerminalTicketDto = http.post("/api/terminal/$id/ticket").body()
+
+    override suspend fun closeTerminal(id: String): ActionResponse = http.delete("/api/terminal/$id").body()
 }

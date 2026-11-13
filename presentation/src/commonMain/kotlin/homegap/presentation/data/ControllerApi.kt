@@ -99,6 +99,18 @@ interface ControllerApi {
 
     /** `archive`, `unarchive`, `block`, `unblock` or `delete`. */
     suspend fun deviceAction(id: Int, action: String): ActionResponse
+
+    /** The shells that the dashboard has open on the nodes. */
+    suspend fun terminals(): TerminalOverviewDto
+
+    /** Starts a shell on [node] in a terminal of [rows] by [columns]. */
+    suspend fun openTerminal(node: String, rows: Int, columns: Int): TerminalSessionDto
+
+    /** A key for one WebSocket connection to terminal [id]. */
+    suspend fun terminalTicket(id: String): TerminalTicketDto
+
+    /** Ends terminal [id] and its shell. */
+    suspend fun closeTerminal(id: String): ActionResponse
 }
 
 /** What a pause request applies to (`PauseRequest.scope` on the wire). */

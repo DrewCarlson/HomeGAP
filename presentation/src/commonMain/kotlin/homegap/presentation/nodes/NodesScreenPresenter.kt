@@ -146,6 +146,7 @@ class NodesScreenPresenter(
             stack = stackText(node),
             drift = if (node.drift.isEmpty()) "none" else plural(node.drift.size, "difference"),
             location = Location(Route.Nodes, node.id),
+            menu = nodeActions.rowMenu(node.id),
         )
     }
 

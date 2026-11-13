@@ -39,6 +39,10 @@ object Icons {
     const val ALERT = "M12 6.5v7M12 17.5v.01"
     /** ⋮ for a [KebabMenu]. */
     const val MORE = "M12 4a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM12 18a1 1 0 1 0 0 2a1 1 0 1 0 0-2z"
+    const val MINIMIZE = "M5 18h14"
+    const val RESTORE = "M6 15l6-6 6 6"
+    const val EXPAND = "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"
+    const val SHRINK = "M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"
     const val EYE = "M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6a3 3 0 0 0 0 6z"
 }
 
