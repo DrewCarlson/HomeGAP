@@ -1947,6 +1947,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Certificates
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#nodes" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2410,6 +2421,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Certificates
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#nodes" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2633,6 +2655,34 @@
 <tr>
 <td><code>POST /api/cluster/maintenance/end</code></td>
 <td>Ends the hold.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="certificates">Certificates<a class="headerlink" href="#certificates" title="Permanent link">&para;</a></h2>
+<p>The status snapshot has a <code>certificates</code> part. It holds only public facts: the names, the dates, the issuer, the serial number and the fingerprint. It never holds a key, a certificate file, the ACME account key or a challenge value.</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /api/certificates/order</code></td>
+<td>Starts the order of the certificate in the next pass.</td>
+</tr>
+<tr>
+<td><code>POST /api/certificates/replace-key</code></td>
+<td>Orders a new certificate with a new key, and revokes the old certificate.</td>
+</tr>
+<tr>
+<td><code>POST /api/certificates/check</code></td>
+<td>Runs the TLS probes of each public name through each node again.</td>
+</tr>
+<tr>
+<td><code>POST /api/certificates/nodes/{id}/resend</code></td>
+<td>Sends the certificate to the node again in the next pass.</td>
 </tr>
 </tbody>
 </table>

@@ -1433,6 +1433,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-certificates-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The Certificates page
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#expiry-and-failures" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2445,6 +2456,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-certificates-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The Certificates page
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#expiry-and-failures" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2610,15 +2632,83 @@
 <h2 id="where-homegap-keeps-the-certificate">Where HomeGAP keeps the certificate<a class="headerlink" href="#where-homegap-keeps-the-certificate" title="Permanent link">&para;</a></h2>
 <p>The ACME account key, the certificate and its key are in <code>acme/</code> in the data directory of the orchestrator. Include this folder in your backup of the data directory. If you lose it, HomeGAP makes a new account and orders a new certificate.</p>
 <p>On a node, the certificate is <code>config/traefik/certs/homegap.crt</code> and the key is <code>homegap.key</code>, with mode 0600.</p>
-<h2 id="expiry-and-failures">Expiry and failures<a class="headerlink" href="#expiry-and-failures" title="Permanent link">&para;</a></h2>
-<p>The <strong>Nodes</strong> page on the dashboard shows the expiry of the certificate on each node.</p>
-<p>If an order fails, the nodes keep the certificate that they have. HomeGAP writes the error in the activity log and tries again after one hour. A node without a certificate answers its names with the default certificate of Traefik, and browsers show a warning.</p>
-<p>These are possible causes of a failed order:</p>
+<h2 id="the-certificates-page">The Certificates page<a class="headerlink" href="#the-certificates-page" title="Permanent link">&para;</a></h2>
+<p>The dashboard has a <strong>Certificates</strong> tab on the <strong>DNS</strong> page. It shows state only. It never shows a key, a certificate file, the ACME account key or a challenge value, and it has no control to upload or download a certificate.</p>
+<p>The page has these parts:</p>
 <ul>
-<li>The Bunny API key is not set, or it cannot change the zone.</li>
-<li>The homelab cannot reach Let's Encrypt.</li>
-<li>A CAA record that HomeGAP does not manage, on a name above <code>domain</code>, refuses Let's Encrypt.</li>
+<li><strong>The status line.</strong> One sentence with the state: valid, an order that runs, a failed order, the renewal window, or no certificate.</li>
+<li><strong>The node certificate.</strong> The lifetime with the issue date, the renewal date and the expiry, the issuer and the ACME directory, and each name with the reason that puts it on the certificate. If the names in the config differ from the names on the certificate, the page shows the names to add and to remove. The Inspector shows the key type, the serial number and the SHA-256 fingerprint of the certificate.</li>
+<li><strong>Delivery to the nodes.</strong> For each node: the version of the certificate that it has, the time of the delivery, and what it serves on its management name.</li>
+<li><strong>What a visitor gets.</strong> A TLS probe of each public name through each node, each pass. A name in <code>passthrough</code> mode has the tag <strong>Homelab</strong>: the Traefik of the homelab holds its certificate, and HomeGAP does not renew it.</li>
+<li><strong>Orders.</strong> The last 20 orders and revocations, with the reason, the result and the duration.</li>
+<li><strong>Who can issue.</strong> The CAA records that HomeGAP publishes, and the CAA records that DNS has now.</li>
 </ul>
+<p>The page has four actions:</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Order now</strong></td>
+<td>Starts the order in the next pass, without the wait of one hour after a failure. HomeGAP refuses it after 5 failed orders in one hour.</td>
+</tr>
+<tr>
+<td><strong>Send again</strong></td>
+<td>Writes the certificate files on the node again in the next pass.</td>
+</tr>
+<tr>
+<td><strong>Check now</strong></td>
+<td>Runs the TLS probes again.</td>
+</tr>
+<tr>
+<td><strong>Replace the key</strong></td>
+<td>Orders a new certificate with a new key for the same names, and revokes the old certificate. Use it when a node can be compromised.</td>
+</tr>
+</tbody>
+</table>
+<p>When changes are paused, or in dry-run mode, the actions that change something are off.</p>
+<p>A new node waits for an order with its management name. Until then, it answers that name with the default certificate, and its tunnel cannot connect. The dashboard shows the node as "waiting for certificate", not as down.</p>
+<h2 id="expiry-and-failures">Expiry and failures<a class="headerlink" href="#expiry-and-failures" title="Permanent link">&para;</a></h2>
+<p>If an order fails, the nodes keep the certificate that they have. HomeGAP keeps the state of the order in the data directory, writes a short cause in the activity log, and tries again after one hour. The full error text of the ACME client is in the detail of the log entry. A node without a certificate answers its names with the default certificate of Traefik, and browsers show a warning.</p>
+<p>The <strong>Certificates</strong> page shows the cause of a failed order:</p>
+<table>
+<thead>
+<tr>
+<th>Cause</th>
+<th>What to do</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DNS did not show the challenge record in time.</td>
+<td>Bunny DNS was slow. HomeGAP tries again after one hour.</td>
+</tr>
+<tr>
+<td>Let's Encrypt refused: too many orders.</td>
+<td>Let's Encrypt allows 5 failed orders for each name in one hour. Wait.</td>
+</tr>
+<tr>
+<td>A CAA record forbids the order.</td>
+<td>A CAA record that HomeGAP does not manage, on a name above <code>domain</code>, refuses Let's Encrypt.</td>
+</tr>
+<tr>
+<td>The Bunny key is missing or refused.</td>
+<td>Set the Bunny API key, and make sure that it can change the zone.</td>
+</tr>
+<tr>
+<td>The ACME service did not answer.</td>
+<td>The homelab cannot reach Let's Encrypt.</td>
+</tr>
+<tr>
+<td>More than 100 names.</td>
+<td>One certificate holds at most 100 names. Use a front door in <code>terminate</code> mode with a wildcard.</td>
+</tr>
+</tbody>
+</table>
 
 
 

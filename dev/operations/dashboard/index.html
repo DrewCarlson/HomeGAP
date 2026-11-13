@@ -1600,6 +1600,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Certificates
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tunnels" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2494,6 +2505,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Certificates
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#tunnels" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2672,6 +2694,9 @@
 <h3 id="dns">DNS<a class="headerlink" href="#dns" title="Permanent link">&para;</a></h3>
 <p>The records that HomeGAP manages, grouped into record sets. The page shows the state of each member, its monitor, and if it matches the desired state. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them. The geo steering strip shows which edges answer now and which are withdrawn, and for how long. The Inspector shows when HomeGAP last changed each record.</p>
 <p><img src="../../img/dashboard/dns.png" alt="The DNS page with the record sets"></p>
+<p>The CAA record sets belong to certificate management. They are read-only, and they link to the <strong>Certificates</strong> tab.</p>
+<h3 id="certificates">Certificates<a class="headerlink" href="#certificates" title="Permanent link">&para;</a></h3>
+<p>A tab of the <strong>DNS</strong> page. It shows the certificate that the nodes share, which node has it, what a visitor gets on each name through each node, the orders, and who can issue for the domain. See <a href="../../configuration/certificates/#the-certificates-page">Certificates</a>.</p>
 <h3 id="tunnels">Tunnels<a class="headerlink" href="#tunnels" title="Permanent link">&para;</a></h3>
 <p>One card for each Newt connector: its state, its process, its restarts and its throughput over the last hour. The Inspector shows the Newt version and the last times the connector stopped, with the reason. <strong>Restart connector</strong> stops Newt and starts it again. Traffic through that node pauses for a few seconds.</p>
 <p><img src="../../img/dashboard/tunnels.png" alt="The Tunnels page with one connector for each node and a connector in the Inspector"></p>
