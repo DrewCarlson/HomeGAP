@@ -264,7 +264,10 @@ class NodeSetupService(private val controller: Controller) {
                 log("setup finished; provisioning starts on the next pass")
             } catch (e: Exception) {
                 if (e is CancellationException) currentCoroutineContext().ensureActive()
-                state.update { it.copy(state = "failed", error = e.message ?: e.toString(), finishedAt = nowMillis()) }
+                val now = nowMillis()
+                // A block of new connections ends by itself. A retry before that fails the same way.
+                val retryAt = if (blocked(e.message.orEmpty())) now + RETRY_HOLD_MS else null
+                state.update { it.copy(state = "failed", error = e.message ?: e.toString(), finishedAt = now, retryAt = retryAt) }
                 controller.log.error("setup", e.message ?: e.toString(), node.id)
             } finally {
                 connection?.let { withContext(NonCancellable) { runCatching { shell.close(it) } } }
@@ -354,8 +357,8 @@ class NodeSetupService(private val controller: Controller) {
             checkKeyLogin(r, what)
         }
 
-        private fun checkKeyLogin(r: ProcessResult, what: String) {
-            SetupShell.connectionError(r)?.let { throw IllegalStateException("$what: ${explain(it)}") }
+        private fun checkKeyLogin(r: ProcessResult, what: String, finding: BlockFinding? = null) {
+            SetupShell.connectionError(r)?.let { throw IllegalStateException("$what: ${finding?.let { f -> "$it ${f.text}" } ?: explain(it)}") }
             check(r.ok) { "$what: ${plan.target} cannot use passwordless sudo (${r.errorText()})" }
         }
 
@@ -365,7 +368,14 @@ class NodeSetupService(private val controller: Controller) {
          * failure they are all reverted.
          */
         private suspend fun verifyFromOutside(admin: Admin): String? {
-            val r = shell.run(keyLogin, verifyCommand, timeout = 60.seconds)
+            val started = nowMillis()
+            var r = shell.run(keyLogin, verifyCommand, timeout = 60.seconds)
+            var finding: BlockFinding? = null
+            if (SetupShell.connectionError(r)?.let(SetupShell::isDropped) == true) {
+                finding = blockFinding(admin, started)
+                // The server held a ban and HomeGAP removed it: the login gets one more try.
+                if (finding?.lifted == true) r = shell.run(keyLogin, verifyCommand, timeout = 60.seconds)
+            }
             val limited = "ufw" in armed && node.sshAllowFrom.isNotEmpty() && SetupShell.connectionError(r)?.let(SetupShell::isDropped) == true
             try {
                 // The new firewall is the likeliest cause when it only lets listed sources reach SSH.
@@ -375,7 +385,7 @@ class NodeSetupService(private val controller: Controller) {
                             "${clientIp?.let { " ($it)" }.orEmpty()} could not log in; add its address to the allowed sources",
                     )
                 }
-                checkKeyLogin(r, "key login from the orchestrator failed")
+                checkKeyLogin(r, "key login from the orchestrator failed", finding)
             } catch (e: Exception) {
                 if (e is CancellationException) currentCoroutineContext().ensureActive()
                 if (armed.isEmpty()) throw e
@@ -387,6 +397,17 @@ class NodeSetupService(private val controller: Controller) {
             val kept = armed.keys.joinToString(" and ") { if (it == "ufw") "firewall" else "SSH settings" }
             armed.clear()
             return "$kept kept"
+        }
+
+        /**
+         * Asks the server, through the setup connection, what it holds against the orchestrator.
+         * Null if the server cannot tell (no address of the orchestrator, or the script failed).
+         */
+        private suspend fun blockFinding(admin: Admin, since: Long): BlockFinding? {
+            val ip = clientIp ?: return null
+            val seconds = (nowMillis() - since) / 1000 + 5
+            val r = runCatching { shell.runAsRoot(admin.connection, admin.privilege, SetupScripts.blockReport(ip, seconds), 30.seconds) }.getOrNull()
+            return r?.takeIf { it.ok }?.let { BlockFinding.of(ip, it.stdout) }
         }
 
         /** Undoes every armed change now (best effort; their timers would do it shortly anyway). */
@@ -451,6 +472,11 @@ class NodeSetupService(private val controller: Controller) {
     }
 
     private companion object {
+        const val RETRY_HOLD_MS = 3 * 60_000L
+
+        /** True if the failure text [message] is a connection that got no answer. */
+        fun blocked(message: String) = listOf(SetupShell.STALLED, SetupShell.NO_ANSWER, SetupShell.DROPPED).any { it in message }
+
         const val BLOCKED_HINT =
             "It answered earlier in this run, so something is now cutting off new SSH connections from the orchestrator. " +
                 "Most often that is an intrusion-prevention system on the orchestrator's own network (UniFi Threat " +
@@ -458,6 +484,37 @@ class NodeSetupService(private val controller: Controller) {
                 "outbound SSH scan; otherwise a login blocker on the server (fail2ban, sshguard, CrowdSec) or a provider " +
                 "firewall. Allow the orchestrator to reach this server there, or wait a few minutes for the block to " +
                 "expire, then retry."
+    }
+}
+
+/** What the server holds against the orchestrator when a login from it got no answer. */
+internal class BlockFinding(val text: String, val lifted: Boolean) {
+    companion object {
+        /** Reads the output of [SetupScripts.blockReport] for the orchestrator at [ip]. */
+        fun of(ip: String, output: String): BlockFinding {
+            val lines = output.lines()
+            val banned = lines.filter { it.startsWith("BANNED=") }.map { it.substringAfter("=") }
+            val open = lines.firstOrNull { it.startsWith("OPEN=") }?.substringAfter("=")?.toIntOrNull() ?: 0
+            return when {
+                banned.isNotEmpty() -> BlockFinding(
+                    "On the server, ${banned.joinToString(" and ")} had banned the orchestrator ($ip). HomeGAP removed the ban.",
+                    lifted = true,
+                )
+                "REFUSED=yes" in lines -> BlockFinding(
+                    "The sshd of the server refused the orchestrator ($ip) for a short time, as a penalty for earlier failed logins. Wait a few minutes, then retry.",
+                    lifted = false,
+                )
+                else -> BlockFinding(
+                    "The server holds no ban for the orchestrator ($ip), and its sshd refused nothing. " +
+                        (if (open > 1) "The server still holds $open SSH connections from it, so the packets of the new connection stop on the way. " else "") +
+                        "The block is in front of the server. Most often that is an intrusion-prevention system on the network of the orchestrator " +
+                        "(UniFi Threat Management, Suricata or Snort on pfSense/OPNsense, Firewalla), which takes several SSH logins in a row " +
+                        "for an outbound SSH scan. It can also be a firewall of the provider. Allow the orchestrator to reach this server there, " +
+                        "or wait a few minutes, then retry.",
+                    lifted = false,
+                )
+            }
+        }
     }
 }
 

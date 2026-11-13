@@ -73,8 +73,8 @@ data class JobModel(
     val succeeded: Boolean,
     val steps: List<JobStepModel>,
     val error: String?,
-    /** The step that failed, counted from 1; a retry starts there. */
-    val failedStep: Int? = null,
+    /** After a failure by a block of new connections: the seconds that a retry must wait. */
+    val retryHoldSeconds: Int? = null,
 )
 
 @Immutable

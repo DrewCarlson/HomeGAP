@@ -468,7 +468,14 @@ class Controller(
             // A failed discovery gives a plan without services: keep the certificate as it is.
             val certs: CertMaterial? = if (!discoveryOk) nodeCert.current() else runDomain("certificates", null) {
                 val bunny = cfg.bunny.apiKey.resolve()?.let { BunnyClient(externalHttp, cfg.bunny.apiUrl, it) }
-                nodeCert.ensure(ctx, CertNames.of(cfg, effective), bunny)
+                // An order waits for DNS, sometimes for minutes. The pass does not wait for it.
+                val background = jobScope?.let { scope ->
+                    { order: suspend () -> Unit ->
+                        scope.launch { order(); trigger("certificate") }
+                        Unit
+                    }
+                }
+                nodeCert.ensure(ctx, CertNames.of(cfg, effective), bunny, background)
             } ?: nodeCert.current()
 
             // 2-4. Node lifecycle, tunnels and resources, per node in parallel.

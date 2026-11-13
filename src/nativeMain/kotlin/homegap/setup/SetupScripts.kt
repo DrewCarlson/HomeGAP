@@ -174,6 +174,36 @@ object SetupScripts {
         """.trimMargin()
     }
 
+    /**
+     * Reads what the server holds against [ip] after a login from it got no answer, for the last
+     * [seconds] seconds. Prints `BANNED=<blocker>` for each ban (and removes the ban), `REFUSED=yes`
+     * if sshd logged a refusal, and `OPEN=<n>`, the SSH connections from [ip] that the server holds.
+     */
+    fun blockReport(ip: String, seconds: Long): String {
+        require(IP_ADDRESS.matches(ip)) { "not an IP address: $ip" }
+        return $$"""
+            |set +e
+            |IP=$$ip
+            |if command -v fail2ban-client >/dev/null 2>&1; then
+            |  for jail in $(fail2ban-client status 2>/dev/null | sed -n 's/.*Jail list:[[:space:]]*//p' | tr ',' ' '); do
+            |    if fail2ban-client status "$jail" 2>/dev/null | grep -qF "$IP"; then
+            |      fail2ban-client set "$jail" unbanip "$IP" >/dev/null 2>&1
+            |      echo "BANNED=fail2ban ($jail)"
+            |    fi
+            |  done
+            |fi
+            |if command -v cscli >/dev/null 2>&1 && cscli decisions list --ip "$IP" 2>/dev/null | grep -qF "$IP"; then
+            |  cscli decisions delete --ip "$IP" >/dev/null 2>&1
+            |  echo "BANNED=CrowdSec"
+            |fi
+            |if journalctl -u ssh -u sshd --since "-$${seconds}s" --no-pager 2>/dev/null | grep -F "$IP" | grep -qiE 'penalt|drop connection|refus'; then
+            |  echo "REFUSED=yes"
+            |fi
+            |echo "OPEN=$(ss -Htn state established 2>/dev/null | grep -cF "$IP")"
+            |exit 0
+        """.trimMargin()
+    }
+
     /** Applies the firewall [specs] and enables `ufw`, with a revert timer that disables it again. */
     fun firewall(specs: List<String>): String = $$"""
         |$${homegap.provision.FirewallRules.script(specs, enable = false)}

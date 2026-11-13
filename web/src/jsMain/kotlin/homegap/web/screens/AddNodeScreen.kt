@@ -1,11 +1,16 @@
 package homegap.web.screens
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import homegap.presentation.addnode.*
 import homegap.web.ui.*
 import kotlinx.browser.window
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.dom.*
 
@@ -534,10 +539,7 @@ private fun JobPanel(job: JobModel, send: (WizardEvent) -> Unit) {
                     ActionButton("Edit settings") {
                         send(WizardEvent.EditAfterFailure)
                     }
-                    ActionButton(
-                        text = job.failedStep?.let { "Retry from step $it" } ?: "Retry",
-                        style = ButtonStyle.Primary,
-                    ) {
+                    RetryButton(job.retryHoldSeconds) {
                         send(WizardEvent.RetryFromFailed)
                     }
                 }
@@ -554,4 +556,23 @@ private fun Facts(lines: List<ReviewLine>) {
             Div({ classes("fact-value", "mono") }) { Text(line.value) }
         }
     }
+}
+
+/** The retry button of a failed run. While [holdSeconds] count down, a retry fails the same way. */
+@Composable
+private fun RetryButton(holdSeconds: Int?, onClick: () -> Unit) {
+    var left by remember(holdSeconds) { mutableStateOf(holdSeconds ?: 0) }
+    LaunchedEffect(holdSeconds) {
+        while (left > 0) {
+            delay(1000)
+            left--
+        }
+    }
+    ActionButton(
+        text = if (left > 0) "Retry in ${left / 60}:${(left % 60).toString().padStart(2, '0')}" else "Retry",
+        style = ButtonStyle.Primary,
+        enabled = left == 0,
+        tooltip = if (left > 0) "The block of new connections ends by itself. A retry before that fails the same way." else null,
+        onClick = onClick,
+    )
 }

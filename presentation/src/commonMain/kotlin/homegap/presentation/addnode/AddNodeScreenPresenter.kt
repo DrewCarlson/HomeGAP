@@ -472,7 +472,8 @@ class AddNodeScreenPresenter(
     private fun SetupJobDto.toModel() = JobModel(
         running = state == "running",
         succeeded = state == "succeeded",
-        failedStep = steps.indexOfFirst { it.status == "failed" }.takeIf { it >= 0 }?.plus(1),
+        // Both times are from the clock of the orchestrator, so the difference needs no clock here.
+        retryHoldSeconds = retryAt?.let { until -> finishedAt?.let { ((until - it) / 1000).toInt() } }?.takeIf { it > 0 },
         steps = steps.map {
             JobStepModel(
                 it.title,

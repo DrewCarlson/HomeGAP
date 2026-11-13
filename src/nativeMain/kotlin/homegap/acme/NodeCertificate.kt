@@ -9,6 +9,8 @@ import homegap.platform.env
 import homegap.platform.nowMillis
 import homegap.provision.NodeTemplates
 import homegap.reconcile.ReconcileContext
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -38,16 +40,25 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
     private val domain = "certificates"
 
     /** After a failed order, the next order of the same names waits. Let's Encrypt limits failures. */
+    @kotlin.concurrent.Volatile
     private var retryAt = 0L
+    @kotlin.concurrent.Volatile
     private var failedNames: List<String>? = null
+
+    /** True while an order runs outside the pass. */
+    @kotlin.concurrent.Volatile
+    private var ordering = false
+
+    /** An order writes three files. A reader gets all three from the same order. */
+    private val files = SynchronizedObject()
 
     fun meta(): Meta? = Files.readTextOrNull(metaFile)?.let { runCatching { Json.decodeFromString<Meta>(it) }.getOrNull() }
 
-    fun current(): CertMaterial? {
+    fun current(): CertMaterial? = synchronized(files) {
         val meta = meta() ?: return null
         val cert = Files.readTextOrNull(certFile) ?: return null
         val key = Files.readTextOrNull(keyFile) ?: return null
-        return CertMaterial(cert, key, meta.names, meta.notAfter)
+        CertMaterial(cert, key, meta.names, meta.notAfter)
     }
 
     /** Why a new order is due, or null. */
@@ -60,10 +71,19 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
     }
 
     /**
-     * Returns the certificate for [names], and orders it first if an order is due. If the order
-     * fails, the nodes keep the certificate that they have.
+     * Returns the certificate for [names], and starts an order if one is due. If the order fails,
+     * the nodes keep the certificate that they have.
+     *
+     * An order can take minutes. With [background], the order runs there and the pass continues
+     * with the certificate that is there now. [background] gets the order and runs it outside the
+     * pass. Without it, the order runs before this function returns.
      */
-    suspend fun ensure(ctx: ReconcileContext, names: List<String>, bunny: BunnyClient?): CertMaterial? {
+    suspend fun ensure(
+        ctx: ReconcileContext,
+        names: List<String>,
+        bunny: BunnyClient?,
+        background: ((suspend () -> Unit) -> Unit)? = null,
+    ): CertMaterial? {
         if (names.isEmpty()) return null
         val config = ctx.config
         val directory = config.acme.directoryUrl()
@@ -72,19 +92,28 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
         val reason = due(old, names, directory, now / 1000) ?: return current()
         ctx.diff.add(domain, "nodes", "certificate", if (old == null) "create" else "update", names.joinToString(), old?.names?.joinToString())
         if (ctx.dryRun || ctx.pauses().global) return current()
-        if (failedNames == names && now < retryAt) return current()
-        try {
-            if (bunny == null) error("the Bunny API key ${config.bunny.apiKey.describe()} is not set")
-            if (names.size > CertNames.MAX) error("${names.size} names do not fit on one certificate (the limit is ${CertNames.MAX})")
-            val meta = order(ctx, names, directory, bunny, now)
-            failedNames = null
-            ctx.log.change(domain, "ordered the certificate of the nodes for ${names.size} names ($reason); valid for ${(meta.notAfter - now / 1000) / 86400} days")
-            if (old != null && old.directory == directory) retire(config, old, revoke = old.names.any { it !in names }, ctx)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            failedNames = names
-            retryAt = now + RETRY_MS
-            ctx.log.error(domain, "cannot order the certificate of the nodes ($reason): ${e.message}. The next try is in ${RETRY_MS / 60_000} minutes.")
+        if (ordering || (failedNames == names && now < retryAt)) return current()
+        val order: suspend () -> Unit = {
+            try {
+                if (bunny == null) error("the Bunny API key ${config.bunny.apiKey.describe()} is not set")
+                if (names.size > CertNames.MAX) error("${names.size} names do not fit on one certificate (the limit is ${CertNames.MAX})")
+                val meta = order(ctx, names, directory, bunny, now)
+                failedNames = null
+                ctx.log.change(domain, "ordered the certificate of the nodes for ${names.size} names ($reason); valid for ${(meta.notAfter - now / 1000) / 86400} days")
+                if (old != null && old.directory == directory) retire(config, old, revoke = old.names.any { it !in names }, ctx)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                failedNames = names
+                retryAt = nowMillis() + RETRY_MS
+                ctx.log.error(domain, "cannot order the certificate of the nodes ($reason): ${e.message}. The next try is in ${RETRY_MS / 60_000} minutes.")
+            } finally {
+                ordering = false
+            }
+        }
+        ordering = true
+        if (background == null) order() else {
+            ctx.log.info(domain, "ordering the certificate of the nodes for ${names.size} names ($reason)")
+            background(order)
         }
         return current()
     }
@@ -119,9 +148,11 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
         val key = Files.readText("$store/certificates/$certName.key")
         val validity = X509.validity(cert) ?: error("cannot read the new certificate")
         val meta = Meta(names, directory, certName, validity.notBefore, validity.notAfter)
-        Files.writeAtomic(keyFile, key, "600".toInt(8))
-        Files.writeAtomic(certFile, cert, "600".toInt(8))
-        Files.writeAtomic(metaFile, Json.encodeToString(meta), "600".toInt(8))
+        synchronized(files) {
+            Files.writeAtomic(keyFile, key, "600".toInt(8))
+            Files.writeAtomic(certFile, cert, "600".toInt(8))
+            Files.writeAtomic(metaFile, Json.encodeToString(meta), "600".toInt(8))
+        }
         return meta
     }
 

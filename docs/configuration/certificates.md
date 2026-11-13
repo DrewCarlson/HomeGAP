@@ -20,7 +20,7 @@ For this reason, HomeGAP gives a node no certificate for a passthrough name.
 | The front door with `passthrough`, with or without `homegap.wildcard`. | No. |
 | The front door with `terminate`. | Yes: the root name, and `*.<domain>` if the front door has `homegap.wildcard`. |
 
-The activity log shows each order, with the number of names.
+The activity log shows each order, with the number of names. An order can take some minutes, because it waits for DNS. The reconcile pass does not wait for the order. When the order is complete, the next pass gives the new certificate to the nodes.
 
 ### The front door in terminate mode with a wildcard
 

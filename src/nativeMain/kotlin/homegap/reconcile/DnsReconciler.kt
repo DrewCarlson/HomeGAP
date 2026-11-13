@@ -1,5 +1,6 @@
 package homegap.reconcile
 
+import homegap.acme.DnsChallenge
 import homegap.clients.BunnyClient
 import homegap.clients.BunnyRecord
 import homegap.model.DesiredDnsRecord
@@ -92,6 +93,8 @@ class DnsReconciler(
         val desiredNames = desired.map { it.name.lowercase() to BunnyRecord.typeCode(it.type) }.toSet()
         for (a in actual) {
             if (a.id in claimed) continue
+            // A certificate order runs outside the pass and owns its challenge records.
+            if (a.comment == DnsChallenge.COMMENT) continue
             val managed = a.comment?.startsWith(DesiredDnsRecord.OWNER_TAG) == true
             val collides = (a.name.lowercase() to a.type) in desiredNames ||
                 // a CNAME at a name we serve with A/AAAA would shadow the whole set

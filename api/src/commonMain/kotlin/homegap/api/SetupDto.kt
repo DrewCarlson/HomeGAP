@@ -112,4 +112,6 @@ data class SetupJobDto(
     val error: String? = null,
     val startedAt: Long,
     val finishedAt: Long? = null,
+    /** After a failure by a block of new connections: the time before which a retry fails the same way. */
+    val retryAt: Long? = null,
 )

@@ -88,6 +88,14 @@ class NodeCertificateTest {
     }
 
     @Test
+    fun aFailedOrderShowsTheErrorLinesOfLego() {
+        val nc = NodeCertificate(tmpPath("acme"))
+        val output = "time=1 level=INFO msg=\"Deactivating authorization.\"\ntime=2 level=ERROR msg=Error error=\"dns01: time limit exceeded\"\n"
+        assertEquals("msg=Error error=\"dns01: time limit exceeded\"", nc.failure(output))
+        assertEquals("plain text", nc.failure("plain text\n"))
+    }
+
+    @Test
     fun nodesHaveNoCertificateResolver() {
         val plan = Planner.plan(cfg, listOf(TRAEFIK, wiki))
         val nd = plan.nodes.getValue("na1")

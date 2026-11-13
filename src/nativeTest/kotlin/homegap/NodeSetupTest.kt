@@ -4,6 +4,7 @@ import homegap.config.ConfigLoader
 import homegap.config.NodeConfig
 import homegap.platform.ProcessResult
 import homegap.provision.FirewallRules
+import homegap.setup.BlockFinding
 import homegap.setup.SetupScripts
 import homegap.setup.SetupShell
 import kotlin.test.Test
@@ -92,5 +93,36 @@ class NodeSetupTest {
         assertTrue("addr=127.0.0.1" in SetupScripts.hardenSsh(true, true, listOf("root"), "not an ip"), "an unusable address is never put in the script")
         assertTrue("sleep ${SetupScripts.REVERT_AFTER_SECONDS}" in script, "a revert timer is armed")
         assertTrue(script.indexOf("sleep ${SetupScripts.REVERT_AFTER_SECONDS}") < script.lastIndexOf("reload"), "armed before the reload")
+    }
+
+    @Test
+    fun aBanOnTheServerIsNamedAndGivesOneMoreTry() {
+        val finding = BlockFinding.of("203.0.113.7", "BANNED=fail2ban (sshd)\nOPEN=1\n")
+        assertTrue(finding.lifted)
+        assertTrue("fail2ban (sshd) had banned the orchestrator (203.0.113.7)" in finding.text)
+    }
+
+    @Test
+    fun aRefusalOfSshdIsNamed() {
+        val finding = BlockFinding.of("203.0.113.7", "REFUSED=yes\nOPEN=1\n")
+        assertEquals(false, finding.lifted)
+        assertTrue("sshd of the server refused" in finding.text)
+    }
+
+    @Test
+    fun aServerThatHoldsNothingPointsInFrontOfIt() {
+        val finding = BlockFinding.of("203.0.113.7", "OPEN=2\n")
+        assertEquals(false, finding.lifted)
+        assertTrue("holds no ban" in finding.text)
+        assertTrue("still holds 2 SSH connections" in finding.text)
+        assertTrue("in front of the server" in finding.text)
+        assertEquals(false, "still holds" in BlockFinding.of("203.0.113.7", "OPEN=1\n").text)
+    }
+
+    @Test
+    fun theBlockReportTakesOnlyAnAddress() {
+        assertTrue("IP=203.0.113.7" in SetupScripts.blockReport("203.0.113.7", 70))
+        assertTrue("--since \"-70s\"" in SetupScripts.blockReport("203.0.113.7", 70))
+        assertFailsWith<IllegalArgumentException> { SetupScripts.blockReport("1.2.3.4; reboot", 70) }
     }
 }
