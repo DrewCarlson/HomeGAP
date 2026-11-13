@@ -186,7 +186,7 @@ fun checkTitle(name: String): String = when (name) {
     "tunnel" -> "Tunnel"
     "gerbil-udp" -> "Gerbil UDP"
     "tls-mgmt" -> "Management certificate"
-    "tls-root" -> "Root certificate"
+    "tls-root" -> "Root name TLS"
     "cluster-proxy" -> "Cluster proxy"
     "ee-license" -> "EE license"
     else -> name.replaceFirstChar { it.uppercase() }
