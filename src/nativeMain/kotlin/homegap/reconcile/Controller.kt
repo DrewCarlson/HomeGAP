@@ -1437,7 +1437,7 @@ class Controller(
         return DnsRecordStatusDto(
             name = name,
             type = record.typeName,
-            value = record.tag?.let { "$it ${record.value}" } ?: record.value,
+            value = record.tag?.takeIf { it.isNotEmpty() }?.let { "$it ${record.value}" } ?: record.value,
             nodeId = observed.desired?.nodeId,
             geo = when (record.smartRoutingType) {
                 BunnyRecord.ROUTING_GEO -> "geo ${record.latitude},${record.longitude}"
