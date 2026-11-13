@@ -137,6 +137,7 @@ The shell runs on the orchestrator, through the SSH connection that the orchestr
 - If you open the same session in a second window, that window takes the session.
 - **Commands** types a common command for you, for example the list of containers or the log of a container.
 - A session ends when the shell exits, or when you close its tab. HomeGAP also ends a session that had no browser for 15 minutes, and each session after 8 hours. A restart of the orchestrator ends all sessions.
+- HomeGAP ends the sessions of a node that you remove. If you set `dashboard.terminal: false`, HomeGAP ends all sessions.
 
 The activity log shows when a terminal opens and closes, with the node. It does not record what you type or what the shell prints.
 
@@ -153,7 +154,7 @@ The Nodes page shows these checks:
 | `docker` | If Docker is on the node. |
 | One check for each container | `running`, with its Docker health in parentheses. `starting` is degraded, and `unhealthy` is down. |
 | `gerbil-udp` | If Gerbil answers on 51820/udp. |
-| `pangolin-api` | The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. Over 300 ms is degraded. |
+| `pangolin-api` | The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. The limit is the fastest probe of the node since the start of the orchestrator, plus 300 ms. A probe over the limit is degraded. |
 | `tunnel` | If the homelab site on the node is online, with the Newt version. |
 | `mode` | In dry run, it shows that HomeGAP does no remote access. |
 | `cluster-proxy` | In cluster mode, where HAProxy sends PostgreSQL and Valkey. See [Cluster database](../cluster/database.md#the-cluster-proxy-check). |

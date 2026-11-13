@@ -179,6 +179,12 @@ class SpeedTestServer(
         return hosts.any { origin.equals("https://$it", ignoreCase = true) }
     }
 
+    /** Whether [host] is a name of the speed test page: the shared name or the name of a node. */
+    fun serves(host: String): Boolean {
+        val cfg = config()
+        return cfg.speedtest.autoHost(cfg.domain).equals(host, ignoreCase = true) || nodeFor(host) != null
+    }
+
     private val publicPages = RateLimiter(PUBLIC_REQUESTS_PER_MINUTE, 60_000)
 
     fun Application.module() {
@@ -228,20 +234,8 @@ class SpeedTestServer(
             }
         }
         routing {
-            get("/") {
-                if (status.serves(call.request.host())) {
-                    statusPage()
-                } else {
-                    page()
-                }
-            }
-            get("/index.html") {
-                if (status.serves(call.request.host())) {
-                    statusPage()
-                } else {
-                    page()
-                }
-            }
+            get("/") { home() }
+            get("/index.html") { home() }
             // The status page's map: the tiles and the map's scripts, fonts and icons only. Without
             // the status page, nothing public uses the map.
             get(homegap.dashboard.MapFiles.TILES_PATH) {
@@ -355,6 +349,16 @@ class SpeedTestServer(
             )
         )
         call.respond(HttpStatusCode.NoContent)
+    }
+
+    /** The page of the name in the request. A name of a node that left gets no page. */
+    private suspend fun RoutingContext.home() {
+        val host = call.request.host()
+        when {
+            status.serves(host) -> statusPage()
+            serves(host) -> page()
+            else -> call.respond(HttpStatusCode.NotFound)
+        }
     }
 
     private suspend fun RoutingContext.page() {

@@ -309,6 +309,9 @@ class Controller(
     /** Traefik counters at the previous sample: node id to (time, requests, response bytes). */
     private val trafficCounters = mutableMapOf<String, Triple<Long, Double, Double>>()
 
+    /** The fastest Pangolin API probe of each node since the start, in ms. */
+    private val apiBest = mutableMapOf<String, Double>()
+
     fun trigger(reason: String) {
         triggers.trySend(reason)
     }
@@ -876,14 +879,17 @@ class Controller(
             }
         }.isSuccess
         val apiMs = (nowMillis() - apiStarted).toDouble()
+        // A far node is slow all the time, so the limit starts at the fastest probe of the node.
+        if (apiOk) apiBest[node.id] = minOf(apiMs, apiBest[node.id] ?: apiMs)
+        val apiLimit = apiSlowLimit(apiBest[node.id])
         checks += when {
-            !apiOk -> CheckDto("pangolin-api", Health.DOWN, "not reachable", threshold = API_PROBE_SLOW_MS, unit = "ms")
+            !apiOk -> CheckDto("pangolin-api", Health.DOWN, "not reachable", threshold = apiLimit, unit = "ms")
             else -> CheckDto(
                 name = "pangolin-api",
-                health = if (apiMs > API_PROBE_SLOW_MS) Health.DEGRADED else Health.OK,
-                detail = if (apiMs > API_PROBE_SLOW_MS) "slow" else "integration API",
+                health = if (apiMs > apiLimit) Health.DEGRADED else Health.OK,
+                detail = if (apiMs > apiLimit) "slow" else "integration API",
                 value = apiMs,
-                threshold = API_PROBE_SLOW_MS,
+                threshold = apiLimit,
                 unit = "ms",
             )
         }
@@ -992,6 +998,8 @@ class Controller(
                 pendingDecommission = ns?.pendingDecommission == true || n == null,
                 teardownError = ns?.teardownError,
                 facts = (ns?.facts ?: emptyMap()).filterKeys { it in setOf("os", "arch", "kernel", "docker", "mem_kb", "vcpu", "disk_free_gb", "tcp_cc", "qdisc", "edge_tcp") } +
+                    // The stored fact is from before the setup installed Docker.
+                    (o?.checks?.firstOrNull { it.name == "docker" && it.health == Health.OK }?.let { mapOf("docker" to it.detail) } ?: emptyMap()) +
                     (tunnel?.let { mapOf("newt_restarts" to it.restarts.toString()) } ?: emptyMap()),
                 job = jobs[id]?.takeIf { it.second.isActive }?.let { if (it.first == NodeReconciler.Kind.UPDATE) "updating" else "provisioning" },
                 updateWaiting = waiting[id],
@@ -1048,7 +1056,7 @@ class Controller(
             DnsRecordStatusDto(
                 name = o.desired?.fqdn ?: o.record.name,
                 type = o.record.typeName,
-                value = o.record.value,
+                value = o.record.tag?.let { "$it ${o.record.value}" } ?: o.record.value,
                 nodeId = o.desired?.nodeId,
                 geo = when (o.record.smartRoutingType) {
                     BunnyRecord.ROUTING_GEO -> "geo ${o.record.latitude},${o.record.longitude}"
@@ -1609,8 +1617,11 @@ internal fun isolationAfter(current: Pair<Long, Long?>?, reachable: List<Boolean
     }
 }
 
-/** Above this, the Pangolin API probe is slow and its node degraded. */
+/** A Pangolin API probe this much slower than the fastest probe of its node is slow, and the node degraded. */
 private const val API_PROBE_SLOW_MS = 300.0
+
+/** The limit of the Pangolin API probe of a node whose fastest probe took [best] ms. */
+internal fun apiSlowLimit(best: Double?): Double = (best ?: 0.0) + API_PROBE_SLOW_MS
 
 /** Above this, a service request through an edge is slow. */
 internal const val SERVICE_SLOW_MS = 1000.0
