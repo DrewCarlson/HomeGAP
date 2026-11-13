@@ -2752,6 +2752,7 @@
 <li>If you open the same session in a second window, that window takes the session.</li>
 <li><strong>Commands</strong> types a common command for you, for example the list of containers or the log of a container.</li>
 <li>A session ends when the shell exits, or when you close its tab. HomeGAP also ends a session that had no browser for 15 minutes, and each session after 8 hours. A restart of the orchestrator ends all sessions.</li>
+<li>HomeGAP ends the sessions of a node that you remove. If you set <code>dashboard.terminal: false</code>, HomeGAP ends all sessions.</li>
 </ul>
 <p>The activity log shows when a terminal opens and closes, with the node. It does not record what you type or what the shell prints.</p>
 <div class="admonition danger">
@@ -2786,7 +2787,7 @@
 </tr>
 <tr>
 <td><code>pangolin-api</code></td>
-<td>The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. Over 300 ms is degraded.</td>
+<td>The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. The limit is the fastest probe of the node since the start of the orchestrator, plus 300 ms. A probe over the limit is degraded.</td>
 </tr>
 <tr>
 <td><code>tunnel</code></td>
