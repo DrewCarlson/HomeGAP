@@ -14,6 +14,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 
 /** Node lifecycle: add, provision, update recovery, remove and decommission. */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -32,7 +33,7 @@ class NodeRoutes(private val controller: Controller) : RoutingController {
         }
     }
 
-    /** Adds the node to the config file; the next pass provisions it. */
+    /** Adds the node to the config file. The next pass provisions it. */
     suspend fun RoutingContext.addNode() {
         val node = call.receive<NodeConfigDto>().toConfig()
         call.respond(ActionResponse(true, controller.addNode(node)))
@@ -53,21 +54,21 @@ class NodeRoutes(private val controller: Controller) : RoutingController {
         call.respond(ActionResponse(true, controller.skipUpdate(nodeId())))
     }
 
-    /** Removes the node from the config; DNS drains, the stack stays up until decommission. */
-    /** Moves the node on the maps and in geo DNS steering; rewrites its config entry. */
+    /** Moves the node on the maps and in geo DNS steering. Writes its config entry again. */
     suspend fun RoutingContext.setLocation() {
         val request = call.receive<SetNodeLocationRequest>()
         call.respond(ActionResponse(true, controller.setNodeLocation(nodeId(), request.location)))
     }
 
+    /** Removes the node from the config. DNS drains, and the stack stays up until decommission. */
     suspend fun RoutingContext.removeNode() {
         val (message, undo) = controller.removeNode(nodeId())
         call.respond(ActionResponse(true, message, undo))
     }
 
     /**
-     * Stops a removed node's stack; `?confirm=` must repeat the node id. `?force=true` forgets the
-     * node without a teardown.
+     * Stops the stack of a removed node. `?confirm=` must repeat the node id. `?force=true` forgets
+     * the node without a teardown.
      */
     suspend fun RoutingContext.decommission() {
         val confirm = call.request.queryParameters["confirm"].orEmpty()

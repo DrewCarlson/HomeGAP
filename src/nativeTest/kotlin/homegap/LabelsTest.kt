@@ -107,4 +107,17 @@ class LabelsTest {
         assertEquals("homegap-cluster:e2e", DockerImage("sha256:3", null).pinned("homegap-cluster:e2e"))
         assertEquals("other/repo:1", pulled.pinned("other/repo:1"))
     }
+
+    @Test
+    fun aPublicPortWithABadPortListIsALabelError() {
+        // One entry of the list is not a port. The answer is an error for the label, not a crash.
+        val result = parse(
+            "homegap.expose" to "x.test.example.net",
+            "homegap.protocol" to "tcp",
+            "homegap.port" to "7881/tcp, bogus",
+            "homegap.public_port" to "2222",
+        )
+        assertNull(result.spec)
+        assertTrue(result.errors.any { "homegap.public_port only works with a single port" in it }, result.errors.toString())
+    }
 }

@@ -22,7 +22,8 @@ object SharedDirs {
     fun tunnels(dataDir: String): String = resolve("HOMEGAP_TUNNELS_DIR", TUNNELS, "$dataDir/tunnels")
 
     /** The config of the cluster containers of the homelab, which read it. */
-    fun clusterConfig(dataDir: String): String = resolve("HOMEGAP_CLUSTER_CONFIG_DIR", CLUSTER_CONFIG, "$dataDir/cluster/config")
+    fun clusterConfig(dataDir: String): String =
+        resolve("HOMEGAP_CLUSTER_CONFIG_DIR", CLUSTER_CONFIG, "$dataDir/cluster/config")
 
     private fun resolve(variable: String, imagePath: String, fallback: String): String =
         env(variable)?.takeIf { it.isNotBlank() } ?: imagePath.takeIf { Files.isDirectory(it) } ?: fallback
@@ -44,8 +45,11 @@ object SharedDirs {
             .maxByOrNull { it.length }
 
     /** What to tell the operator when the shared directory [path] is not a volume. */
-    fun notAVolumeHint(path: String, volume: String, other: String): String =
-        "$path is not a volume, so the $other container cannot see it. Mount the $volume volume at $path in both containers."
+    fun notAVolumeHint(path: String, volume: String, other: String): String {
+        val problem = "$path is not a volume, so the $other container cannot see it."
+        val remedy = "Mount the $volume volume at $path in both containers."
+        return "$problem $remedy"
+    }
 }
 
 val AppConfig.clusterConfigDir: String get() = SharedDirs.clusterConfig(dataDir)
@@ -56,9 +60,17 @@ val AppConfig.tunnelsDir: String get() = tunnels.stateDir ?: SharedDirs.tunnels(
 
 /** One line for each shared directory of this config that is not a volume. */
 fun AppConfig.sharedDirProblems(): List<String> = buildList {
-    if (nodes.isNotEmpty() && SharedDirs.notAVolume(tunnelsDir)) add(SharedDirs.notAVolumeHint(tunnelsDir, "homegap-tunnels", "tunnels"))
+    fun check(path: String, volume: String, other: String) {
+        if (SharedDirs.notAVolume(path)) {
+            add(SharedDirs.notAVolumeHint(path, volume = volume, other = other))
+        }
+    }
+
+    if (nodes.isNotEmpty()) {
+        check(tunnelsDir, volume = "homegap-tunnels", other = "tunnels")
+    }
     if (cluster != null) {
-        if (SharedDirs.notAVolume(meshDir)) add(SharedDirs.notAVolumeHint(meshDir, "homegap-mesh", "homegap-mesh-agent"))
-        if (SharedDirs.notAVolume(clusterConfigDir)) add(SharedDirs.notAVolumeHint(clusterConfigDir, "homegap-cluster-config", "cluster"))
+        check(meshDir, volume = "homegap-mesh", other = "homegap-mesh-agent")
+        check(clusterConfigDir, volume = "homegap-cluster-config", other = "cluster")
     }
 }

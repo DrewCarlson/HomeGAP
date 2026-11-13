@@ -15,6 +15,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 
 /** The add-node wizard: connection test, the node's SSH key, and setup jobs. */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -33,18 +34,22 @@ class SetupRoutes(private val setup: NodeSetupService) : RoutingController {
         call.respond(setup.test(call.receive<SshLoginDto>()))
     }
 
-    /** Generates, imports or registers the node's SSH key; returns its public half. */
+    /** Generates, imports or registers the node's SSH key. Returns its public half. */
     suspend fun RoutingContext.createKey() {
         call.respond(setup.key(call.receive<SshKeyRequestDto>()))
     }
 
-    /** Starts setting up a server; progress is read from [getJob]. */
+    /** Starts the setup of a server. [getJob] gives the progress. */
     suspend fun RoutingContext.startJob() {
         call.respond(setup.start(call.receive<NodeSetupRequestDto>()))
     }
 
     suspend fun RoutingContext.getJob() {
         val job = setup.job(requireNotNull(call.parameters["id"]) { "job id required" })
-        if (job == null) call.respond(HttpStatusCode.NotFound) else call.respond(job)
+        if (job == null) {
+            call.respond(HttpStatusCode.NotFound)
+        } else {
+            call.respond(job)
+        }
     }
 }

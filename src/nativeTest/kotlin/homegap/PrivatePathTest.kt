@@ -78,7 +78,7 @@ class PrivatePathTest {
         assertEquals("hg-private--wildcard-home-test-example-net", private.getValue("*.home.test.example.net").niceId)
 
         val ctx = ReconcileContext(cfg, StateStore(tmpPath("state")), ReconcileLog(), homegap.clients.SshPool(tmpPath("ssh"), tmpPath("kh")),
-            HttpClient(MockEngine { respondOk() }), HttpClient(MockEngine { respondOk() }), false, DiffCollector())
+            HttpClient(MockEngine { respondOk() }), false, DiffCollector())
         val bp = ResourceReconciler(ctx).buildBlueprint(n.publicResources, n.privateResources)
         val fd = bp["public-resources"]!!.jsonObject.getValue(Planner.FRONTDOOR_TCP).jsonObject
         assertTrue(fd.getValue("proxy-protocol").jsonPrimitive.boolean)

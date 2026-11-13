@@ -4,13 +4,18 @@ import homegap.config.NodeConfig
 import homegap.model.RawPort
 
 /**
- * The node firewall (`ufw`), shared by the add-node wizard and every provisioning pass so both
- * always agree. Rules HomeGAP adds carry the comment `homegap`; only those are ever removed.
+ * The node firewall (`ufw`). The add-node wizard and each provisioning pass use the same rules,
+ * so the two always agree. Each rule that HomeGAP adds has the comment `homegap`. HomeGAP removes
+ * only rules with that comment.
  */
 object FirewallRules {
-    /** `ufw` rule specs (the arguments after `ufw`) for [node]; [meshPort] opens the cluster mesh. */
-    fun specs(node: NodeConfig, rawPorts: List<RawPort> = emptyList(), meshPort: Int? = null): List<String> = buildList {
-        // SSH: from anywhere (key-only once hardened) or only from the listed sources.
+    /** The `ufw` rule specs (the arguments after `ufw`) for [node]. [meshPort] opens the cluster mesh. */
+    fun specs(
+        node: NodeConfig,
+        rawPorts: List<RawPort> = emptyList(),
+        meshPort: Int? = null,
+    ): List<String> = buildList {
+        // SSH: from each address (key-only after the hardening) or only from the listed sources.
         if (node.sshAllowFrom.isEmpty()) {
             add("allow ${node.sshPort}/tcp")
         } else {
@@ -21,7 +26,7 @@ object FirewallRules {
         add("allow 443/udp")
         add("allow 51820/udp")
         add("allow 21820/udp")
-        // WireGuard authenticates every packet, and the homelab dials in from a changing address.
+        // WireGuard authenticates each packet, and the address of the homelab is not fixed.
         meshPort?.let { addAll(meshSpecs(it)) }
         rawPorts.forEach { add("allow ${it.port}/${it.protocol}") }
     }.distinct()
@@ -49,13 +54,15 @@ object FirewallRules {
      * before the rules of Docker. The etcd client port stays open for the mesh probe of HAProxy,
      * and etcd asks for a password there.
      */
-    val containerGuard: String =
-        "DOCKER-USER -o ${Mesh.INTERFACE} -p tcp -m multiport --dports ${ClusterTemplates.CONTROL_PORTS.sorted().joinToString(",")} -j DROP"
+    val containerGuard: String = run {
+        val controlPorts = ClusterTemplates.CONTROL_PORTS.sorted().joinToString(",")
+        "DOCKER-USER -o ${Mesh.INTERFACE} -p tcp -m multiport --dports $controlPorts -j DROP"
+    }
 
     /**
-     * Applies [specs]: adds the wanted rules first (so narrowing SSH access never drops the
-     * current path before its replacement exists), then removes HomeGAP rules no longer wanted.
-     * With [enable], also turns `ufw` on.
+     * Applies [specs]. The script adds the wanted rules first, then removes the HomeGAP rules
+     * that are not wanted. Thus a change that limits SSH access never drops the current path
+     * before the new path exists. With [enable], the script also enables `ufw`.
      */
     fun script(specs: List<String>, enable: Boolean = true): String = $$"""
         |export DEBIAN_FRONTEND=noninteractive

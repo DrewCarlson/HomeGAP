@@ -14,7 +14,7 @@ object CertNames {
 
     /**
      * A name and why it is on the certificate. [reason] is `management`, `client`, `status`,
-     * `speedtest`, `service` or `frontdoor`; [subject] is the node id or the service key.
+     * `speedtest`, `service` or `frontdoor`. [subject] is the node id or the service key.
      */
     data class Entry(val name: String, val reason: String, val subject: String?)
 
@@ -27,30 +27,38 @@ object CertNames {
             val key = name.lowercase()
             if (key !in found) found[key] = Entry(key, reason, subject)
         }
-        for (n in config.nodes) add(n.managementHost(config.domain), "management", n.id)
+        for (node in config.nodes) {
+            add(node.managementHost(config.domain), "management", node.id)
+        }
         config.clientHost?.let { add(it, "client", null) }
-        for (nd in desired.nodes.values) {
-            nd.statusRedirect?.let { add(it.first, "status", null) }
-            nd.speedtestRedirect?.let { add(it.first, "speedtest", null) }
-            for (r in nd.publicResources) {
-                if (r.mode == ResourceMode.HTTP && r.ssl && r.fullDomain != null) {
-                    add(r.fullDomain, if (r.serviceKey == desired.frontDoor?.key) "frontdoor" else "service", r.serviceKey)
+        for (desiredNode in desired.nodes.values) {
+            desiredNode.statusRedirect?.let { add(it.first, "status", null) }
+            desiredNode.speedtestRedirect?.let { add(it.first, "speedtest", null) }
+            desiredNode.publicResources.forEach { resource ->
+                val name = resource.fullDomain
+                if (resource.mode == ResourceMode.HTTP && resource.ssl && name != null) {
+                    val reason = if (resource.serviceKey == desired.frontDoor?.key) "frontdoor" else "service"
+                    add(name, reason, resource.serviceKey)
                 }
             }
         }
         val names = found.keys
         val wildcards = names.filter { it.startsWith("*.") }.map { it.removePrefix("*.") }
         // An ACME server refuses a name that a wildcard in the same order covers.
-        val exact = names.filter { !it.startsWith("*.") && wildcards.none { w -> covers(w, it) } }
+        val exact = names.filter { name -> !name.startsWith("*.") && wildcards.none { covers(it, name) } }
         return (exact.sorted() + wildcards.sorted().map { "*.$it" }).map { found.getValue(it) }
     }
 
     /**
-     * The names that the nodes forward to the homelab without ending TLS. The homelab holds their
-     * certificates. A wildcard route is left out: no single name stands for it.
+     * The names that the nodes forward to the homelab and do not end TLS for. The homelab holds
+     * their certificates. A wildcard route is not in the list: no single name stands for it.
      */
     fun passthrough(desired: DesiredState): List<String> =
-        desired.nodes.values.flatMap { nd -> nd.sniRoutes.flatMap { it.exactHosts } }.map { it.lowercase() }.distinct().sorted()
+        desired.nodes.values
+            .flatMap { desiredNode -> desiredNode.sniRoutes.flatMap { it.exactHosts } }
+            .map { it.lowercase() }
+            .distinct()
+            .sorted()
 
     /** True if `*.[parent]` matches [name]: exactly one label under [parent]. */
     fun covers(parent: String, name: String): Boolean =

@@ -1,6 +1,7 @@
 package homegap.di
 
 import dev.zacsweers.metro.*
+import homegap.clients.SshPool
 import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
@@ -9,12 +10,11 @@ import homegap.discovery.DockerClient
 import homegap.platform.env
 import homegap.reconcile.Controller
 import homegap.reconcile.ReconcileLog
-import homegap.clients.SshPool
 import homegap.speedtest.SpeedTestServer
-import homegap.status.PublicStatus
 import homegap.speedtest.SpeedTestStore
 import homegap.speedtest.SpeedTestTokens
 import homegap.state.StateStore
+import homegap.status.PublicStatus
 import homegap.tunnels.TunnelSupervisor
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -29,7 +29,7 @@ data class RunOptions(val configPath: String, val dryRun: Boolean, val once: Boo
 data class TunnelOptions(
     val dir: String,
     val newtBinary: String,
-    /** Where the endpoint pins go ([homegap.tunnels.HostsPins]); the container's own hosts file. */
+    /** The file for the endpoint pins ([homegap.tunnels.HostsPins]): the hosts file of the container. */
     val hostsFile: String = "/etc/hosts",
 )
 
@@ -42,7 +42,11 @@ data class TunnelOptions(
 /** Scope of the tunnel supervisor process. */
 abstract class TunnelScope private constructor()
 
-/** `homegap run`: the controller, its dashboard and the speed test origin. */
+/**
+ * `homegap run`: the controller, its dashboard and the speed test origin. Only the graph that
+ * Metro generates calls the `@Provides` functions, so the IDE sees them as unused.
+ */
+@Suppress("unused")
 @DependencyGraph(AppScope::class)
 interface ControllerGraph {
     val config: AppConfig
@@ -77,8 +81,8 @@ interface ControllerGraph {
     @Provides @SingleIn(AppScope::class)
     fun docker(@LocalHttp http: HttpClient): DockerClient =
         DockerClient(
-            http,
-            Json {
+            client = http,
+            json = Json {
                 ignoreUnknownKeys = true
                 encodeDefaults = true
                 explicitNulls = false
@@ -103,11 +107,14 @@ interface ControllerGraph {
     fun speedStore(config: AppConfig): SpeedTestStore = SpeedTestStore("${config.dataDir}/speedtests.json")
 
     @Provides @SingleIn(AppScope::class)
-    fun dashboardAuth(config: AppConfig, controller: Controller): DashboardAuth = DashboardAuth.resolve(config) { controller.frontDoorAddresses }
+    fun dashboardAuth(config: AppConfig, controller: Controller): DashboardAuth =
+        DashboardAuth.resolve(config) { controller.frontDoorAddresses }
 
     @Provides @SingleIn(AppScope::class)
-    fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer =
-        SpeedTestServer({ controller.config }, tokens, store, PublicStatus({ controller.config }, { controller.status.value?.nodes.orEmpty() }))
+    fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer {
+        val publicStatus = PublicStatus({ controller.config }, { controller.status.value?.nodes.orEmpty() })
+        return SpeedTestServer({ controller.config }, tokens, store, publicStatus)
+    }
 
     @DependencyGraph.Factory
     fun interface Factory {

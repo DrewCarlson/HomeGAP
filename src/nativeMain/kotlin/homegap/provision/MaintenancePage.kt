@@ -3,6 +3,8 @@ package homegap.provision
 import homegap.brand.Brand
 import homegap.model.NodeDesired
 import homegap.model.ResourceMode
+import homegap.model.SniRoute
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -21,9 +23,9 @@ import kotlinx.serialization.json.putJsonObject
  * through the tunnel, at the addresses of the services that Pangolin last generated. When no
  * address answers a few times in a row, it drops [routes] into Traefik's dynamic directory: one
  * HTTP router for the covered names, above every other router, that sends each request to the
- * service. The service answers with the page and a 503. Once the homelab answers again, the
- * service removes the file. HomeGAP's own routing file is never touched, so the override can only
- * ever add the page.
+ * service. The service answers with the page and a 503. When the homelab answers again, the
+ * service removes the file. The service never changes the routing file of HomeGAP, so the
+ * override can only add the page.
  *
  * For a passthrough name, the override closes the connection at once and does not end TLS. The
  * browser then shows its error without a wait for a timeout.
@@ -31,10 +33,12 @@ import kotlinx.serialization.json.putJsonObject
 object MaintenancePage {
     const val SERVICE = "maintenance"
     const val PORT = 8090
-    /** Where HomeGAP writes the service's files on the node (not watched by Traefik). */
+
+    /** The directory on the node where HomeGAP writes the files of the service. Traefik does not watch it. */
     const val DIR = "config/maintenance"
     const val ROUTES = "$DIR/routes.yml"
-    /** The file the service adds to (and removes from) Traefik's dynamic directory. */
+
+    /** The file that the service adds to the dynamic directory of Traefik, and removes from it. */
     const val ACTIVE_NAME = "homegap-maintenance.yml"
 
     /** Above every other router of the node. */
@@ -43,82 +47,124 @@ object MaintenancePage {
     const val PROBES = "$DIR/probe.json"
     private const val CLOSED_PORT = 9
 
+    private const val NOTHING_TO_COVER =
+        "# Managed by HomeGAP: nothing for the maintenance page to cover on this node.\n"
+    private const val ROUTES_HEADER =
+        "Managed by HomeGAP: added to Traefik by the maintenance service only while the homelab is unreachable."
+
     /**
-     * What the service checks: each resource that reaches the homelab (found in Pangolin's
-     * generated routes as `<id>-<niceId>-service`), with a name to send as SNI. Empty when there is
-     * nothing to cover.
+     * The targets that the service checks: each resource that reaches the homelab, with a name to
+     * send as SNI. The service finds a resource in the generated routes of Pangolin as
+     * `<id>-<niceId>-service`. The list is empty if there is nothing to cover.
      */
     fun probes(desired: NodeDesired, resourceIds: Map<String, Int>): String = buildJsonObject {
         putJsonArray("targets") {
-            if (covers(desired, resourceIds)) for ((niceId, sni) in targets(desired, resourceIds)) {
-                add(buildJsonObject { put("service_suffix", "-$niceId-service"); put("sni", sni) })
+            if (covers(desired, resourceIds)) {
+                for ((niceId, sni) in targets(desired, resourceIds)) {
+                    add(
+                        buildJsonObject {
+                            put("service_suffix", "-$niceId-service")
+                            put("sni", sni)
+                        },
+                    )
+                }
             }
         }
     }.toString() + "\n"
 
-    /** The resources that reach the homelab and exist in Pangolin: niceId to a name for SNI. */
+    /** The resources that reach the homelab and exist in Pangolin: the niceId, and a name for SNI. */
     private fun targets(desired: NodeDesired, resourceIds: Map<String, Int>): List<Pair<String, String>> {
-        val passthrough = desired.sniRoutes.mapNotNull { r ->
-            val sni = r.exactHosts.firstOrNull { it !in r.excludeHosts } ?: r.wildcardOf?.let { "homegap-probe.$it" }
-            sni?.let { r.resourceNiceId to it }
+        val passthrough = desired.sniRoutes.mapNotNull { route ->
+            val sni = route.exactHosts.firstOrNull { it !in route.excludeHosts }
+                ?: route.wildcardOf?.let { "homegap-probe.$it" }
+            sni?.let { route.resourceNiceId to it }
         }
-        val terminated = desired.publicResources.filter { it.mode == ResourceMode.HTTP && it.ssl && it.fullDomain != null }
+        val terminated = desired.publicResources
+            .filter { it.mode == ResourceMode.HTTP && it.ssl && it.fullDomain != null }
             .map { it.niceId to (it.tlsServerName ?: it.fullDomain!!.replace("*.", "homegap-probe.")) }
         return (passthrough + terminated).filter { resourceIds[it.first] != null }
     }
 
-    private fun covers(desired: NodeDesired, resourceIds: Map<String, Int>) =
-        (desired.maintenanceHosts.isNotEmpty() || desired.sniRoutes.isNotEmpty()) && targets(desired, resourceIds).isNotEmpty()
+    private fun covers(desired: NodeDesired, resourceIds: Map<String, Int>): Boolean {
+        val hasNames = desired.maintenanceHosts.isNotEmpty() || desired.sniRoutes.isNotEmpty()
+        return hasNames && targets(desired, resourceIds).isNotEmpty()
+    }
 
-    /** The Traefik override, or an empty file when there is nothing to cover. */
+    /** The Traefik override, or an empty file if there is nothing to cover. */
     fun routes(desired: NodeDesired, resourceIds: Map<String, Int>): String {
         val hosts = desired.maintenanceHosts
-        if (!covers(desired, resourceIds)) return "# Managed by HomeGAP: nothing for the maintenance page to cover on this node.\n"
+        if (!covers(desired, resourceIds)) return NOTHING_TO_COVER
         val passthrough = desired.sniRoutes.filter { resourceIds[it.resourceNiceId] != null }
-        val matches = hosts.map { if (it.startsWith("*.")) "HostRegexp(`${NodeTemplates.wildcardRegex(it.removePrefix("*."))}`)" else "Host(`$it`)" }
-        // Pangolin's own pages on the node do not need the homelab.
-        val own = listOfNotNull(desired.managementHost, desired.clientHost).filter { it !in hosts }
-        val rule = "(${matches.joinToString(" || ")})" + own.joinToString("") { " && !Host(`$it`)" }
         val root = buildJsonObject {
-            if (hosts.isNotEmpty()) putJsonObject("http") {
-                putJsonObject("routers") {
-                    putJsonObject("homegap-maintenance") {
-                        putJsonArray("entryPoints") { add("websecure") }
-                        put("rule", rule)
-                        put("service", "homegap-maintenance")
-                        put("priority", PRIORITY)
-                        putJsonObject("tls") {}
-                    }
-                }
-                putJsonObject("services") {
-                    putJsonObject("homegap-maintenance") {
-                        putJsonObject("loadBalancer") { putJsonArray("servers") { add(buildJsonObject { put("url", "http://127.0.0.1:$PORT") }) } }
-                    }
-                }
+            if (hosts.isNotEmpty()) {
+                putJsonObject("http") { putPageRoute(pageRule(desired)) }
             }
-            if (passthrough.isNotEmpty()) putJsonObject("tcp") {
-                putJsonObject("routers") {
-                    for (r in passthrough) putJsonObject("${r.name}-unreachable") {
-                        putJsonArray("entryPoints") { add("websecure") }
-                        put("rule", NodeTemplates.sniRule(r))
-                        put("service", "homegap-unreachable")
-                        put("priority", r.priority + PRIORITY)
-                        // The node does not end TLS here: it holds no certificate for these names.
-                        putJsonObject("tls") { put("passthrough", true) }
-                    }
-                }
-                putJsonObject("services") {
-                    // Nothing listens on this port, so Traefik closes the connection of the viewer.
-                    putJsonObject("homegap-unreachable") {
-                        putJsonObject("loadBalancer") { putJsonArray("servers") { add(buildJsonObject { put("address", "127.0.0.1:$CLOSED_PORT") }) } }
-                    }
+            if (passthrough.isNotEmpty()) {
+                putJsonObject("tcp") { putUnreachableRoutes(passthrough) }
+            }
+        }
+        return YamlEmitter.emit(root, ROUTES_HEADER)
+    }
+
+    /** The rule for the names that get the page. */
+    private fun pageRule(desired: NodeDesired): String {
+        val hosts = desired.maintenanceHosts
+        val matches = hosts.map { host ->
+            if (host.startsWith("*.")) {
+                "HostRegexp(`${NodeTemplates.wildcardRegex(host.removePrefix("*."))}`)"
+            } else {
+                "Host(`$host`)"
+            }
+        }
+        // The pages of Pangolin itself on the node do not need the homelab.
+        val own = listOfNotNull(desired.managementHost, desired.clientHost).filter { it !in hosts }
+        return "(${matches.joinToString(" || ")})" + own.joinToString("") { " && !Host(`$it`)" }
+    }
+
+    /** The HTTP router that sends the covered names to the page. */
+    private fun JsonObjectBuilder.putPageRoute(rule: String) {
+        putJsonObject("routers") {
+            putJsonObject("homegap-maintenance") {
+                putJsonArray("entryPoints") { add("websecure") }
+                put("rule", rule)
+                put("service", "homegap-maintenance")
+                put("priority", PRIORITY)
+                putJsonObject("tls") {}
+            }
+        }
+        putJsonObject("services") {
+            putJsonObject("homegap-maintenance") { putLoadBalancer("url", "http://127.0.0.1:$PORT") }
+        }
+    }
+
+    /** The TCP routers that close each connection for a passthrough name. */
+    private fun JsonObjectBuilder.putUnreachableRoutes(passthrough: List<SniRoute>) {
+        putJsonObject("routers") {
+            for (route in passthrough) {
+                putJsonObject("${route.name}-unreachable") {
+                    putJsonArray("entryPoints") { add("websecure") }
+                    put("rule", NodeTemplates.sniRule(route))
+                    put("service", "homegap-unreachable")
+                    put("priority", route.priority + PRIORITY)
+                    // The node does not end TLS here: it holds no certificate for these names.
+                    putJsonObject("tls") { put("passthrough", true) }
                 }
             }
         }
-        return YamlEmitter.emit(root, "Managed by HomeGAP: added to Traefik by the maintenance service only while the homelab is unreachable.")
+        putJsonObject("services") {
+            // Nothing listens on this port, so Traefik closes the connection of the viewer.
+            putJsonObject("homegap-unreachable") { putLoadBalancer("address", "127.0.0.1:$CLOSED_PORT") }
+        }
     }
 
-    /** The service: probe loop plus a tiny HTTP server, standard library only. */
+    /** A load balancer with one server. [key] is `url` for HTTP and `address` for TCP. */
+    private fun JsonObjectBuilder.putLoadBalancer(key: String, server: String) {
+        putJsonObject("loadBalancer") {
+            putJsonArray("servers") { add(buildJsonObject { put(key, server) }) }
+        }
+    }
+
+    /** The service: a probe loop and a small HTTP server. It uses only the standard library. */
     val SCRIPT = $$"""
         |# Managed by HomeGAP: shows the maintenance page while the homelab is unreachable.
         |import concurrent.futures, http.client, http.server, json, os, re, shutil, socket, socketserver, ssl, threading, time
@@ -268,9 +314,9 @@ object MaintenancePage {
         |""".trimMargin()
 
     /**
-     * The page itself: static HTML and CSS, no scripts. It reloads itself every 30 seconds. The
-     * HomeGAP emblem stays a small mark in the footer and there is no favicon: visitors see this
-     * page under the site's own name.
+     * The page itself: static HTML and CSS, no scripts. It loads again every 30 seconds. The
+     * HomeGAP emblem is only a small mark in the footer, and the page has no favicon, because
+     * the visitor sees this page under the name of the site.
      */
     fun page(domain: String, node: String): String = $$"""
         |<!doctype html>
@@ -330,5 +376,9 @@ object MaintenancePage {
         |</html>
         |""".trimMargin()
 
-    private fun escape(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+    private fun escape(text: String) =
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
 }

@@ -10,6 +10,7 @@ import homegap.clients.SshSession
 import homegap.platform.Crypto
 import homegap.platform.Pty
 import homegap.platform.nowMillis
+import homegap.platform.runCatchingCancellable
 import homegap.reconcile.Controller
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The shells that the dashboard has open on the nodes. A shell runs on the orchestrator, through
@@ -45,13 +47,17 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
     init {
         scope.launch {
             while (true) {
-                delay(30_000)
-                runCatching { sweep() }
+                delay(SWEEP_INTERVAL)
+                runCatchingCancellable { sweep() }
             }
         }
     }
 
-    fun overview(): TerminalOverviewDto = TerminalOverviewDto(enabled, synchronized(lock) { sessions.values.map { it.dto() } })
+    fun overview(): TerminalOverviewDto {
+        val terminalOn = enabled
+        val open = synchronized(lock) { sessions.values.map { it.dto() } }
+        return TerminalOverviewDto(terminalOn, open)
+    }
 
     /** Starts a shell on [nodeId] in a terminal of [rows] by [columns]. */
     suspend fun open(nodeId: String, rows: Int, columns: Int): TerminalSessionDto = opening.withLock {
@@ -60,11 +66,15 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
         val node = requireNotNull(controller.config.node(nodeId)) { "unknown node $nodeId" }
         synchronized(lock) {
             check(sessions.size < MAX_TOTAL) { "There are $MAX_TOTAL terminals open. Close one first." }
-            check(sessions.values.count { it.nodeId == nodeId } < MAX_PER_NODE) { "$nodeId has $MAX_PER_NODE terminals open. Close one first." }
+            check(sessions.values.count { it.nodeId == nodeId } < MAX_PER_NODE) {
+                "$nodeId has $MAX_PER_NODE terminals open. Close one first."
+            }
         }
         val argv = ssh.session(node).interactive(shellCommand(controller.config.pangolin.installDir))
-        val pty = withContext(Dispatchers.IO) { Pty.spawn(argv, rows, columns, env = mapOf("TERM" to "xterm-256color")) }
-        val session = TerminalSession(Crypto.token(16), nodeId, pty, scope)
+        val pty = withContext(Dispatchers.IO) {
+            Pty.spawn(argv, rows, columns, env = mapOf("TERM" to "xterm-256color"))
+        }
+        val session = TerminalSession(Crypto.token(SESSION_ID_LENGTH), nodeId, pty, scope)
         synchronized(lock) { sessions[session.id] = session }
         controller.log.change(DOMAIN, "opened a terminal", nodeId)
         session.dto()
@@ -85,7 +95,7 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
     suspend fun close(id: String) {
         val session = synchronized(lock) { sessions.remove(id) } ?: return
         session.close()
-        val minutes = (nowMillis() - session.startedAt) / 60_000
+        val minutes = (nowMillis() - session.startedAt) / MINUTE_MS
         controller.log.change(DOMAIN, "closed a terminal after $minutes min", session.nodeId)
     }
 
@@ -99,8 +109,11 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
         val config = controller.config
         val done = synchronized(lock) {
             sessions.values.filter {
-                !config.dashboard.terminal || config.node(it.nodeId) == null ||
-                    (it.exitCode != null && !it.attached) || (!it.attached && now - it.lastActivity > IDLE_MS) || now - it.startedAt > MAX_AGE_MS
+                !config.dashboard.terminal ||
+                    config.node(it.nodeId) == null ||
+                    (it.exitCode != null && !it.attached) ||
+                    (!it.attached && now - it.lastActivity > IDLE_MS) ||
+                    now - it.startedAt > MAX_AGE_MS
             }.map { it.id }
         }
         done.forEach { close(it) }
@@ -116,7 +129,7 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
         fun issue(sessionId: String): String = synchronized(lock) {
             val now = nowMillis()
             open.entries.removeAll { it.value.second < now }
-            Crypto.token(32).also { open[it] = sessionId to now + TICKET_MS }
+            Crypto.token(TICKET_LENGTH).also { open[it] = sessionId to now + TICKET_MS }
         }
 
         fun redeem(ticket: String?): String? = synchronized(lock) {
@@ -133,9 +146,13 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
         const val IDLE_MS = 15 * 60_000L
         const val MAX_AGE_MS = 8 * 3_600_000L
         const val TICKET_MS = 30_000L
+        private const val MINUTE_MS = 60_000
+        private const val SESSION_ID_LENGTH = 16
+        private const val TICKET_LENGTH = 32
+        private val SWEEP_INTERVAL = 30.seconds
 
         /** The shell starts in the install directory of the stack, as a login shell. */
         fun shellCommand(installDir: String): String =
-            "cd ${SshSession.shQuote(installDir)} 2>/dev/null; exec \"\${SHELL:-/bin/bash}\" -l"
+            $$"cd $${SshSession.shQuote(installDir)} 2>/dev/null; exec \"${SHELL:-/bin/bash}\" -l"
     }
 }

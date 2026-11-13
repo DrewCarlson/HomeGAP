@@ -15,10 +15,13 @@ internal class WebAsset(
     private val brotliBase64: String? = null,
 ) {
     val bytes: ByteArray by lazy { Base64.decode(base64) }
-    /** Pre-compressed body for clients sending `Accept-Encoding: gzip` (text assets only). */
+
+    /** The compressed body for a client that sends `Accept-Encoding: gzip` (text assets only). */
     val gzip: ByteArray? by lazy { gzipBase64?.let { Base64.decode(it) } }
-    /** Pre-compressed body for clients sending `Accept-Encoding: br` (text assets only). */
+
+    /** The compressed body for a client that sends `Accept-Encoding: br` (text assets only). */
     val brotli: ByteArray? by lazy { brotliBase64?.let { Base64.decode(it) } }
+
     val contentType: String
         get() = when (path.substringAfterLast('.', "")) {
             "html" -> "text/html; charset=utf-8"

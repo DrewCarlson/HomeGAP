@@ -19,7 +19,7 @@ import kotlin.test.*
 
 class ReconcilerTest {
     private fun ctx(http: HttpClient, dryRun: Boolean = false, state: StateStore = StateStore(tmpPath("state"))) =
-        ReconcileContext(testConfig(), state, ReconcileLog(), SshPool(tmpPath("ssh"), tmpPath("kh")), http, http, dryRun, DiffCollector())
+        ReconcileContext(testConfig(), state, ReconcileLog(), SshPool(tmpPath("ssh"), tmpPath("kh")), http, dryRun, DiffCollector())
 
     private class FakeBunny {
         val records = mutableListOf<BunnyRecord>()

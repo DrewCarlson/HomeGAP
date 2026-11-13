@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.concurrent.Volatile
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * The output of a shell: the last [capacity] bytes, each with its position in the whole output.
@@ -29,7 +31,9 @@ class OutputBuffer(private val capacity: Int) {
     val start: Long get() = (end - capacity).coerceAtLeast(0)
 
     fun append(data: ByteArray, length: Int) {
-        for (i in 0 until length) bytes[((end + i) % capacity).toInt()] = data[i]
+        for (i in 0 until length) {
+            bytes[((end + i) % capacity).toInt()] = data[i]
+        }
         end += length
     }
 
@@ -64,35 +68,42 @@ class TerminalSession(
     private val _changes = MutableStateFlow(0L)
     val changes: StateFlow<Long> = _changes.asStateFlow()
 
-    @kotlin.concurrent.Volatile
+    @Volatile
     var exitCode: Int? = null
         private set
 
     /** The connection that shows this session. A new one takes the place of the last. */
-    @kotlin.concurrent.Volatile
+    @Volatile
     private var attachment: Any? = null
     val attached: Boolean get() = attachment != null
 
-    @kotlin.concurrent.Volatile
+    @Volatile
     private var acked = 0L
 
-    @kotlin.concurrent.Volatile
+    @Volatile
     var lastActivity = now()
         private set
 
     init {
         scope.launch(Dispatchers.IO) {
-            val chunk = ByteArray(16 * 1024)
+            val chunk = ByteArray(READ_BYTES)
             while (true) {
-                while (attached && buffer.end - acked > HIGH_WATER && exitCode == null) delay(20)
-                val n = pty.read(chunk)
-                if (n < 0) break
-                synchronized(lock) { buffer.append(chunk, n) }
+                while (attached && buffer.end - acked > HIGH_WATER && exitCode == null) {
+                    delay(BACKPRESSURE_POLL)
+                }
+                val count = pty.read(chunk)
+                if (count < 0) break
+                synchronized(lock) { buffer.append(chunk, count) }
                 _changes.value++
             }
             // The read ends a moment before the child is gone.
             var code = pty.exitCode()
-            repeat(40) { if (code == null) { delay(50); code = pty.exitCode() } }
+            repeat(EXIT_POLLS) {
+                if (code == null) {
+                    delay(EXIT_POLL)
+                    code = pty.exitCode()
+                }
+            }
             exitCode = code ?: -1
             _changes.value++
         }
@@ -117,19 +128,26 @@ class TerminalSession(
     fun shows(connection: Any): Boolean = attachment === connection
 
     /** The output from position [from], at most [max] bytes, with the position that it starts at. */
-    fun output(from: Long, max: Int = 32 * 1024): Pair<Long, ByteArray> = synchronized(lock) { buffer.read(from, max) }
+    fun output(from: Long, max: Int = OUTPUT_BYTES): Pair<Long, ByteArray> =
+        synchronized(lock) { buffer.read(from, max) }
 
     fun ack(offset: Long) {
-        if (offset > acked) acked = offset
+        if (offset > acked) {
+            acked = offset
+        }
     }
 
     suspend fun input(bytes: ByteArray) {
         lastActivity = now()
-        if (exitCode == null) withContext(Dispatchers.IO) { pty.write(bytes) }
+        if (exitCode == null) {
+            withContext(Dispatchers.IO) { pty.write(bytes) }
+        }
     }
 
     fun resize(rows: Int, columns: Int) {
-        if (exitCode == null) pty.resize(rows, columns)
+        if (exitCode == null) {
+            pty.resize(rows, columns)
+        }
     }
 
     /** Ends the shell. */
@@ -140,5 +158,11 @@ class TerminalSession(
 
         /** Less than the buffer, so the buffer never drops output that the attached browser did not get. */
         const val HIGH_WATER = BUFFER_BYTES / 2L
+
+        private const val READ_BYTES = 16 * 1024
+        private const val OUTPUT_BYTES = 32 * 1024
+        private const val EXIT_POLLS = 40
+        private val EXIT_POLL = 50.milliseconds
+        private val BACKPRESSURE_POLL = 20.milliseconds
     }
 }

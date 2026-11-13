@@ -6,7 +6,6 @@ import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
 import kotlinx.io.readByteArray
 import kotlinx.io.readString
-import kotlinx.io.writeString
 import platform.posix.*
 import kotlin.random.Random
 import kotlin.time.Clock
@@ -32,11 +31,11 @@ object Files {
 
     /** Up to [max] bytes of the file starting at [offset], as text ("" if missing). */
     fun readFrom(path: String, offset: Long, max: Int = 65536): String = runCatching {
-        val n = (size(path) - offset).coerceIn(0, max.toLong()).toInt()
-        if (n == 0) return@runCatching ""
-        SystemFileSystem.source(Path(path)).buffered().use { src ->
-            src.skip(offset)
-            src.readByteArray(n).decodeToString()
+        val count = (size(path) - offset).coerceIn(0, max.toLong()).toInt()
+        if (count == 0) return@runCatching ""
+        SystemFileSystem.source(Path(path)).buffered().use { source ->
+            source.skip(offset)
+            source.readByteArray(count).decodeToString()
         }
     }.getOrDefault("")
 
@@ -52,9 +51,9 @@ object Files {
     }
 
     /**
-     * Writes via a temp file + rename so readers never observe a partial file. The temp file is
-     * created with [mode] (never wider, even for a moment) and synced to disk before the rename,
-     * so a power loss leaves the old content or the new, not an empty file.
+     * Writes through a temp file and a rename, so a reader never sees a partial file. The temp
+     * file has [mode] from the start (never wider, even for a moment). The write syncs it to disk
+     * before the rename, so a power loss leaves the old content or the new, not an empty file.
      */
     fun writeAtomic(path: String, content: String, mode: Int = "644".toInt(8)) =
         writeAtomicBytes(path, content.encodeToByteArray(), mode)
@@ -69,8 +68,8 @@ object Files {
             SystemFileSystem.atomicMove(Path(tmp), Path(path))
             parent?.let { syncDirectory(it.toString()) }
         } catch (_: Exception) {
-            // A single file bind-mounted into a container cannot be replaced by rename (EBUSY);
-            // fall back to rewriting it in place.
+            // A rename cannot replace a single file that is bind-mounted into a container (EBUSY).
+            // Write the file again in place.
             SystemFileSystem.delete(Path(tmp), mustExist = false)
             writeSynced(path, bytes, mode, O_WRONLY or O_CREAT or O_TRUNC)
         }
@@ -86,9 +85,9 @@ object Files {
             var done = 0
             bytes.usePinned { pinned ->
                 while (done < bytes.size) {
-                    val n = write(fd, pinned.addressOf(done), (bytes.size - done).convert())
-                    check(n > 0) { "cannot write $path (errno $errno)" }
-                    done += n.toInt()
+                    val written = write(fd, pinned.addressOf(done), (bytes.size - done).convert())
+                    check(written > 0) { "cannot write $path (errno $errno)" }
+                    done += written.toInt()
                 }
             }
             fsync(fd)
@@ -107,7 +106,7 @@ object Files {
 
     /** Empties [path] in place, so a process that appends to it keeps its file. */
     fun truncate(path: String) {
-        platform.posix.truncate(path, 0)
+        truncate(path, 0)
     }
 
     fun chmodPath(path: String, mode: Int) {
@@ -123,9 +122,14 @@ object Files {
             var done = 0
             out.usePinned { pinned ->
                 while (done < length) {
-                    val n = pread(fd, pinned.addressOf(done), (length - done).convert(), (offset + done).convert())
-                    if (n <= 0) break
-                    done += n.toInt()
+                    val received = pread(
+                        fd,
+                        pinned.addressOf(done),
+                        (length - done).convert(),
+                        (offset + done).convert(),
+                    )
+                    if (received <= 0) break
+                    done += received.toInt()
                 }
             }
             return if (done == length) out else out.copyOf(done)
@@ -134,4 +138,3 @@ object Files {
         }
     }
 }
-

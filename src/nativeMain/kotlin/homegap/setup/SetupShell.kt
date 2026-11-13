@@ -15,100 +15,128 @@ sealed interface SetupLogin {
     val user: String
 
     /** Password login (the initial VPS credentials). */
-    class Password(override val host: String, override val port: Int, override val user: String, val password: String) : SetupLogin {
+    class Password(
+        override val host: String,
+        override val port: Int,
+        override val user: String,
+        val password: String,
+    ) : SetupLogin {
         override fun toString() = "$user@$host:$port (password)"
     }
 
-    /** Key login (the node's management key, or a key the VPS was created with). */
-    class Key(override val host: String, override val port: Int, override val user: String, val keyFile: String) : SetupLogin {
+    /** Key login (the management key of the node, or a key that the VPS got when it was made). */
+    class Key(
+        override val host: String,
+        override val port: Int,
+        override val user: String,
+        val keyFile: String,
+    ) : SetupLogin {
         override fun toString() = "$user@$host:$port (key)"
     }
 }
 
-/** How a login gains root: it is root, sudo without a password, or sudo with the login password. */
+/** How a login gets root: it is root, sudo without a password, or sudo with the login password. */
 enum class Privilege(val wire: String) {
-    Root("root"), NoPasswdSudo("nopasswd"), PasswordSudo("password"), None("none");
-
-    companion object {
-        fun fromWire(value: String) = entries.firstOrNull { it.wire == value } ?: None
-    }
+    Root("root"),
+    NoPasswdSudo("nopasswd"),
+    PasswordSudo("password"),
+    None("none"),
 }
 
-/** A connection could not be opened; [message] is readable (see [SetupShell.connectionError]). */
+/** A connection did not open. [message] is text for the operator (see [SetupShell.connectionError]). */
 class SetupConnectionException(message: String) : Exception(message)
 
 /**
  * SSH for the add-node wizard, which can log in with a password.
  *
- * A setup job holds one [Connection] open with the initial login and runs every command through it,
- * so a run costs a single login instead of one per command: servers with fail2ban, sshguard or
- * CrowdSec ban addresses that open many logins in a short time, and intrusion-prevention systems on
- * the orchestrator's own network (UniFi Threat Management, Suricata/Snort) cut off a source that
- * opens several outbound SSH connections in a row as a "scan". Checks that need a *new* login run
- * it inside the held connection ([runThrough]); only the final check from outside ([run] with a
- * [SetupLogin]) opens a second connection.
+ * A setup job holds one [Connection] open with the initial login and runs each command through it.
+ * Thus a run uses one login, not one login for each command. A server with fail2ban, sshguard or
+ * CrowdSec bans an address that opens many logins in a short time. An intrusion-prevention system
+ * on the network of the orchestrator (UniFi Threat Management, Suricata/Snort) blocks a source that
+ * opens many outbound SSH connections in a row, as a "scan". A check that needs a *new* login runs
+ * the login inside the open connection ([runThrough]). Only the last check from outside ([run]
+ * with a [SetupLogin]) opens a second connection.
  *
- * Passwords go to OpenSSH through `SSH_ASKPASS`: a small script that prints an environment variable
- * set only for that `ssh` child. They never appear in arguments, files or logs.
+ * A password goes to OpenSSH through `SSH_ASKPASS`: a small script that prints an environment
+ * variable, which only that `ssh` child has. A password is never in arguments, files or logs.
  */
 class SetupShell(private val knownHostsFile: String, private val askpassScript: String) {
     init {
         Files.writeAtomic(askpassScript, ASKPASS, "700".toInt(8))
     }
 
-    /** A held-open master connection; commands through it reuse its login. Close it with [close]. */
+    /** An open master connection. A command through it uses its login again. Close it with [close]. */
     class Connection internal constructor(val login: SetupLogin, internal val controlPath: String)
 
     /**
-     * Opens a master connection for [login], or throws [SetupConnectionException] with a readable
-     * reason. Like [homegap.clients.SshSession], `ssh -f` keeps inherited descriptors, so its output
-     * goes to a log file rather than to capture pipes.
+     * Opens a master connection for [login], or throws [SetupConnectionException] with a reason
+     * for the operator. As in [homegap.clients.SshSession], `ssh -f` keeps the descriptors that it
+     * inherits, so its output goes to a log file and not to capture pipes.
      */
     suspend fun connect(login: SetupLogin): Connection {
         Files.mkdirs(CONTROL_DIR)
         Files.chmodPath(CONTROL_DIR, "700".toInt(8))
         val controlPath = "$CONTROL_DIR/${Crypto.token(10)}.sock"
         val (auth, env) = authFor(login)
-        val argv = baseArgs(login) + auth +
-            listOf("-M", "-f", "-N", "-o", "ControlPath=$controlPath", "-o", "ControlPersist=10m", target(login))
+        val argv = buildList {
+            addAll(baseArgs(login))
+            addAll(auth)
+            addAll(listOf("-M", "-f", "-N", "-o", "ControlPath=$controlPath", "-o", "ControlPersist=10m"))
+            add(target(login))
+        }
         // `ssh -f` returns once logged in; the master it leaves behind detaches from our pipes.
-        val r = Subprocess.run(argv, timeout = 60.seconds, env = env)
-        if (!r.ok) throw SetupConnectionException(connectionError(r) ?: "SSH failed (exit ${r.exitCode}).")
+        val result = Subprocess.run(argv, timeout = 60.seconds, env = env)
+        if (!result.ok) {
+            throw SetupConnectionException(connectionError(result) ?: "SSH failed (exit ${result.exitCode}).")
+        }
         return Connection(login, controlPath)
     }
 
     /**
-     * Runs [command] through [connection] (no new login). `ProxyCommand=false` is never used while the
-     * master is up; if it is gone, ssh fails at once instead of opening a fresh connection without the
-     * login's credentials (a failed login that a blocker would count).
+     * Runs [command] through [connection], with no new login. ssh does not use `ProxyCommand=false`
+     * while the master is there. If the master is gone, ssh fails immediately. It does not open a
+     * new connection without the credentials of the login, which a blocker counts as a failed login.
      */
-    suspend fun run(connection: Connection, command: String, stdin: String = "", timeout: Duration = 120.seconds): ProcessResult {
+    suspend fun run(
+        connection: Connection,
+        command: String,
+        stdin: String = "",
+        timeout: Duration = 120.seconds,
+    ): ProcessResult {
         val login = connection.login
-        val argv = baseArgs(login) +
-            listOf("-o", "ControlPath=${connection.controlPath}", "-o", "ControlMaster=no", "-o", "ProxyCommand=false", target(login), command)
-        val r = Subprocess.run(argv, stdin, timeout)
-        if (r.exitCode == 255 && !Files.exists(connection.controlPath)) {
-            return r.copy(stderr = "Connection closed: the setup connection to the server was lost.")
+        val argv = buildList {
+            addAll(baseArgs(login))
+            addAll(listOf("-o", "ControlPath=${connection.controlPath}", "-o", "ControlMaster=no"))
+            addAll(listOf("-o", "ProxyCommand=false", target(login), command))
         }
-        return r
+        return Subprocess.run(argv, stdin, timeout).orConnectionLost(connection)
     }
 
-    /** Runs [command] over a fresh connection with [login]: proves that this login works right now. */
-    suspend fun run(login: SetupLogin, command: String, stdin: String = "", timeout: Duration = 120.seconds): ProcessResult {
+    /** Runs [command] over a new connection with [login]. It proves that this login works now. */
+    suspend fun run(
+        login: SetupLogin,
+        command: String,
+        stdin: String = "",
+        timeout: Duration = 120.seconds,
+    ): ProcessResult {
         val (auth, env) = authFor(login)
-        val argv = baseArgs(login) + auth + listOf("-o", "ControlPath=none", target(login), command)
+        val argv = buildList {
+            addAll(baseArgs(login))
+            addAll(auth)
+            addAll(listOf("-o", "ControlPath=none", target(login), command))
+        }
         return Subprocess.run(argv, stdin, timeout, env)
     }
 
     /**
-     * Runs [command] with a fresh [login] carried *inside* [via]: the new SSH session reaches the
-     * server's own sshd at [address]:[port] through a stdio forward (`-W`) of the held-open
-     * connection. It proves the key, sshd's settings and sudo for that login without opening another
-     * connection from the orchestrator, which an intrusion-prevention system on the orchestrator's
-     * network (or a login blocker on the server) would count as one more login in a burst.
+     * Runs [command] with a new [login] *inside* [via]. The new SSH session gets to the sshd of the
+     * server at [address]:[port] through a stdio forward (`-W`) of the open connection. It proves
+     * the key, the settings of sshd and sudo for that login, with no other connection from the
+     * orchestrator. An intrusion-prevention system on the network of the orchestrator, or a login
+     * blocker on the server, counts each connection as one more login in a short time.
      *
-     * It does not cross the server's firewall (the forward arrives over loopback), so a final check
-     * of the firewall still needs [run] with a [SetupLogin].
+     * The forward arrives over loopback, so it does not go through the firewall of the server. A
+     * last check of the firewall still needs [run] with a [SetupLogin].
      */
     suspend fun runThrough(
         via: Connection,
@@ -119,39 +147,51 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         timeout: Duration = 60.seconds,
     ): ProcessResult {
         val hop = if (':' in address) "[$address]:$port" else "$address:$port"
-        val proxy = (baseArgs(via.login) + listOf(
+        val proxyArgs = baseArgs(via.login) + listOf(
             "-o", "ControlPath=${via.controlPath}", "-o", "ControlMaster=no", "-o", "ProxyCommand=none",
             "-W", hop, target(via.login),
-        )).joinToString(" ") { shQuote(it) }.replace("%", "%%")
+        )
+        val proxy = proxyArgs.joinToString(" ") { shQuote(it) }.replace("%", "%%")
         val (auth, env) = authFor(login)
         // Host keys are checked against the server's own name, the same key a direct login sees.
-        val argv = baseArgs(login) + auth + listOf("-o", "ControlPath=none", "-o", "ProxyCommand=$proxy", target(login), command)
-        val r = Subprocess.run(argv, "", timeout, env)
-        if (r.exitCode == 255 && !Files.exists(via.controlPath)) {
-            return r.copy(stderr = "Connection closed: the setup connection to the server was lost.")
+        val argv = buildList {
+            addAll(baseArgs(login))
+            addAll(auth)
+            addAll(listOf("-o", "ControlPath=none", "-o", "ProxyCommand=$proxy", target(login), command))
         }
-        return r
+        return Subprocess.run(argv, "", timeout, env).orConnectionLost(via)
     }
 
-    /** Closes [connection]'s master. */
+    /** ssh exits with 255 when the master of [connection] is gone. Then the error text says so. */
+    private fun ProcessResult.orConnectionLost(connection: Connection): ProcessResult =
+        if (exitCode == SSH_FAILED && !Files.exists(connection.controlPath)) copy(stderr = CONNECTION_LOST) else this
+
+    /** Closes the master of [connection]. */
     suspend fun close(connection: Connection) {
-        val argv = baseArgs(connection.login) + listOf("-o", "ControlPath=${connection.controlPath}", "-O", "exit", target(connection.login))
+        val login = connection.login
+        val argv = baseArgs(login) + listOf("-o", "ControlPath=${connection.controlPath}", "-O", "exit", target(login))
         Subprocess.run(argv, timeout = 15.seconds)
         Files.delete(connection.controlPath)
     }
 
     /**
-     * Runs [script] as root through [connection]. [privilege] is how its login gains root; with
-     * [Privilege.PasswordSudo] the password is the first line on stdin, consumed by `sudo -S` before
+     * Runs [script] as root through [connection]. [privilege] is how its login gets root. With
+     * [Privilege.PasswordSudo], the password is the first line on stdin. `sudo -S` reads it before
      * bash reads the script.
      */
-    suspend fun runAsRoot(connection: Connection, privilege: Privilege, script: String, timeout: Duration = 600.seconds): ProcessResult {
+    suspend fun runAsRoot(
+        connection: Connection,
+        privilege: Privilege,
+        script: String,
+        timeout: Duration = 600.seconds,
+    ): ProcessResult {
         val body = "set -euo pipefail\n$script\n"
         return when (privilege) {
             Privilege.Root -> run(connection, "bash -s", body, timeout)
             Privilege.NoPasswdSudo -> run(connection, "sudo -n bash -s", body, timeout)
             Privilege.PasswordSudo -> {
-                val password = (connection.login as? SetupLogin.Password)?.password ?: error("sudo needs the login password")
+                val password = (connection.login as? SetupLogin.Password)?.password
+                    ?: error("sudo needs the login password")
                 run(connection, "sudo -S -k -p '' bash -s", "$password\n$body", timeout)
             }
             Privilege.None -> error("${connection.login.user} cannot become root (not root, and sudo is unavailable)")
@@ -163,10 +203,14 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
      * never accepts a new key by itself. ssh uses the first value of an option, so the strict
      * value comes before [COMMON_OPTIONS].
      */
-    private fun baseArgs(login: SetupLogin) =
-        listOf("ssh", "-p", login.port.toString()) +
-            (if (login is SetupLogin.Password) listOf("-o", "StrictHostKeyChecking=yes") else emptyList()) +
-            COMMON_OPTIONS + listOf("-o", "UserKnownHostsFile=$knownHostsFile")
+    private fun baseArgs(login: SetupLogin): List<String> = buildList {
+        addAll(listOf("ssh", "-p", login.port.toString()))
+        if (login is SetupLogin.Password) {
+            addAll(listOf("-o", "StrictHostKeyChecking=yes"))
+        }
+        addAll(COMMON_OPTIONS)
+        addAll(listOf("-o", "UserKnownHostsFile=$knownHostsFile"))
+    }
 
     private val scannedHostsFile = "$knownHostsFile.scanned"
 
@@ -181,7 +225,10 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         // One key type for each connection: a server that counts each connection without a
         // login as an attack sees one, not one for each type.
         val key = HOST_KEY_TYPES.firstNotNullOfOrNull { type ->
-            val scan = Subprocess.run(listOf("ssh-keyscan", "-T", "10", "-p", login.port.toString(), "-t", type, login.host), timeout = 30.seconds)
+            val scan = Subprocess.run(
+                listOf("ssh-keyscan", "-T", "10", "-p", login.port.toString(), "-t", type, login.host),
+                timeout = 30.seconds,
+            )
             scan.stdout.lines().firstOrNull { it.isNotBlank() && !it.startsWith("#") }
         } ?: return null
         Files.writeAtomic(scannedHostsFile, key + "\n", "600".toInt(8))
@@ -191,8 +238,9 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
     /** SHA256 fingerprint of the key that the last [scanHostKey] read for the server of [login]. */
     suspend fun scannedHostKey(login: SetupLogin): String? {
         if (!Files.exists(scannedHostsFile)) return null
-        val r = Subprocess.run(listOf("ssh-keygen", "-l", "-F", hostName(login.host, login.port), "-f", scannedHostsFile), timeout = 10.seconds)
-        return Regex("SHA256:[A-Za-z0-9+/=]+").find(r.stdout)?.value
+        val name = hostName(login.host, login.port)
+        val argv = listOf("ssh-keygen", "-l", "-F", name, "-f", scannedHostsFile)
+        return FINGERPRINT.find(Subprocess.run(argv, timeout = 10.seconds).stdout)?.value
     }
 
     /** Puts the key of the last [scanHostKey] for the server of [login] into the known hosts file. */
@@ -203,7 +251,8 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         check(lines.isNotEmpty()) { "The host key of ${login.host} is not there. Test the connection again." }
         forgetHostKey(login.host, login.port)
         val known = Files.readTextOrNull(knownHostsFile).orEmpty()
-        Files.writeAtomic(knownHostsFile, known + (if (known.isEmpty() || known.endsWith("\n")) "" else "\n") + lines.joinToString("\n") + "\n", "600".toInt(8))
+        val separator = if (known.isEmpty() || known.endsWith("\n")) "" else "\n"
+        Files.writeAtomic(knownHostsFile, known + separator + lines.joinToString("\n") + "\n", "600".toInt(8))
         Files.delete(scannedHostsFile)
     }
 
@@ -219,21 +268,26 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
         is SetupLogin.Key -> listOf("-i", login.keyFile) + KEY_OPTIONS to emptyMap()
     }
 
-    /** SHA256 fingerprint of the host key recorded for [host]:[port] (after a successful login). */
+    /** SHA256 fingerprint of the host key in the known hosts file for [host]:[port]. A good login puts it there. */
     suspend fun recordedHostKey(host: String, port: Int): String? {
-        val name = if (port == 22) host else "[$host]:$port"
-        val r = Subprocess.run(listOf("ssh-keygen", "-l", "-F", name, "-f", knownHostsFile), timeout = 10.seconds)
-        return Regex("SHA256:[A-Za-z0-9+/=]+").findAll(r.stdout).map { it.value }.firstOrNull()
+        val argv = listOf("ssh-keygen", "-l", "-F", hostName(host, port), "-f", knownHostsFile)
+        return FINGERPRINT.find(Subprocess.run(argv, timeout = 10.seconds).stdout)?.value
     }
 
-    /** Forgets the recorded host key for [host]:[port] (the server was rebuilt). */
+    /** Removes the host key for [host]:[port] from the known hosts file (the server was rebuilt). */
     suspend fun forgetHostKey(host: String, port: Int) {
-        val name = if (port == 22) host else "[$host]:$port"
-        if (Files.exists(knownHostsFile)) Subprocess.run(listOf("ssh-keygen", "-R", name, "-f", knownHostsFile), timeout = 10.seconds)
+        if (!Files.exists(knownHostsFile)) return
+        Subprocess.run(listOf("ssh-keygen", "-R", hostName(host, port), "-f", knownHostsFile), timeout = 10.seconds)
     }
 
     companion object {
         private const val SECRET_ENV = "HOMEGAP_SSH_SECRET"
+
+        /** The exit code of ssh for an error of its own, not of the remote command. */
+        private const val SSH_FAILED = 255
+        private const val ERROR_TEXT_LENGTH = 300
+        private const val CONNECTION_LOST = "Connection closed: the setup connection to the server was lost."
+        private val FINGERPRINT = Regex("SHA256:[A-Za-z0-9+/=]+")
 
         /** In the order ssh prefers them. */
         private val HOST_KEY_TYPES = listOf("ed25519", "ecdsa", "rsa")
@@ -265,12 +319,12 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
             "-o", "PasswordAuthentication=no",
         )
 
-        /** A readable reason for a failed SSH connection, from ssh's stderr (null if it connected). */
-        fun connectionError(r: ProcessResult): String? {
-            val err = r.stderr
+        /** The reason for a failed SSH connection, from the stderr of ssh. Null if ssh connected. */
+        fun connectionError(result: ProcessResult): String? {
+            val err = result.stderr
             // Killed by our timeout: ssh may exit 255 (SIGTERM) or report the signal (SIGKILL).
             if ("[homegap] process timed out" in err) return STALLED
-            if (r.exitCode != 255) return null
+            if (result.exitCode != SSH_FAILED) return null
             return when {
                 "REMOTE HOST IDENTIFICATION HAS CHANGED" in err || "Host key verification failed" in err ->
                     HOST_KEY_CHANGED
@@ -280,27 +334,31 @@ class SetupShell(private val knownHostsFile: String, private val askpassScript: 
                 // Connected, then nothing more got through: ssh's own banner timeout.
                 "during banner exchange" in err -> STALLED
                 "timed out" in err || "No route to host" in err || "Network is unreachable" in err -> NO_ANSWER
-                "Connection closed" in err || "Connection reset" in err || "kex_exchange_identification" in err -> DROPPED
+                "Connection closed" in err || "Connection reset" in err || "kex_exchange_identification" in err ->
+                    DROPPED
                 err.isBlank() -> DROPPED
-                else -> err.trim().lines().last { it.isNotBlank() }.take(300)
+                else -> err.trim().lines().last { it.isNotBlank() }.take(ERROR_TEXT_LENGTH)
             }
         }
 
         const val LOGIN_REJECTED = "Login rejected: wrong user, password or key."
 
-        /** Whether [error] (from [connectionError]) means packets were dropped or the connection was cut. */
+        /** True if [error] (from [connectionError]) is a loss of packets or a cut connection. */
         fun isDropped(error: String) = error == NO_ANSWER || error == DROPPED || error == STALLED
 
         const val STALLED =
             "The server accepted the connection, then the SSH session stalled: packets stopped getting through."
 
         const val NO_ANSWER =
-            "The server did not answer (wrong address, a firewall in front of it, or a login blocker on the server that banned this address)."
+            "The server did not answer (wrong address, a firewall in front of it, " +
+                "or a login blocker on the server that banned this address)."
 
         const val DROPPED =
-            "The server closed the connection before login (a login blocker such as fail2ban, sshguard or CrowdSec, or sshd refusing this address)."
+            "The server closed the connection before login " +
+                "(a login blocker such as fail2ban, sshguard or CrowdSec, or sshd refusing this address)."
 
         const val HOST_KEY_CHANGED =
-            "The server's host key differs from the one recorded for this address. If the server was rebuilt, forget the old key and retry."
+            "The server's host key differs from the one recorded for this address. " +
+                "If the server was rebuilt, forget the old key and retry."
     }
 }

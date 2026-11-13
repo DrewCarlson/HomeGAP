@@ -14,48 +14,66 @@ import platform.posix.close
 import platform.posix.read
 import kotlin.time.Duration.Companion.seconds
 
+private val SCAN_INTERVAL = 3.seconds
+private val READ_RETRY_DELAY = 1.seconds
+private const val EVENT_BUFFER_SIZE = 4096
+
+/** The size of `struct inotify_event` without the name. */
+private const val EVENT_HEADER_SIZE = 16
+
+/** The offset of the `len` field in `struct inotify_event`. */
+private const val NAME_LENGTH_OFFSET = 12
+
 actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): Flow<Unit> = flow {
     Files.mkdirs(dir)
     val fd = inotify_init1(IN_CLOEXEC)
     if (fd < 0) {
-        // No inotify (unusual container restrictions): fall back to scanning.
+        // No inotify (unusual container restrictions): scan at an interval.
         while (true) {
-            delay(3.seconds)
+            delay(SCAN_INTERVAL)
             emit(Unit)
         }
     }
     try {
         val mask = (IN_CLOSE_WRITE or IN_MOVED_TO or IN_MOVED_FROM or IN_DELETE or IN_CREATE).toUInt()
         check(inotify_add_watch(fd, dir, mask) >= 0) { "inotify_add_watch($dir) failed" }
-        val buf = ByteArray(4096)
+        val buffer = ByteArray(EVENT_BUFFER_SIZE)
         while (true) {
-            // Blocks this IO thread until something changes; no wakeups while idle.
-            val n = buf.usePinned { read(fd, it.addressOf(0), buf.size.convert()) }
-            if (n < 0) {
-                delay(1.seconds)
+            // Blocks this IO thread until something changes. An idle watch does not wake the thread.
+            val count = buffer.usePinned { read(fd, it.addressOf(0), buffer.size.convert()) }
+            if (count < 0) {
+                delay(READ_RETRY_DELAY)
                 continue
             }
-            if (eventNames(buf, n.toInt()).any(accept)) emit(Unit)
+            if (eventNames(buffer, count.toInt()).any(accept)) emit(Unit)
         }
     } finally {
         close(fd)
     }
 }.flowOn(Dispatchers.IO)
 
-/** File names in a buffer of `struct inotify_event` records `(wd, mask, cookie, len, name[len])`. */
-internal fun eventNames(buf: ByteArray, n: Int): List<String> {
+/**
+ * File names in the first [size] bytes of [buffer], which holds `struct inotify_event` records
+ * `(wd, mask, cookie, len, name[len])`.
+ */
+internal fun eventNames(buffer: ByteArray, size: Int): List<String> {
     val names = mutableListOf<String>()
-    var off = 0
-    while (off + 16 <= n) {
-        val len = (buf[off + 12].toInt() and 0xff) or ((buf[off + 13].toInt() and 0xff) shl 8) or
-                ((buf[off + 14].toInt() and 0xff) shl 16) or ((buf[off + 15].toInt() and 0xff) shl 24)
-        val start = off + 16
-        if (len > 0 && start + len <= n) {
+    var offset = 0
+    while (offset + EVENT_HEADER_SIZE <= size) {
+        val length = littleEndianInt(buffer, offset + NAME_LENGTH_OFFSET)
+        val start = offset + EVENT_HEADER_SIZE
+        if (length > 0 && start + length <= size) {
             var end = start
-            while (end < start + len && buf[end] != 0.toByte()) end++
-            names += buf.decodeToString(start, end)
+            while (end < start + length && buffer[end] != 0.toByte()) end++
+            names += buffer.decodeToString(start, end)
         }
-        off = start + len
+        offset = start + length
     }
     return names
 }
+
+private fun littleEndianInt(buffer: ByteArray, at: Int): Int =
+    (buffer[at].toInt() and 0xff) or
+        ((buffer[at + 1].toInt() and 0xff) shl 8) or
+        ((buffer[at + 2].toInt() and 0xff) shl 16) or
+        ((buffer[at + 3].toInt() and 0xff) shl 24)

@@ -2,22 +2,26 @@ package homegap.setup
 
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.ConfigLoader
+import homegap.provision.FirewallRules
 
 /**
- * Shell scripts the add-node wizard runs on the server, as root. Each is idempotent so a failed
- * setup can simply be run again.
+ * The shell scripts that the add-node wizard runs on the server, as root. Each script is
+ * idempotent, so a setup that failed can run again.
  *
- * Changes that could lock the orchestrator out (sshd settings, the firewall) are applied with a
- * dead-man switch: a background timer reverts them after [REVERT_AFTER_SECONDS] unless [disarm] runs
- * first, which happens only after a fresh connection proved access still works.
+ * A change that can lock the orchestrator out (the sshd settings, the firewall) has a dead-man
+ * switch. A background timer reverts the change after [REVERT_AFTER_SECONDS], unless [disarm] or
+ * [confirm] runs first. That occurs only after a new connection proves that access still works.
  */
 object SetupScripts {
     const val REVERT_AFTER_SECONDS = 120
 
-    /** sshd drop-in; `01-` sorts before distribution defaults such as `50-cloud-init.conf` (first value wins). */
+    /**
+     * The sshd drop-in. `01-` sorts before the defaults of the distribution, such as
+     * `50-cloud-init.conf`, and sshd uses the first value of a setting.
+     */
     const val SSHD_DROP_IN = "/etc/ssh/sshd_config.d/01-homegap.conf"
 
-    /** Facts about the server, printed as KEY=value lines (run as the login user, not root). */
+    /** Prints facts about the server as KEY=value lines. The login user runs it, not root. */
     val PROBE = $$"""
         |. /etc/os-release
         |echo "ID=$ID"
@@ -35,8 +39,9 @@ object SetupScripts {
     """.trimMargin()
 
     /**
-     * Prepares [user] for the orchestrator: creates it when [create], authorizes [publicKey],
-     * and (for non-root users) grants passwordless sudo and, with [dockerGroup], the docker group.
+     * Prepares [user] for the orchestrator. The script creates the user if [create] is set, and
+     * authorizes [publicKey]. A user that is not root gets passwordless sudo and, with
+     * [dockerGroup], the docker group.
      */
     fun prepareUser(user: String, publicKey: String, create: Boolean, dockerGroup: Boolean): String = $$"""
         |U=$${shQuote(user)}
@@ -71,12 +76,13 @@ object SetupScripts {
 
     /**
      * Writes the sshd drop-in, checks the effective configuration, arms the revert timer and
-     * reloads sshd. Existing sessions (the orchestrator's master connection) are unaffected.
+     * reloads sshd. The reload does not change open sessions, such as the master connection of the
+     * orchestrator.
      *
-     * The effective settings are checked with `sshd -T -C` for each of [users] connecting from
-     * [clientAddr], so a `Match` block that would override them for those users or this address is
-     * caught. That replaces trying a password login and expecting it to fail, which a login blocker
-     * would count against the orchestrator's address.
+     * The script reads the effective settings with `sshd -T -C` for each of [users] and for a
+     * connection from [clientAddr]. Thus it finds a `Match` block that overrides the settings for
+     * those users or for this address. A password login that must fail is not a good check,
+     * because a login blocker counts it against the address of the orchestrator.
      */
     fun hardenSsh(
         disableRootLogin: Boolean,
@@ -92,8 +98,8 @@ object SetupScripts {
             }
         }
         val expected = settings.map { it.lowercase() }
-        val addr = clientAddr?.takeIf { IP_ADDRESS.matches(it) } ?: "127.0.0.1"
-        val who = users.filter { ConfigLoader.UNIX_USER.matches(it) }.distinct().ifEmpty { listOf("root") }
+        val address = clientAddr?.takeIf { IP_ADDRESS.matches(it) } ?: "127.0.0.1"
+        val checkedUsers = users.filter { ConfigLoader.UNIX_USER.matches(it) }.distinct().ifEmpty { listOf("root") }
         return $$"""
             |CONF=$$SSHD_DROP_IN
             |grep -Eiq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config || {
@@ -107,8 +113,8 @@ object SetupScripts {
             |chmod 0644 "$CONF.tmp"
             |mv -f "$CONF.tmp" "$CONF"
             |if ! sshd -t; then $$RESTORE_SSHD; echo "sshd rejected the new settings; restored" >&2; exit 1; fi
-            |for who in $${who.joinToString(" ")}; do
-            |  EFFECTIVE=$(sshd -T -C "user=$who,host=$(hostname),addr=$$addr" 2>/dev/null | tr 'A-Z' 'a-z')
+            |for who in $${checkedUsers.joinToString(" ")}; do
+            |  EFFECTIVE=$(sshd -T -C "user=$who,host=$(hostname),addr=$$address" 2>/dev/null | tr 'A-Z' 'a-z')
             |  for want in $${expected.joinToString(" ") { shQuote(it) }}; do
             |    printf '%s\n' "$EFFECTIVE" | grep -qxF "$want" || { $$RESTORE_SSHD; echo "another sshd setting overrides for $who: $want" >&2; exit 1; }
             |  done
@@ -120,11 +126,11 @@ object SetupScripts {
     }
 
     /**
-     * Exempts [ip] (the orchestrator, as the server sees it) from login blockers that are installed:
-     * fail2ban, sshguard and CrowdSec. Each one bans addresses that open many SSH logins quickly,
-     * which setup and provisioning do. Any current ban on [ip] is lifted. Best effort: a blocker
-     * this cannot configure is reported, not fatal. If the orchestrator's address later changes, it
-     * only loses the exemption.
+     * Exempts [ip] (the orchestrator, as the server sees it) from the login blockers on the server:
+     * fail2ban, sshguard and CrowdSec. Each one bans an address that opens many SSH logins in a
+     * short time, and setup and provisioning do that. The script also removes a current ban on
+     * [ip]. A blocker that the script cannot configure is not an error: the script reports it. If
+     * the address of the orchestrator changes later, the orchestrator only loses the exemption.
      */
     fun exemptFromBlockers(ip: String): String {
         require(IP_ADDRESS.matches(ip)) { "not an IP address: $ip" }
@@ -176,8 +182,9 @@ object SetupScripts {
 
     /**
      * Reads what the server holds against [ip] after a login from it got no answer, for the last
-     * [seconds] seconds. Prints `BANNED=<blocker>` for each ban (and removes the ban), `REFUSED=yes`
-     * if sshd logged a refusal, and `OPEN=<n>`, the SSH connections from [ip] that the server holds.
+     * [seconds] seconds. The script prints `BANNED=<blocker>` for each ban and removes the ban. It
+     * prints `REFUSED=yes` if sshd logged a refusal. It prints `OPEN=<n>`, the number of SSH
+     * connections from [ip] that the server holds.
      */
     fun blockReport(ip: String, seconds: Long): String {
         require(IP_ADDRESS.matches(ip)) { "not an IP address: $ip" }
@@ -206,47 +213,55 @@ object SetupScripts {
 
     /** Applies the firewall [specs] and enables `ufw`, with a revert timer that disables it again. */
     fun firewall(specs: List<String>): String = $$"""
-        |$${homegap.provision.FirewallRules.script(specs, enable = false)}
+        |$${FirewallRules.script(specs, enable = false)}
         |$${arm("ufw", "ufw --force disable >/dev/null")}
         |ufw status | grep -q '^Status: active' || { ufw --force enable >/dev/null && echo "CHANGED ufw enabled"; }
     """.trimMargin()
 
-    /** Restores the sshd drop-in from before [hardenSsh] and reloads sshd (used when verification fails). */
+    /** Restores the sshd drop-in from before [hardenSsh] and reloads sshd. Setup uses it when a check fails. */
     val REVERT_SSH = "CONF=$SSHD_DROP_IN; $RESTORE_SSHD; $RELOAD_SSHD; rm -f ${marker("ssh")}"
 
-    /** Turns the firewall off again (used when verification fails). */
+    /** Disables the firewall again. Setup uses it when a check fails. */
     val REVERT_UFW = "ufw --force disable >/dev/null; rm -f ${marker("ufw")}"
 
-    /** Cancels the revert timer for [name] once access was verified. */
+    /** Cancels the revert timer for [name] after a check proves that access works. */
     fun disarm(name: String): String = "rm -f ${marker(name)}"
 
     /**
-     * Cancels the revert timers for [names] after the final check, failing if one already fired
-     * (its change was undone while setup was still verifying, so the server is not as reported).
+     * Cancels the revert timers for [names] after the last check. The script fails if a timer
+     * fired already. Then the timer reverted its change during the checks, and the server is not
+     * in the state that setup reports.
      */
-    fun confirm(names: List<String>): String = names.joinToString("\n") { name ->
-        val mark = marker(name)
-        "[ -f $mark ] || { echo \"the $name change was already reverted by its safety timer; run setup again\" >&2; exit 1; }"
-    } + "\n" + names.joinToString("\n") { "rm -f ${marker(it)}" }
+    fun confirm(names: List<String>): String {
+        val checks = names.joinToString("\n") { name ->
+            val reverted = "the $name change was already reverted by its safety timer; run setup again"
+            "[ -f ${marker(name)} ] || { echo \"$reverted\" >&2; exit 1; }"
+        }
+        val removals = names.joinToString("\n") { "rm -f ${marker(it)}" }
+        return "$checks\n$removals"
+    }
 
     private const val RESTORE_SSHD =
         $$"""if [ -f "$CONF.homegap-prev" ]; then mv -f "$CONF.homegap-prev" "$CONF"; else rm -f "$CONF"; fi"""
 
-    /** Reload with whatever manages sshd here; sshd also rereads its config for each new connection. */
+    /**
+     * Reloads sshd with the service manager of the server, or with a signal. sshd also reads its
+     * config again for each new connection.
+     */
     private const val RELOAD_SSHD =
-        $$"""if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ssh 2>/dev/null; then systemctl reload ssh; """ +
-            $$"""elif command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet sshd 2>/dev/null; then systemctl reload sshd; """ +
-            $$"""elif [ -s /run/sshd.pid ]; then kill -HUP "$(cat /run/sshd.pid)"; fi"""
+        """if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ssh 2>/dev/null; then systemctl reload ssh; """ +
+            """elif command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet sshd 2>/dev/null; then systemctl reload sshd; """ +
+            """elif [ -s /run/sshd.pid ]; then kill -HUP "$(cat /run/sshd.pid)"; fi"""
 
-    /** Whether [value] is a plain IPv4 or IPv6 address. */
+    /** True if [value] is a plain IPv4 or IPv6 address. */
     fun isIpAddress(value: String) = IP_ADDRESS.matches(value)
 
-    /** An IPv4 or IPv6 address (no CIDR), safe to put in scripts unquoted. */
+    /** An IPv4 or IPv6 address (no CIDR). A script can hold it without quotes. */
     private val IP_ADDRESS = Regex("""^(\d{1,3}(\.\d{1,3}){3}|[0-9a-fA-F:]*:[0-9a-fA-F:.]*)$""")
 
     private fun marker(name: String) = "/run/homegap-setup-$name.armed"
 
-    /** Starts a detached timer that runs [revert] unless the marker is removed first. */
+    /** Starts a detached timer that runs [revert], unless the marker is gone before the timer ends. */
     private fun arm(name: String, revert: String): String {
         val mark = marker(name)
         val job = "sleep $REVERT_AFTER_SECONDS; if [ -f $mark ]; then CONF=$SSHD_DROP_IN; $revert; rm -f $mark; fi"

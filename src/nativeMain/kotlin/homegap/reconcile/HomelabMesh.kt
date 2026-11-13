@@ -1,12 +1,13 @@
 package homegap.reconcile
 
-import homegap.config.SharedDirs
 import homegap.config.MeshConfig
+import homegap.config.SharedDirs
 import homegap.platform.Files
 import homegap.platform.ProcessResult
 import homegap.platform.Subprocess
 import homegap.platform.env
 import homegap.platform.nowMillis
+import homegap.platform.runCatchingCancellable
 import homegap.provision.ClusterTemplates
 import homegap.provision.Mesh
 import kotlinx.serialization.json.Json
@@ -33,7 +34,7 @@ class HomelabMesh(
     private val statusFile = "$dir/${Mesh.STATUS_FILE}"
     private var routed: String? = null
 
-    /** What the agent last reported, or null when it has not (or not for [MAX_AGE_MS]). */
+    /** The last report of the agent, or null if there is none or if it is older than [MAX_AGE_MS]. */
     fun status(): Mesh.AgentStatus? {
         val text = Files.readTextOrNull(statusFile) ?: return null
         val status = runCatching { json.decodeFromString<Mesh.AgentStatus>(text) }.getOrNull() ?: return null
@@ -42,11 +43,17 @@ class HomelabMesh(
 
     /** The homelab's public key, which the agent creates with its key pair. */
     fun publicKey(): String {
-        val status = status() ?: throw IllegalStateException(
-            if (SharedDirs.notAVolume(dir)) "the mesh agent has not reported. " + SharedDirs.notAVolumeHint(dir, "homegap-mesh", "homegap-mesh-agent")
-            else "the mesh agent has not reported in $dir (the homegap-mesh-agent container shares the homegap-mesh namespace and the mesh volume)",
-        )
-        return status.publicKey ?: throw IllegalStateException(status.error ?: "the mesh agent has no key yet")
+        val status = status() ?: error(notReportedMessage())
+        return status.publicKey ?: error(status.error ?: "the mesh agent has no key yet")
+    }
+
+    private fun notReportedMessage(): String {
+        if (SharedDirs.notAVolume(dir)) {
+            val hint = SharedDirs.notAVolumeHint(dir, "homegap-mesh", "homegap-mesh-agent")
+            return "the mesh agent has not reported. $hint"
+        }
+        val setup = "the homegap-mesh-agent container shares the homegap-mesh namespace and the mesh volume"
+        return "the mesh agent has not reported in $dir ($setup)"
     }
 
     /** Hands the agent the mesh ([address], [peers]) and routes the mesh subnet through its namespace. */
@@ -64,7 +71,7 @@ class HomelabMesh(
             Files.writeAtomic(specFile, text, "600".toInt(8))
         }
         route(mesh.subnet)
-        status()?.error?.let { throw IllegalStateException(it) }
+        status()?.error?.let { error(it) }
     }
 
     /** The interface's peers as the agent last saw them, or null before it applied the current mesh. */
@@ -75,36 +82,41 @@ class HomelabMesh(
     }
 
     /**
-     * Sends the mesh subnet through the mesh namespace. Its address there is looked up each time:
-     * it changes when that container is recreated.
+     * Sends the mesh subnet through the mesh namespace. Each call finds the address of the
+     * namespace again, because the address changes when that container is recreated.
      */
     private suspend fun route(subnet: String) {
         val resolved = run("getent", "ahostsv4", gateway).stdout.lineSequence()
-            .map { it.substringBefore(' ').trim() }.firstOrNull { it.isNotEmpty() }
-            ?: throw IllegalStateException(
-                "the mesh namespace ($gateway) is not on a network the orchestrator shares (HOMEGAP_MESH_HOST)",
-            )
+            .map { it.substringBefore(' ').trim() }
+            .firstOrNull { it.isNotEmpty() }
+            ?: error("the mesh namespace ($gateway) is not on a network the orchestrator shares (HOMEGAP_MESH_HOST)")
         val wanted = "$subnet via $resolved"
         if (routed == wanted && run("ip", "-4", "route", "show", subnet).stdout.contains("via $resolved ")) return
-        val r = run("ip", "-4", "route", "replace", subnet, "via", resolved)
-        if (!r.ok) {
-            val reason = if ("Operation not permitted" in r.stderr) "the orchestrator needs NET_ADMIN to route the mesh subnet (cap_add: [NET_ADMIN])"
-            else r.stderr.trim().ifEmpty { "exit ${r.exitCode}" }
-            throw IllegalStateException("could not route $subnet through $gateway: $reason")
+        val result = run("ip", "-4", "route", "replace", subnet, "via", resolved)
+        check(result.ok) {
+            val reason = when {
+                "Operation not permitted" in result.stderr -> NEEDS_NET_ADMIN
+                else -> result.stderr.trim().ifEmpty { "exit ${result.exitCode}" }
+            }
+            "could not route $subnet through $gateway: $reason"
         }
         routed = wanted
     }
 
-    private suspend fun run(vararg argv: String): ProcessResult = try {
-        Subprocess.run(argv.toList(), "", 15.seconds)
-    } catch (e: IllegalStateException) {
-        // Subprocess reports a missing binary this way.
-        ProcessResult(127, "", e.message ?: "not found")
-    }
+    /** Subprocess reports a missing binary as an [IllegalStateException]. The result is exit code 127. */
+    private suspend fun run(vararg argv: String): ProcessResult =
+        runCatchingCancellable { Subprocess.run(argv.toList(), "", COMMAND_TIMEOUT) }.getOrElse { e ->
+            // Subprocess reports a missing binary this way.
+            if (e !is IllegalStateException) throw e
+            ProcessResult(COMMAND_NOT_FOUND, "", e.message ?: "not found")
+        }
 
     private companion object {
-        /** The agent reports every few seconds; older than this, it is not running. */
+        /** The agent reports every few seconds. If the report is older than this, the agent does not run. */
         const val MAX_AGE_MS = 45_000L
+        const val COMMAND_NOT_FOUND = 127
+        const val NEEDS_NET_ADMIN = "the orchestrator needs NET_ADMIN to route the mesh subnet (cap_add: [NET_ADMIN])"
+        val COMMAND_TIMEOUT = 15.seconds
         val json = Json { ignoreUnknownKeys = true }
     }
 }

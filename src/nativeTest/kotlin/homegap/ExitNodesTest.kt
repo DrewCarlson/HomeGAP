@@ -44,7 +44,6 @@ class ExitNodesTest {
     fun blueprintHasNoDestinationAndNeverListsAdmin() {
         val c = cfg("    nodes: true\n    roles: [Member, Admin]\n")
         val ctx = ReconcileContext(c, StateStore(tmpPath("state")), ReconcileLog(), homegap.clients.SshPool(tmpPath("ssh"), tmpPath("kh")),
-            HttpClient(MockEngine { respondOk() }),
             HttpClient(MockEngine { respondOk() }), false, DiffCollector())
         val (r, sites) = ExitNodes.resources(c, mapOf("na1" to "exit-na1"), emptyMap()).entries.single()
         val bp = ResourceReconciler(ctx).buildBlueprint(emptyMap(), mapOf(r to sites))
@@ -78,5 +77,12 @@ class ExitNodesTest {
         assertFalse("pangolin-na1" in ExitNodes.compose("img"), "no pins, no entry")
         // Newt's version check goes nowhere.
         assertTrue("api.fossorial.io=127.0.0.1" in ExitNodes.compose("img"))
+    }
+
+    @Test
+    fun noHomelabExitWhileNoConfiguredNodeHasAHomelabSite() {
+        // The only homelab site is of a node that left the config.
+        val c = cfg("    homelab: true\n")
+        assertTrue(ExitNodes.resources(c, emptyMap(), mapOf("gone1" to "homelab-gone1")).isEmpty())
     }
 }

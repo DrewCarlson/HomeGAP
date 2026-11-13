@@ -13,30 +13,29 @@ import kotlinx.coroutines.sync.withLock
  * kept for [capacity] samples (24 h at one a minute). In memory only, so graphs start empty after
  * a restart.
  */
-class EdgeMetrics(private val capacity: Int = 1440) {
+class EdgeMetrics(private val capacity: Int = SAMPLES_PER_DAY) {
     private val mutex = Mutex()
     private val rings = mutableMapOf<SeriesKey, Ring>()
     private var lastBatch: Batch? = null
 
     private val _revision = MutableStateFlow(0L)
 
-    /** Grows with every [record]; the event stream sends [latest] when it changes. */
+    /** Grows with every [record]. The event stream sends [latest] when it changes. */
     val revision: StateFlow<Long> = _revision.asStateFlow()
 
     /** Adds one sample per point, all taken at [atSeconds]. */
     suspend fun record(atSeconds: Long, points: List<MetricPointDto>) {
         if (points.isEmpty()) return
         mutex.withLock {
-            for (point in points) {
-                val ring = rings.getOrPut(SeriesKey(point.edge, point.series)) { Ring(capacity) }
-                ring.add(
-                    time = atSeconds,
-                    value = point.value,
-                )
-            }
+            points.forEach { addSample(atSeconds, it) }
             lastBatch = Batch(atSeconds, points)
         }
         _revision.value++
+    }
+
+    private fun addSample(atSeconds: Long, point: MetricPointDto) {
+        val ring = rings.getOrPut(SeriesKey(point.edge, point.series)) { Ring(capacity) }
+        ring.add(time = atSeconds, value = point.value)
     }
 
     /** The samples of the last [record], or null before the first. */
@@ -98,6 +97,8 @@ class EdgeMetrics(private val capacity: Int = 1440) {
         const val TUNNEL_OUT = "out"
         const val REQUESTS = "rps"
         const val EGRESS = "egress"
+
+        private const val SAMPLES_PER_DAY = 1440
 
         fun unitOf(series: String): String = when (series) {
             TUNNEL_IN, TUNNEL_OUT, EGRESS -> "Mb/s"

@@ -6,39 +6,41 @@ import homegap.platform.Files
 import homegap.speedtest.RateLimiter
 
 /**
- * The dashboard's bearer token. The API is never served without one: when the config names none
- * (or names one that is not available), a token is generated once and kept in the data directory
- * (mode 0600), where the operator reads it.
+ * The dashboard's bearer token. No request gets the API without one. When the config names none,
+ * or names one that is not available, the orchestrator generates a token once and keeps it in the
+ * data directory (mode 0600), where the operator reads it.
  */
 class DashboardAuth(
     val token: String,
-    /** Where the token was generated, or null when it comes from the config. */
+    /** The file that holds the generated token, or null when the token comes from the config. */
     val generatedFile: String?,
     /** The addresses of the front door container, the proxy that publishes the dashboard. */
     private val frontDoor: () -> Set<String> = { emptySet() },
 ) {
-    private val failures = RateLimiter(MAX_FAILURES, 60_000)
-    private val blocks = RateLimiter(0, 60_000)
+    private val failures = RateLimiter(MAX_FAILURES, WINDOW_MILLIS)
+    private val blocks = RateLimiter(0, WINDOW_MILLIS)
 
-    /** Whether [candidate] is the dashboard token (compared in constant time). */
+    /** Whether [candidate] is the dashboard token. The comparison takes constant time. */
     fun matches(candidate: String?): Boolean = candidate != null && Crypto.constantTimeEquals(candidate, token)
 
     /**
      * Whether [candidate] from [address] is the dashboard token. An address that sends more than
-     * [MAX_FAILURES] wrong tokens in a minute is blocked for the rest of that minute, so a short
-     * token is not found by trial.
+     * [MAX_FAILURES] wrong tokens in a minute gets no access for the rest of that minute, so
+     * trials cannot find a short token.
      */
     fun accepts(candidate: String?, address: String): Boolean {
         if (blocked(address)) return false
         if (matches(candidate)) return true
-        if (!failures.allow(address)) blocks.allow(address)
+        if (!failures.allow(address)) {
+            blocks.allow(address)
+        }
         return false
     }
 
     /**
      * The address of the client of a request from [peer]. The front door adds the address that it
      * got the request from to the end of `X-Forwarded-For`, so each viewer has an own address.
-     * From all other senders the header is not trusted, because a client can write it.
+     * The header of each other sender does not count, because a client can write it.
      */
     fun client(peer: String, forwardedFor: String?): String {
         val forwarded = forwardedFor?.substringAfterLast(',')?.trim()?.takeIf { it.isNotEmpty() }
@@ -50,6 +52,7 @@ class DashboardAuth(
 
     companion object {
         private const val LENGTH = 40
+        private const val WINDOW_MILLIS = 60_000L
         const val MAX_FAILURES = 20
 
         fun tokenFile(config: AppConfig): String = "${config.dataDir}/dashboard-token"

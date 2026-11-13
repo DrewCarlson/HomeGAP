@@ -12,6 +12,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
+import kotlin.math.PI
 import kotlin.math.asin
 import kotlin.math.cos
 import kotlin.math.sin
@@ -54,7 +55,7 @@ class LocationCatalog(config: AppConfig) {
 
     fun all(): List<LocationDto> = merge(builtIn, local())
 
-    /** Adds or replaces [dto] (by id). Editing a shipped entry keeps a local copy of it. */
+    /** Adds or replaces [dto] (by id). An edit of a shipped entry keeps a local copy of it. */
     fun put(dto: LocationDto): LocationDto {
         val entry = validate(dto)
         val shipped = builtIn.firstOrNull { it.id == entry.id }
@@ -64,8 +65,8 @@ class LocationCatalog(config: AppConfig) {
     }
 
     /**
-     * Removes [id]: a local entry is deleted; a shipped one is hidden. With [reset], an edited
-     * shipped entry goes back to the shipped version instead.
+     * Removes [id]. A local entry goes away, and a shipped entry becomes hidden. With [reset], an
+     * edited shipped entry goes back to the shipped version.
      */
     fun delete(id: String, reset: Boolean = false) {
         val shipped = builtIn.any { it.id == id }
@@ -75,50 +76,76 @@ class LocationCatalog(config: AppConfig) {
     }
 
     private fun save(entries: List<LocationEntry>) {
-        val header = "# Locations added or edited in the HomeGAP dashboard. Entries with a shipped id replace it;\n" +
-                "# `hidden: true` hides one.\n"
-        Files.writeAtomic(path, header + yaml.encodeToString(entries.sortedBy { it.id }))
+        Files.writeAtomic(path, HEADER + yaml.encodeToString(entries.sortedBy { it.id }))
     }
 
     companion object {
         private val ID = Regex("^[a-z0-9][a-z0-9-]{0,62}$")
         val REGIONS = setOf("NA", "SA", "EU", "AF", "ME", "AS", "OC")
+        private const val EARTH_RADIUS_KM = 6371.0
+
+        /** The first lines of the local file. */
+        private const val HEADER =
+            "# Locations added or edited in the HomeGAP dashboard. Entries with a shipped id replace it;\n" +
+                "# `hidden: true` hides one.\n"
 
         fun merge(builtIn: List<LocationEntry>, local: List<LocationEntry>): List<LocationDto> {
             val overrides = local.associateBy { it.id }
-            val shipped = builtIn.mapNotNull { b ->
-                val o = overrides[b.id]
+            val shipped = builtIn.mapNotNull { entry ->
+                val override = overrides[entry.id]
                 when {
-                    o == null -> b.toDto(builtIn = true, edited = false)
-                    o.hidden -> null
-                    else -> o.toDto(builtIn = true, edited = true)
+                    override == null -> entry.toDto(builtIn = true, edited = false)
+                    override.hidden -> null
+                    else -> override.toDto(builtIn = true, edited = true)
                 }
             }
-            val added = local.filter { l -> !l.hidden && builtIn.none { it.id == l.id } }
+            val added = local
+                .filter { entry -> !entry.hidden && builtIn.none { it.id == entry.id } }
                 .map { it.toDto(builtIn = false, edited = false) }
             return (shipped + added).sortedWith(compareBy({ it.region }, { it.country }, { it.name }))
         }
 
-        fun validate(d: LocationDto): LocationEntry {
-            require(ID.matches(d.id)) { "id must be lowercase letters, digits and dashes" }
-            require(d.name.isNotBlank()) { "name is required" }
-            require(d.latitude in -90.0..90.0 && d.longitude in -180.0..180.0) { "coordinates are out of range" }
-            require(d.region.isBlank() || d.region.uppercase() in REGIONS) { "region must be one of ${REGIONS.joinToString()}" }
+        fun validate(dto: LocationDto): LocationEntry {
+            require(ID.matches(dto.id)) { "id must be lowercase letters, digits and dashes" }
+            require(dto.name.isNotBlank()) { "name is required" }
+            require(dto.latitude in -90.0..90.0 && dto.longitude in -180.0..180.0) {
+                "coordinates are out of range"
+            }
+            require(dto.region.isBlank() || dto.region.uppercase() in REGIONS) {
+                "region must be one of ${REGIONS.joinToString()}"
+            }
             return LocationEntry(
-                d.id, d.name.trim(), d.country.trim(), d.countryCode.trim().uppercase(), d.region.trim().uppercase(),
-                d.latitude, d.longitude, d.providers.map { it.trim() }.filter { it.isNotEmpty() }.distinct(),
+                id = dto.id,
+                name = dto.name.trim(),
+                country = dto.country.trim(),
+                countryCode = dto.countryCode.trim().uppercase(),
+                region = dto.region.trim().uppercase(),
+                latitude = dto.latitude,
+                longitude = dto.longitude,
+                providers = dto.providers.map { it.trim() }.filter { it.isNotEmpty() }.distinct(),
             )
         }
 
-        private fun LocationEntry.toDto(builtIn: Boolean, edited: Boolean) =
-            LocationDto(id, name, country, countryCode, region, latitude, longitude, providers, builtIn, edited)
+        private fun LocationEntry.toDto(builtIn: Boolean, edited: Boolean) = LocationDto(
+            id = id,
+            name = name,
+            country = country,
+            countryCode = countryCode,
+            region = region,
+            latitude = latitude,
+            longitude = longitude,
+            providers = providers,
+            builtIn = builtIn,
+            edited = edited,
+        )
 
-        /** Great-circle distance in km. */
+        /** The great-circle distance in km. */
         fun distanceKm(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-            val r = kotlin.math.PI / 180
-            val a =
-                sin((lat2 - lat1) * r / 2).let { it * it } + cos(lat1 * r) * cos(lat2 * r) * sin((lon2 - lon1) * r / 2).let { it * it }
-            return 2 * 6371.0 * asin(sqrt(a))
+            val toRadians = PI / 180
+            val latitudeTerm = sin((lat2 - lat1) * toRadians / 2).let { it * it }
+            val longitudeTerm = sin((lon2 - lon1) * toRadians / 2).let { it * it }
+            val haversine = latitudeTerm + cos(lat1 * toRadians) * cos(lat2 * toRadians) * longitudeTerm
+            return 2 * EARTH_RADIUS_KM * asin(sqrt(haversine))
         }
     }
 }

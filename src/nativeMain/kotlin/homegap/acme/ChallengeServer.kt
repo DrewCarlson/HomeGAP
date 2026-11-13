@@ -1,6 +1,7 @@
 package homegap.acme
 
 import homegap.platform.Crypto
+import homegap.platform.runCatchingCancellable
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -37,7 +38,7 @@ class ChallengeServer(private val dns: DnsChallenge) {
             val port = server.engine.resolvedConnectors().first().port
             return block("http://127.0.0.1:$port")
         } finally {
-            server.stop(500, 2000)
+            server.stop(STOP_GRACE_MS, STOP_TIMEOUT_MS)
         }
     }
 
@@ -46,12 +47,17 @@ class ChallengeServer(private val dns: DnsChallenge) {
             call.respondText("unauthorized", status = HttpStatusCode.Unauthorized)
             return
         }
-        try {
+        runCatchingCancellable {
             val body = Json.parseToJsonElement(call.receiveText()).jsonObject
             action(body.getValue("fqdn").jsonPrimitive.content, body.getValue("value").jsonPrimitive.content)
             call.respondText("ok")
-        } catch (e: Exception) {
+        }.onFailure { e ->
             call.respondText(e.message ?: "failed", status = HttpStatusCode.BadRequest)
         }
+    }
+
+    private companion object {
+        const val STOP_GRACE_MS = 500L
+        const val STOP_TIMEOUT_MS = 2000L
     }
 }

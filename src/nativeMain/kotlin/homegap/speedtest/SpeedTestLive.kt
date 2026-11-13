@@ -1,17 +1,17 @@
 package homegap.speedtest
 
-import homegap.platform.Files
 import homegap.api.NodeCpuDto
 import homegap.api.SpeedTestLiveDto
+import homegap.platform.Files
 import homegap.platform.nowMillis
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 
 /**
- * The homelab ↔ node test running now, measured where its traffic ends: the speed test origin.
- * The node's script pings one after another on one connection, so the gap between two pings is
- * about one round trip; the bytes the origin sends and receives give the rates. The script's own
- * figures replace these once it finishes.
+ * The test between the homelab and a node that runs now. The speed test origin measures it, because
+ * the traffic of the test ends there. The script of the node sends one ping after the other on one
+ * connection, so the gap between two pings is about one round trip. The bytes that the origin sends
+ * and receives give the rates. When the script finishes, its own figures replace these.
  */
 class SpeedTestLive(
     private val clock: () -> Long = ::nowMillis,
@@ -21,27 +21,37 @@ class SpeedTestLive(
     private val lock = SynchronizedObject()
     private var token: String? = null
     private var nodeId = ""
-    private var phase = "ping"
+    private var phase = PING
     private var lastPing: Long? = null
     private val pings = mutableListOf<Double>()
-    /** (time, total bytes) of the current phase, the last ~2 s. */
+
+    /** (time, total bytes) of the current phase, for the last 2 seconds. */
     private val window = ArrayDeque<Pair<Long, Long>>()
     private var bytes = 0L
     private var phaseStart = 0L
     private val samples = mutableListOf<Double>()
     private var lastSample = 0L
     private var downMbps: Double? = null
+
     /** The CPU counters at the start of the download, at the change to the upload, and at the end. */
     private val marks = arrayOfNulls<CpuCounters>(3)
 
     fun start(token: String, nodeId: String) = synchronized(lock) {
-        this.token = token; this.nodeId = nodeId; phase = "ping"; lastPing = null; pings.clear()
+        this.token = token
+        this.nodeId = nodeId
+        phase = PING
+        lastPing = null
+        pings.clear()
         resetPhase()
         downMbps = null
         marks.fill(null)
     }
 
-    fun stop(token: String) = synchronized(lock) { if (this.token == token) this.token = null }
+    fun stop(token: String) = synchronized(lock) {
+        if (this.token == token) {
+            this.token = null
+        }
+    }
 
     /**
      * How busy this host was in the download and in the upload phase of the test of [token].
@@ -57,56 +67,87 @@ class SpeedTestLive(
 
     fun ping(token: String?) = synchronized(lock) {
         if (token == null || token != this.token) return@synchronized
-        val t = clock()
-        lastPing?.let { pings += (t - it).toDouble() }
-        lastPing = t
+        val now = clock()
+
+        lastPing?.let { pings += (now - it).toDouble() }
+        lastPing = now
     }
 
-    /** [n] bytes sent (download) or received (upload) for the running test. */
+    /** Counts [n] bytes that the origin sends (download) or receives (upload) for the test that runs. */
     fun bytes(token: String?, upload: Boolean, n: Int) = synchronized(lock) {
         if (token == null || token != this.token) return@synchronized
-        val p = if (upload) "upload" else "download"
-        if (phase != p) {
-            if (phase == "download") downMbps = average()
-            phase = p
+        val nextPhase = if (upload) UPLOAD else DOWNLOAD
+        if (phase != nextPhase) {
+            if (phase == DOWNLOAD) {
+                downMbps = average()
+            }
+            phase = nextPhase
             resetPhase()
             marks[if (upload) 1 else 0] = cpu()
         }
-        val t = clock()
+        val now = clock()
         bytes += n
-        window.addLast(t to bytes)
-        while (window.size > 2 && t - window.first().first > 2_000) window.removeFirst()
-        if (t - lastSample >= 250) {
-            rate(t)?.let { samples += it; if (samples.size > 60) samples.removeAt(0) }
-            lastSample = t
+        window.addLast(now to bytes)
+        while (window.size > 2 && now - window.first().first > WINDOW_MILLIS) {
+            window.removeFirst()
+        }
+        if (now - lastSample >= SAMPLE_INTERVAL_MILLIS) {
+            rate(now)?.let { mbps ->
+                samples += mbps
+                if (samples.size > MAX_SAMPLES) {
+                    samples.removeAt(0)
+                }
+            }
+            lastSample = now
         }
     }
 
     fun snapshot(): SpeedTestLiveDto? = synchronized(lock) {
         if (token == null) return@synchronized null
-        val rtts = pings.drop(1)
-        val (avg, jitter) = TunnelSpeedTest.stats(rtts)
+        val roundTrips = pings.drop(1)
+        val (average, jitter) = TunnelSpeedTest.stats(roundTrips)
         SpeedTestLiveDto(
-            nodeId = nodeId, phase = phase, pingSamples = rtts.takeLast(60), pingMs = avg, jitterMs = jitter,
-            mbps = if (phase == "ping") null else rate(clock()), mbpsSamples = samples.toList(), downMbps = downMbps,
+            nodeId = nodeId,
+            phase = phase,
+            pingSamples = roundTrips.takeLast(MAX_SAMPLES),
+            pingMs = average,
+            jitterMs = jitter,
+            mbps = if (phase == PING) null else rate(clock()),
+            mbpsSamples = samples.toList(),
+            downMbps = downMbps,
         )
     }
 
     private fun resetPhase() {
-        window.clear(); bytes = 0; phaseStart = clock(); samples.clear(); lastSample = 0
+        window.clear()
+        bytes = 0
+        phaseStart = clock()
+        samples.clear()
+        lastSample = 0
     }
 
     /** Mbps over the last second of [window]. */
-    private fun rate(t: Long): Double? {
-        val from = window.firstOrNull { t - it.first <= 1_000 } ?: return null
+    private fun rate(now: Long): Double? {
+        val from = window.firstOrNull { now - it.first <= RATE_MILLIS } ?: return null
         val last = window.last()
-        val ms = last.first - from.first
-        if (ms < 200) return null
-        return (last.second - from.second) * 8.0 / (ms / 1000.0) / 1e6
+        val millis = last.first - from.first
+        if (millis < MIN_RATE_MILLIS) return null
+        return (last.second - from.second) * 8.0 / (millis / 1000.0) / 1e6
     }
 
     private fun average(): Double? {
-        val ms = (window.lastOrNull()?.first ?: return null) - phaseStart
-        return if (ms > 0) bytes * 8.0 / (ms / 1000.0) / 1e6 else null
+        val millis = (window.lastOrNull()?.first ?: return null) - phaseStart
+        return if (millis > 0) bytes * 8.0 / (millis / 1000.0) / 1e6 else null
+    }
+
+    private companion object {
+        const val PING = "ping"
+        const val DOWNLOAD = "download"
+        const val UPLOAD = "upload"
+        const val WINDOW_MILLIS = 2_000
+        const val SAMPLE_INTERVAL_MILLIS = 250
+        const val RATE_MILLIS = 1_000
+        const val MIN_RATE_MILLIS = 200
+        const val MAX_SAMPLES = 60
     }
 }

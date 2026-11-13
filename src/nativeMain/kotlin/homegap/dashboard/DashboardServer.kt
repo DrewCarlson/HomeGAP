@@ -32,16 +32,27 @@ import io.ktor.server.websocket.timeout
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * The dashboard: the REST API (route groups in `homegap.routes`, mounted by [RoutingControllers])
- * and the embedded SPA. Meant to be exposed only as a private Pangolin resource; every
- * `/api` route also needs the bearer token ([DashboardAuth]). Never returns secret values.
+ * The dashboard: the REST API (route groups in `homegap.routes`, which [RoutingControllers]
+ * mounts) and the embedded SPA. Publish it only as a private Pangolin resource. Every `/api` route
+ * also needs the bearer token ([DashboardAuth]). It never returns secret values.
  */
 @SingleIn(AppScope::class)
 @Inject
 class DashboardServer(private val routingControllers: RoutingControllers, private val config: AppConfig) {
     fun start(host: String, port: Int) {
-        // Reuse the address: after a restart the old process's connections linger in TIME_WAIT.
-        embeddedServer(CIO, configure = { reuseAddress = true; connector { this.host = host; this.port = port } }) { module() }.start(wait = false)
+        // Reuse the address: after a restart, the connections of the old process stay in TIME_WAIT.
+        embeddedServer(
+            CIO,
+            configure = {
+                reuseAddress = true
+                connector {
+                    this.host = host
+                    this.port = port
+                }
+            },
+        ) {
+            module()
+        }.start(wait = false)
     }
 
     fun Application.module() {
@@ -54,9 +65,15 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
         }
         install(SecurityHeaders)
         install(StatusPages) {
-            exception<IllegalArgumentException> { call, e -> call.respond(HttpStatusCode.BadRequest, ActionResponse(false, e.message ?: "bad request")) }
-            exception<IllegalStateException> { call, e -> call.respond(HttpStatusCode.Conflict, ActionResponse(false, e.message ?: "conflict")) }
-            exception<Throwable> { call, e -> call.respond(HttpStatusCode.InternalServerError, ActionResponse(false, e.message ?: "error")) }
+            exception<IllegalArgumentException> { call, e ->
+                call.respond(HttpStatusCode.BadRequest, ActionResponse(false, e.message ?: "bad request"))
+            }
+            exception<IllegalStateException> { call, e ->
+                call.respond(HttpStatusCode.Conflict, ActionResponse(false, e.message ?: "conflict"))
+            }
+            exception<Throwable> { call, e ->
+                call.respond(HttpStatusCode.InternalServerError, ActionResponse(false, e.message ?: "error"))
+            }
         }
         routingControllers.init(this)
         routing {
@@ -69,7 +86,7 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
         }
     }
 
-    /** The SPA: known asset paths, everything else falls back to index.html (client-side routes). */
+    /** The SPA: a known asset path gives its file. Each other path gives index.html, for the routes of the client. */
     private suspend fun RoutingContext.serveAsset() {
         val path = call.request.path().let { if (it == "/" || it.isEmpty()) "/index.html" else it }
         val asset = WebAssets.files[path] ?: WebAssets.files["/index.html"]
@@ -77,13 +94,39 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
             call.respondText(NO_BUNDLE, ContentType.Text.Html)
             return
         }
-        // Hashed file names change with their content; index.html names them, so it is revalidated.
+        // A file name with a hash changes with its content. index.html names those files, so the
+        // browser checks it on each load.
         val cacheControl = if (asset.path == "/index.html") "no-cache" else "public, max-age=31536000, immutable"
         call.response.header(HttpHeaders.CacheControl, cacheControl)
         respondAsset(asset)
     }
 
     private companion object {
+        val POLICY = listOf(
+            "default-src 'none'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self'",
+            "worker-src 'self' blob:",
+            "child-src blob:",
+            "connect-src 'self'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+        ).joinToString("; ")
+
+        val DOCS_POLICY = listOf(
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data:",
+            "worker-src 'self' blob:",
+            "base-uri 'self'",
+            "form-action 'none'",
+            "frame-ancestors 'none'",
+        ).joinToString("; ")
+
         /**
          * The dashboard loads its own files only, and no page can put it in a frame. The docs
          * have scripts in their pages, so they get those too.
@@ -97,12 +140,6 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
                 call.response.header("Referrer-Policy", "no-referrer")
             }
         }
-
-        const val POLICY = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-            "img-src 'self' data: blob:; font-src 'self'; worker-src 'self' blob:; child-src blob:; connect-src 'self'; " +
-            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-        const val DOCS_POLICY = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-            "img-src 'self' data:; worker-src 'self' blob:; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
 
         const val NO_BUNDLE = "<!doctype html><title>HomeGAP</title><p>Dashboard bundle not embedded " +
             "(built with -Phomegap.skipWeb). API: <a href=\"/api/status\">/api/status</a></p>"

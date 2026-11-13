@@ -1,18 +1,20 @@
 package homegap.provision
 
-import kotlinx.serialization.Serializable
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.MeshConfig
+import homegap.platform.Crypto
+import kotlinx.serialization.Serializable
 
 /**
- * The cluster's private WireGuard mesh: the homelab and every node, each peered with all others.
+ * The private WireGuard mesh of the cluster: the homelab and each node. Each member is a peer of
+ * all the other members.
  *
- * - Addresses are fixed: the homelab is host 1 of the subnet and a node is host `10 + slot`, its
- *   permanent tunnel slot, so an address never moves to another node.
- * - Each node generates its own key on first setup; the private key never leaves the node, and
- *   HomeGAP learns the public key from the setup script's output.
- * - The homelab has no public endpoint: it dials every node and keeps the paths alive, so it works
- *   behind NAT. Nodes reach each other directly on their public addresses.
+ * - The addresses are fixed. The homelab is host 1 of the subnet. A node is host `10 + slot`,
+ *   where the slot is its permanent tunnel slot, so an address never moves to another node.
+ * - Each node makes its own key during its first setup. The private key stays on the node.
+ *   HomeGAP learns the public key from the output of the setup script.
+ * - The homelab has no public endpoint. It connects to each node and keeps the paths open, so it
+ *   works behind NAT. The nodes reach each other directly on their public addresses.
  */
 object Mesh {
     const val INTERFACE = "hg-mesh"
@@ -20,24 +22,30 @@ object Mesh {
     private const val HOMELAB_HOST = 1
     private const val NODE_HOST_BASE = 10
     private const val KEEPALIVE_SECONDS = 25
+    private const val IPV4_BITS = 32
+    private const val MIN_PREFIX = 16
+    private const val MAX_PREFIX = 28
 
-    /** Stands in for the node's private key in the rendered config; replaced on the node itself. */
+    /** The number of fields in a peer line of `wg show <iface> dump`. */
+    private const val DUMP_PEER_FIELDS = 8
+
+    /** The rendered config has this text in the place of the private key. The node puts its key there. */
     const val KEY_PLACEHOLDER = "@@HOMEGAP_MESH_PRIVATE_KEY@@"
 
     /** An IPv4 subnet such as `10.77.0.0/24`. */
     data class Subnet(val base: Long, val prefix: Int) {
-        private val size: Long get() = 1L shl (32 - prefix)
+        private val size: Long get() = 1L shl (IPV4_BITS - prefix)
 
-        /** The [n]th host address (n >= 1). */
-        fun host(n: Int): String {
-            require(n in 1 until size - 1) { "host $n is outside /$prefix" }
-            return format(base + n)
+        /** The host address with the number [number] (1 or more). */
+        fun host(number: Int): String {
+            require(number in 1 until size - 1) { "host $number is outside /$prefix" }
+            return format(base + number)
         }
 
-        /** Room for the homelab and [nodes] node slots. */
+        /** Returns true if the subnet has room for the homelab and [nodes] node slots. */
         fun fits(nodes: Int): Boolean = NODE_HOST_BASE + nodes < size - 1
 
-        /** Overlaps 100.64.0.0/10, where Pangolin allocates its tunnel and client subnets. */
+        /** Returns true if the subnet overlaps 100.64.0.0/10. Pangolin takes its tunnel and client subnets from it. */
         fun overlapsCgnat(): Boolean {
             val cgnat = parseIp("100.64.0.0")
             val cgnatEnd = cgnat + (1L shl 22) - 1
@@ -48,10 +56,14 @@ object Mesh {
     }
 
     fun parseSubnet(cidr: String): Subnet {
-        val (ip, bits) = cidr.split('/').takeIf { it.size == 2 } ?: throw IllegalArgumentException("'$cidr' is not an IPv4 CIDR")
-        val prefix = bits.toIntOrNull()?.takeIf { it in 16..28 } ?: throw IllegalArgumentException("prefix must be /16 to /28")
+        val parts = cidr.split('/')
+        require(parts.size == 2) { "'$cidr' is not an IPv4 CIDR" }
+        val (ip, bits) = parts
+        val prefix = bits.toIntOrNull()?.takeIf { it in MIN_PREFIX..MAX_PREFIX }
+        require(prefix != null) { "prefix must be /16 to /28" }
         val base = parseIp(ip)
-        require(base and ((1L shl (32 - prefix)) - 1) == 0L) { "'$cidr' is not a network address (host bits set)" }
+        val hostBits = base and ((1L shl (IPV4_BITS - prefix)) - 1)
+        require(hostBits == 0L) { "'$cidr' is not a network address (host bits set)" }
         return Subnet(base, prefix)
     }
 
@@ -59,13 +71,13 @@ object Mesh {
 
     fun nodeAddress(mesh: MeshConfig, slot: Int): String = parseSubnet(mesh.subnet).host(NODE_HOST_BASE + slot)
 
-    /** Another member as seen from one member: [endpoint] is null for the homelab (it dials out). */
+    /** Another member, as one member sees it. [endpoint] is null for the homelab, which connects out. */
     @Serializable
     data class Peer(val id: String, val publicKey: String, val address: String, val endpoint: String?)
 
     /**
-     * A node's `wg-quick` config. The private key is [KEY_PLACEHOLDER], filled in on the node.
-     * Peers with an endpoint get a keepalive; the homelab keeps its own paths alive.
+     * The `wg-quick` config of a node. The private key is [KEY_PLACEHOLDER], and the node puts
+     * its key there. A peer with an endpoint gets a keepalive. The homelab keeps its own paths open.
      */
     fun nodeConfig(mesh: MeshConfig, address: String, peers: List<Peer>): String = buildString {
         val prefix = parseSubnet(mesh.subnet).prefix
@@ -76,40 +88,43 @@ object Mesh {
         appendLine("PrivateKey = $KEY_PLACEHOLDER")
         // At boot, before Docker starts and makes its rules.
         appendLine("PostUp = $GUARD_COMMAND")
-        for (p in peers.sortedBy { it.id }) {
+        for (peer in peers.sortedBy { it.id }) {
             appendLine()
-            appendLine("# ${p.id}")
-            appendLine("[Peer]")
-            appendLine("PublicKey = ${p.publicKey}")
-            appendLine("AllowedIPs = ${p.address}/32")
-            p.endpoint?.let {
+            appendLine("# ${peer.id}")
+            appendPeerSection(peer)
+            peer.endpoint?.let {
                 appendLine("Endpoint = ${endpointHost(it)}:${mesh.port}")
                 appendLine("PersistentKeepalive = $KEEPALIVE_SECONDS")
             }
         }
     }
 
-    /** The homelab's config in `wg` (not `wg-quick`) format, for `wg syncconf`. */
+    /** The config of the homelab in `wg` (not `wg-quick`) format, for `wg syncconf`. */
     fun homelabConfig(mesh: MeshConfig, privateKey: String, peers: List<Peer>): String = buildString {
         appendLine("[Interface]")
         appendLine("PrivateKey = $privateKey")
         appendLine("ListenPort = ${mesh.port}")
-        for (p in peers.sortedBy { it.id }) {
+        for (peer in peers.sortedBy { it.id }) {
             appendLine()
-            appendLine("[Peer]")
-            appendLine("PublicKey = ${p.publicKey}")
-            appendLine("AllowedIPs = ${p.address}/32")
-            p.endpoint?.let { appendLine("Endpoint = ${endpointHost(it)}:${mesh.port}") }
+            appendPeerSection(peer)
+            peer.endpoint?.let { appendLine("Endpoint = ${endpointHost(it)}:${mesh.port}") }
             appendLine("PersistentKeepalive = $KEEPALIVE_SECONDS")
         }
     }
 
+    private fun StringBuilder.appendPeerSection(peer: Peer) {
+        appendLine("[Peer]")
+        appendLine("PublicKey = ${peer.publicKey}")
+        appendLine("AllowedIPs = ${peer.address}/32")
+    }
+
     /**
-     * Brings a node's mesh up to [config] (from [nodeConfig]): installs wireguard-tools, creates
-     * the node's key once, writes the config, applies peer changes in place (`wg syncconf`, so
-     * existing sessions survive) and enables it at boot where systemd runs. With [openFirewall],
-     * also opens the mesh port in an active ufw. Prints `PUBKEY=…` and the interface's peer dump
-     * between `DUMP-BEGIN` and `DUMP-END`.
+     * Makes the mesh of a node agree with [config] (from [nodeConfig]). The script installs
+     * wireguard-tools, makes the key of the node once and writes the config. It applies peer
+     * changes in place with `wg syncconf`, so the current sessions stay. Where systemd runs, it
+     * enables the interface at boot. With [openFirewall], it also opens the mesh port in an
+     * active ufw. It prints `PUBKEY=…`, and the peer dump of the interface between `DUMP-BEGIN`
+     * and `DUMP-END`.
      */
     fun nodeScript(mesh: MeshConfig, address: String, config: String, openFirewall: Boolean): String {
         val prefix = parseSubnet(mesh.subnet).prefix
@@ -160,7 +175,7 @@ object Mesh {
         """.trimMargin()
     }
 
-    /** Takes a node out of the mesh (decommission): best effort, never fails. */
+    /** Removes a node from the mesh (decommission). The script does what it can and never fails. */
     val TEARDOWN = $$"""
         |IFACE=$${shQuote(INTERFACE)}
         |if [ -d /run/systemd/system ]; then
@@ -179,9 +194,12 @@ object Mesh {
      * A host can have the nftables and the legacy rule sets, and Docker uses one of them, so the
      * rule goes into each set that has the chain.
      */
-    private val GUARD_COMMAND =
-        "iptables -N DOCKER-USER 2>/dev/null || true; for t in iptables iptables-legacy; do \$t -S DOCKER-USER >/dev/null 2>&1 || continue; " +
-            "\$t -C ${FirewallRules.containerGuard} 2>/dev/null || \$t -I ${FirewallRules.containerGuard} || true; done"
+    private val GUARD_COMMAND = run {
+        val guard = FirewallRules.containerGuard
+        val eachRuleSet = $$"for t in iptables iptables-legacy; do $t -S DOCKER-USER >/dev/null 2>&1 || continue"
+        val addGuard = $$"$t -C $$guard 2>/dev/null || $t -I $$guard || true"
+        "iptables -N DOCKER-USER 2>/dev/null || true; $eachRuleSet; $addGuard; done"
+    }
 
     /**
      * Opens the mesh in an active ufw, and removes each HomeGAP rule for the mesh interface or the
@@ -204,13 +222,13 @@ object Mesh {
         """.trimMargin()
     }
 
-    /** What the orchestrator writes for the homelab's mesh agent: the interface it keeps. */
+    /** The file that the orchestrator writes for the mesh agent of the homelab: the interface that the agent keeps. */
     const val SPEC_FILE = "mesh.json"
 
-    /** What the mesh agent writes back: its key, what it applied and the peers it sees. */
+    /** The file that the mesh agent writes: its key, the spec that it applied and the peers that it sees. */
     const val STATUS_FILE = "status.json"
 
-    /** The homelab's mesh as the agent applies it. [openPorts] are the member's ports others may reach. */
+    /** The mesh of the homelab, as the agent applies it. Other members can reach the [openPorts] of the member. */
     @Serializable
     data class AgentSpec(
         val subnet: String,
@@ -223,16 +241,16 @@ object Mesh {
     @Serializable
     data class AgentStatus(
         val publicKey: String? = null,
-        /** [specHash] of the spec that is in effect; null before the first one. */
+        /** The [specHash] of the spec that is in effect. It is null before the first spec. */
         val applied: String? = null,
         val peers: List<PeerStatus>? = null,
         val error: String? = null,
         val at: Long = 0,
     )
 
-    fun specHash(specText: String): String = homegap.platform.Crypto.fnv64(specText)
+    fun specHash(specText: String): String = Crypto.fnv64(specText)
 
-    /** The built-in chains that pass through HomeGAP's own: table, chain, target. */
+    /** The built-in chains that jump to the chains of HomeGAP: table, chain, target. */
     val FIREWALL_JUMPS = listOf(
         Triple("filter", "INPUT", "HG-IN"),
         Triple("filter", "OUTPUT", "HG-OUT"),
@@ -241,15 +259,15 @@ object Mesh {
     )
 
     /**
-     * The firewall of the homelab's mesh namespace, as `iptables-restore --noflush` input (naming a
-     * chain there empties it, so the whole set is replaced in one step). Everything is refused
-     * except:
-     * - in: answers, ping, and the member's [AgentSpec.openPorts] (from the nodes over the mesh,
-     *   and from the orchestrator over the network the two share);
-     * - out: the mesh, answers, and WireGuard itself to the nodes. Nothing in the namespace can
-     *   open a connection to the orchestrator, another container or the home network;
-     * - through: the orchestrator reaching the members over the mesh (leaving as the homelab's
-     *   mesh address), and the answers. A node is never passed on to anything.
+     * The firewall of the mesh namespace of the homelab, as input for `iptables-restore --noflush`.
+     * A chain that the input names becomes empty first, so one step replaces the full set. The
+     * rules refuse all traffic, with these exceptions:
+     * - In: answers, ping, and the [AgentSpec.openPorts] of the member. The nodes reach them over
+     *   the mesh, and the orchestrator reaches them over the network that it shares with the member.
+     * - Out: the mesh, answers, and WireGuard itself to the nodes. Nothing in the namespace can
+     *   open a connection to the orchestrator, another container or the home network.
+     * - Through: the orchestrator to the members over the mesh, with the mesh address of the
+     *   homelab as the source, and the answers. The namespace forwards nothing for a node.
      */
     fun firewallRules(spec: AgentSpec): String = buildString {
         val ports = spec.openPorts.joinToString(",")
@@ -277,36 +295,43 @@ object Mesh {
         appendLine("COMMIT")
     }
 
-    /** One peer line of `wg show <iface> dump`. [latestHandshake] is epoch seconds (0 = never). */
+    /** One peer line of `wg show <iface> dump`. [latestHandshake] is in epoch seconds (0 = never). */
     @Serializable
-    data class PeerStatus(val publicKey: String, val endpoint: String?, val latestHandshake: Long, val rxBytes: Long, val txBytes: Long)
+    data class PeerStatus(
+        val publicKey: String,
+        val endpoint: String?,
+        val latestHandshake: Long,
+        val rxBytes: Long,
+        val txBytes: Long,
+    )
 
-    /** Peers from `wg show <iface> dump` (the first line describes the interface itself). */
+    /** The peers in `wg show <iface> dump`. The first line is the interface itself. */
     fun parseDump(dump: String): List<PeerStatus> =
         dump.lines().drop(1).mapNotNull { line ->
-            val f = line.split('\t')
-            if (f.size < 8) return@mapNotNull null
+            val fields = line.split('\t')
+            if (fields.size < DUMP_PEER_FIELDS) return@mapNotNull null
             PeerStatus(
-                publicKey = f[0],
-                endpoint = f[2].takeIf { it != "(none)" },
-                latestHandshake = f[4].toLongOrNull() ?: 0,
-                rxBytes = f[5].toLongOrNull() ?: 0,
-                txBytes = f[6].toLongOrNull() ?: 0,
+                publicKey = fields[0],
+                endpoint = fields[2].takeIf { it != "(none)" },
+                latestHandshake = fields[4].toLongOrNull() ?: 0,
+                rxBytes = fields[5].toLongOrNull() ?: 0,
+                txBytes = fields[6].toLongOrNull() ?: 0,
             )
         }
 
-    /** The text between `DUMP-BEGIN` and `DUMP-END` in a node script's output. */
+    /** The text between `DUMP-BEGIN` and `DUMP-END` in the output of a node script. */
     fun dumpSection(output: String): String =
         output.substringAfter("DUMP-BEGIN\n", "").substringBefore("DUMP-END", "").trimEnd()
 
-    /** IPv6 endpoints need brackets before the port. */
+    /** An IPv6 endpoint needs brackets before the port. */
     private fun endpointHost(host: String) = if (':' in host && !host.startsWith("[")) "[$host]" else host
 
     private fun parseIp(ip: String): Long {
-        val parts = ip.split('.').map { it.toIntOrNull() ?: -1 }
-        require(parts.size == 4 && parts.all { it in 0..255 }) { "'$ip' is not an IPv4 address" }
-        return parts.fold(0L) { acc, b -> (acc shl 8) or b.toLong() }
+        val octets = ip.split('.').map { it.toIntOrNull() ?: -1 }
+        require(octets.size == 4 && octets.all { it in 0..255 }) { "'$ip' is not an IPv4 address" }
+        return octets.fold(0L) { address, octet -> (address shl 8) or octet.toLong() }
     }
 
-    private fun format(v: Long) = listOf(24, 16, 8, 0).joinToString(".") { ((v shr it) and 0xFF).toString() }
+    private fun format(address: Long) =
+        listOf(24, 16, 8, 0).joinToString(".") { shift -> ((address shr shift) and 0xFF).toString() }
 }

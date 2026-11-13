@@ -3,11 +3,13 @@ package homegap.provision
 import kotlinx.serialization.json.*
 
 /**
- * Renders a JSON tree as block-style YAML. Strings are always double-quoted using JSON escapes
- * (a valid YAML subset), so rendered files are both human-readable and injection-safe.
+ * Renders a JSON tree as block-style YAML. Each string has double quotes and JSON escapes, which
+ * is a valid subset of YAML. Thus a person can read the rendered file, and a value cannot inject
+ * YAML.
  */
 object YamlEmitter {
     private val PLAIN_KEY = Regex("^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
+    private const val INDENT = 2
 
     fun emit(root: JsonElement, header: String? = null): String = buildString {
         header?.lines()?.forEach { appendLine("# $it") }
@@ -18,48 +20,54 @@ object YamlEmitter {
         }
     }
 
-    private fun key(k: String) = if (PLAIN_KEY.matches(k)) k else JsonPrimitive(k).toString()
+    private fun key(name: String) = if (PLAIN_KEY.matches(name)) name else JsonPrimitive(name).toString()
 
-    private fun scalar(e: JsonElement): String = when (e) {
+    private fun scalar(element: JsonElement): String = when (element) {
         is JsonNull -> "null"
-        is JsonPrimitive -> if (e.isString) e.toString() else e.content
-        is JsonObject -> if (e.isEmpty()) "{}" else error("not scalar")
-        is JsonArray -> if (e.isEmpty()) "[]" else error("not scalar")
+        is JsonPrimitive -> if (element.isString) element.toString() else element.content
+        is JsonObject -> if (element.isEmpty()) "{}" else error("not scalar")
+        is JsonArray -> if (element.isEmpty()) "[]" else error("not scalar")
     }
 
-    private fun isScalar(e: JsonElement) = e is JsonPrimitive || e is JsonNull ||
-        (e is JsonObject && e.isEmpty()) || (e is JsonArray && e.isEmpty())
+    private fun isScalar(element: JsonElement) = element is JsonPrimitive ||
+        element is JsonNull ||
+        (element is JsonObject && element.isEmpty()) ||
+        (element is JsonArray && element.isEmpty())
 
-    private fun StringBuilder.emitObject(o: JsonObject, indent: Int) {
+    private fun StringBuilder.emitObject(obj: JsonObject, indent: Int) {
         val pad = " ".repeat(indent)
-        for ((k, v) in o) {
-            if (isScalar(v)) {
-                appendLine("$pad${key(k)}: ${scalar(v)}")
+        for ((name, value) in obj) {
+            if (isScalar(value)) {
+                appendLine("$pad${key(name)}: ${scalar(value)}")
             } else {
-                appendLine("$pad${key(k)}:")
-                when (v) {
-                    is JsonObject -> emitObject(v, indent + 2)
-                    is JsonArray -> emitArray(v, indent + 2)
+                appendLine("$pad${key(name)}:")
+                when (value) {
+                    is JsonObject -> emitObject(value, indent + INDENT)
+                    is JsonArray -> emitArray(value, indent + INDENT)
                     else -> Unit
                 }
             }
         }
     }
 
-    private fun StringBuilder.emitArray(a: JsonArray, indent: Int) {
+    private fun StringBuilder.emitArray(array: JsonArray, indent: Int) {
         val pad = " ".repeat(indent)
-        for (v in a) {
+        for (item in array) {
             when {
-                isScalar(v) -> appendLine("$pad- ${scalar(v)}")
-                v is JsonObject -> {
-                    // first key on the dash line, remaining keys aligned beneath it
-                    val inner = StringBuilder().apply { emitObject(v, indent + 2) }.toString().lines().filter { it.isNotEmpty() }
-                    appendLine("$pad- " + inner.first().drop(indent + 2))
+                isScalar(item) -> appendLine("$pad- ${scalar(item)}")
+                item is JsonObject -> {
+                    // The first key goes on the line with the dash. The other keys go below it, in line.
+                    val inner = StringBuilder()
+                        .apply { emitObject(item, indent + INDENT) }
+                        .toString()
+                        .lines()
+                        .filter { it.isNotEmpty() }
+                    appendLine("$pad- " + inner.first().drop(indent + INDENT))
                     inner.drop(1).forEach { appendLine(it) }
                 }
-                v is JsonArray -> {
+                item is JsonArray -> {
                     appendLine("$pad-")
-                    emitArray(v, indent + 2)
+                    emitArray(item, indent + INDENT)
                 }
             }
         }

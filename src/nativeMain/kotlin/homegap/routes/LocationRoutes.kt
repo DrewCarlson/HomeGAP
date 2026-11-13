@@ -17,10 +17,14 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 
 /** The locations catalog and the homelab's location. */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
-class LocationRoutes(private val catalog: LocationCatalog, private val controller: Controller) : RoutingController {
+class LocationRoutes(
+    private val catalog: LocationCatalog,
+    private val controller: Controller,
+) : RoutingController {
     override fun init(parent: Route) {
         parent.route("/locations") {
             get { list() }
@@ -53,7 +57,7 @@ class LocationRoutes(private val catalog: LocationCatalog, private val controlle
     }
 
     suspend fun RoutingContext.setHomelab() {
-        val req = call.receive<SetHomelabLocationRequest>()
-        call.respond(ActionResponse(true, controller.setHomelabLocation(req.location)))
+        val request = call.receive<SetHomelabLocationRequest>()
+        call.respond(ActionResponse(true, controller.setHomelabLocation(request.location)))
     }
 }

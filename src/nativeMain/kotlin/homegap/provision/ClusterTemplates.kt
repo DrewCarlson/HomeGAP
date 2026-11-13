@@ -3,36 +3,36 @@ package homegap.provision
 import homegap.config.MeshConfig
 import kotlinx.serialization.Serializable
 
-/** Passwords the cluster's services share; generated once and kept in the data directory. */
+/** The passwords that the cluster services share. HomeGAP makes them once and keeps them in the data directory. */
 @Serializable
 data class ClusterSecrets(
-    /** PostgreSQL superuser (`postgres`). Only used inside a member, never over the mesh. */
+    /** The PostgreSQL superuser (`postgres`). Only a member uses it, on itself, never over the mesh. */
     val postgres: String,
     /** PostgreSQL streaming replication (`replicator`). */
     val replication: String,
     /** Valkey `requirepass`, `masterauth` and Sentinel `auth-pass`. */
     val valkey: String,
-    /** Patroni's REST API, for the unsafe endpoints (switchover, reload). */
+    /** The REST API of Patroni, for the unsafe endpoints (switchover, reload). */
     val rest: String,
-    /** Pangolin's own role (`pangolin`): owns the `pangolin` database and nothing else. */
+    /** The role of Pangolin (`pangolin`). It owns the `pangolin` database and nothing else. */
     val pangolin: String,
-    /** The role pg_rewind connects with (`rewinder`). */
+    /** The role that pg_rewind connects with (`rewinder`). */
     val rewind: String,
     /** The etcd `root` user. Only the members and the orchestrator hold it, never Pangolin. */
     val etcd: String,
-    /** Sentinel's `requirepass`. It is not the Valkey password, which Pangolin holds. */
+    /** The `requirepass` of Sentinel. It is not the Valkey password, which Pangolin holds. */
     val sentinel: String,
 )
 
 /**
- * Files each cluster member runs from (one directory per member, mounted at `/config` in the
- * cluster image; see `cluster/hg-member.sh`).
+ * The files that each cluster member runs from. Each member has one directory, which the cluster
+ * image mounts at `/config`. See `cluster/hg-member.sh`.
  *
- * - Every member's Patroni talks only to its own etcd, so nothing changes when members are added,
- *   and a member cut off from the majority loses etcd and demotes itself.
- * - Services listen on the member's mesh address and loopback only.
- * - Nodes reach "the primary, wherever it is" through HAProxy on the `homegap-cluster` Docker
- *   network: PostgreSQL on 5433, Valkey on 6380.
+ * - The Patroni of each member connects only to its own etcd. Thus nothing changes when a member
+ *   joins, and a member without a path to the majority loses etcd and demotes itself.
+ * - The services listen only on the mesh address of the member and on loopback.
+ * - The nodes reach the current primary, on any member, through HAProxy on the `homegap-cluster`
+ *   Docker network: PostgreSQL on 5433, Valkey on 6380.
  */
 object ClusterTemplates {
     const val SCOPE = "homegap"
@@ -45,9 +45,11 @@ object ClusterTemplates {
     const val PROXY_POSTGRES_PORT = 5433
     const val PROXY_VALKEY_PORT = 6380
     const val NETWORK = "homegap-cluster"
-    /** The member's data directories under `<install_dir>/cluster`, owned by their containers. */
+
+    /** The data directories of the member under `<install_dir>/cluster`. Their containers own them. */
     val DATA_DIRS = listOf("etcd", "pgdata", "valkey", "sentinel")
-    /** The cluster network's bridge interface, named so the node firewall can admit it. */
+
+    /** The bridge interface of the cluster network. It has a fixed name, so the node firewall can admit it. */
     const val BRIDGE = "hg-cluster"
     const val PROXY_HOST = "cluster-proxy"
     const val REST_USER = "homegap"
@@ -59,56 +61,73 @@ object ClusterTemplates {
     /** Ports of the member that the containers of its own node use (HAProxy, Pangolin). */
     val BRIDGE_PORTS = listOf(POSTGRES_PORT, PATRONI_PORT, VALKEY_PORT)
 
-    /** Ports other members connect to over the mesh. */
+    /** The ports that the other members connect to over the mesh. */
     val MESH_PORTS = listOf(ETCD_CLIENT_PORT, ETCD_PEER_PORT, POSTGRES_PORT, PATRONI_PORT, VALKEY_PORT, SENTINEL_PORT)
 
-    /** Sentinels that must agree before Valkey fails over (with fewer members it never does, like etcd). */
+    /**
+     * The number of Sentinels that must agree before Valkey fails over. With fewer members, Valkey
+     * never fails over, as with etcd.
+     */
     private const val SENTINEL_QUORUM = 2
 
     data class Member(val id: String, val meshIp: String)
 
-    fun peerUrl(m: Member) = "http://${m.meshIp}:$ETCD_PEER_PORT"
+    /** The etcd peer URL of [member]. It uses plain HTTP, because the mesh encrypts the traffic. */
+    @Suppress("HttpUrlsUsage")
+    fun peerUrl(member: Member) = "http://${member.meshIp}:$ETCD_PEER_PORT"
 
-    /** The member's mesh address; every service waits for it before starting. */
+    /** The etcd client URL on [host]. It uses plain HTTP, because etcd listens only on the mesh and on loopback. */
+    @Suppress("HttpUrlsUsage")
+    private fun clientUrl(host: String) = "http://$host:$ETCD_CLIENT_PORT"
+
+    /** The mesh address of the member. Each service waits for it before it starts. */
     fun meshEnv(member: Member) = "HG_MESH_IP=${member.meshIp}\n"
 
     /**
-     * etcd's settings. [initialCluster] and [state] only matter on the member's first start
-     * (`new` for the cluster's first member, `existing` for one joining it).
+     * The settings of etcd. etcd reads [initialCluster] and [state] only at the first start of
+     * the member. [state] is `new` for the first member of the cluster and `existing` for a
+     * member that joins it.
      */
     fun etcdEnv(member: Member, initialCluster: List<Member>, state: String): String = buildString {
         require(state == "new" || state == "existing")
         appendLine("ETCD_NAME=${member.id}")
         appendLine("ETCD_DATA_DIR=/var/lib/etcd")
         appendLine("ETCD_LISTEN_PEER_URLS=${peerUrl(member)}")
-        appendLine("ETCD_LISTEN_CLIENT_URLS=http://${member.meshIp}:$ETCD_CLIENT_PORT,http://127.0.0.1:$ETCD_CLIENT_PORT")
-        appendLine("ETCD_ADVERTISE_CLIENT_URLS=http://${member.meshIp}:$ETCD_CLIENT_PORT")
+        appendLine("ETCD_LISTEN_CLIENT_URLS=${clientUrl(member.meshIp)},${clientUrl("127.0.0.1")}")
+        appendLine("ETCD_ADVERTISE_CLIENT_URLS=${clientUrl(member.meshIp)}")
         appendLine("ETCD_INITIAL_ADVERTISE_PEER_URLS=${peerUrl(member)}")
         appendLine("ETCD_INITIAL_CLUSTER=${initialCluster.joinToString(",") { "${it.id}=${peerUrl(it)}" }}")
         appendLine("ETCD_INITIAL_CLUSTER_STATE=$state")
         appendLine("ETCD_INITIAL_CLUSTER_TOKEN=$SCOPE")
     }
 
-    /**
-     * A member's Patroni settings. A change is applied by asking Patroni to reload the file (it
-     * restarts nothing; a setting that needs a PostgreSQL restart shows as pending).
-     *
-     * `postgresql.parameters` are this member's PostgreSQL settings. JIT compilation is off:
-     * Pangolin's queries are small lookups, and a connection that JIT-compiles one loads LLVM and
-     * keeps about 40 MB for the rest of its life, with up to 30 pooled connections per node.
-     */
-    /** Run in a member's `db` container: copies in its patroni.yml and has Patroni (PID 1) re-read it. */
-    /** Reloads HAProxy in the running haproxy container with the config just written. */
+    /** Reloads HAProxy in its container with the config that the script wrote before. */
     const val HAPROXY_RELOAD = "hg-member haproxy-reload"
 
-    /** Pangolin's database and the role that owns it. */
+    /** The database of Pangolin and the role that owns it. */
     const val PANGOLIN_DB = "pangolin"
     const val PANGOLIN_USER = "pangolin"
     const val REWIND_USER = "rewinder"
 
-    const val PATRONI_RELOAD =
-        "install -o postgres -g postgres -m 0600 \"\${HG_CONFIG:-/config}/patroni.yml\" /tmp/patroni.yml && kill -HUP 1"
+    /** The patroni.yml in the config directory of the member, in quotes for the shell. */
+    private const val PATRONI_CONFIG = $$"\"${HG_CONFIG:-/config}/patroni.yml\""
 
+    /**
+     * Runs in the `db` container of a member. It copies the patroni.yml of the member into the
+     * container, and Patroni (PID 1) reads the file again.
+     */
+    const val PATRONI_RELOAD =
+        "install -o postgres -g postgres -m 0600 $PATRONI_CONFIG /tmp/patroni.yml && kill -HUP 1"
+
+    /**
+     * The Patroni settings of a member. To apply a change, HomeGAP tells Patroni to read the file
+     * again ([PATRONI_RELOAD]). Patroni restarts nothing. A setting that needs a restart of
+     * PostgreSQL shows as pending.
+     *
+     * `postgresql.parameters` are the PostgreSQL settings of this member. JIT compilation is off.
+     * The queries of Pangolin are small lookups. A connection that JIT-compiles a query loads LLVM
+     * and keeps about 40 MB until it closes, and a node has up to 30 pooled connections.
+     */
     fun patroni(member: Member, mesh: MeshConfig, secrets: ClusterSecrets): String = """
         |# Managed by HomeGAP: this member's PostgreSQL, run by Patroni.
         |scope: $SCOPE
@@ -166,8 +185,9 @@ object ClusterTemplates {
         |""".trimMargin()
 
     /**
-     * What `hg-member post-bootstrap` runs as the superuser, once, right after the database
-     * cluster is created: Pangolin's role and the database it owns. The password is alphanumeric.
+     * The SQL that `hg-member post-bootstrap` runs as the superuser, once, immediately after it
+     * creates the database cluster: the role of Pangolin and the database that the role owns. The
+     * password is alphanumeric.
      */
     fun rolesSql(secrets: ClusterSecrets): String = """
         |CREATE ROLE $PANGOLIN_USER LOGIN PASSWORD '${secrets.pangolin}';
@@ -176,10 +196,17 @@ object ClusterTemplates {
         |""".trimMargin()
 
     /**
-     * Valkey's settings. The member starts as a replica of the master the [sentinels] report, or
-     * of [initialMaster] when none knows one; [priority] decides who Sentinel promotes (lower wins).
+     * The settings of Valkey. The member starts as a replica of the master that the [sentinels]
+     * report. If no Sentinel knows a master, it starts as a replica of [initialMaster]. Sentinel
+     * promotes the member with the lowest [priority].
      */
-    fun valkeyEnv(member: Member, secrets: ClusterSecrets, priority: Int, initialMaster: String, sentinels: List<String>): String = buildString {
+    fun valkeyEnv(
+        member: Member,
+        secrets: ClusterSecrets,
+        priority: Int,
+        initialMaster: String,
+        sentinels: List<String>,
+    ): String = buildString {
         appendLine("HG_MESH_IP=${member.meshIp}")
         appendLine("HG_PASSWORD=${secrets.valkey}")
         appendLine("HG_SENTINEL_PASSWORD=${secrets.sentinel}")
@@ -188,7 +215,7 @@ object ClusterTemplates {
         appendLine("HG_SENTINELS='${sentinels.joinToString(" ")}'")
     }
 
-    /** Sentinel's starting config; it records what it learns in its own copy. */
+    /** The first config of Sentinel. Sentinel records what it learns in its own copy. */
     fun sentinel(member: Member, initialMaster: String, secrets: ClusterSecrets): String = """
         |bind ${member.meshIp} 127.0.0.1
         |port $SENTINEL_PORT
@@ -201,24 +228,28 @@ object ClusterTemplates {
         |sentinel parallel-syncs $SCOPE 1
         |""".trimMargin()
 
-    /** Stable addresses for the current primaries; connections to a demoted member are cut. */
+    /**
+     * Fixed addresses for the current primaries. HAProxy closes the connections to a member that
+     * is not the primary any more.
+     */
     fun haproxy(members: List<Member>, secrets: ClusterSecrets, self: String? = null): String = buildString {
         appendLine("# Managed by HomeGAP: the current PostgreSQL and Valkey primaries, wherever they are.")
         appendLine("global")
         appendLine("  maxconn 2000")
-        // Config changes are reloaded in place (`hg-member haproxy-reload`), carrying each
-        // server's up/down state over through this file.
+        // HAProxy reloads a config change in place (`hg-member haproxy-reload`). This file
+        // keeps the up/down state of each server across the reload.
         appendLine("  stats socket /tmp/haproxy.sock mode 600 level admin")
         appendLine("  server-state-file /tmp/haproxy.state")
         appendLine()
         appendLine("defaults")
         appendLine("  mode tcp")
         appendLine("  load-server-state-from-file global")
-        // Members can be a quarter second or more apart: a check leaves room for two lost SYNs
-        // (resent after 1s and 3s), and three misses in a row mark a member down, so a slow link
-        // never flaps. HAProxy starts with every member up: after a miss the next checks come a
-        // second apart (`fastinter`), and a replica's checks fail at once (it answers "not
-        // primary" rather than timing out), so a fresh proxy rules replicas out in seconds.
+        // The round trip between two members can be a quarter second or more. A check has time
+        // for two lost SYNs (sent again after 1s and 3s), and three misses in a row mark a member
+        // down, so a slow link never flaps. HAProxy starts with each member up. After a miss, the
+        // next checks come one second apart (`fastinter`). The check of a replica fails at once,
+        // because the replica answers "not primary". Thus a new proxy rules the replicas out in
+        // seconds.
         appendLine("  timeout connect 5s")
         appendLine("  timeout client 30m")
         appendLine("  timeout server 30m")
@@ -236,25 +267,26 @@ object ClusterTemplates {
         appendLine("  option tcp-check")
         appendLine("  tcp-check send AUTH\\ ${secrets.valkey}\\r\\n")
         appendLine("  tcp-check expect string +OK")
-        // QUIT goes with the query: Valkey answers and closes, so a replica's "role:slave" fails
-        // the check straight away instead of waiting out the timeout for "role:master".
+        // QUIT goes with the query. Valkey answers and closes, so the "role:slave" of a replica
+        // fails the check at once, without a wait of the full timeout for "role:master".
         appendLine("  tcp-check send info\\ replication\\r\\nQUIT\\r\\n")
         appendLine("  tcp-check expect string role:master")
         members.forEach { appendLine("  server ${it.id} ${it.meshIp}:$VALKEY_PORT check") }
         appendLine()
-        // Read by the orchestrator over SSH (published on the node's loopback only).
+        // The orchestrator reads the stats over SSH. The port is only on the loopback of the node.
         append(ClusterProxy.STATS_CONFIG)
         appendLine()
         append(MeshProbe.containerBackend(members.filter { it.id != self }))
     }
 
     /**
-     * A node's cluster member, its own compose project (separate from the Pangolin stack, so stack
-     * updates never restart the database). [configHashes] maps a service to a hash of its config,
-     * so a change recreates only that service.
+     * The cluster member of a node, as its own compose project. It is not part of the Pangolin
+     * stack, so an update of the stack never restarts the database. [configHashes] gives a hash
+     * of the config of each service, so a change makes only that service again.
      */
     fun nodeCompose(image: String, configHashes: Map<String, String>): String {
-        fun label(service: String) = configHashes[service]?.let { "\n    labels: { org.homegap.config: \"$it\" }" }.orEmpty()
+        fun label(service: String) =
+            configHashes[service]?.let { "\n    labels: { org.homegap.config: \"$it\" }" }.orEmpty()
         return """
             |# Managed by HomeGAP: this node's cluster member. Changes are overwritten.
             |name: homegap-cluster

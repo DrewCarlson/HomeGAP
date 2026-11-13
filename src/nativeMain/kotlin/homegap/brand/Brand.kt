@@ -3,12 +3,16 @@ package homegap.brand
 import kotlin.io.encoding.Base64
 
 /**
- * The HomeGAP emblem for the pages the orchestrator and nodes render themselves (status, speed
- * test, maintenance). Inlined so those pages stay single files with no asset routes. This is the
- * emblem's small-size cut (heavier lines, no window or glow), which reads cleanly at 14–32 px.
+ * The HomeGAP emblem for the pages that the orchestrator and the nodes render themselves (status,
+ * speed test, maintenance). The markup is inline, so each page stays one file and needs no asset
+ * route. This is the cut of the emblem for small sizes (heavier lines, no window or glow), which
+ * is clear at 14–32 px.
  */
 object Brand {
-    /** The emblem as inline markup; size it with CSS on `.hg-mark`. Decorative, so hidden from screen readers. */
+    /**
+     * The emblem as inline markup. Set its size with CSS on `.hg-mark`. It is decoration, so
+     * screen readers do not read it.
+     */
     const val MARK_SVG =
         """<svg class="hg-mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" aria-hidden="true" focusable="false">""" +
             """<defs><linearGradient id="hg-mark-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#303f9f"/><stop offset="1" stop-color="#1a237e"/></linearGradient>""" +

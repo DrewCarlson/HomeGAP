@@ -5,18 +5,20 @@ import homegap.api.MeshProbeDto
 
 /**
  * The homelab's own probe of its mesh peers: one request per pass to each member's Patroni over
- * the mesh, timed. Nodes run a probe every second; the homelab has no probe container, so this
+ * the mesh, timed. Nodes run a probe every second. The homelab has no probe container, so this
  * fills its row of the mesh matrix with a coarser view: the latest round trip, the share of
  * passes without an answer in the last hour, and outages (three or more misses in a row).
  */
-class HomelabProbe(private val windowMs: Long = 3_600_000L) {
+class HomelabProbe(private val windowMs: Long = ONE_HOUR_MS) {
     private val samples = mutableMapOf<String, ArrayDeque<Pair<Long, Double?>>>()
 
     /** Records one sample of [peer] taken at [at]: the round trip in ms, or null without an answer. */
     fun record(peer: String, at: Long, rttMs: Double?) {
         val queue = samples.getOrPut(peer) { ArrayDeque() }
         queue.addLast(at to rttMs)
-        while (queue.isNotEmpty() && queue.first().first < at - windowMs) queue.removeFirst()
+        while (queue.isNotEmpty() && queue.first().first < at - windowMs) {
+            queue.removeFirst()
+        }
     }
 
     /** Each peer's view, as the mesh matrix shows it. */
@@ -47,12 +49,16 @@ class HomelabProbe(private val windowMs: Long = 3_600_000L) {
             lossPercent = if (points.isEmpty()) 0.0 else lost * 100.0 / points.size,
             sent = points.size.toLong(),
             windowMs = if (points.size > 1) points.last().first - points.first().first else 0,
-            outages = outages.sortedByDescending { it.startAt }.take(20),
+            outages = outages.sortedByDescending { it.startAt }.take(OUTAGES_SHOWN),
             at = points.lastOrNull()?.first ?: 0,
         )
     }
 
     private companion object {
+        const val ONE_HOUR_MS = 3_600_000L
+
+        /** An outage has this number of misses in a row, or more. */
         const val OUTAGE_MISSES = 3
+        const val OUTAGES_SHOWN = 20
     }
 }

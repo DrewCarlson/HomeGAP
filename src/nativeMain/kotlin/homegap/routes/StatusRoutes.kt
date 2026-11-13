@@ -6,6 +6,7 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import homegap.access.AccessService
+import homegap.api.ActionResponse
 import homegap.api.ApiJson
 import homegap.api.LogLevel
 import homegap.api.LogResponse
@@ -15,8 +16,8 @@ import homegap.api.MetricsResponse
 import homegap.api.ServerEvent
 import homegap.api.SetupJobDto
 import homegap.api.SpeedTestLiveDto
-import homegap.api.name
 import homegap.api.StatusSnapshot
+import homegap.api.name
 import homegap.api.snapshotFields
 import homegap.api.snapshotPatch
 import homegap.platform.nowMillis
@@ -24,6 +25,7 @@ import homegap.reconcile.Controller
 import homegap.setup.NodeSetupService
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytesWriter
@@ -32,6 +34,7 @@ import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeStringUtf8
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.map
@@ -43,6 +46,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /** The status snapshot and the event stream that pushes it, with the reconcile log. */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -51,6 +55,8 @@ class StatusRoutes(
     private val setup: NodeSetupService,
     private val access: AccessService,
 ) : RoutingController {
+    private val streams = atomic(0)
+
     override fun init(parent: Route) {
         parent.get("/status") { getStatus() }
         parent.get("/events") { streamEvents() }
@@ -59,7 +65,8 @@ class StatusRoutes(
 
     /** The edges' graphs: every series for the last `?range=` seconds (an hour by default, at most a day). */
     suspend fun RoutingContext.getMetrics() {
-        val range = (call.request.queryParameters["range"]?.toLongOrNull() ?: 3600L).coerceIn(60L, 86_400L)
+        val requested = call.request.queryParameters["range"]?.toLongOrNull()
+        val range = (requested ?: DEFAULT_RANGE_SECONDS).coerceIn(MIN_RANGE_SECONDS, MAX_RANGE_SECONDS)
         val since = nowMillis() / 1000 - range
         val series = controller.metrics.range(
             sinceSeconds = since,
@@ -74,17 +81,21 @@ class StatusRoutes(
 
     /**
      * Server-sent events: `status` (the whole snapshot, first), then `patch` (only the top-level
-     * fields that changed) and `log` (entries after `?after=SEQ`). Tunnel status comes from files the supervisor writes, so the snapshot is
-     * also re-checked every few seconds without a change signal.
+     * fields that changed) and `log` (entries after `?after=SEQ`). The tunnel status comes from
+     * files that the supervisor writes, so the stream also checks the snapshot every few seconds
+     * without a change signal.
      */
     suspend fun RoutingContext.streamEvents() {
         var lastSeq = call.request.queryParameters["after"]?.toLongOrNull() ?: 0L
         // A client that saw a previous controller process has a sequence ahead of ours.
-        if (lastSeq > controller.log.revision.value) lastSeq = 0L
+        if (lastSeq > controller.log.revision.value) {
+            lastSeq = 0L
+        }
         // Each stream holds a connection and a coroutine for as long as a dashboard is open.
         if (streams.incrementAndGet() > MAX_STREAMS) {
             streams.decrementAndGet()
-            call.respond(io.ktor.http.HttpStatusCode.ServiceUnavailable, homegap.api.ActionResponse(false, "Too many dashboards are open. Close one and try again."))
+            val refusal = ActionResponse(false, "Too many dashboards are open. Close one and try again.")
+            call.respond(HttpStatusCode.ServiceUnavailable, refusal)
             return
         }
         try {
@@ -102,15 +113,17 @@ class StatusRoutes(
         var sentState: StatusSnapshot? = null
         var sentAt = 0L
         var lastWrite = 0L
-        // New samples go out as they are taken; the client loads the history itself.
+        // A new sample goes out when the controller takes it. The client loads the history itself.
         var sentMetrics = controller.metrics.revision.value
-        // Setup jobs go out whole whenever they change; the first time, every job this process knows.
+        // A setup job goes out whole at each change. The first time, every job of this process goes out.
         val sentJobs = mutableMapOf<String, SetupJobDto>()
         var sentAccess = access.revision.value
         var sentLive: SpeedTestLiveDto? = null
-        // The controller publishes the status; this stream only reads it.
+        // The controller publishes the status. This stream only reads it.
         val published = controller.status.map { it?.generatedAt ?: 0L }
-        val changes = merge(published, controller.log.revision, setup.changes, access.revision).conflate().produceIn(this)
+        val changes = merge(published, controller.log.revision, setup.changes, access.revision)
+            .conflate()
+            .produceIn(this)
         try {
             while (true) {
                 val snapshot = controller.status.value ?: controller.refreshStatus()
@@ -124,7 +137,7 @@ class StatusRoutes(
                     sentAt = now
                     lastWrite = now
                 } else if (state != sentState || now - sentAt >= LIVE_REFRESH.inWholeMilliseconds) {
-                    // A state change goes out at once; round trips and byte counts alone wait for
+                    // A state change goes out at once. Round trips and byte counts alone wait for
                     // the next refresh, so a quiet system sends one small patch per refresh.
                     val fields = snapshotFields(snapshot)
                     snapshotPatch(
@@ -146,7 +159,7 @@ class StatusRoutes(
                             ServerEvent.Metrics(
                                 at = batch.atSeconds,
                                 points = batch.points,
-                            )
+                            ),
                         )
                         lastWrite = nowMillis()
                     }
@@ -193,13 +206,15 @@ class StatusRoutes(
         writeStringUtf8("event: ${event.name}\ndata: ${ApiJson.encodeToString<ServerEvent>(event)}\n\n")
     }
 
-    private val streams = kotlinx.atomicfu.atomic(0)
-
     private companion object {
         const val MAX_STREAMS = 32
+        const val DEFAULT_RANGE_SECONDS = 3600L
+        const val MIN_RANGE_SECONDS = 60L
+        const val MAX_RANGE_SECONDS = 86_400L
         val RECHECK = 5.seconds
         val LIVE_TICK = 250.milliseconds
-        /** How often values that change all the time (round trips, byte counts) are sent. */
+
+        /** The interval between two sends of the values that change all the time (round trips, byte counts). */
         val LIVE_REFRESH = 30.seconds
         val KEEPALIVE = 25.seconds
     }
@@ -252,6 +267,7 @@ private fun MeshProbeDto.withoutLiveValues(): MeshProbeDto = copy(
 )
 
 /** `GET /log`: the reconcile log. */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -260,16 +276,24 @@ class LogRoutes(private val controller: Controller) : RoutingController {
         parent.get("/log") { getLog() }
     }
 
-    /** `?before=SEQ` pages back; `?domain=`, `?level=` and `?q=` filter. */
+    /** `?before=SEQ` gives older entries. `?domain=`, `?level=` and `?q=` filter. */
     suspend fun RoutingContext.getLog() {
         val parameters = call.request.queryParameters
+        val level = parameters["level"]?.let { name ->
+            LogLevel.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
+        }
         val entries = controller.log.recent(
-            limit = (parameters["limit"]?.toIntOrNull() ?: 300).coerceIn(1, 1000),
+            limit = (parameters["limit"]?.toIntOrNull() ?: DEFAULT_LIMIT).coerceIn(1, MAX_LIMIT),
             domain = parameters["domain"]?.takeIf { it.isNotBlank() },
             beforeSeq = parameters["before"]?.toLongOrNull(),
-            level = parameters["level"]?.let { level -> LogLevel.entries.firstOrNull { it.name.equals(level, ignoreCase = true) } },
+            level = level,
             query = parameters["q"],
         )
         call.respond(LogResponse(entries))
+    }
+
+    private companion object {
+        const val DEFAULT_LIMIT = 300
+        const val MAX_LIMIT = 1000
     }
 }

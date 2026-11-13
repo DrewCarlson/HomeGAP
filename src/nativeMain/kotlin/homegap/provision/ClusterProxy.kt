@@ -4,13 +4,14 @@ import homegap.api.CheckDto
 import homegap.api.Health
 
 /**
- * What a node's cluster proxy (HAProxy) sees: which member it sends PostgreSQL and Valkey to,
- * and how often it had none. HAProxy's stats page listens on the node's loopback only.
+ * What the cluster proxy (HAProxy) of a node sees: the member that gets PostgreSQL and Valkey, and
+ * how often the proxy had no member. The stats page of HAProxy listens only on the loopback of
+ * the node.
  */
 object ClusterProxy {
     const val STATS_PORT = 8404
 
-    /** The stats frontend added to haproxy.cfg. */
+    /** The stats frontend in haproxy.cfg. */
     val STATS_CONFIG = """
         |frontend stats
         |  mode http
@@ -23,42 +24,62 @@ object ClusterProxy {
     /** Prints the stats as CSV (on the node, as root). */
     const val CSV_CMD = "curl -fsS -m 5 'http://127.0.0.1:$STATS_PORT/stats;csv' 2>/dev/null"
 
-    /** A readable summary for the diagnostics bundle. */
-    val STATS_CMD = "$CSV_CMD | awk -F, 'NR==1{for(i=1;i<=NF;i++)h[\$i]=i; next} " +
-        "\$2!=\"FRONTEND\"{printf \"%-18s %-10s %-10s drops=%s last-change=%ss check=%s %sms\\n\", \$1, \$2, \$h[\"status\"], \$h[\"chkdown\"], \$h[\"lastchg\"], \$h[\"check_status\"], \$h[\"check_duration\"]}' " +
-        "|| echo 'stats not available'"
+    // The awk program of STATS_CMD. The header line gives the column of each field.
+    private const val STATS_HEADER = $$"NR==1{for(i=1;i<=NF;i++)h[$i]=i; next}"
+    private const val STATS_FORMAT = "%-18s %-10s %-10s drops=%s last-change=%ss check=%s %sms\\n"
+    private const val STATS_FIELDS =
+        $$"""$1, $2, $h["status"], $h["chkdown"], $h["lastchg"], $h["check_status"], $h["check_duration"]"""
+    private const val STATS_ROW = $$"$2!=\"FRONTEND\"{printf \"$$STATS_FORMAT\", $$STATS_FIELDS}"
 
-    /** The proxied primaries, by HAProxy proxy name, with the name the check uses. */
+    /** A readable summary for the diagnostics bundle. */
+    const val STATS_CMD = "$CSV_CMD | awk -F, '$STATS_HEADER $STATS_ROW' || echo 'stats not available'"
+
+    /** A planned move this long before the start of an interval between two readings explains a loss in it. */
+    const val PLANNED_SLACK_MS = 30_000L
+
+    private const val CHECK_NAME = "cluster-proxy"
+    private const val MS_PER_MINUTE = 60_000
+
+    /** The proxied primaries: the proxy name in HAProxy, and the name that the check shows. */
     private val PROXIES = listOf("postgres-primary" to "database", "valkey-primary" to "valkey")
+
+    /** The rows of a proxy that are not a server. */
+    private val SUMMARY_ROWS = setOf("FRONTEND", "BACKEND")
 
     /** One proxied primary in the stats. */
     data class Proxy(val name: String, val upServers: List<String>, val outages: Long, val lastChangeSeconds: Long?)
 
-    /** Parses HAProxy's CSV stats (header line first) into the proxied primaries. */
+    /** Parses the CSV stats of HAProxy (header line first) into the proxied primaries. */
     fun parse(csv: String): List<Proxy> {
-        val lines = csv.lines().filter { it.isNotBlank() }
-        val header = lines.firstOrNull()?.removePrefix("# ")?.split(',') ?: return emptyList()
-        val col = header.withIndex().associate { (i, n) -> n to i }
-        fun List<String>.f(name: String) = col[name]?.let { getOrNull(it) }.orEmpty()
-        val rows = lines.drop(1).map { it.split(',') }
+        val stats = HaproxyStats.of(csv.lines().filter { it.isNotBlank() }) ?: return emptyList()
         return PROXIES.mapNotNull { (proxy, _) ->
-            val mine = rows.filter { it.f("pxname") == proxy }
-            val backend = mine.firstOrNull { it.f("svname") == "BACKEND" } ?: return@mapNotNull null
-            val up = mine.filter { it.f("svname") !in setOf("FRONTEND", "BACKEND") && it.f("status").startsWith("UP") }.map { it.f("svname") }
-            Proxy(proxy, up, backend.f("chkdown").toLongOrNull() ?: 0, backend.f("lastchg").toLongOrNull())
+            val proxyRows = stats.rows.filter { stats.field(it, "pxname") == proxy }
+            val backend = proxyRows.firstOrNull { stats.field(it, "svname") == "BACKEND" } ?: return@mapNotNull null
+            val upServers = proxyRows
+                .filter { stats.field(it, "svname") !in SUMMARY_ROWS && stats.field(it, "status").startsWith("UP") }
+                .map { stats.field(it, "svname") }
+            Proxy(
+                name = proxy,
+                upServers = upServers,
+                outages = stats.field(backend, "chkdown").toLongOrNull() ?: 0,
+                lastChangeSeconds = stats.field(backend, "lastchg").toLongOrNull(),
+            )
         }
     }
 
     /**
-     * Turns the stats into the node's `cluster-proxy` check. [history] holds the readings of the
-     * last [windowMs] (epoch ms to each proxy's outage count). A loss is an increase between two
-     * readings (a restart's reset counts nothing); its time is the reading that saw it, so to within
-     * one pass. [planned] holds when HomeGAP moved a primary on purpose (a switch-back, maintenance,
-     * a node update, the dashboard): the proxy briefly has no primary then, which is expected, so a
-     * loss seen within [PLANNED_SLACK_MS] of one does not count against the node.
+     * Makes the `cluster-proxy` check of the node from the stats. [history] holds the readings of
+     * the last [windowMs]: the time in epoch ms, and the outage count of each proxy. A loss is an
+     * increase between two readings. A decrease after a restart counts nothing. The time of a loss
+     * is the time of the reading that shows it, so it is correct to one pass.
      *
-     * The check is red while a primary has no reachable member, yellow for [recentMs] after an
-     * unplanned loss, and green otherwise, still saying when the last loss was.
+     * [planned] holds the times at which HomeGAP moved a primary on purpose (a switch-back,
+     * maintenance, a node update, the dashboard). The proxy has no primary for a short time then.
+     * A loss within [PLANNED_SLACK_MS] of a planned move does not count against the node.
+     *
+     * The check is red while a primary has no reachable member. It is yellow for [recentMs] after
+     * a loss that was not planned. In all other cases it is green, and it still gives the time of
+     * the last loss.
      */
     fun check(
         csv: String?,
@@ -69,14 +90,14 @@ object ClusterProxy {
         recentMs: Long = 5 * 60_000L,
     ): CheckDto {
         val proxies = csv?.let { parse(it) }.orEmpty()
-        if (proxies.isEmpty()) return CheckDto("cluster-proxy", Health.UNKNOWN, "stats not available")
+        if (proxies.isEmpty()) return CheckDto(CHECK_NAME, Health.UNKNOWN, "stats not available")
         history.removeAll { it.first < now - windowMs }
         history += now to proxies.associate { it.name to it.outages }
         var drops = 0L
         var lastLossAt: Long? = null
         var lastPlannedAt: Long? = null
         history.zipWithNext { (before, old), (at, new) ->
-            val lost = new.entries.sumOf { (name, n) -> (n - (old[name] ?: n)).coerceAtLeast(0) }
+            val lost = new.entries.sumOf { (name, count) -> (count - (old[name] ?: count)).coerceAtLeast(0) }
             if (lost == 0L) return@zipWithNext
             if (planned.any { it in (before - PLANNED_SLACK_MS)..at }) {
                 lastPlannedAt = at
@@ -87,13 +108,18 @@ object ClusterProxy {
         }
         val down = proxies.filter { it.upServers.isEmpty() }
         val label = PROXIES.toMap()
-        val routes = proxies.joinToString(", ") { "${label[it.name]} → ${it.upServers.joinToString("/").ifEmpty { "none" }}" }
+        val routes = proxies.joinToString(", ") { proxy ->
+            val servers = proxy.upServers.joinToString("/").ifEmpty { "none" }
+            "${label[proxy.name]} → $servers"
+        }
         val last = lastLossAt
         val recent = last != null && now - last <= recentMs
         val notes = buildList {
             if (last != null) {
-                add("lost the primary $drops time${if (drops == 1L) "" else "s"} in the last ${windowMs / 60_000} min, last ${minutesAgo(now - last)}" +
-                    if (!recent && down.isEmpty()) " (recovered)" else "")
+                val times = "$drops time${if (drops == 1L) "" else "s"}"
+                val window = "${windowMs / MS_PER_MINUTE} min"
+                val recovered = if (!recent && down.isEmpty()) " (recovered)" else ""
+                add("lost the primary $times in the last $window, last ${minutesAgo(now - last)}$recovered")
             }
             lastPlannedAt?.let { add("planned switch ${minutesAgo(now - it)}") }
         }
@@ -102,11 +128,31 @@ object ClusterProxy {
             recent -> Health.DEGRADED
             else -> Health.OK
         }
-        return CheckDto("cluster-proxy", health, (listOf(routes) + notes).joinToString("; "))
+        return CheckDto(CHECK_NAME, health, (listOf(routes) + notes).joinToString("; "))
     }
 
-    /** A planned move this long before a reading interval still explains a loss seen at its end (HAProxy notices within seconds). */
-    const val PLANNED_SLACK_MS = 30_000L
+    private fun minutesAgo(elapsedMs: Long): String {
+        val minutes = elapsedMs / MS_PER_MINUTE
+        return if (minutes < 1) "just now" else "$minutes min ago"
+    }
+}
 
-    private fun minutesAgo(ms: Long): String = (ms / 60_000).let { if (it < 1) "just now" else "${it} min ago" }
+/** The CSV stats of HAProxy. The header line gives the name of each column. */
+internal class HaproxyStats private constructor(
+    private val columns: Map<String, Int>,
+    val rows: List<List<String>>,
+) {
+    /** Returns the field [name] of [row], or an empty string if the row does not have it. */
+    fun field(row: List<String>, name: String): String = columns[name]?.let { row.getOrNull(it) }.orEmpty()
+
+    companion object {
+        /** Reads [lines], with the header line first. Returns null if there is no line. */
+        fun of(lines: List<String>): HaproxyStats? {
+            val header = lines.firstOrNull()?.removePrefix("# ")?.split(',') ?: return null
+            return HaproxyStats(
+                columns = header.withIndex().associate { (index, name) -> name to index },
+                rows = lines.drop(1).map { it.split(',') },
+            )
+        }
+    }
 }

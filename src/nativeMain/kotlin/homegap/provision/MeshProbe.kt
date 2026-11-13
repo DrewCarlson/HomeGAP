@@ -2,29 +2,34 @@ package homegap.provision
 
 import homegap.api.MeshOutageDto
 import homegap.api.MeshProbeDto
+import kotlin.time.Instant
 
 /**
- * Each node's mesh probe: a container of the cluster member that opens a TCP connection to every
- * other member's etcd port over the mesh once a second, and records round trips, losses and
- * outages (three or more lost probes in a row) under [STATE_DIR] on the node. A TCP connect is
- * used rather than ping because it is what the database traffic needs, and the cluster image has
- * no ping. The orchestrator reads the state each pass ([READ_CMD]) and keeps the history.
+ * The mesh probe of each node: a container of the cluster member. Once a second, it opens a TCP
+ * connection over the mesh to the etcd port of each other member. It records the round trips,
+ * the losses and the outages (three or more lost probes in a row) under [STATE_DIR] on the node.
+ * The probe uses a TCP connection and not ping, because the database traffic needs TCP and the
+ * cluster image has no ping. The orchestrator reads the state in each pass ([READ_CMD]) and keeps
+ * the history.
  */
 object MeshProbe {
     const val SERVICE = "probe"
-    /** On the node's /run (memory): readings are only kept while it runs. */
-    const val STATE_DIR = "/run/homegap-probe"
-    /** A port every member listens on over the mesh. */
-    val PORT = ClusterTemplates.ETCD_CLIENT_PORT
 
-    /** `id ip` per line: the other members. */
+    /** On the /run of the node (memory). The readings stay only while the node runs. */
+    const val STATE_DIR = "/run/homegap-probe"
+
+    /** A port that each member listens on over the mesh. */
+    const val PORT = ClusterTemplates.ETCD_CLIENT_PORT
+
+    /** The other members, as one `id ip` line for each. */
     fun targets(self: String, members: List<ClusterTemplates.Member>): String =
         members.filter { it.id != self }.joinToString("") { "${it.id} ${it.meshIp}\n" }
 
     /**
-     * The probe, one Python process (the cluster image has Python for Patroni): each round opens
-     * a non-blocking connection to every peer at once and waits up to [TIMEOUT_S] for them, so it
-     * starts no processes and costs next to nothing. A refused connection still counts as a reply.
+     * The probe, as one Python process (the cluster image has Python for Patroni). In each round,
+     * it opens a non-blocking connection to all the peers at the same time and waits up to
+     * [TIMEOUT_S] for them. Thus it starts no processes and uses almost no CPU. A refused
+     * connection also counts as an answer.
      */
     val SCRIPT = $$"""
         |# Managed by HomeGAP: probes every other mesh member over the mesh once a second.
@@ -91,12 +96,24 @@ object MeshProbe {
         |    time.sleep(max(0.0, 1.0 - (time.monotonic() - begin)))
         |""".trimMargin()
 
-    /** How long a probe waits for a peer: room for one lost SYN (resent after a second). */
+    /** The time that a probe waits for a peer. It has room for one lost SYN, which goes again after a second. */
     const val TIMEOUT_S = 1.5
 
-    /** Prints `S <peer> <at> <sent> <lost> <rtt µs> <ongoing outage start>` and `O <peer> <start> <end>` lines. */
-    const val READ_CMD = "for f in $STATE_DIR/*.state; do [ -f \"\$f\" ] && echo \"S \$(basename \"\$f\" .state) \$(cat \"\$f\")\"; done; " +
-        "[ -f $STATE_DIR/outages ] && tail -n 100 $STATE_DIR/outages | sed 's/^/O /'; true"
+    private const val READ_STATE = $$"[ -f \"$f\" ] && echo \"S $(basename \"$f\" .state) $(cat \"$f\")\""
+    private const val READ_OUTAGES = "[ -f $STATE_DIR/outages ] && tail -n 100 $STATE_DIR/outages | sed 's/^/O /'"
+
+    /**
+     * Prints `S <peer> <at> <sent> <lost> <rtt µs> <ongoing outage start>` lines and
+     * `O <peer> <start> <end>` lines.
+     */
+    const val READ_CMD = "for f in $STATE_DIR/*.state; do $READ_STATE; done; $READ_OUTAGES; true"
+
+    // The number of fields in a line of READ_CMD.
+    private const val STATE_FIELDS = 7
+    private const val OUTAGE_FIELDS = 4
+
+    private const val MS_PER_SECOND = 1000L
+    private const val MAX_OUTAGES = 20
 
     /** One reading of the probe to a peer. */
     data class Reading(val at: Long, val sent: Long, val lost: Long, val rttMicros: Long?, val ongoingSince: Long?)
@@ -107,19 +124,22 @@ object MeshProbe {
         val readings = mutableMapOf<String, Reading>()
         val outages = mutableListOf<Triple<String, Long, Long>>()
         for (line in text.lines()) {
-            val f = line.trim().split(' ')
-            when (f.firstOrNull()) {
-                "S" -> if (f.size >= 7) {
-                    val at = f[2].toLongOrNull() ?: continue
-                    readings[f[1]] = Reading(
-                        at, f[3].toLongOrNull() ?: 0, f[4].toLongOrNull() ?: 0,
-                        f[5].toLongOrNull()?.takeIf { it >= 0 }, f[6].toLongOrNull()?.takeIf { it > 0 },
+            val fields = line.trim().split(' ')
+            when (fields.firstOrNull()) {
+                "S" -> if (fields.size >= STATE_FIELDS) {
+                    val at = fields[2].toLongOrNull() ?: continue
+                    readings[fields[1]] = Reading(
+                        at = at,
+                        sent = fields[3].toLongOrNull() ?: 0,
+                        lost = fields[4].toLongOrNull() ?: 0,
+                        rttMicros = fields[5].toLongOrNull()?.takeIf { it >= 0 },
+                        ongoingSince = fields[6].toLongOrNull()?.takeIf { it > 0 },
                     )
                 }
-                "O" -> if (f.size >= 4) {
-                    val start = f[2].toLongOrNull() ?: continue
-                    val end = f[3].toLongOrNull() ?: continue
-                    outages += Triple(f[1], start, end)
+                "O" -> if (fields.size >= OUTAGE_FIELDS) {
+                    val start = fields[2].toLongOrNull() ?: continue
+                    val end = fields[3].toLongOrNull() ?: continue
+                    outages += Triple(fields[1], start, end)
                 }
             }
         }
@@ -128,15 +148,18 @@ object MeshProbe {
 
     // ------------------------------------------------------------------ container path
 
-    /** HAProxy's name for the container-path probe. */
+    /** The name in HAProxy of the probe on the container path. */
     const val CONTAINER_BACKEND = "mesh-probe"
     private const val FALL = 3
 
+    /** The time from the first missed check to the moment HAProxy marks the member down. */
+    private const val DOWN_LEAD_MS = (FALL - 1) * MS_PER_SECOND + MS_PER_SECOND
+
     /**
-     * The same probe from inside Docker's network, where Pangolin's database traffic starts:
-     * HAProxy checks every other member's etcd port once a second (a TCP connect, waiting up to a
-     * second), and marks one down after [FALL] misses in a row, like the host probe's outages.
-     * Nothing is ever sent through it.
+     * The same probe from the Docker network, where the database traffic of Pangolin starts.
+     * Once a second, HAProxy checks the etcd port of each other member with a TCP connection, and
+     * waits up to one second. It marks a member down after [FALL] misses in a row, as the host
+     * probe does for an outage. HAProxy sends no traffic through this backend.
      */
     fun containerBackend(peers: List<ClusterTemplates.Member>): String = buildString {
         appendLine("backend $CONTAINER_BACKEND")
@@ -145,84 +168,111 @@ object MeshProbe {
     }
 
     /**
-     * Prints HAProxy's stats for the probe as `C <csv>` lines (header first) and its log lines
-     * about probed members going down or up in the last hour as `L <line>`.
+     * Prints the stats of HAProxy for the probe as `C <csv>` lines, with the header first. Prints
+     * the log lines of HAProxy from the last hour about a probed member that goes down or up, as
+     * `L <line>` lines.
      */
-    fun containerReadCmd(installDir: String): String =
-        // Each pipeline may find nothing (no HAProxy yet, no transitions): never fail the script.
-        "{ ${ClusterProxy.CSV_CMD} | awk -F, 'NR==1 || \$1==\"$CONTAINER_BACKEND\"' | sed 's/^/C /'; } || true; " +
-            "{ (cd '$installDir/cluster' 2>/dev/null && docker compose logs --no-color --timestamps --since 65m haproxy 2>/dev/null) " +
-            "| grep -E 'Server $CONTAINER_BACKEND/[^ ]+ is (UP|DOWN)' | tail -n 200 | sed 's/^/L /'; } || true"
+    fun containerReadCmd(installDir: String): String {
+        val probeRows = $$"awk -F, 'NR==1 || $1==\"$$CONTAINER_BACKEND\"'"
+        val stats = "${ClusterProxy.CSV_CMD} | $probeRows | sed 's/^/C /'"
+        val logs = "(cd '$installDir/cluster' 2>/dev/null && " +
+            "docker compose logs --no-color --timestamps --since 65m haproxy 2>/dev/null)"
+        val transitions = "grep -E 'Server $CONTAINER_BACKEND/[^ ]+ is (UP|DOWN)' | tail -n 200 | sed 's/^/L /'"
+        // A pipeline can find nothing (no HAProxy yet, no transitions). That must not fail the script.
+        return "{ $stats; } || true; { $logs | $transitions; } || true"
+    }
 
     private val TRANSITION = Regex("""(\d{4}-\d\d-\d\dT[0-9:.]+Z).*Server $CONTAINER_BACKEND/(\S+) is (UP|DOWN)""")
 
     /**
-     * Turns HAProxy's view into the host probe's [Output], read at [now]: `sent` counts seconds
-     * (one check a second), `lost` is failed checks plus seconds spent down (HAProxy stops counting
-     * failures once a member is down), and outages come from the log, starting when the first of
-     * the [FALL] missed checks went out.
+     * Converts the view of HAProxy, read at [now], into the [Output] of the host probe. `sent`
+     * counts seconds, because HAProxy does one check a second. `lost` is the failed checks plus
+     * the seconds that the member was down, because HAProxy does not count failures while a
+     * member is down. The outages come from the log. An outage starts at the first of the [FALL]
+     * missed checks.
      */
     fun parseContainer(text: String, now: Long): Output {
-        val csv = text.lines().filter { it.startsWith("C ") }.map { it.removePrefix("C ") }
-        val header = csv.firstOrNull()?.removePrefix("# ")?.split(',') ?: return Output(emptyMap(), emptyList())
-        val col = header.withIndex().associate { (i, n) -> n to i }
-        fun List<String>.f(name: String) = col[name]?.let { getOrNull(it) }.orEmpty()
-        val lead = (FALL - 1) * 1000L + 1000L
-        val readings = csv.drop(1).map { it.split(',') }
-            .filter { it.f("pxname") == CONTAINER_BACKEND && it.f("svname") !in setOf("FRONTEND", "BACKEND") }
+        val lines = text.lines()
+        val csv = lines.filter { it.startsWith("C ") }.map { it.removePrefix("C ") }
+        val stats = HaproxyStats.of(csv) ?: return Output(emptyMap(), emptyList())
+        return Output(containerReadings(stats, now), containerOutages(lines.filter { it.startsWith("L ") }))
+    }
+
+    private fun containerReadings(stats: HaproxyStats, now: Long): Map<String, Reading> =
+        stats.rows
+            .filter { row ->
+                stats.field(row, "pxname") == CONTAINER_BACKEND &&
+                    stats.field(row, "svname") !in setOf("FRONTEND", "BACKEND")
+            }
             .associate { row ->
-                val up = row.f("status").startsWith("UP")
-                val failed = (row.f("chkfail").toLongOrNull() ?: 0) + (row.f("downtime").toLongOrNull() ?: 0)
-                val since = row.f("lastchg").toLongOrNull()?.let { now - it * 1000 - lead }
-                row.f("svname") to Reading(
-                    at = now, sent = now / 1000, lost = failed,
-                    rttMicros = if (up) row.f("check_duration").toLongOrNull()?.let { it * 1000 } else null,
-                    ongoingSince = if (up) null else since,
+                val up = stats.field(row, "status").startsWith("UP")
+                val failedChecks = stats.field(row, "chkfail").toLongOrNull() ?: 0
+                val secondsDown = stats.field(row, "downtime").toLongOrNull() ?: 0
+                val downSince = stats.field(row, "lastchg").toLongOrNull()?.let { now - it * 1000 - DOWN_LEAD_MS }
+                val checkMicros = stats.field(row, "check_duration").toLongOrNull()?.let { it * 1000 }
+                stats.field(row, "svname") to Reading(
+                    at = now,
+                    sent = now / 1000,
+                    lost = failedChecks + secondsDown,
+                    rttMicros = if (up) checkMicros else null,
+                    ongoingSince = if (up) null else downSince,
                 )
             }
+
+    private fun containerOutages(logLines: List<String>): List<Triple<String, Long, Long>> {
         val outages = mutableListOf<Triple<String, Long, Long>>()
         val downAt = mutableMapOf<String, Long>()
-        for (line in text.lines().filter { it.startsWith("L ") }) {
-            val m = TRANSITION.find(line) ?: continue
-            val at = runCatching { kotlin.time.Instant.parse(m.groupValues[1]).toEpochMilliseconds() }.getOrNull() ?: continue
-            val peer = m.groupValues[2]
-            if (m.groupValues[3] == "DOWN") downAt[peer] = at - lead
-            else downAt.remove(peer)?.let { outages += Triple(peer, it, at) }
+        for (line in logLines) {
+            val match = TRANSITION.find(line) ?: continue
+            val (time, peer, state) = match.destructured
+            val at = runCatching { Instant.parse(time).toEpochMilliseconds() }.getOrNull() ?: continue
+            if (state == "DOWN") {
+                downAt[peer] = at - DOWN_LEAD_MS
+            } else {
+                downAt.remove(peer)?.let { outages += Triple(peer, it, at) }
+            }
         }
-        return Output(readings, outages)
+        return outages
     }
 
     /**
-     * Keeps each (member, peer) probe's readings for [windowMs], so loss covers the window rather
-     * than the probe's lifetime. Long-lived, one per controller and probe path.
+     * Keeps the readings of each (member, peer) probe for [windowMs], so the loss covers the
+     * window and not the full run of the probe. The controller keeps one instance for each probe
+     * path.
      */
     class History(private val windowMs: Long = 3_600_000L) {
         private val readings = mutableMapOf<Pair<String, String>, ArrayDeque<Reading>>()
 
-        /** Records [output] from [member] and returns its view of each peer. */
+        /** Records the [output] of [member] and returns the view that the member has of each peer. */
         fun record(member: String, output: Output, now: Long): Map<String, MeshProbeDto> =
-            output.readings.mapValues { (peer, r) ->
-                val q = readings.getOrPut(member to peer) { ArrayDeque() }
-                // The probe (or HAProxy) restarted, so its counters went back: start over.
-                if (q.lastOrNull()?.let { r.sent < it.sent || r.lost < it.lost } == true) q.clear()
-                q.addLast(r)
-                while (q.size > 1 && q.first().at < now - windowMs) q.removeFirst()
-                val first = q.first()
-                val sent = r.sent - (if (q.size > 1) first.sent else 0)
-                val lost = r.lost - (if (q.size > 1) first.lost else 0)
-                val past = output.outages.filter { it.first == peer && it.third >= now - windowMs }.map { MeshOutageDto(it.second, it.third) }
-                val ongoing = r.ongoingSince?.let { listOf(MeshOutageDto(it, null)) }.orEmpty()
+            output.readings.mapValues { (peer, reading) ->
+                val kept = readings.getOrPut(member to peer) { ArrayDeque() }
+                // The counters went back, because the probe (or HAProxy) started again. Start a new window.
+                if (kept.lastOrNull()?.let { reading.sent < it.sent || reading.lost < it.lost } == true) {
+                    kept.clear()
+                }
+                kept.addLast(reading)
+                while (kept.size > 1 && kept.first().at < now - windowMs) {
+                    kept.removeFirst()
+                }
+                val first = kept.first()
+                val sent = reading.sent - (if (kept.size > 1) first.sent else 0)
+                val lost = reading.lost - (if (kept.size > 1) first.lost else 0)
+                val past = output.outages
+                    .filter { it.first == peer && it.third >= now - windowMs }
+                    .map { MeshOutageDto(it.second, it.third) }
+                val ongoing = reading.ongoingSince?.let { listOf(MeshOutageDto(it, null)) }.orEmpty()
                 MeshProbeDto(
-                    rttMs = r.rttMicros?.let { it / 1000.0 },
+                    rttMs = reading.rttMicros?.let { it / 1000.0 },
                     lossPercent = if (sent > 0) lost * 100.0 / sent else 0.0,
                     sent = sent,
-                    windowMs = if (q.size > 1) r.at - first.at else 0,
-                    outages = (ongoing + past.sortedByDescending { it.startAt }).take(20),
-                    at = r.at,
+                    windowMs = if (kept.size > 1) reading.at - first.at else 0,
+                    outages = (ongoing + past.sortedByDescending { it.startAt }).take(MAX_OUTAGES),
+                    at = reading.at,
                 )
             }
 
-        /** Forgets members and peers no longer in the mesh. */
+        /** Removes the members and peers that are not in the mesh any more. */
         fun retain(ids: Set<String>) {
             readings.keys.removeAll { it.first !in ids || it.second !in ids }
         }

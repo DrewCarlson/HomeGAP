@@ -7,6 +7,7 @@ import homegap.di.TunnelScope
 import homegap.platform.Files
 import homegap.platform.Subprocess
 import homegap.platform.nowMillis
+import homegap.platform.runCatchingCancellable
 import homegap.platform.watchDirectory
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.*
@@ -20,7 +21,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-/** Written by the orchestrator: one per regional node. */
+/** The orchestrator writes one for each regional node. */
 @Serializable
 data class TunnelSpec(
     val nodeId: String,
@@ -31,7 +32,7 @@ data class TunnelSpec(
     val logLevel: String = "INFO",
     /** WireGuard MTU (null = Newt default). */
     val mtu: Int? = null,
-    /** Kernel WireGuard interface name for the main tunnel; null = Newt's userspace stack. */
+    /** Kernel WireGuard interface name for the main tunnel. Null means Newt's userspace stack. */
     val nativeInterface: String? = null,
     /**
      * The endpoint host's addresses, as the orchestrator publishes them in its DNS records. The
@@ -47,7 +48,7 @@ data class TunnelSpec(
     fun withoutPins(): TunnelSpec = copy(addresses = emptyList())
 }
 
-/** Written by the supervisor next to each spec, read by the orchestrator for observability. */
+/** The supervisor writes one next to each spec. The orchestrator reads it for observability. */
 @Serializable
 data class TunnelStatus(
     val nodeId: String,
@@ -69,24 +70,37 @@ data class TunnelStatus(
 data class TunnelExit(val at: Long, val reason: String)
 
 object TunnelFiles {
-    val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
-    fun specPath(dir: String, nodeId: String) = "$dir/$nodeId.tunnel.json"
+    const val SPEC_SUFFIX = ".tunnel.json"
+
+    val json = Json {
+        ignoreUnknownKeys = true
+        prettyPrint = true
+    }
+
+    fun specPath(dir: String, nodeId: String) = "$dir/$nodeId$SPEC_SUFFIX"
+
     fun statusPath(dir: String, nodeId: String) = "$dir/$nodeId.status.json"
 
-    /** Written by the orchestrator to ask the supervisor to restart a connector; removed once done. */
+    /**
+     * The orchestrator writes this file to ask the supervisor for a restart of a connector. The
+     * supervisor removes the file when it does the restart.
+     */
     fun restartPath(dir: String, nodeId: String) = "$dir/$nodeId.restart"
+
     fun readSpecs(dir: String): List<TunnelSpec> =
         Files.list(dir)
-        .filter { it.endsWith(".tunnel.json") }
-        .mapNotNull { f ->
-            runCatching { json.decodeFromString<TunnelSpec>(Files.readText("$dir/$f")) }.getOrNull()
-        }
+            .filter { it.endsWith(SPEC_SUFFIX) }
+            .mapNotNull { file -> readSpec("$dir/$file").getOrNull() }
+
     /** The node ids whose spec file exists but does not parse. */
     fun unreadableSpecs(dir: String): Set<String> =
         Files.list(dir)
-            .filter { it.endsWith(".tunnel.json") }
-            .filter { f -> runCatching { json.decodeFromString<TunnelSpec>(Files.readText("$dir/$f")) }.isFailure }
-            .mapTo(mutableSetOf()) { it.removeSuffix(".tunnel.json") }
+            .filter { it.endsWith(SPEC_SUFFIX) }
+            .filter { file -> readSpec("$dir/$file").isFailure }
+            .mapTo(mutableSetOf()) { it.removeSuffix(SPEC_SUFFIX) }
+
+    private fun readSpec(path: String): Result<TunnelSpec> =
+        runCatching { json.decodeFromString<TunnelSpec>(Files.readText(path)) }
 
     fun readStatus(dir: String, nodeId: String): TunnelStatus? =
         Files.readTextOrNull(statusPath(dir, nodeId))
@@ -100,7 +114,7 @@ object TunnelFiles {
  *
  * Event-driven: spec changes arrive through [watchDirectory] (inotify on Linux), process exits
  * through a waiter per child, and a slow tick only scrapes metrics and refreshes status files.
- * All state is owned by the single event loop in [run].
+ * The single event loop in [run] owns all state.
  */
 @Inject
 @SingleIn(TunnelScope::class)
@@ -134,44 +148,54 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
     private val unreadableWarned = mutableSetOf<String>()
     private val lastExit = mutableMapOf<String, String>()
     private val exits = mutableMapOf<String, List<TunnelExit>>()
+    private val metrics = mutableMapOf<String, Metrics?>()
+    private val published = mutableMapOf<String, Pair<TunnelStatus, Long>>()
+    private var hostsWarned = false
 
     /** Remembers why [id] stopped, for the dashboard's restart history. */
     private fun recordExit(id: String, reason: String) {
         lastExit[id] = reason
-        exits[id] = (listOf(TunnelExit(nowMillis(), reason)) + exits[id].orEmpty()).take(10)
+        exits[id] = (listOf(TunnelExit(nowMillis(), reason)) + exits[id].orEmpty()).take(EXIT_HISTORY_SIZE)
     }
-    private val metrics = mutableMapOf<String, Metrics?>()
-    private val published = mutableMapOf<String, Pair<TunnelStatus, Long>>()
-    private var hostsWarned = false
 
     suspend fun run() = coroutineScope {
         Files.mkdirs(dir)
         Files.mkdirs("$dir/logs")
         logger.info { "Tunnel supervisor watching $dir (newt: $newtBinary)" }
         // Only spec files: the status files this loop writes live in the same directory.
-        launch { watchDirectory(dir) { it.endsWith(".tunnel.json") }.collect { events.send(Event.Rescan) } }
-        launch { while (true) { delay(TICK); events.send(Event.Tick) } }
-        // Safety net for filesystems that do not deliver inotify events (some network mounts).
-        launch { while (true) { delay(RESCAN); events.send(Event.Rescan) } }
-        events.send(Event.Rescan)
-        for (e in events) {
-            try {
-                when (e) {
-                    Event.Rescan -> reconcileSpecs(this)
-                    Event.Tick -> {
-                        checkLogs()
-                        restartRequested()
-                        scrapeAll()
-                        publish(force = false)
-                    }
-                    is Event.Exited -> onExit(this, e)
-                }
-            } catch (ex: Exception) {
-                if (ex is CancellationException) {
-                    currentCoroutineContext().ensureActive()
-                }
-                logger.error(ex) { "supervisor event $e failed" }
+        launch {
+            watchDirectory(dir) { it.endsWith(TunnelFiles.SPEC_SUFFIX) }.collect { events.send(Event.Rescan) }
+        }
+        launch {
+            while (true) {
+                delay(TICK)
+                events.send(Event.Tick)
             }
+        }
+        // Safety net for filesystems that do not deliver inotify events (some network mounts).
+        launch {
+            while (true) {
+                delay(RESCAN)
+                events.send(Event.Rescan)
+            }
+        }
+        events.send(Event.Rescan)
+        for (event in events) {
+            runCatchingCancellable { handle(this, event) }
+                .onFailure { logger.error(it) { "supervisor event $event failed" } }
+        }
+    }
+
+    private suspend fun handle(scope: CoroutineScope, event: Event) {
+        when (event) {
+            Event.Rescan -> reconcileSpecs(scope)
+            Event.Tick -> {
+                checkLogs()
+                restartRequested()
+                scrapeAll()
+                publish(force = false)
+            }
+            is Event.Exited -> onExit(scope, event)
         }
     }
 
@@ -182,42 +206,70 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         // Pins first, so a connector started below already resolves its endpoint to them.
         syncHosts(specs.values)
         // Stop removed / changed first, so their interfaces and ports are free before starts.
+        stopRemovedAndChanged(specs)
+        startMissing(scope, specs)
+        publish(force = true)
+    }
+
+    private suspend fun stopRemovedAndChanged(specs: Map<String, TunnelSpec>) {
         val unreadable = TunnelFiles.unreadableSpecs(dir)
         unreadableWarned.retainAll(unreadable)
-        for ((id, p) in procs.toMap()) {
+        for ((id, proc) in procs.toMap()) {
             val spec = specs[id]
             if (spec == null && id in unreadable) {
-                if (unreadableWarned.add(id)) logger.warn { "the spec of tunnel $id is not readable; the tunnel keeps its last spec" }
+                if (unreadableWarned.add(id)) {
+                    logger.warn { "the spec of tunnel $id is not readable; the tunnel keeps its last spec" }
+                }
                 continue
             }
             // New pins need no restart: the hosts file changes under the running connector.
-            if (spec != null && spec != p.spec && spec.withoutPins() == p.spec.withoutPins()) p.spec = spec
-            if (spec == null || spec != p.spec) {
-                logger.info { if (spec == null) "stopping tunnel $id (spec removed)" else "restarting tunnel $id (spec changed)" }
-                stop(id, p)
-                if (spec == null) {
-                    Files.delete(TunnelFiles.statusPath(dir, id))
-                    restartCounts.remove(id); failures.remove(id); published.remove(id); metrics.remove(id)
-                } else {
-                    backoffUntil.remove(id)
-                }
+            if (spec != null && spec != proc.spec && spec.withoutPins() == proc.spec.withoutPins()) {
+                proc.spec = spec
+            }
+            if (spec != null && spec == proc.spec) continue
+            if (spec == null) {
+                logger.info { "stopping tunnel $id (spec removed)" }
+            } else {
+                logger.info { "restarting tunnel $id (spec changed)" }
+            }
+            stop(id, proc)
+            if (spec == null) {
+                Files.delete(TunnelFiles.statusPath(dir, id))
+                restartCounts.remove(id)
+                failures.remove(id)
+                published.remove(id)
+                metrics.remove(id)
+            } else {
+                backoffUntil.remove(id)
             }
         }
+    }
+
+    private fun startMissing(scope: CoroutineScope, specs: Map<String, TunnelSpec>) {
         for ((id, spec) in specs) {
             if (id in procs) continue
             val wait = (backoffUntil[id] ?: 0) - nowMillis()
             if (wait > 0) continue
             // Never start while another connector still holds this interface or admin port.
-            val clash = procs.values.firstOrNull { o ->
-                o.spec.nodeId != id && (o.spec.adminPort == spec.adminPort || (spec.nativeInterface != null && o.spec.nativeInterface == spec.nativeInterface))
-            }
+            val clash = procs.values.firstOrNull { sharesResource(it.spec, spec) }
             if (clash != null) {
-                logger.warn { "not starting $id yet: ${clash.spec.nodeId} still uses ${if (clash.spec.adminPort == spec.adminPort) "admin port ${spec.adminPort}" else "interface ${spec.nativeInterface}"}" }
+                logger.warn {
+                    val samePort = clash.spec.adminPort == spec.adminPort
+                    val resource = if (samePort) "admin port ${spec.adminPort}" else "interface ${spec.nativeInterface}"
+                    "not starting $id yet: ${clash.spec.nodeId} still uses $resource"
+                }
                 continue
             }
             start(scope, id, spec)
         }
-        publish(force = true)
+    }
+
+    /** True if the connector with spec [running] holds the admin port or the kernel interface of [spec]. */
+    private fun sharesResource(running: TunnelSpec, spec: TunnelSpec): Boolean {
+        if (running.nodeId == spec.nodeId) return false
+        val samePort = running.adminPort == spec.adminPort
+        val sameInterface = spec.nativeInterface != null && running.nativeInterface == spec.nativeInterface
+        return samePort || sameInterface
     }
 
     private fun start(scope: CoroutineScope, id: String, spec: TunnelSpec) {
@@ -233,17 +285,24 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         )
         val argv = buildList {
             add(newtBinary)
-            spec.mtu?.let { add("--mtu"); add(it.toString()) }
-            spec.nativeInterface?.let { add("--native-main"); add("--interface-main"); add(it) }
+            spec.mtu?.let {
+                add("--mtu")
+                add(it.toString())
+            }
+            spec.nativeInterface?.let {
+                add("--native-main")
+                add("--interface-main")
+                add(it)
+            }
         }
-        val log = "$dir/logs/$id.log"
+        val log = logPath(id)
         val logOffset = Files.size(log)
         val child = try {
             Subprocess.start(argv, log, env)
         } catch (e: Exception) {
             logger.error { "could not start newt for $id: ${e.message}" }
             lastExit[id] = "start failed: ${e.message}"
-            scheduleRetry(scope, id, null)
+            scheduleRetry(scope, id, startedAt = null)
             return
         }
         val proc = Proc(spec, child, nowMillis(), logOffset)
@@ -253,82 +312,111 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             proc.exited.complete(code)
             events.send(Event.Exited(id, proc, code))
         }
-        logger.info { "started newt for $id -> ${spec.endpoint}${spec.mtu?.let { " (mtu $it" } ?: " ("}${spec.nativeInterface?.let { ", kernel wireguard $it)" } ?: ")"}" }
+        logger.info {
+            val mtu = spec.mtu?.let { " (mtu $it" } ?: " ("
+            val kernel = spec.nativeInterface?.let { ", kernel wireguard $it)" } ?: ")"
+            "started newt for $id -> ${spec.endpoint}$mtu$kernel"
+        }
     }
 
-    private fun onExit(scope: CoroutineScope, e: Event.Exited) {
+    private fun logPath(id: String) = "$dir/logs/$id.log"
+
+    private fun onExit(scope: CoroutineScope, event: Event.Exited) {
         // Exits of processes we stopped on purpose are already accounted for.
-        if (procs[e.id] !== e.proc) return
-        logger.warn { "newt for ${e.id} exited (exit ${e.code})" }
-        procs.remove(e.id)
-        recordExit(e.id, "exit ${e.code}")
-        scheduleRetry(scope, e.id, e.proc.startedAt)
+        if (procs[event.id] !== event.proc) return
+        logger.warn { "newt for ${event.id} exited (exit ${event.code})" }
+        procs.remove(event.id)
+        recordExit(event.id, "exit ${event.code}")
+        scheduleRetry(scope, event.id, event.proc.startedAt)
     }
 
-    /** Counts a restart of [id] and returns the wait before it. A connector that ran for [STABLE] starts again from the shortest wait. */
+    /**
+     * Counts a restart of [id] and returns the wait before it. A connector that ran for [STABLE]
+     * starts again from the shortest wait.
+     */
     private fun nextBackoff(id: String, startedAt: Long?): Duration {
         restartCounts[id] = (restartCounts[id] ?: 0) + 1
         val stable = startedAt != null && nowMillis() - startedAt >= STABLE.inWholeMilliseconds
-        val n = if (stable) 1 else (failures[id] ?: 0) + 1
-        failures[id] = n
-        return backoff(n).also { backoffUntil[id] = nowMillis() + it.inWholeMilliseconds }
+        val failureCount = if (stable) 1 else (failures[id] ?: 0) + 1
+        failures[id] = failureCount
+        val wait = backoff(failureCount)
+        backoffUntil[id] = nowMillis() + wait.inWholeMilliseconds
+        return wait
     }
 
     private fun scheduleRetry(scope: CoroutineScope, id: String, startedAt: Long?) {
         val wait = nextBackoff(id, startedAt)
-        scope.launch { delay(wait); events.send(Event.Rescan) }
+        scope.launch {
+            delay(wait)
+            events.send(Event.Rescan)
+        }
         publish(force = true)
     }
 
-    private suspend fun stop(id: String, p: Proc) {
+    private suspend fun stop(id: String, proc: Proc) {
         procs.remove(id)
-        p.child.terminate()
-        if (withTimeoutOrNull(STOP_GRACE) { p.exited.await() } == null) {
-            p.child.kill()
-            p.exited.await()
+        proc.child.terminate()
+        if (withTimeoutOrNull(STOP_GRACE) { proc.exited.await() } == null) {
+            proc.child.kill()
+            proc.exited.await()
         }
     }
 
     /**
      * Restarts connectors that stay up without working, as seen in their logs:
-     * - the kernel interface could not be created (Newt then runs without a tunnel);
+     * - the kernel interface could not be created (Newt then runs without a tunnel).
      * - the login keeps reaching another server (a 404, or a reply that is not Pangolin's). Newt
      *   retries on the same open connection, so one made before the endpoint's address was right
      *   never moves. A new process looks the name up again (through the pins, see [syncHosts]).
      */
     private suspend fun checkLogs() {
-        for ((id, p) in procs.toMap()) {
-            val log = "$dir/logs/$id.log"
-            val size = Files.size(log)
-            if (size < p.logOffset) p.logOffset = 0
-            if (size == p.logOffset) continue
-            val fresh = Files.readFrom(log, p.logOffset, 262_144)
-            p.logOffset = size
-            if (size > MAX_LOG_BYTES) {
-                Files.truncate(log)
-                p.logOffset = 0
-            }
-            val reason = when {
-                p.spec.nativeInterface != null && NATIVE_FAILURES.any { it in fresh } ->
-                    "kernel interface ${p.spec.nativeInterface} could not be created"
-                else -> {
-                    p.loginRejections = loginRejections(fresh, p.loginRejections)
-                    if (p.loginRejections >= LOGIN_REJECTIONS_BEFORE_RESTART) {
-                        "${p.loginRejections} logins to ${p.spec.endpoint} were answered by another server, not its Pangolin"
-                    } else {
-                        null
-                    }
-                }
-            } ?: continue
+        for ((id, proc) in procs.toMap()) {
+            val fresh = freshLog(id, proc) ?: continue
+            val reason = restartReason(proc, fresh) ?: continue
             logger.warn { "newt for $id: $reason; restarting" }
-            stop(id, p)
+            stop(id, proc)
             recordExit(id, reason)
-            nextBackoff(id, p.startedAt)
+            nextBackoff(id, proc.startedAt)
             events.send(Event.Rescan)
         }
     }
 
-    /** Restarts the connectors the orchestrator asked for (a request file each), at once and without backoff. */
+    /**
+     * The text that the log of [id] got after the last read, or null if there is none. Empties
+     * a log that is larger than [MAX_LOG_BYTES].
+     */
+    private fun freshLog(id: String, proc: Proc): String? {
+        val log = logPath(id)
+        val size = Files.size(log)
+        if (size < proc.logOffset) {
+            proc.logOffset = 0
+        }
+        if (size == proc.logOffset) return null
+        val fresh = Files.readFrom(log, proc.logOffset, LOG_READ_BYTES)
+        proc.logOffset = size
+        if (size > MAX_LOG_BYTES) {
+            Files.truncate(log)
+            proc.logOffset = 0
+        }
+        return fresh
+    }
+
+    /** Why [proc] needs a restart, from the new text [fresh] of its log, or null if it needs none. */
+    private fun restartReason(proc: Proc, fresh: String): String? {
+        val kernelInterface = proc.spec.nativeInterface
+        if (kernelInterface != null && NATIVE_FAILURES.any { it in fresh }) {
+            return "kernel interface $kernelInterface could not be created"
+        }
+        proc.loginRejections = loginRejections(fresh, proc.loginRejections)
+        val rejections = proc.loginRejections
+        if (rejections < LOGIN_REJECTIONS_BEFORE_RESTART) return null
+        return "$rejections logins to ${proc.spec.endpoint} were answered by another server, not its Pangolin"
+    }
+
+    /**
+     * Restarts the connectors the orchestrator asked for (a request file each), at once and
+     * without backoff.
+     */
     private suspend fun restartRequested() {
         for (id in specs().keys) {
             val request = TunnelFiles.restartPath(dir, id)
@@ -344,23 +432,27 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
 
     /** Writes the endpoint pins of [specs] into the hosts file when they changed. */
     private fun syncHosts(specs: Collection<TunnelSpec>) {
-        val current = Files.readTextOrNull(hostsFile) ?: ""
+        val current = Files.readTextOrNull(hostsFile).orEmpty()
         val next = HostsPins.render(current, HostsPins.entries(specs))
         if (next == current) return
         try {
-            Files.writeAtomic(hostsFile, next, "644".toInt(8))
+            Files.writeAtomic(hostsFile, next, WORLD_READABLE)
             hostsWarned = false
             logger.info { "updated $hostsFile (${HostsPins.entries(specs).size} entries)" }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-            // Connectors still work through public DNS; say so once rather than every rescan.
-            if (!hostsWarned) logger.warn { "could not write endpoint pins to $hostsFile (${e.message}); connectors use public DNS" }
+            // Connectors still work through public DNS. Say so once, not in every rescan.
+            if (!hostsWarned) {
+                logger.warn { "could not write endpoint pins to $hostsFile (${e.message}); connectors use public DNS" }
+            }
             hostsWarned = true
         }
     }
 
     private suspend fun scrapeAll() {
-        for ((id, p) in procs) metrics[id] = scrape(p.spec.adminPort)
+        for ((id, proc) in procs) {
+            metrics[id] = scrape(proc.spec.adminPort)
+        }
     }
 
     /** Writes status files only when something changed, plus a heartbeat for staleness checks. */
@@ -368,43 +460,43 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         val now = nowMillis()
         for (spec in specs().values) {
             val id = spec.nodeId
-            val p = procs[id]
-            val m = if (p != null) metrics[id] else null
+            val proc = procs[id]
+            val scraped = if (proc != null) metrics[id] else null
             val status = TunnelStatus(
                 nodeId = id,
-                running = p != null,
+                running = proc != null,
                 pid = null,
-                startedAt = p?.startedAt,
+                startedAt = proc?.startedAt,
                 restarts = restartCounts[id] ?: 0,
                 lastExit = lastExit[id],
                 exits = exits[id].orEmpty(),
-                connected = m?.connected,
-                bytesIn = m?.bytesIn,
-                bytesOut = m?.bytesOut,
+                connected = scraped?.connected,
+                bytesIn = scraped?.bytesIn,
+                bytesOut = scraped?.bytesOut,
                 updatedAt = 0,
             )
-            val prev = published[id]
-            if (!force && prev != null && prev.first == status && now - prev.second < HEARTBEAT.inWholeMilliseconds) continue
+            val previous = published[id]
+            val unchanged = previous != null &&
+                previous.first == status &&
+                now - previous.second < HEARTBEAT.inWholeMilliseconds
+            if (!force && unchanged) continue
             published[id] = status to now
-            Files.writeAtomic(TunnelFiles.statusPath(dir, id), TunnelFiles.json.encodeToString(status.copy(updatedAt = now)), "644".toInt(8))
+            val text = TunnelFiles.json.encodeToString(status.copy(updatedAt = now))
+            Files.writeAtomic(TunnelFiles.statusPath(dir, id), text, WORLD_READABLE)
         }
     }
 
     data class Metrics(val connected: Boolean?, val bytesIn: Long?, val bytesOut: Long?)
 
-    private suspend fun scrape(port: Int): Metrics? = runCatching {
+    private suspend fun scrape(port: Int): Metrics? = runCatchingCancellable {
         parseMetrics(http.get("http://127.0.0.1:$port/metrics").bodyAsText())
-    }.onFailure {
-        if (it is CancellationException) {
-            currentCoroutineContext().ensureActive()
-        }
     }.getOrNull()
 
     companion object {
         val TICK = 10.seconds
         val RESCAN = 60.seconds
 
-        /** Status files are rewritten at least this often even when unchanged (staleness check). */
+        /** The supervisor writes each status file again at least this often (staleness check). */
         val HEARTBEAT = 20.seconds
 
         /** How long a stopping Newt gets to exit on SIGTERM before SIGKILL. */
@@ -412,10 +504,18 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
 
         /** Restart delay after the [restarts]th failure: 2 s, 4 s, … up to a minute. */
         fun backoff(restarts: Int): Duration = minOf(2.seconds * restarts, 60.seconds)
+
         val STABLE = 10.minutes
         const val MAX_LOG_BYTES = 16L * 1024 * 1024
 
-        /** Newt log lines meaning the kernel WireGuard tunnel was not set up. */
+        /** The most log text that one tick reads. */
+        private const val LOG_READ_BYTES = 262_144
+        private const val EXIT_HISTORY_SIZE = 10
+
+        /** The mode of the hosts file and the status files: all users can read them. */
+        private val WORLD_READABLE = "644".toInt(8)
+
+        /** Newt log lines that show a failure to create the kernel WireGuard tunnel. */
         val NATIVE_FAILURES = listOf("Failed to create native main TUN device")
 
         /**
@@ -431,16 +531,23 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         /** Newt's line once its control connection is up. */
         const val CONNECTED = "Websocket connected"
 
-        /** About 15 s of Newt's 3 s retries; a few while a node starts up are not stuck. */
+        /** About 15 s of Newt's 3 s retries. A few rejections while a node starts are normal. */
         const val LOGIN_REJECTIONS_BEFORE_RESTART = 5
 
-        /** Login rejections after reading [fresh] log text, starting from [before]; a connection resets the count. */
+        /**
+         * The count of login rejections after the log text [fresh], with [before] as the count
+         * until then. A connection sets the count back to zero.
+         */
         fun loginRejections(fresh: String, before: Int): Int {
-            var n = before
+            var count = before
             for (line in fresh.lineSequence()) {
-                if (WRONG_SERVER.any { it in line }) n++ else if (CONNECTED in line) n = 0
+                if (WRONG_SERVER.any { it in line }) {
+                    count++
+                } else if (CONNECTED in line) {
+                    count = 0
+                }
             }
-            return n
+            return count
         }
 
         fun parseMetrics(text: String): Metrics {
@@ -454,13 +561,22 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
                 when {
                     line.startsWith("newt_tunnel_bytes") -> {
                         sawBytes = true
-                        if (line.contains("direction=\"ingress\"") || line.contains("direction=\"in\"")) inBytes += value
-                        else if (line.contains("direction=\"egress\"") || line.contains("direction=\"out\"")) outBytes += value
+                        val ingress = line.contains("direction=\"ingress\"") || line.contains("direction=\"in\"")
+                        val egress = line.contains("direction=\"egress\"") || line.contains("direction=\"out\"")
+                        if (ingress) {
+                            inBytes += value
+                        } else if (egress) {
+                            outBytes += value
+                        }
                     }
                     line.startsWith("newt_websocket_connected") -> connected = (connected ?: false) || value >= 1.0
                 }
             }
-            return Metrics(connected, if (sawBytes) inBytes.toLong() else null, if (sawBytes) outBytes.toLong() else null)
+            return Metrics(
+                connected = connected,
+                bytesIn = if (sawBytes) inBytes.toLong() else null,
+                bytesOut = if (sawBytes) outBytes.toLong() else null,
+            )
         }
     }
 }

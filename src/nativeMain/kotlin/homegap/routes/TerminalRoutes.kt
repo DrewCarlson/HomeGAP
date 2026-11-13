@@ -34,6 +34,7 @@ import kotlinx.coroutines.launch
  * `POST /nodes/{id}/terminal?rows=&columns=` (a new session), `POST /terminal/{id}/ticket`
  * (a key for one WebSocket connection) and `DELETE /terminal/{id}`.
  */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -51,11 +52,18 @@ class TerminalRoutes(private val sessions: TerminalSessions) : RoutingController
     }
 
     private suspend fun RoutingContext.open() {
-        val q = call.request.queryParameters
-        call.respond(sessions.open(id(), q["rows"]?.toIntOrNull() ?: 24, q["columns"]?.toIntOrNull() ?: 80))
+        val query = call.request.queryParameters
+        val rows = query["rows"]?.toIntOrNull() ?: DEFAULT_ROWS
+        val columns = query["columns"]?.toIntOrNull() ?: DEFAULT_COLUMNS
+        call.respond(sessions.open(id(), rows, columns))
     }
 
     private fun RoutingContext.id(): String = requireNotNull(call.parameters["id"]) { "id required" }
+
+    private companion object {
+        const val DEFAULT_ROWS = 24
+        const val DEFAULT_COLUMNS = 80
+    }
 }
 
 /**
@@ -71,7 +79,8 @@ class TerminalSocket(private val sessions: TerminalSessions) : OpenRoutingContro
         parent.webSocket("/api/terminal/ws") {
             val headers = call.request.headers
             if (!sameOrigin(headers[HttpHeaders.Origin], headers[HttpHeaders.Host])) {
-                return@webSocket close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "this page cannot open a terminal"))
+                val refusal = CloseReason(CloseReason.Codes.VIOLATED_POLICY, "this page cannot open a terminal")
+                return@webSocket close(refusal)
             }
             val session = sessions.redeem(call.request.queryParameters["ticket"])
                 ?: return@webSocket close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "the ticket is not valid"))
@@ -83,7 +92,7 @@ class TerminalSocket(private val sessions: TerminalSessions) : OpenRoutingContro
         val connection = Any()
         var sent = session.attach(connection)
         try {
-            send(Frame.Text(ApiJson.encodeToString(TerminalMessage.serializer(), TerminalMessage.Hello(sent))))
+            send(textFrame(TerminalMessage.Hello(sent)))
             val output = launch {
                 session.changes.collect {
                     while (session.shows(connection)) {
@@ -94,16 +103,18 @@ class TerminalSocket(private val sessions: TerminalSessions) : OpenRoutingContro
                     }
                     val code = session.exitCode
                     if (code != null && session.output(sent).second.isEmpty()) {
-                        send(Frame.Text(ApiJson.encodeToString(TerminalMessage.serializer(), TerminalMessage.Exit(code))))
+                        send(textFrame(TerminalMessage.Exit(code)))
                     }
                     // A newer connection shows the session now.
-                    if (!session.shows(connection)) close(CloseReason(CloseReason.Codes.NORMAL, "opened in another window"))
+                    if (!session.shows(connection)) {
+                        close(CloseReason(CloseReason.Codes.NORMAL, "opened in another window"))
+                    }
                 }
             }
             for (frame in incoming) {
                 when (frame) {
                     is Frame.Binary -> session.input(frame.readBytes())
-                    is Frame.Text -> when (val message = runCatching { ApiJson.decodeFromString(TerminalMessage.serializer(), frame.readText()) }.getOrNull()) {
+                    is Frame.Text -> when (val message = messageIn(frame)) {
                         is TerminalMessage.Resize -> session.resize(message.rows, message.columns)
                         is TerminalMessage.Ack -> session.ack(message.offset)
                         else -> Unit
@@ -116,6 +127,13 @@ class TerminalSocket(private val sessions: TerminalSessions) : OpenRoutingContro
             session.detach(connection)
         }
     }
+
+    private fun textFrame(message: TerminalMessage): Frame.Text =
+        Frame.Text(ApiJson.encodeToString(TerminalMessage.serializer(), message))
+
+    /** The message in [frame], or null if the text is not a message. */
+    private fun messageIn(frame: Frame.Text): TerminalMessage? =
+        runCatching { ApiJson.decodeFromString(TerminalMessage.serializer(), frame.readText()) }.getOrNull()
 
     companion object {
         /** True if the page at [origin] is on the host that this request went to. */

@@ -6,8 +6,8 @@ import homegap.model.DesiredDnsRecord
 
 /**
  * Writes the TXT records of the DNS challenge. The ACME client asks for each record through
- * [ChallengeServer], so it never holds the DNS key. Only the challenge names of [names] are
- * accepted.
+ * [ChallengeServer], so it never holds the DNS key. This class accepts only the challenge names
+ * of [names].
  */
 class DnsChallenge(
     private val bunny: BunnyClient,
@@ -29,19 +29,22 @@ class DnsChallenge(
 
     suspend fun present(fqdn: String, value: String) {
         require(VALUE.matches(value)) { "not a challenge value" }
-        bunny.addRecord(zoneId, BunnyRecord(type = txt, ttl = TTL, value = value, name = relative(fqdn), comment = COMMENT))
+        val record = BunnyRecord(type = txt, ttl = TTL, value = value, name = relative(fqdn), comment = COMMENT)
+        bunny.addRecord(zoneId, record)
         onPresent()
     }
 
     suspend fun cleanup(fqdn: String, value: String) {
         val name = relative(fqdn)
-        for (r in owned()) if (r.name.equals(name, ignoreCase = true) && r.value == value) bunny.deleteRecord(zoneId, r.id)
+        owned()
+            .filter { it.name.equals(name, ignoreCase = true) && it.value == value }
+            .forEach { bunny.deleteRecord(zoneId, it.id) }
         onCleanup()
     }
 
-    /** Removes each challenge record that an earlier order left behind. */
+    /** Removes each challenge record that an earlier order did not remove. */
     suspend fun sweep() {
-        for (r in owned()) bunny.deleteRecord(zoneId, r.id)
+        owned().forEach { bunny.deleteRecord(zoneId, it.id) }
     }
 
     private suspend fun owned() = bunny.getZone(zoneId).records.filter { it.type == txt && it.comment == COMMENT }

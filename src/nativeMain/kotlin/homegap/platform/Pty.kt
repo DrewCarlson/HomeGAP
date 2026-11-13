@@ -6,6 +6,7 @@ import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CPointerVar
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.IntVar
+import kotlinx.cinterop.MemScope
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.allocArray
@@ -45,6 +46,7 @@ import platform.posix.sysconf
 import platform.posix.unlockpt
 import platform.posix.waitpid
 import platform.posix.winsize
+import kotlin.concurrent.Volatile
 
 /**
  * A child process on a pseudo-terminal, for an interactive program such as `ssh -tt`. The child
@@ -53,16 +55,16 @@ import platform.posix.winsize
  * [read] blocks, so call it on a thread that can wait. One reader and one writer at a time.
  */
 class Pty private constructor(val pid: Int, private val master: Int) {
-    @kotlin.concurrent.Volatile
+    @Volatile
     private var closed = false
 
     /** Reads output of the child into [buffer]. Returns the number of bytes, or -1 when the child is gone. */
     fun read(buffer: ByteArray): Int {
         while (!closed) {
-            val n = buffer.usePinned { platform.posix.read(master, it.addressOf(0), buffer.size.toULong()) }.toInt()
-            if (n > 0) return n
+            val count = buffer.usePinned { platform.posix.read(master, it.addressOf(0), buffer.size.toULong()) }.toInt()
+            if (count > 0) return count
             // A terminal with no process on its other end gives EIO, not an end of file.
-            if (n == 0 || (errno != EINTR && errno != EAGAIN)) return -1
+            if (count == 0 || (errno != EINTR && errno != EAGAIN)) return -1
         }
         return -1
     }
@@ -71,8 +73,14 @@ class Pty private constructor(val pid: Int, private val master: Int) {
     fun write(bytes: ByteArray) {
         var sent = 0
         while (sent < bytes.size && !closed) {
-            val n = bytes.usePinned { platform.posix.write(master, it.addressOf(sent), (bytes.size - sent).toULong()) }.toInt()
-            if (n > 0) sent += n else if (errno != EINTR && errno != EAGAIN) return
+            val count = bytes.usePinned {
+                platform.posix.write(master, it.addressOf(sent), (bytes.size - sent).toULong())
+            }.toInt()
+            if (count > 0) {
+                sent += count
+            } else if (errno != EINTR && errno != EAGAIN) {
+                return
+            }
         }
     }
 
@@ -86,8 +94,10 @@ class Pty private constructor(val pid: Int, private val master: Int) {
         exit?.let { return it }
         val status = alloc<IntVar>()
         if (waitpid(pid, status.ptr, WNOHANG) != pid) return null
-        val s = status.value
-        (if (s and 0x7f == 0) (s shr 8) and 0xff else 128 + (s and 0x7f)).also { exit = it }
+        val signal = status.value and 0x7f
+        val code = if (signal == 0) (status.value shr 8) and 0xff else SIGNAL_EXIT_BASE + signal
+        exit = code
+        code
     }
 
     private var exit: Int? = null
@@ -123,9 +133,9 @@ class Pty private constructor(val pid: Int, private val master: Int) {
                 val size = size(rows, columns)
 
                 // `env` gives the child its extra variables, so the child sets nothing itself.
-                val command = if (env.isEmpty()) argv else listOf("env") + env.map { (k, v) -> "$k=$v" } + argv
+                val command = if (env.isEmpty()) argv else withEnv(argv, env)
                 val args = allocArray<CPointerVar<ByteVar>>(command.size + 1)
-                command.forEachIndexed { i, a -> args[i] = a.cstr.ptr }
+                command.forEachIndexed { index, argument -> args[index] = argument.cstr.ptr }
                 args[command.size] = null
                 val program = command.first().cstr.ptr
 
@@ -156,11 +166,20 @@ class Pty private constructor(val pid: Int, private val master: Int) {
             }
         }
 
+        private const val SIGNAL_EXIT_BASE = 128
+
+        /** The command line of `env`, which sets [env] and then runs [argv]. */
+        private fun withEnv(argv: List<String>, env: Map<String, String>): List<String> = buildList {
+            add("env")
+            env.mapTo(this) { (name, value) -> "$name=$value" }
+            addAll(argv)
+        }
+
         private fun setSize(fd: Int, rows: Int, columns: Int) = memScoped {
             ioctl(fd, TIOCSWINSZ.toULong(), size(rows, columns).ptr)
         }
 
-        private fun kotlinx.cinterop.MemScope.size(rows: Int, columns: Int): winsize {
+        private fun MemScope.size(rows: Int, columns: Int): winsize {
             val size = alloc<winsize>()
             size.ws_row = rows.coerceIn(1, 1000).toUShort()
             size.ws_col = columns.coerceIn(1, 1000).toUShort()

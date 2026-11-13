@@ -7,55 +7,70 @@ import homegap.platform.Subprocess
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * SSH keys the orchestrator manages nodes with. Generated and imported keys live in [dir] (the
- * data volume, mode 0700); the private half never leaves the orchestrator.
+ * The SSH keys that the orchestrator uses for the nodes. The keys that it makes or imports are in
+ * [dir] (the data volume, mode 0700). The private half never leaves the orchestrator.
  */
 class NodeKeys(private val dir: String) {
-    /** A new ed25519 key for [nodeId], replacing any earlier one generated for that id. */
+    /** Makes a new ed25519 key for [nodeId]. It replaces an earlier key for that id. */
     suspend fun generate(nodeId: String): SshKeyDto {
         val path = pathFor(nodeId)
         Files.delete(path)
         Files.delete("$path.pub")
-        val r = Subprocess.run(
+        val result = Subprocess.run(
             listOf("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "homegap-$nodeId", "-f", path),
-            timeout = 30.seconds,
+            timeout = KEYGEN_TIMEOUT,
         )
-        check(r.ok) { "ssh-keygen failed: ${r.stderr.trim().take(300)}" }
+        check(result.ok) { "ssh-keygen failed: ${result.stderr.trim().take(ERROR_TEXT_LENGTH)}" }
         return describe(path)
     }
 
     /** Stores a pasted private key for [nodeId] (unencrypted OpenSSH or PEM). */
     suspend fun import(nodeId: String, privateKey: String): SshKeyDto {
         val text = privateKey.trim().replace("\r\n", "\n") + "\n"
-        require(text.startsWith("-----BEGIN ") && "PRIVATE KEY-----" in text) { "That does not look like a private key." }
+        require(text.startsWith("-----BEGIN ") && "PRIVATE KEY-----" in text) {
+            "That does not look like a private key."
+        }
         val path = pathFor(nodeId)
-        Files.writeAtomic(path, text, "600".toInt(8))
+        Files.writeAtomic(path, text, PRIVATE_FILE_MODE)
         return runCatching { describe(path) }.getOrElse {
             Files.delete(path)
-            throw IllegalArgumentException("The key could not be read (passphrase-protected keys are not supported): ${it.message}")
+            val problem = "The key could not be read (passphrase-protected keys are not supported)"
+            throw IllegalArgumentException("$problem: ${it.message}")
         }
     }
 
-    /** Uses a private key already on the orchestrator (for example under /secrets/ssh). */
+    /** Uses a private key that is on the orchestrator already (for example under /secrets/ssh). */
     suspend fun existing(path: String): SshKeyDto {
         require(Files.exists(path)) { "No file at $path on the orchestrator." }
         return describe(path)
     }
 
-    /** Public key and fingerprint of the private key at [path]. */
+    /** Returns the public key and the fingerprint of the private key at [path]. */
     private suspend fun describe(path: String): SshKeyDto {
-        val pub = Subprocess.run(listOf("ssh-keygen", "-y", "-f", path), stdin = "", timeout = 10.seconds)
-        check(pub.ok) { pub.stderr.trim().ifEmpty { "unreadable key" }.take(300) }
-        val publicKey = pub.stdout.trim()
-        val fingerprint = Subprocess.run(listOf("ssh-keygen", "-l", "-f", "-"), stdin = "$publicKey\n", timeout = 10.seconds)
-            .stdout.split(' ').getOrNull(1).orEmpty()
+        val public = Subprocess.run(listOf("ssh-keygen", "-y", "-f", path), stdin = "", timeout = READ_TIMEOUT)
+        check(public.ok) { public.stderr.trim().ifEmpty { "unreadable key" }.take(ERROR_TEXT_LENGTH) }
+        val publicKey = public.stdout.trim()
+        val fingerprint = Subprocess
+            .run(listOf("ssh-keygen", "-l", "-f", "-"), stdin = "$publicKey\n", timeout = READ_TIMEOUT)
+            .stdout
+            .split(' ')
+            .getOrNull(1)
+            .orEmpty()
         return SshKeyDto(path, publicKey, fingerprint)
     }
 
     private fun pathFor(nodeId: String): String {
         require(ConfigLoader.NODE_ID.matches(nodeId)) { "node id must match ${ConfigLoader.NODE_ID.pattern}" }
         Files.mkdirs(dir)
-        Files.chmodPath(dir, "700".toInt(8))
+        Files.chmodPath(dir, PRIVATE_DIR_MODE)
         return "$dir/${nodeId}_ed25519"
+    }
+
+    private companion object {
+        val PRIVATE_FILE_MODE = "600".toInt(8)
+        val PRIVATE_DIR_MODE = "700".toInt(8)
+        const val ERROR_TEXT_LENGTH = 300
+        val KEYGEN_TIMEOUT = 30.seconds
+        val READ_TIMEOUT = 10.seconds
     }
 }

@@ -7,128 +7,221 @@ import homegap.api.MeshStatusDto
 import homegap.config.MeshConfig
 import homegap.config.NodeConfig
 import homegap.platform.nowMillis
-import homegap.provision.Mesh
+import homegap.platform.runCatchingCancellable
 import homegap.provision.ClusterTemplates
+import homegap.provision.Mesh
 import homegap.provision.MeshProbe
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.get
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 
 /**
- * Mesh domain: keeps the cluster's WireGuard mesh ([Mesh]) in step with the configured nodes.
+ * Mesh domain: keeps the WireGuard mesh of the cluster ([Mesh]) in step with the configured nodes.
  *
- * Each pass, every node gets its setup script over SSH, which creates the node's key once, writes
- * the peer list and applies changes in place. The homelab interface follows. A node's public key is
- * learned from its script output; when new keys appear, a second round pushes them to the other
- * members in the same pass. Paused nodes are only read, never changed.
+ * In each pass, every node gets its setup script over SSH. The script creates the key of the node
+ * once, writes the peer list and applies changes in place. The homelab interface follows. The
+ * script output gives the public key of the node. If a pass finds a new key, a second round sends
+ * it to the other members in the same pass. The reconciler only reads a paused node.
  *
- * Long-lived (one per controller) so a persistent error is logged once, not every pass.
+ * The controller keeps one instance, so the log shows an error that stays only once.
  */
 class MeshReconciler(private val homelab: HomelabMesh) {
-    private val domain = "mesh"
     private val lastErrors = mutableMapOf<String, String>()
-
-    private val probes = MeshProbe.History()
+    private val nodeProbes = MeshProbe.History()
     private val containerProbes = MeshProbe.History()
     private val homelabProbe = HomelabProbe()
 
-    private class NodeResult(val peers: List<Mesh.PeerStatus>?, val error: String?, val probe: Map<String, MeshProbeDto> = emptyMap(), val containerProbe: Map<String, MeshProbeDto> = emptyMap())
-
-    suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>): MeshStatusDto? {
-        val mesh = ctx.config.cluster?.mesh ?: return null
-        val members = nodes.filter { ctx.state.node(it.id).teardownError == null && slots[it.id] != null }
+    /** The members of the mesh in one pass, and the address of each. */
+    private class Layout(
+        val mesh: MeshConfig,
+        val members: List<NodeConfig>,
+        val addresses: Map<String, String>,
+        val homelabKey: String?,
+    ) {
         val homelabAddress = Mesh.homelabAddress(mesh)
-        val addresses = members.associate { it.id to Mesh.nodeAddress(mesh, slots.getValue(it.id)) }
+        val memberIds = members.map { it.id }.toSet()
 
-        var homelabError: String? = null
-        val homelabKey = try {
-            homelab.publicKey()
-        } catch (e: Exception) {
-            if (e is CancellationException) currentCoroutineContext().ensureActive()
-            homelabError = "homelab mesh key: ${e.message}"
-            null
-        }
+        fun addressOf(node: NodeConfig): String = addresses.getValue(node.id)
+    }
 
-        fun peersFor(selfId: String): List<Mesh.Peer> = buildList {
-            if (selfId != Mesh.HOMELAB && homelabKey != null) add(Mesh.Peer(Mesh.HOMELAB, homelabKey, homelabAddress, null))
-            for (n in members) {
-                if (n.id == selfId) continue
-                val key = ctx.state.node(n.id).meshPublicKey ?: continue
-                add(Mesh.Peer(n.id, key, addresses.getValue(n.id), n.endpoint()))
-            }
-        }
-
-        val results = mutableMapOf<String, NodeResult>()
-        for (round in 1..2) {
-            val known = members.associate { it.id to ctx.state.node(it.id).meshPublicKey }
-            coroutineScope {
-                members.map { n -> async { n.id to configureNode(ctx, n, mesh, addresses.getValue(n.id), peersFor(n.id)) } }.awaitAll()
-            }.forEach { (id, r) -> results[id] = r }
-            if (members.all { ctx.state.node(it.id).meshPublicKey == known[it.id] }) break
-        }
-
-        var homelabPeers: List<Mesh.PeerStatus>? = null
-        if (homelabKey != null) {
-            try {
-                homelab.apply(mesh, homelabAddress, peersFor(Mesh.HOMELAB))
-                homelabPeers = homelab.peers()
-            } catch (e: Exception) {
-                if (e is CancellationException) currentCoroutineContext().ensureActive()
-                homelabError = e.message ?: e.toString()
-            }
-        }
-        report(ctx, Mesh.HOMELAB, homelabError)
-        if (homelabPeers != null) {
-            probeFromHomelab(ctx, members, addresses)
-        }
-
-        val names = buildMap {
-            homelabKey?.let { put(it, Mesh.HOMELAB) }
-            members.forEach { n -> ctx.state.node(n.id).meshPublicKey?.let { put(it, n.id) } }
-        }
-        probes.retain(members.map { it.id }.toSet() + Mesh.HOMELAB)
-        containerProbes.retain(members.map { it.id }.toSet() + Mesh.HOMELAB)
-        fun view(id: String, address: String, peers: List<Mesh.PeerStatus>?, error: String?, probe: Map<String, MeshProbeDto> = emptyMap(), containerProbe: Map<String, MeshProbeDto> = emptyMap()) = MeshMemberDto(
+    /** The result of a pass for one member. [peers] is null if the member gives no answer. */
+    private class MemberState(
+        val id: String,
+        val address: String,
+        val peers: List<Mesh.PeerStatus>?,
+        val error: String?,
+        val probe: Map<String, MeshProbeDto> = emptyMap(),
+        val containerProbe: Map<String, MeshProbeDto> = emptyMap(),
+    ) {
+        /** WireGuard names a peer by its public key. [idByKey] gives the member that has each key. */
+        fun dto(idByKey: Map<String, String>) = MeshMemberDto(
             id = id,
             address = address,
             error = error,
-            peers = peers.orEmpty().map { p ->
-                MeshPeerDto(
-                    id = names[p.publicKey] ?: "unknown",
-                    endpoint = p.endpoint,
-                    lastHandshakeAt = p.latestHandshake.takeIf { it > 0 }?.let { it * 1000 },
-                    rxBytes = p.rxBytes,
-                    txBytes = p.txBytes,
-                    probe = names[p.publicKey]?.let { probe[it] },
-                    containerProbe = names[p.publicKey]?.let { containerProbe[it] },
-                )
-            }.sortedBy { it.id },
+            peers = peers.orEmpty().map { peerDto(it, idByKey[it.publicKey]) }.sortedBy { it.id },
         )
-        return MeshStatusDto(
-            subnet = mesh.subnet,
-            members = listOf(view(Mesh.HOMELAB, homelabAddress, homelabPeers, homelabError, homelabProbe.view())) +
-                members.map { n -> results[n.id].let { r -> view(n.id, addresses.getValue(n.id), r?.peers, r?.error, r?.probe.orEmpty(), r?.containerProbe.orEmpty()) } },
+
+        private fun peerDto(peer: Mesh.PeerStatus, peerId: String?) = MeshPeerDto(
+            id = peerId ?: "unknown",
+            endpoint = peer.endpoint,
+            lastHandshakeAt = peer.latestHandshake.takeIf { it > 0 }?.let { it * 1000 },
+            rxBytes = peer.rxBytes,
+            txBytes = peer.txBytes,
+            probe = probe[peerId],
+            containerProbe = containerProbe[peerId],
         )
     }
 
-    /** One timed request from the homelab to each member's Patroni over the mesh. */
-    private suspend fun probeFromHomelab(ctx: ReconcileContext, members: List<NodeConfig>, addresses: Map<String, String>) {
-        homelabProbe.retain(members.map { it.id }.toSet())
+    /** Returns the status of the mesh, or null if the config has no cluster. */
+    suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>): MeshStatusDto? {
+        val mesh = ctx.config.cluster?.mesh ?: return null
+        val members = nodes.filter { ctx.state.node(it.id).teardownError == null && slots[it.id] != null }
+        val homelabKey = runCatchingCancellable { homelab.publicKey() }
+        val layout = Layout(
+            mesh = mesh,
+            members = members,
+            addresses = members.associate { it.id to Mesh.nodeAddress(mesh, slots.getValue(it.id)) },
+            homelabKey = homelabKey.getOrNull(),
+        )
+
+        val nodeStates = configureNodes(ctx, layout)
+        val homelabState = when (val failure = homelabKey.exceptionOrNull()) {
+            null -> configureHomelab(ctx, layout)
+            else -> homelabState(layout, peers = null, error = "homelab mesh key: ${failure.message}")
+        }
+        report(ctx, Mesh.HOMELAB, homelabState.error)
+        if (homelabState.peers != null) {
+            probeFromHomelab(ctx, layout)
+        }
+
+        nodeProbes.retain(layout.memberIds + Mesh.HOMELAB)
+        containerProbes.retain(layout.memberIds + Mesh.HOMELAB)
+        return status(ctx, layout, homelabState, nodeStates)
+    }
+
+    // ------------------------------------------------------------------ nodes
+
+    /**
+     * Runs the setup script on each member. A node that joins gets its key in the first round, and
+     * the other members do not have that key in their peer list yet. A second round sends it to them.
+     */
+    private suspend fun configureNodes(ctx: ReconcileContext, layout: Layout): List<MemberState> {
+        val keysBefore = memberKeys(ctx, layout)
+        val states = configureEachNode(ctx, layout)
+        val newKeys = memberKeys(ctx, layout) != keysBefore
+        return if (newKeys) configureEachNode(ctx, layout) else states
+    }
+
+    private suspend fun configureEachNode(ctx: ReconcileContext, layout: Layout): List<MemberState> =
         coroutineScope {
-            members.map { node ->
+            layout.members
+                .map { node -> async { configureNode(ctx, layout, node) } }
+                .awaitAll()
+        }
+
+    private suspend fun configureNode(ctx: ReconcileContext, layout: Layout, node: NodeConfig): MemberState {
+        val address = layout.addressOf(node)
+        val result = runCatchingCancellable {
+            val output = runNodeScript(ctx, layout, node)
+            output.lines()
+                .filter { it.startsWith(CHANGED) }
+                .forEach { ctx.log.change(DOMAIN, it.removePrefix(CHANGED), node.id) }
+            publicKeyIn(output)?.let { key -> rememberKey(ctx, node, address, key) }
+            memberState(node, address, output)
+        }
+        val error = result.exceptionOrNull()?.let { it.message ?: it.toString() }
+        report(ctx, node.id, error)
+        return result.getOrNull() ?: MemberState(node.id, address, peers = null, error = error)
+    }
+
+    /** Returns the output of the script. If the script fails, throws with the end of its error text. */
+    private suspend fun runNodeScript(ctx: ReconcileContext, layout: Layout, node: NodeConfig): String {
+        val address = layout.addressOf(node)
+        val setup = when {
+            ctx.nodePaused(node.id) -> READ_ONLY
+            else -> Mesh.nodeScript(
+                mesh = layout.mesh,
+                address = address,
+                config = Mesh.nodeConfig(layout.mesh, address, peersOf(ctx, layout, node.id)),
+                openFirewall = node.firewall,
+            )
+        }
+        val probes = listOf(
+            "echo $PROBE_BEGIN",
+            MeshProbe.READ_CMD,
+            "echo $PROBE_END",
+            "echo $CONTAINER_PROBE_BEGIN",
+            MeshProbe.containerReadCmd(ctx.config.pangolin.installDir),
+            "echo $CONTAINER_PROBE_END",
+        ).joinToString("; ")
+        val result = ctx.ssh.session(node).runScript("$setup\n$probes", SCRIPT_TIMEOUT_SECONDS)
+        check(result.ok) {
+            result.stderr.trim()
+                .ifEmpty { result.stdout.trim() }
+                .takeLast(ERROR_TEXT_LENGTH)
+                .ifEmpty { "exit ${result.exitCode}" }
+        }
+        return result.stdout
+    }
+
+    private fun publicKeyIn(output: String): String? =
+        output.lines()
+            .firstOrNull { it.startsWith(PUBLIC_KEY) }
+            ?.removePrefix(PUBLIC_KEY)
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
+    private suspend fun rememberKey(ctx: ReconcileContext, node: NodeConfig, address: String, key: String) {
+        if (ctx.state.node(node.id).meshPublicKey == key) return
+        ctx.state.updateNode(node.id) { it.copy(meshPublicKey = key) }
+        ctx.log.change(DOMAIN, "joined the mesh at $address", node.id)
+    }
+
+    private fun memberState(node: NodeConfig, address: String, output: String): MemberState {
+        val now = nowMillis()
+        val probeText = output.substringAfter(PROBE_BEGIN, "").substringBefore(PROBE_END)
+        val containerText = output.substringAfter(CONTAINER_PROBE_BEGIN, "").substringBefore(CONTAINER_PROBE_END)
+        return MemberState(
+            id = node.id,
+            address = address,
+            peers = Mesh.parseDump(Mesh.dumpSection(output)),
+            error = null,
+            probe = nodeProbes.record(node.id, MeshProbe.parse(probeText), now),
+            containerProbe = containerProbes.record(node.id, MeshProbe.parseContainer(containerText, now), now),
+        )
+    }
+
+    // ------------------------------------------------------------------ homelab
+
+    private suspend fun configureHomelab(ctx: ReconcileContext, layout: Layout): MemberState {
+        val peers = runCatchingCancellable {
+            homelab.apply(layout.mesh, layout.homelabAddress, peersOf(ctx, layout, Mesh.HOMELAB))
+            homelab.peers()
+        }
+        val error = peers.exceptionOrNull()?.let { it.message ?: it.toString() }
+        return homelabState(layout, peers.getOrNull(), error)
+    }
+
+    private fun homelabState(layout: Layout, peers: List<Mesh.PeerStatus>?, error: String?) =
+        MemberState(Mesh.HOMELAB, layout.homelabAddress, peers, error)
+
+    /**
+     * Sends one timed request from the homelab to the Patroni of each member. The request uses
+     * plain HTTP, because the mesh encrypts it.
+     */
+    @Suppress("HttpUrlsUsage")
+    private suspend fun probeFromHomelab(ctx: ReconcileContext, layout: Layout) {
+        homelabProbe.retain(layout.memberIds)
+        coroutineScope {
+            layout.members.map { node ->
                 async {
-                    val address = addresses[node.id] ?: return@async
+                    val url = "http://${layout.addressOf(node)}:${ClusterTemplates.PATRONI_PORT}/liveness"
                     val started = nowMillis()
-                    val answered = runCatching {
-                        ctx.localHttp.get("http://$address:${ClusterTemplates.PATRONI_PORT}/liveness") {
-                            timeout { requestTimeoutMillis = 3_000 }
-                        }
-                    }.onFailure { if (it is CancellationException) currentCoroutineContext().ensureActive() }.isSuccess
+                    val answered = runCatchingCancellable {
+                        ctx.localHttp.get(url) { timeout { requestTimeoutMillis = PROBE_TIMEOUT_MS } }
+                    }.isSuccess
                     val now = nowMillis()
                     homelabProbe.record(
                         peer = node.id,
@@ -140,58 +233,85 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         }
     }
 
-    private suspend fun configureNode(ctx: ReconcileContext, node: NodeConfig, mesh: MeshConfig, address: String, peers: List<Mesh.Peer>): NodeResult {
-        val paused = ctx.nodePaused(node.id)
-        return try {
-            val ssh = ctx.ssh.session(node)
-            val script = (if (paused) READ_ONLY else Mesh.nodeScript(mesh, address, Mesh.nodeConfig(mesh, address, peers), node.firewall)) +
-                "\necho PROBE-BEGIN; ${MeshProbe.READ_CMD}; echo PROBE-END; echo CPROBE-BEGIN; ${MeshProbe.containerReadCmd(ctx.config.pangolin.installDir)}; echo CPROBE-END"
-            val r = ssh.runScript(script, 300)
-            if (!r.ok) throw IllegalStateException(r.stderr.trim().ifEmpty { r.stdout.trim() }.takeLast(400).ifEmpty { "exit ${r.exitCode}" })
-            r.stdout.lines().filter { it.startsWith("CHANGED ") }.forEach { ctx.log.change(domain, it.removePrefix("CHANGED "), node.id) }
-            r.stdout.lines().firstOrNull { it.startsWith("PUBKEY=") }?.removePrefix("PUBKEY=")?.trim()?.takeIf { it.isNotEmpty() }?.let { key ->
-                if (ctx.state.node(node.id).meshPublicKey != key) {
-                    ctx.state.updateNode(node.id) { it.copy(meshPublicKey = key) }
-                    ctx.log.change(domain, "joined the mesh at $address", node.id)
-                }
-            }
-            report(ctx, node.id, null)
-            val probeText = r.stdout.substringAfter("PROBE-BEGIN", "").substringBefore("PROBE-END")
-            val containerText = r.stdout.substringAfter("CPROBE-BEGIN", "").substringBefore("CPROBE-END")
-            val now = nowMillis()
-            NodeResult(
-                Mesh.parseDump(Mesh.dumpSection(r.stdout)), null,
-                probes.record(node.id, MeshProbe.parse(probeText), now),
-                containerProbes.record(node.id, MeshProbe.parseContainer(containerText, now), now),
-            )
-        } catch (e: Exception) {
-            if (e is CancellationException) currentCoroutineContext().ensureActive()
-            val message = e.message ?: e.toString()
-            report(ctx, node.id, message)
-            NodeResult(null, message)
+    // ------------------------------------------------------------------ peers and status
+
+    private fun memberKeys(ctx: ReconcileContext, layout: Layout): Map<String, String?> =
+        layout.members.associate { it.id to ctx.state.node(it.id).meshPublicKey }
+
+    /** The peers of member [selfId]: the homelab and each node that has a key, but not the member itself. */
+    private fun peersOf(ctx: ReconcileContext, layout: Layout, selfId: String): List<Mesh.Peer> = buildList {
+        if (selfId != Mesh.HOMELAB && layout.homelabKey != null) {
+            add(Mesh.Peer(Mesh.HOMELAB, layout.homelabKey, layout.homelabAddress, endpoint = null))
+        }
+        for (node in layout.members) {
+            if (node.id == selfId) continue
+            val key = ctx.state.node(node.id).meshPublicKey ?: continue
+            add(Mesh.Peer(node.id, key, layout.addressOf(node), node.endpoint()))
         }
     }
 
-    /** Logs a member's error when it first appears or changes, and its recovery once. An error that stays counts in each pass. */
+    private fun status(
+        ctx: ReconcileContext,
+        layout: Layout,
+        homelabState: MemberState,
+        nodeStates: List<MemberState>,
+    ): MeshStatusDto {
+        val idByKey = buildMap {
+            layout.homelabKey?.let { put(it, Mesh.HOMELAB) }
+            memberKeys(ctx, layout).forEach { (id, key) -> if (key != null) put(key, id) }
+        }
+        // The probe of the homelab has the readings of this pass only now.
+        val homelabView = MemberState(
+            id = homelabState.id,
+            address = homelabState.address,
+            peers = homelabState.peers,
+            error = homelabState.error,
+            probe = homelabProbe.view(),
+        )
+        return MeshStatusDto(
+            subnet = layout.mesh.subnet,
+            members = (listOf(homelabView) + nodeStates).map { it.dto(idByKey) },
+        )
+    }
+
+    // ------------------------------------------------------------------ errors
+
+    /**
+     * Logs the error of a member the first time and after each change. Logs the recovery once.
+     * An error that stays counts in each pass.
+     */
     private fun report(ctx: ReconcileContext, id: String, error: String?) {
         val previous = lastErrors[id]
         when {
-            error != null && error != previous -> {
-                lastErrors[id] = error
-                ctx.log.error(domain, error, id)
-            }
-            error != null -> ctx.log.stillFailing()
-            error == null && previous != null -> {
+            error == null -> if (previous != null) {
                 lastErrors.remove(id)
-                ctx.log.info(domain, "mesh is healthy again", id)
+                ctx.log.info(DOMAIN, "mesh is healthy again", id)
             }
+            error != previous -> {
+                lastErrors[id] = error
+                ctx.log.error(DOMAIN, error, id)
+            }
+            else -> ctx.log.stillFailing()
         }
     }
 
     private fun NodeConfig.endpoint(): String = ipv4() ?: publicIpv6 ?: host
 
     private companion object {
-        /** Status only, for paused nodes. */
-        val READ_ONLY = "echo DUMP-BEGIN; wg show ${Mesh.INTERFACE} dump 2>/dev/null || true; echo DUMP-END"
+        const val DOMAIN = "mesh"
+        const val SCRIPT_TIMEOUT_SECONDS = 300
+        const val PROBE_TIMEOUT_MS = 3_000L
+        const val ERROR_TEXT_LENGTH = 400
+
+        /** The script for a paused node. It reads the status and changes nothing. */
+        const val READ_ONLY = "echo DUMP-BEGIN; wg show ${Mesh.INTERFACE} dump 2>/dev/null || true; echo DUMP-END"
+
+        // Lines and sections in the output of the node script.
+        const val CHANGED = "CHANGED "
+        const val PUBLIC_KEY = "PUBKEY="
+        const val PROBE_BEGIN = "PROBE-BEGIN"
+        const val PROBE_END = "PROBE-END"
+        const val CONTAINER_PROBE_BEGIN = "CPROBE-BEGIN"
+        const val CONTAINER_PROBE_END = "CPROBE-END"
     }
 }

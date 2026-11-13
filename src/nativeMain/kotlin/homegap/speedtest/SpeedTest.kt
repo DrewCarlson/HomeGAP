@@ -1,9 +1,11 @@
 package homegap.speedtest
 
-import homegap.api.NodeCpuDto
 import homegap.api.DeviceResultRequest
+import homegap.api.NodeCpuDto
 import homegap.api.SpeedTestResultDto
 import homegap.config.AppConfig
+import homegap.dashboard.MapFiles
+import homegap.dashboard.WebAssets
 import homegap.dashboard.respondAsset
 import homegap.platform.Crypto
 import homegap.platform.Files
@@ -24,10 +26,11 @@ import io.ktor.utils.io.*
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.serialization.json.*
+import kotlin.math.abs
 
 /** Short-lived bearer tokens for the public speed test endpoints (in memory only). */
 class SpeedTestTokens {
-    /** The homelab ↔ node test running now (its token is one of these). */
+    /** The test between the homelab and a node that runs now. Its token is one of these. */
     val live = SpeedTestLive()
     private val lock = SynchronizedObject()
     private val tokens = mutableMapOf<String, Grant>()
@@ -40,16 +43,16 @@ class SpeedTestTokens {
     }
 
     /**
-     * A new token. A [limited] token is for a device link, which leaves the homelab: it has a cap
+     * A new token. A [limited] token is for a device link, which leaves the homelab. It has a cap
      * on streams, bytes and saved results. The token of a homelab-to-node test has no cap.
      */
     fun issue(ttlMillis: Long, limited: Boolean = true): Pair<String, Long> = synchronized(lock) {
         val now = nowMillis()
         tokens.entries.removeAll { it.value.expiresAt < now && it.value.streams == 0 }
-        val t = Crypto.token(32)
-        val exp = now + ttlMillis
-        tokens[t] = Grant(exp, limited)
-        t to exp
+        val token = Crypto.token(TOKEN_LENGTH)
+        val expiresAt = now + ttlMillis
+        tokens[token] = Grant(expiresAt, limited)
+        token to expiresAt
     }
 
     fun valid(token: String?): Boolean {
@@ -63,7 +66,9 @@ class SpeedTestTokens {
     fun acquire(token: String?): Boolean = synchronized(lock) {
         val grant = tokens[token] ?: return@synchronized false
         if (grant.limited) {
-            if (grant.streams >= STREAMS_PER_LINK || limitedStreams >= STREAMS_TOTAL) return@synchronized false
+            if (grant.streams >= STREAMS_PER_LINK || limitedStreams >= STREAMS_TOTAL) {
+                return@synchronized false
+            }
             limitedStreams++
         }
         grant.streams++
@@ -74,7 +79,9 @@ class SpeedTestTokens {
         val grant = tokens[token] ?: return@synchronized
         if (grant.streams > 0) {
             grant.streams--
-            if (grant.limited) limitedStreams--
+            if (grant.limited) {
+                limitedStreams--
+            }
         }
     }
 
@@ -95,13 +102,14 @@ class SpeedTestTokens {
         const val STREAMS_PER_LINK = 8
         const val STREAMS_TOTAL = 32
         const val RESULTS_PER_LINK = 20
+        private const val TOKEN_LENGTH = 32
     }
 }
 
-/** Recent results, persisted next to the controller state. */
+/** The recent results. The file is next to the state of the controller. */
 class SpeedTestStore(
     private val path: String,
-    private val keep: Int = 300
+    private val keep: Int = 300,
 ) {
     private val lock = SynchronizedObject()
     private val json = Json {
@@ -113,13 +121,13 @@ class SpeedTestStore(
             ?.let { runCatching { json.decodeFromString<List<SpeedTestResultDto>>(it) }.getOrNull() }
             .orEmpty()
 
-    fun add(r: SpeedTestResultDto) = synchronized(lock) {
-        results = (listOf(r) + results).take(keep)
+    fun add(result: SpeedTestResultDto) = synchronized(lock) {
+        results = (listOf(result) + results).take(keep)
         runCatching {
             Files.writeAtomic(
                 path = path,
                 content = json.encodeToString(results),
-                mode = "600".toInt(8)
+                mode = "600".toInt(8),
             )
         }
     }
@@ -127,12 +135,15 @@ class SpeedTestStore(
     fun recent(): List<SpeedTestResultDto> = synchronized(lock) { results }
 }
 
-fun newResultId(): String = Crypto.token(12, "abcdefghijklmnopqrstuvwxyz0123456789")
+private const val RESULT_ID_LENGTH = 12
+private const val RESULT_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
+
+fun newResultId(): String = Crypto.token(RESULT_ID_LENGTH, RESULT_ID_ALPHABET)
 
 /**
- * The public origin: the speed test and the status page. Reached only through the homelab reverse
- * proxy (which routes the `speedtest*` and `status*` hostnames here), so every measurement crosses
- * node -> tunnel -> homelab.
+ * The public origin: the speed test and the status page. Only the reverse proxy of the homelab
+ * connects to it. The proxy routes the `speedtest*` and `status*` hostnames here, so every
+ * measurement crosses node -> tunnel -> homelab.
  */
 class SpeedTestServer(
     private val config: () -> AppConfig,
@@ -140,10 +151,10 @@ class SpeedTestServer(
     private val store: SpeedTestStore,
     private val status: PublicStatus,
 ) {
-    private val payload = Crypto.randomBytes(256 * 1024)
+    private val payload = Crypto.randomBytes(CHUNK_BYTES)
 
     fun start(host: String, port: Int) {
-        // Reuse the address: after a restart the old process's connections linger in TIME_WAIT.
+        // Reuse the address: after a restart, the connections of the old process stay in TIME_WAIT.
         embeddedServer(
             CIO,
             configure = {
@@ -152,13 +163,13 @@ class SpeedTestServer(
                     this.host = host
                     this.port = port
                 }
-            }
+            },
         ) {
             module()
         }.start(wait = false)
     }
 
-    /** Node id for a per-node speed test hostname, or null for the auto hostname. */
+    /** The id of the node that has the speed test hostname [host], or null for the auto hostname. */
     fun nodeFor(host: String): String? {
         val cfg = config()
         return cfg.nodes
@@ -170,12 +181,14 @@ class SpeedTestServer(
     }
 
     /**
-     * Whether [origin] is one of the speed test's own pages (the shared name or a node's), which
-     * may call every node's endpoints: "Test all nodes" measures each node from one page.
+     * Whether [origin] is a page of the speed test: the shared name or the name of a node. Such a
+     * page can call the endpoints of every node, because "Test all nodes" measures each node from
+     * one page.
      */
     fun speedTestOrigin(origin: String): Boolean {
         val cfg = config()
-        val hosts = listOf(cfg.speedtest.autoHost(cfg.domain)) + cfg.nodes.map { cfg.speedtest.nodeHost(cfg.domain, it.id) }
+        val nodeHosts = cfg.nodes.map { cfg.speedtest.nodeHost(cfg.domain, it.id) }
+        val hosts = listOf(cfg.speedtest.autoHost(cfg.domain)) + nodeHosts
         return hosts.any { origin.equals("https://$it", ignoreCase = true) }
     }
 
@@ -185,7 +198,7 @@ class SpeedTestServer(
         return cfg.speedtest.autoHost(cfg.domain).equals(host, ignoreCase = true) || nodeFor(host) != null
     }
 
-    private val publicPages = RateLimiter(PUBLIC_REQUESTS_PER_MINUTE, 60_000)
+    private val publicPages = RateLimiter(PUBLIC_REQUESTS_PER_MINUTE, MINUTE_MILLIS)
 
     fun Application.module() {
         // The status page, the map and the fonts need no token. A speed test has its own limits.
@@ -193,15 +206,22 @@ class SpeedTestServer(
             onCall { call ->
                 if (call.request.path().startsWith("/speedtest/")) return@onCall
                 // The reverse proxy of the homelab puts the address of the client here.
-                val client = call.request.header(HttpHeaders.XForwardedFor)?.substringBefore(',')?.trim()?.takeIf { it.isNotEmpty() }
+                val client = call.request.header(HttpHeaders.XForwardedFor)
+                    ?.substringBefore(',')
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
                     ?: call.request.local.remoteHost
-                if (!publicPages.allow(client)) call.respond(HttpStatusCode.TooManyRequests, "too many requests")
+                if (!publicPages.allow(client)) {
+                    call.respond(HttpStatusCode.TooManyRequests, "too many requests")
+                }
             }
         })
         install(createApplicationPlugin("SpeedTestCors") {
             onCall { call ->
                 val origin = call.request.header(HttpHeaders.Origin) ?: return@onCall
-                if (!call.request.path().startsWith("/speedtest/") || !speedTestOrigin(origin)) return@onCall
+                if (!call.request.path().startsWith("/speedtest/") || !speedTestOrigin(origin)) {
+                    return@onCall
+                }
                 call.response.header(HttpHeaders.AccessControlAllowOrigin, origin)
                 call.response.header(HttpHeaders.Vary, HttpHeaders.Origin)
             }
@@ -213,7 +233,7 @@ class SpeedTestServer(
             })
         }
         install(Authentication) {
-            // Short-lived link tokens, sent as a header by the test page.
+            // The test page sends its link token, which lives a short time, in a header.
             provider(LINK_AUTH) {
                 authenticate { context ->
                     if (tokens.valid(context.call.request.header(TOKEN_HEADER))) {
@@ -221,11 +241,11 @@ class SpeedTestServer(
                     } else {
                         context.challenge(
                             key = LINK_AUTH,
-                            cause = AuthenticationFailedCause.InvalidCredentials
+                            cause = AuthenticationFailedCause.InvalidCredentials,
                         ) { challenge, call ->
                             call.respond(
                                 status = HttpStatusCode.Unauthorized,
-                                message = "speed test link expired or invalid"
+                                message = "speed test link expired or invalid",
                             )
                             challenge.complete()
                         }
@@ -236,21 +256,21 @@ class SpeedTestServer(
         routing {
             get("/") { home() }
             get("/index.html") { home() }
-            // The status page's map: the tiles and the map's scripts, fonts and icons only. Without
-            // the status page, nothing public uses the map.
-            get(homegap.dashboard.MapFiles.TILES_PATH) {
+            // The map of the status page: only the tiles and the scripts, fonts and icons of the map.
+            // Without the status page, nothing public uses the map.
+            get(MapFiles.TILES_PATH) {
                 if (!config().statusPage.enabled) return@get call.respond(HttpStatusCode.NotFound)
-                with(homegap.dashboard.MapFiles) { serveTiles(config().map.tiles) }
+                with(MapFiles) { serveTiles(config().map.tiles) }
             }
             get("/map/{path...}") {
                 if (!config().statusPage.enabled) return@get call.respond(HttpStatusCode.NotFound)
-                with(homegap.dashboard.MapFiles) { serveMapAsset() }
+                with(MapFiles) { serveMapAsset() }
             }
-            // The pages' fonts, the same files the dashboard ships.
+            // The fonts of the pages. The dashboard has the same files.
             get("/fonts/{file}") {
-                val asset = homegap.dashboard.WebAssets.files["/fonts/${call.parameters["file"]}"]
-                    ?: return@get call.respond(io.ktor.http.HttpStatusCode.NotFound)
-                call.response.header(io.ktor.http.HttpHeaders.CacheControl, "public, max-age=604800")
+                val asset = WebAssets.files["/fonts/${call.parameters["file"]}"]
+                    ?: return@get call.respond(HttpStatusCode.NotFound)
+                call.response.header(HttpHeaders.CacheControl, "public, max-age=604800")
                 respondAsset(asset)
             }
             route("/status") {
@@ -260,9 +280,11 @@ class SpeedTestServer(
             }
             route("/speedtest") {
                 install(NoStore)
-                // The browser's CORS preflight for another node's endpoints (it carries no token).
+                // The CORS preflight of the browser for the endpoints of a different node. It has no token.
                 options("{path...}") {
-                    if (!speedTestOrigin(call.request.header(HttpHeaders.Origin).orEmpty())) return@options call.respond(HttpStatusCode.Forbidden)
+                    if (!speedTestOrigin(call.request.header(HttpHeaders.Origin).orEmpty())) {
+                        return@options call.respond(HttpStatusCode.Forbidden)
+                    }
                     call.response.header(HttpHeaders.AccessControlAllowMethods, "GET, POST, PUT")
                     call.response.header(HttpHeaders.AccessControlAllowHeaders, "$TOKEN_HEADER, Content-Type")
                     call.response.header(HttpHeaders.AccessControlMaxAge, "600")
@@ -285,10 +307,10 @@ class SpeedTestServer(
         post("/result") { saveResult() }
     }
 
-    /** Which node served this page, the phase length and every node's own test URL. */
+    /** The node that serves this page, the length of a phase and the test URL of each node. */
     private suspend fun RoutingContext.info() {
         val cfg = config()
-        call.respond(buildJsonObject {
+        val info = buildJsonObject {
             put("node", nodeFor(call.request.host()))
             put("phaseSeconds", cfg.speedtest.phaseSeconds)
             putJsonObject("nodes") {
@@ -296,13 +318,14 @@ class SpeedTestServer(
                     put(it.id, "https://${cfg.speedtest.nodeHost(cfg.domain, it.id)}/")
                 }
             }
-        })
+        }
+        call.respond(info)
     }
 
     /** Streams random bytes for `?seconds=` (default `speedtest.phase_seconds`, at most 30). */
     private suspend fun RoutingContext.download() {
-        val seconds =
-            (call.request.queryParameters["seconds"]?.toIntOrNull() ?: config().speedtest.phaseSeconds).coerceIn(1, 30)
+        val requested = call.request.queryParameters["seconds"]?.toIntOrNull()
+        val seconds = (requested ?: config().speedtest.phaseSeconds).coerceIn(1, MAX_DOWNLOAD_SECONDS)
         val end = nowMillis() + seconds * 1000L
         val token = call.request.header(TOKEN_HEADER)
         val budget = config().speedtest.linkBudgetBytes
@@ -320,7 +343,7 @@ class SpeedTestServer(
         }
     }
 
-    /** A device test result, attributed to the node whose hostname served it. */
+    /** Saves the result of a device test for the node that has the hostname of the request. */
     private suspend fun RoutingContext.saveResult() {
         val length = call.request.contentLength()
         if (length == null || length > MAX_RESULT_BYTES) {
@@ -344,9 +367,9 @@ class SpeedTestServer(
                 downMbps = request.downMbps,
                 upMbps = request.upMbps,
                 pingSamples = request.pingSamples,
-                error = request.error?.take(300),
-                client = call.request.header(HttpHeaders.UserAgent)?.take(160),
-            )
+                error = request.error?.take(MAX_ERROR_LENGTH),
+                client = call.request.header(HttpHeaders.UserAgent)?.take(MAX_CLIENT_LENGTH),
+            ),
         )
         call.respond(HttpStatusCode.NoContent)
     }
@@ -365,12 +388,7 @@ class SpeedTestServer(
         call.response.header(HttpHeaders.CacheControl, "no-store")
         call.response.header("Referrer-Policy", "no-referrer")
         call.response.header("X-Content-Type-Options", "nosniff")
-        // The page measures against each node's own name, so it connects to other hosts.
-        call.response.header(
-            "Content-Security-Policy",
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; " +
-                    "font-src 'self'; connect-src 'self' http: https:; base-uri 'none'; frame-ancestors 'none'",
-        )
+        call.response.header("Content-Security-Policy", SPEED_TEST_PAGE_POLICY)
         call.respondText(SpeedTestPage.HTML, ContentType.Text.Html)
     }
 
@@ -378,13 +396,7 @@ class SpeedTestServer(
         call.response.header(HttpHeaders.CacheControl, "no-store")
         call.response.header("Referrer-Policy", "no-referrer")
         call.response.header("X-Content-Type-Options", "nosniff")
-        // Everything the page loads is its own: the map's scripts, worker, fonts and tiles come from /map/.
-        call.response.header(
-            "Content-Security-Policy",
-            "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
-                    "img-src 'self' data: blob:; font-src 'self'; worker-src 'self' blob:; child-src blob:; connect-src 'self' https:; " +
-                    "base-uri 'none'; frame-ancestors 'none'",
-        )
+        call.response.header("Content-Security-Policy", STATUS_PAGE_POLICY)
         call.respondText(StatusPage.HTML, ContentType.Text.Html)
     }
 
@@ -396,7 +408,7 @@ class SpeedTestServer(
         call.respond(status.build(host))
     }
 
-    /** One round trip, timed by the visitor's browser from another node's status page (CORS). */
+    /** One round trip. The browser of the visitor times it from the status page of a different node (CORS). */
     private suspend fun RoutingContext.statusPing() {
         if (!status.serves(call.request.host())) {
             return call.respond(HttpStatusCode.NotFound)
@@ -407,8 +419,8 @@ class SpeedTestServer(
     }
 
     private suspend fun RoutingContext.receiveUpload() {
-        val ch = call.receiveChannel()
-        val buf = ByteArray(256 * 1024)
+        val channel = call.receiveChannel()
+        val buffer = ByteArray(CHUNK_BYTES)
         val start = nowMillis()
         var total = 0L
         val token = call.request.header(TOKEN_HEADER)
@@ -416,28 +428,64 @@ class SpeedTestServer(
         if (!tokens.acquire(token)) return call.respond(HttpStatusCode.TooManyRequests, "too many streams")
         try {
             while (true) {
-                val n = ch.readAvailable(buf, 0, buf.size)
-                if (n < 0) break
-                total += n
-                tokens.live.bytes(token, upload = true, n = n)
-                if (!tokens.spend(token, n, budget) || nowMillis() - start > 120_000) break
+                val count = channel.readAvailable(buffer, 0, buffer.size)
+                if (count < 0) break
+                total += count
+                tokens.live.bytes(token, upload = true, n = count)
+                if (!tokens.spend(token, count, budget) || nowMillis() - start > MAX_UPLOAD_MILLIS) break
             }
         } finally {
             tokens.release(token)
         }
-        val ms = (nowMillis() - start).coerceAtLeast(1)
-        call.respond(buildJsonObject { put("bytes", total); put("ms", ms) })
+        val elapsedMillis = (nowMillis() - start).coerceAtLeast(1)
+        val summary = buildJsonObject {
+            put("bytes", total)
+            put("ms", elapsedMillis)
+        }
+        call.respond(summary)
     }
 
     companion object {
         const val TOKEN_HEADER = "X-HomeGAP-Token"
         private const val MAX_RESULT_BYTES = 16 * 1024L
         private const val LINK_AUTH = "speedtest-link"
+        private const val CHUNK_BYTES = 256 * 1024
+        private const val MINUTE_MILLIS = 60_000L
+        private const val MAX_DOWNLOAD_SECONDS = 30
+        private const val MAX_UPLOAD_MILLIS = 120_000
+        private const val MAX_ERROR_LENGTH = 300
+        private const val MAX_CLIENT_LENGTH = 160
 
-        /** Measurements must never be served from a cache. */
         /** One address gets this many requests in a minute for the pages without a token. */
         const val PUBLIC_REQUESTS_PER_MINUTE = 1200
 
+        /** The page measures against the name of each node, so it connects to other hosts. */
+        private val SPEED_TEST_PAGE_POLICY = listOf(
+            "default-src 'none'",
+            "script-src 'unsafe-inline'",
+            "style-src 'unsafe-inline'",
+            "img-src 'self' data:",
+            "font-src 'self'",
+            "connect-src 'self' http: https:",
+            "base-uri 'none'",
+            "frame-ancestors 'none'",
+        ).joinToString("; ")
+
+        /** The page loads only its own files. The scripts, worker, fonts and tiles of the map come from /map/. */
+        private val STATUS_PAGE_POLICY = listOf(
+            "default-src 'none'",
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob:",
+            "font-src 'self'",
+            "worker-src 'self' blob:",
+            "child-src blob:",
+            "connect-src 'self' https:",
+            "base-uri 'none'",
+            "frame-ancestors 'none'",
+        ).joinToString("; ")
+
+        /** A cache must never keep a measurement. */
         private val NoStore = createRouteScopedPlugin("NoStore") {
             onCall { call -> call.response.header(HttpHeaders.CacheControl, "no-store") }
         }
@@ -445,9 +493,9 @@ class SpeedTestServer(
 }
 
 /**
- * Homelab <-> node measurement, executed on the node over SSH: curl talks to the node's own
- * port 443 with the per-node speed test hostname, so traffic takes the exact production path
- * (node Traefik -> WireGuard tunnel -> homelab proxy -> speed test origin).
+ * The measurement between the homelab and a node. The script runs on the node over SSH. curl
+ * connects to port 443 of the node with the speed test hostname of the node. Thus the traffic takes
+ * the production path (node Traefik -> WireGuard tunnel -> homelab proxy -> speed test origin).
  */
 object TunnelSpeedTest {
     const val PINGS = 20
@@ -455,8 +503,9 @@ object TunnelSpeedTest {
 
     /**
      * Ping, then [streams] parallel downloads, then [streams] parallel uploads. Each stream is
-     * its own TCP connection (and so its own congestion window) sharing the one tunnel, like
-     * real traffic from several viewers or browser connections. Rates are summed.
+     * its own TCP connection with its own congestion window, and all streams share the one tunnel.
+     * Real traffic from several viewers or browser connections does the same. The result is the
+     * sum of the rates.
      *
      * The script reads the CPU counters of the node before and after each phase, so the result
      * shows if the CPU of the node is the limit. curl on the node is a part of that load.
@@ -481,7 +530,7 @@ object TunnelSpeedTest {
         |wait; cpu u1; for s in $(seq 1 $$streams); do cat "$T/u$s" 2>/dev/null; echo; done
     """.trimMargin()
 
-    private fun sh(s: String) = "'" + s.replace("'", "'\"'\"'") + "'"
+    private fun sh(value: String) = "'" + value.replace("'", "'\"'\"'") + "'"
 
     data class Parsed(
         val pingMs: Double?,
@@ -496,68 +545,60 @@ object TunnelSpeedTest {
         val upCpu: NodeCpuDto? = null,
     )
 
-    fun parse(out: String, host: String, streams: Int = 1): Parsed {
+    fun parse(output: String, host: String, streams: Int = 1): Parsed {
         val errors = mutableListOf<String>()
-        fun codeError(phase: String, code: String) {
-            errors += when (code) {
-                "000" -> "$phase: no connection through the node to $host"
-                "401" -> "$phase: speed test origin rejected the token"
-                "404" -> "$phase: the homelab proxy has no route for $host to the speed test port"
-                "502", "503", "504" -> "$phase: node could not reach the homelab (tunnel down?) [$code]"
-                else -> "$phase: HTTP $code"
-            }
-        }
-
         val pings = mutableListOf<Double>()
         var pingCode: String? = null
         val downs = mutableListOf<Double>()
         val uploadJson = mutableListOf<String>()
         val stat = mutableMapOf<String, StringBuilder>()
-        for (l in out.lines()) {
-            val p = l.trim().split(' ')
-            when (p.firstOrNull()) {
-                "P" -> if (p.size == 4) {
-                    if (p[3] !in setOf("200", "204")) {
-                        pingCode = p[3]
+        for (line in output.lines()) {
+            val fields = line.trim().split(' ')
+            when (fields.firstOrNull()) {
+                "P" -> if (fields.size == 4) {
+                    if (fields[3] !in setOf("200", "204")) {
+                        pingCode = fields[3]
                     } else {
-                        pings += (p[2].toDouble() - p[1].toDouble()) * 1000.0
+                        pings += (fields[2].toDouble() - fields[1].toDouble()) * 1000.0
                     }
                 }
 
-                "D" -> if (p.size == 5) {
-                    if (p[4] != "200") {
-                        codeError("download", p[4])
+                "D" -> if (fields.size == 5) {
+                    if (fields[4] != "200") {
+                        errors += codeError("download", fields[4], host)
                     } else {
-                        val secs = p[3].toDouble() - p[2].toDouble()
-                        if (secs > 0) {
-                            downs += p[1].toDouble() * 8 / secs / 1e6
+                        val seconds = fields[3].toDouble() - fields[2].toDouble()
+                        if (seconds > 0) {
+                            downs += fields[1].toDouble() * 8 / seconds / 1e6
                         }
                     }
                 }
 
                 // A line of /proc/stat, with the point of the test that it is from.
-                "S" -> if (p.size > 2) stat.getOrPut(p[1]) { StringBuilder() }.appendLine(p.drop(2).joinToString(" "))
+                "S" -> if (fields.size > 2) {
+                    stat.getOrPut(fields[1]) { StringBuilder() }.appendLine(fields.drop(2).joinToString(" "))
+                }
 
                 "U" -> {
-                    if (p.size == 2 && p[1] != "200") {
-                        codeError("upload", p[1])
+                    if (fields.size == 2 && fields[1] != "200") {
+                        errors += codeError("upload", fields[1], host)
                     }
                 }
 
                 else -> {
-                    if (l.trim().startsWith("{")) {
-                        uploadJson += l.trim()
+                    if (line.trim().startsWith("{")) {
+                        uploadJson += line.trim()
                     }
                 }
             }
         }
-        pingCode?.let { codeError("ping", it) }
-        val ups = uploadJson.mapNotNull { j ->
+        pingCode?.let { errors += codeError("ping", it, host) }
+        val ups = uploadJson.mapNotNull { text ->
             runCatching {
-                val o = Json.parseToJsonElement(j).jsonObject
-                val bytes = o["bytes"]!!.jsonPrimitive.long
-                val ms = o["ms"]!!.jsonPrimitive.long
-                if (ms > 0) bytes * 8.0 / (ms / 1000.0) / 1e6 else null
+                val summary = Json.parseToJsonElement(text).jsonObject
+                val bytes = summary["bytes"]!!.jsonPrimitive.long
+                val millis = summary["ms"]!!.jsonPrimitive.long
+                if (millis > 0) bytes * 8.0 / (millis / 1000.0) / 1e6 else null
             }.getOrNull()
         }
         if (streams > 1) {
@@ -584,12 +625,20 @@ object TunnelSpeedTest {
         )
     }
 
+    private fun codeError(phase: String, code: String, host: String): String = when (code) {
+        "000" -> "$phase: no connection through the node to $host"
+        "401" -> "$phase: speed test origin rejected the token"
+        "404" -> "$phase: the homelab proxy has no route for $host to the speed test port"
+        "502", "503", "504" -> "$phase: node could not reach the homelab (tunnel down?) [$code]"
+        else -> "$phase: HTTP $code"
+    }
+
     private fun cpuBetween(before: CharSequence?, after: CharSequence?): NodeCpuDto? {
         val then = before?.let { CpuCounters.parse(it.toString()) } ?: return null
         return after?.let { CpuCounters.parse(it.toString()) }?.since(then)
     }
 
-    /** Mean round trip and jitter (mean absolute difference of consecutive samples). */
+    /** The mean round trip and the jitter (the mean absolute difference of two samples in sequence). */
     fun stats(samples: List<Double>): Pair<Double?, Double?> {
         if (samples.isEmpty()) return null to null
         val avg = samples.average()
@@ -597,7 +646,7 @@ object TunnelSpeedTest {
             0.0
         } else {
             samples
-                .zipWithNext { a, b -> kotlin.math.abs(b - a) }
+                .zipWithNext { previous, next -> abs(next - previous) }
                 .average()
         }
         return avg to jitter

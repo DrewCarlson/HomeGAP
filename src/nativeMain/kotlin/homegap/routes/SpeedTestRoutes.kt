@@ -7,13 +7,15 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import homegap.api.ActionResponse
 import homegap.reconcile.Controller
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 
 /**
- * Speed tests as driven from the dashboard: results, device test links and homelab ↔ node runs.
- * (The measurement endpoints themselves live on the separate speed test origin.)
+ * The speed tests that the dashboard controls: results, device test links and runs between the
+ * homelab and a node. The measurement endpoints are on the separate speed test origin.
  */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -21,11 +23,18 @@ class SpeedTestRoutes(private val controller: Controller) : RoutingController {
     override fun init(parent: Route) {
         parent.route("/speedtest") {
             get { getOverview() }
-            // The running homelab ↔ node test; 204 when none runs.
-            get("/live") { controller.speedLive()?.let { call.respond(it) } ?: call.respond(io.ktor.http.HttpStatusCode.NoContent) }
+            // The test between the homelab and a node that runs now. 204 when none runs.
+            get("/live") {
+                val live = controller.speedLive()
+                if (live == null) {
+                    call.respond(HttpStatusCode.NoContent)
+                } else {
+                    call.respond(live)
+                }
+            }
             post("/link") { createLink() }
             post("/nodes/{id}") { runTunnelTest() }
-            // Every node, one at a time, on the orchestrator; progress is in the status snapshot.
+            // Every node, one at a time, on the orchestrator. The status snapshot has the progress.
             post("/runs") {
                 val streams = call.request.queryParameters["streams"]?.toIntOrNull()
                 call.respond(ActionResponse(true, controller.startSpeedRun(streams)))
@@ -42,7 +51,10 @@ class SpeedTestRoutes(private val controller: Controller) : RoutingController {
         call.respond(controller.createSpeedLink())
     }
 
-    /** Runs a homelab ↔ node test (~30 s); `?streams=N` overrides the configured stream count. */
+    /**
+     * Runs a test between the homelab and a node (about 30 s). `?streams=N` replaces the stream
+     * count of the config.
+     */
     suspend fun RoutingContext.runTunnelTest() {
         val nodeId = requireNotNull(call.parameters["id"]) { "node id required" }
         val streams = call.request.queryParameters["streams"]?.toIntOrNull()

@@ -61,7 +61,6 @@ class TunnelDnsTest {
                 cfg(), homegap.state.StateStore(tmpPath("state")), homegap.reconcile.ReconcileLog(),
                 homegap.clients.SshPool(tmpPath("ssh"), tmpPath("kh")),
                 io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { error("no calls") }),
-                io.ktor.client.HttpClient(io.ktor.client.engine.mock.MockEngine { error("no calls") }),
                 false, homegap.reconcile.DiffCollector(),
             ),
         )

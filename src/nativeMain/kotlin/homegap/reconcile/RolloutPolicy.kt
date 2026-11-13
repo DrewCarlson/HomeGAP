@@ -4,12 +4,12 @@ import homegap.reconcile.NodeReconciler.Kind
 import homegap.state.NodeState
 
 /**
- * Decides when a node that needs provisioning may start. Stack updates to healthy nodes roll
- * out one node at a time, and a failed update holds the rollout until it is retried, the
+ * Decides when a node that needs provisioning can start. Stack updates to healthy nodes roll
+ * out one node at a time. A failed update holds the rollout until the user retries it, the
  * desired stack changes again, or the user skips that node. New nodes and repairs do not wait.
  */
 object RolloutPolicy {
-    /** A first provisioning that failed is retried after this long (or right away on request). */
+    /** The time before a first provisioning that failed starts again. A request starts it immediately. */
     const val FRESH_RETRY_MS = 5 * 60_000L
 
     sealed interface Decision {
@@ -32,22 +32,28 @@ object RolloutPolicy {
         now: Long,
     ): Decision {
         if (force || kind == Kind.REPAIR || kind == Kind.NONE) return Decision.Start
-        val st = states[nodeId] ?: NodeState()
+        val state = states[nodeId] ?: NodeState()
         if (kind == Kind.FRESH) {
-            val last = st.lastProvisionAt
-            if (st.lastProvisionOk == false && last != null && now - last < FRESH_RETRY_MS) {
-                return Decision.Wait("previous attempt failed; retrying in ${(FRESH_RETRY_MS - (now - last)) / 1000 + 1}s (or re-provision now)")
+            val last = state.lastProvisionAt
+            if (state.lastProvisionOk == false && last != null && now - last < FRESH_RETRY_MS) {
+                val retryInSeconds = (FRESH_RETRY_MS - (now - last)) / 1000 + 1
+                return Decision.Wait("previous attempt failed; retrying in ${retryInSeconds}s (or re-provision now)")
             }
             return Decision.Start
         }
         // Kind.UPDATE
-        st.update?.takeIf { it.targetHash == hash }?.let {
+        val sameUpdate = state.update?.takeIf { it.targetHash == hash }
+        if (sameUpdate != null) {
             return Decision.Wait(
-                if (it.status == "failed") "update failed; retry or skip it from the dashboard"
-                else "update skipped; retry it from the dashboard"
+                when (sameUpdate.status) {
+                    "failed" -> "update failed; retry or skip it from the dashboard"
+                    else -> "update skipped; retry it from the dashboard"
+                },
             )
         }
-        val blocker = states.entries.firstOrNull { (id, s) -> id != nodeId && !s.pendingDecommission && s.update?.status == "failed" }
+        val blocker = states.entries.firstOrNull { (id, candidate) ->
+            id != nodeId && !candidate.pendingDecommission && candidate.update?.status == "failed"
+        }
         if (blocker != null) return Decision.Wait("rollout held: ${blocker.key} failed to update")
         val other = updating.firstOrNull { it != nodeId }
         if (other != null) return Decision.Wait("waiting for $other to finish updating")

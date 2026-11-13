@@ -3,30 +3,30 @@ package homegap.routes
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-import homegap.dashboard.DashboardAuth
 import homegap.api.ActionResponse
 import homegap.api.ApiJson
+import homegap.dashboard.DashboardAuth
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.createRouteScopedPlugin
-import io.ktor.server.request.ApplicationRequest
-import io.ktor.server.response.respondText
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.UserIdPrincipal
 import io.ktor.server.auth.authenticate
 import io.ktor.server.auth.bearer
+import io.ktor.server.request.ApplicationRequest
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 
 /**
- * Mounts every [RoutingController] contributed to the graph under `/api`, behind the dashboard
- * bearer token (Ktor's `Authentication` with a `bearer` provider). There is always a token (see
- * [DashboardAuth]): the API gives control of every node, so it is never served without one. An
- * [OpenRoutingController] is mounted outside it and does its own check.
+ * Mounts every [RoutingController] of the graph under `/api`, behind the dashboard bearer token
+ * (Ktor's `Authentication` with a `bearer` provider). There is always a token (see
+ * [DashboardAuth]): the API gives control of every node, so no request gets it without a token.
+ * An [OpenRoutingController] goes outside the token and does its own check.
  */
 @SingleIn(AppScope::class)
 @Inject
@@ -72,20 +72,21 @@ private val BlockedAddresses = createRouteScopedPlugin("BlockedAddresses", ::Blo
     val auth = pluginConfig.auth
     onCall { call ->
         if (auth.blocked(auth.client(call.request))) {
-            val body = ApiJson.encodeToString(ActionResponse.serializer(), ActionResponse(false, "Too many wrong tokens. Try again in a minute."))
+            val refusal = ActionResponse(false, "Too many wrong tokens. Try again in a minute.")
+            val body = ApiJson.encodeToString(ActionResponse.serializer(), refusal)
             call.respondText(body, ContentType.Application.Json, HttpStatusCode.TooManyRequests)
         }
     }
 }
 
-/** A group of related `/api` routes; contributed to the graph with `@ContributesIntoSet`. */
+/** A group of related `/api` routes. `@ContributesIntoSet` adds it to the graph. */
 interface RoutingController {
     fun init(parent: Route)
 }
 
 /**
- * Routes mounted outside the dashboard token, each with its own check against [DashboardAuth].
- * Contributed with `@ContributesIntoSet`.
+ * Routes outside the dashboard token, each with its own check against [DashboardAuth].
+ * `@ContributesIntoSet` adds it to the graph.
  */
 interface OpenRoutingController {
     fun init(parent: Route, auth: DashboardAuth)

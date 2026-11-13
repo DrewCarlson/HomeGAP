@@ -7,6 +7,7 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import homegap.api.SearchHitDto
 import homegap.api.SearchResponse
+import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.config.referencedSecrets
 import homegap.reconcile.Controller
@@ -19,6 +20,7 @@ import io.ktor.server.routing.get
  * `GET /search?q=`: what the dashboard can't search on its own. Config keys (never their values),
  * referenced secrets (name and whether they resolve), and log entries older than it holds.
  */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -29,13 +31,22 @@ class SearchRoutes(private val controller: Controller) : RoutingController {
 
     suspend fun RoutingContext.search() {
         val query = call.request.queryParameters["q"]?.trim().orEmpty()
-        if (query.length < 2) {
+        if (query.length < MIN_QUERY_LENGTH) {
             call.respond(SearchResponse(emptyList()))
             return
         }
         val needle = query.lowercase()
         val config = controller.config
-        val keys = configKeys(ConfigLoader.encode(config))
+        val hits = buildList {
+            addAll(keyHits(config, needle))
+            addAll(secretHits(config, needle))
+            addAll(logHits(query))
+        }
+        call.respond(SearchResponse(hits))
+    }
+
+    private fun keyHits(config: AppConfig, needle: String): List<SearchHitDto> =
+        configKeys(ConfigLoader.encode(config))
             .filter { needle in it.lowercase() }
             .take(LIMIT)
             .map { key ->
@@ -46,19 +57,23 @@ class SearchRoutes(private val controller: Controller) : RoutingController {
                     route = "config",
                 )
             }
-        val secrets = config.referencedSecrets()
+
+    private fun secretHits(config: AppConfig, needle: String): List<SearchHitDto> =
+        config.referencedSecrets()
             .filter { (ref, usedBy) -> needle in ref.name.lowercase() || needle in usedBy.lowercase() }
             .take(LIMIT)
             .map { (ref, usedBy) ->
+                val presence = if (ref.resolve() != null) "present" else "missing"
                 SearchHitDto(
                     kind = "setting",
                     title = ref.name,
-                    subtitle = "secret · ${if (ref.resolve() != null) "present" else "missing"} · $usedBy",
+                    subtitle = "secret · $presence · $usedBy",
                     route = "config",
                 )
             }
-        val entries = controller.log.recent(limit = LIMIT, query = query)
-        val log = entries.map { entry ->
+
+    private fun logHits(query: String): List<SearchHitDto> =
+        controller.log.recent(limit = LIMIT, query = query).map { entry ->
             SearchHitDto(
                 kind = "log",
                 title = entry.message,
@@ -67,11 +82,10 @@ class SearchRoutes(private val controller: Controller) : RoutingController {
                 selection = entry.seq.toString(),
             )
         }
-        call.respond(SearchResponse(keys + secrets + log))
-    }
 
     private companion object {
         const val LIMIT = 10
+        const val MIN_QUERY_LENGTH = 2
     }
 }
 
@@ -86,7 +100,9 @@ internal fun configKeys(yaml: String): List<String> {
         val item = trimmed.removePrefix("- ")
         val key = item.substringBefore(':', missingDelimiterValue = "").trim()
         if (key.isEmpty() || key.contains(' ') || !item.contains(':')) continue
-        while (stack.isNotEmpty() && stack.last().first >= indent) stack.removeAt(stack.size - 1)
+        while (stack.isNotEmpty() && stack.last().first >= indent) {
+            stack.removeAt(stack.size - 1)
+        }
         stack += indent to key
         keys += stack.joinToString(".") { it.second }
     }

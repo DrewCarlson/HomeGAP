@@ -3,11 +3,11 @@ package homegap.status
 import homegap.brand.Brand
 
 /**
- * The public status page: light and dark, with nothing loaded from anywhere but itself (the map's
- * scripts, fonts and tiles come from this origin's `/map/`). It reads
- * `/status/nodes` from the node it came through, then times one request to each other online
- * node's `/status/ping` (each crosses that node and its tunnel to the homelab). The round trip is
- * read from Resource Timing (request sent to first byte), so connection setup isn't counted.
+ * The public status page, for light and dark. It loads nothing from other origins: the scripts,
+ * fonts and tiles of the map come from `/map/` of this origin. The page reads `/status/nodes` from
+ * the node that it came through. Then it times one request to `/status/ping` of each other online
+ * node. Each request crosses that node and its tunnel to the homelab. The round trip comes from
+ * Resource Timing (from the sent request to the first byte), so the time to connect does not count.
  */
 object StatusPage {
     val HTML: String = $$"""

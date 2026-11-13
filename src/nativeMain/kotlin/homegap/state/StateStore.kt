@@ -2,14 +2,21 @@ package homegap.state
 
 import homegap.platform.Files
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
+private const val RUN_HISTORY_SIZE = 10
+
+/** The mode of the state files: only the owner can read and write them. */
+private val OWNER_ONLY = "600".toInt(8)
+
 /**
  * Per-node identity and minted credentials. The node itself keeps an authoritative copy of its
- * secrets (`<install_dir>/secrets/node.json`), so losing this cache only means re-reading them.
+ * secrets (`<install_dir>/secrets/node.json`). If this cache is lost, the orchestrator reads them
+ * from the node again.
  */
 @Serializable
 data class NodeState(
@@ -42,7 +49,7 @@ data class NodeState(
     val teardownError: String? = null,
     /** Outcome of the last stack update that did not go through (rolled back or skipped). */
     val update: UpdateState? = null,
-    /** Permanent tunnel slot (subnet, interface name, local ports); see TunnelSlots. */
+    /** Permanent tunnel slot (subnet, interface name, local ports). See TunnelSlots. */
     val tunnelSlot: Int? = null,
     /** [tunnelSlot] matched the node's live site subnet at least once. */
     val tunnelSlotConfirmed: Boolean = false,
@@ -66,13 +73,13 @@ data class RunRecord(
     val rolledBack: Boolean = false,
 )
 
-/** These runs with [run] added first, keeping the last ten. */
-fun List<RunRecord>.withRun(run: RunRecord): List<RunRecord> = (listOf(run) + this).take(10)
+/** These runs with [run] added first. The list keeps the last ten. */
+fun List<RunRecord>.withRun(run: RunRecord): List<RunRecord> = (listOf(run) + this).take(RUN_HISTORY_SIZE)
 
 /**
  * A stack update that failed on this node. While [status] is `failed`, the rollout to every other
- * node is held; `skipped` releases the hold but keeps this node on its previous stack until its
- * desired stack changes again or an update is retried.
+ * node waits. `skipped` releases the hold, but this node stays on its previous stack. That ends
+ * when its desired stack changes again or when an update runs again.
  */
 @Serializable
 data class UpdateState(
@@ -82,7 +89,7 @@ data class UpdateState(
     val status: String,
     val error: String? = null,
     val at: Long,
-    /** The previous stack was restored and came back healthy. */
+    /** The rollback restored the previous stack, and that stack is healthy again. */
     val rolledBack: Boolean = false,
 )
 
@@ -94,8 +101,8 @@ data class Pauses(
 )
 
 /**
- * The cluster's one Pangolin: shared by every node (one database), so its secrets, admin, API key
- * and license are kept once rather than per node.
+ * The one Pangolin of the cluster. Every node shares it (one database), so the store keeps its
+ * secrets, admin, API key and license once, not for each node.
  */
 @Serializable
 data class ClusterPangolinState(
@@ -108,7 +115,7 @@ data class ClusterPangolinState(
     /** A node's Pangolin has migrated the database and the server admin and org exist. */
     val bootstrapped: Boolean = false,
     val licenseActivated: Boolean = false,
-    /** Hash of a key the license server refused, so it is not retried every pass. */
+    /** Hash of a key that the license server refused, so a pass does not try that key again. */
     val licenseRejected: String? = null,
     /** Nodes whose running Pangolin has not seen the license activated through another node. */
     val licenseRecheck: Set<String> = emptySet(),
@@ -138,40 +145,46 @@ class StateStore(private val path: String) {
     private var state: ControllerState = load()
 
     /**
-     * No file is a first start (or a deliberate reset): an empty cache. A file that is there but
-     * cannot be read or parsed is not: an empty cache would drop every pause, hold and tunnel
-     * slot and let the next pass act on that, so the last good copy is used instead, and without
-     * one the orchestrator does not start.
+     * No file means a first start or a deliberate reset, so the cache starts empty. A file that
+     * is there but that the store cannot read or parse is a different case. An empty cache drops
+     * every pause, hold and tunnel slot, and the next pass acts on that. The store uses the last
+     * good copy instead. If there is no good copy, the orchestrator does not start.
      */
     private fun load(): ControllerState {
         if (!Files.exists(path)) return ControllerState()
-        val loaded = runCatching { Files.readText(path) }.mapCatching { it to json.decodeFromString<ControllerState>(it) }
+        val loaded = runCatching { Files.readText(path) }
+            .mapCatching { it to json.decodeFromString<ControllerState>(it) }
         loaded.getOrNull()?.let { (text, parsed) ->
             // The copy to fall back on, as of this start.
-            runCatching { Files.writeAtomic(backupPath, text, "600".toInt(8)) }
+            runCatching { Files.writeAtomic(backupPath, text, OWNER_ONLY) }
                 .onFailure { logger.warn { "could not keep a copy of $path at $backupPath: ${it.message}" } }
             return parsed
         }
         val reason = loaded.exceptionOrNull()?.message ?: "unreadable"
-        runCatching { Files.readText(path) }.onSuccess { Files.writeAtomic("$path.corrupt", it, "600".toInt(8)) }
-        val backup = if (Files.exists(backupPath)) runCatching { json.decodeFromString<ControllerState>(Files.readText(backupPath)) }.getOrNull() else null
+        runCatching { Files.readText(path) }.onSuccess { Files.writeAtomic("$path.corrupt", it, OWNER_ONLY) }
+        val backup = readBackup()
         if (backup != null) {
             logger.error { "State file $path is unreadable ($reason); using the last good copy $backupPath" }
             return backup
         }
-        throw IllegalStateException(
+        error(
             "The state file $path is there but cannot be read ($reason), and there is no good copy at $backupPath. " +
                 "HomeGAP does not start from an empty state by itself: that drops every pause and every node's " +
                 "tunnel slot. Restore the file, or delete it to start from an empty state on purpose.",
         )
     }
 
+    private fun readBackup(): ControllerState? {
+        if (!Files.exists(backupPath)) return null
+        return runCatching { json.decodeFromString<ControllerState>(Files.readText(backupPath)) }.getOrNull()
+    }
+
     private val backupPath get() = "$path.bak"
 
     fun snapshot(): ControllerState = state
 
-    /** Bumped on every persisted change. */
-    val revision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    /** Increases by one with each change that the store saves. */
+    val revision = MutableStateFlow(0L)
 
     fun node(id: String): NodeState = state.nodes[id] ?: NodeState()
 
@@ -179,14 +192,19 @@ class StateStore(private val path: String) {
         val next = block(state)
         if (next != state) {
             state = next
-            Files.writeAtomic(path, json.encodeToString(next), "600".toInt(8))
+            Files.writeAtomic(path, json.encodeToString(next), OWNER_ONLY)
             revision.value++
         }
         state
     }
 
-    suspend fun updateNode(id: String, block: (NodeState) -> NodeState): NodeState =
-        update { s -> s.copy(nodes = s.nodes + (id to block(s.nodes[id] ?: NodeState()))) }.nodes.getValue(id)
+    suspend fun updateNode(id: String, block: (NodeState) -> NodeState): NodeState {
+        val updated = update { current ->
+            val node = block(current.nodes[id] ?: NodeState())
+            current.copy(nodes = current.nodes + (id to node))
+        }
+        return updated.nodes.getValue(id)
+    }
 
-    suspend fun removeNode(id: String) = update { s -> s.copy(nodes = s.nodes - id) }
+    suspend fun removeNode(id: String) = update { current -> current.copy(nodes = current.nodes - id) }
 }

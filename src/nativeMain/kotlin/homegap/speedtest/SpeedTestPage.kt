@@ -3,10 +3,10 @@ package homegap.speedtest
 import homegap.brand.Brand
 
 /**
- * Self-contained device test page (no external assets). The link token arrives in the URL
- * fragment, which browsers keep across the node's redirect and never send to any server.
- * NOTE: the markup deliberately contains no dollar signs (Kotlin raw string); the only
- * templates are the [Brand] emblem and favicon.
+ * The page of the device test. It has no external assets. The link token comes in the URL
+ * fragment. A browser keeps the fragment across the redirect of the node and never sends it to a
+ * server. The markup has no dollar signs, because it is a Kotlin raw string. The only templates
+ * are the emblem and the favicon of [Brand].
  */
 object SpeedTestPage {
     val HTML = """

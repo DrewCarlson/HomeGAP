@@ -14,6 +14,7 @@ import io.ktor.server.routing.*
  * and `GET /nodes/{id}/diagnostics` (a bundle of the node's state). Both answer [homegap.api.NodeTextDto].
  * Each read runs a script on the node.
  */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -26,9 +27,9 @@ class DiagnosticsRoutes(private val diagnostics: NodeDiagnostics) : RoutingContr
     }
 
     suspend fun RoutingContext.logs() {
-        val q = call.request.queryParameters
-        val service = requireNotNull(q["service"]) { "service required" }
-        call.respond(diagnostics.logs(nodeId(), service, q["since"], q["tail"]?.toIntOrNull()))
+        val query = call.request.queryParameters
+        val service = requireNotNull(query["service"]) { "service required" }
+        call.respond(diagnostics.logs(nodeId(), service, query["since"], query["tail"]?.toIntOrNull()))
     }
 
     suspend fun RoutingContext.bundle() {

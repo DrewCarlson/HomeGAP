@@ -16,12 +16,13 @@ fun interface NameserverProbe {
 
 /**
  * Checks that each of the zone's nameservers serves the records Bunny's API reports, by asking
- * them directly. Bunny can take a long time to copy a new record to every nameserver; until it
- * has, some lookups get an older answer (for a new name, the wildcard's, which can be any node).
+ * them directly. Bunny can take a long time to copy a new record to every nameserver. Until then,
+ * some lookups get an older answer (for a new name, the wildcard's, which can be any node).
  *
- * Only plain records are checked: a geo or latency-steered record set answers differently by
- * location, so no single answer is "the" right one. Records that matched are checked again after
- * [recheck]; ones that did not, every pass. Lives across passes (held by the controller).
+ * The check covers only plain records: a geo or latency-steered record set answers differently by
+ * location, so no single answer is "the" right one. A record that matched gets its next check
+ * after [recheck]. A record that did not match gets a check in every pass. The controller keeps
+ * one instance for all passes.
  */
 class NameserverCheck(
     private val probe: NameserverProbe,
@@ -31,57 +32,66 @@ class NameserverCheck(
     private val lastProblem = mutableMapOf<String, String>()
 
     /**
-     * Why each record is not served by every nameserver ([problems]; absent = it is, or unknown),
-     * and which of those problems are new or changed since the last call ([changed], for the log).
+     * [problems] gives the reason for each record that not every nameserver serves. A record
+     * without an entry is served, or its state is unknown. [changed] has the records whose problem
+     * is new, different or gone since the last call, for the log.
      */
     data class Result(val problems: Map<DesiredDnsRecord, String>, val changed: Set<DesiredDnsRecord>)
 
     suspend fun check(nameservers: List<String>, records: List<DesiredDnsRecord>): Result {
         val now = nowMillis()
-        val due = records.filter { r ->
-            !r.geo && DnsWire.typeCode(r.type) != null &&
-                (matchedAt[key(r)]?.let { now - it >= recheck.inWholeMilliseconds } ?: true)
-        }
+        val due = records.filter { isDue(it, now) }
         val checked = coroutineScope {
-            due.map { r -> async { r to problem(nameservers, r) } }.awaitAll()
+            due.map { record -> async { record to problem(nameservers, record) } }.awaitAll()
         }
-        val out = mutableMapOf<DesiredDnsRecord, String>()
+        val problems = mutableMapOf<DesiredDnsRecord, String>()
         val changed = mutableSetOf<DesiredDnsRecord>()
-        for ((r, problem) in checked) {
+        for ((record, problem) in checked) {
+            val key = key(record)
             if (problem == null) {
-                matchedAt[key(r)] = now
-                if (lastProblem.remove(key(r)) != null) changed += r
+                matchedAt[key] = now
+                if (lastProblem.remove(key) != null) changed += record
             } else {
-                matchedAt.remove(key(r))
-                if (lastProblem.put(key(r), problem) != problem) changed += r
-                out[r] = problem
+                matchedAt.remove(key)
+                if (lastProblem.put(key, problem) != problem) changed += record
+                problems[record] = problem
             }
         }
         // Keep the cache to the records still desired.
         val live = records.map(::key).toSet()
         matchedAt.keys.retainAll(live)
         lastProblem.keys.retainAll(live)
-        return Result(out, changed)
+        return Result(problems, changed)
     }
 
-    /** The nameserver answers that differ from [r]'s value, or null when all match (or none answered). */
-    private suspend fun problem(nameservers: List<String>, r: DesiredDnsRecord): String? = coroutineScope {
-        val type = DnsWire.typeCode(r.type) ?: return@coroutineScope null
-        val want = DnsWire.canonical(r.value)
-        val answers = nameservers.map { ns -> async { ns to probe.answers(ns, r.fqdn, type)?.map(DnsWire::canonical) } }.awaitAll()
+    private fun isDue(record: DesiredDnsRecord, now: Long): Boolean {
+        if (record.geo || DnsWire.typeCode(record.type) == null) return false
+        val matched = matchedAt[key(record)] ?: return true
+        return now - matched >= recheck.inWholeMilliseconds
+    }
+
+    /** The nameserver answers that differ from the value of [record], or null when all match (or none answered). */
+    private suspend fun problem(nameservers: List<String>, record: DesiredDnsRecord): String? = coroutineScope {
+        val type = DnsWire.typeCode(record.type) ?: return@coroutineScope null
+        val wanted = DnsWire.canonical(record.value)
+        val answers = nameservers
+            .map { nameserver ->
+                async { nameserver to probe.answers(nameserver, record.fqdn, type)?.map(DnsWire::canonical) }
+            }
+            .awaitAll()
         // Only a disagreement counts: one nameserver serving the record shows the zone is served
         // there, so another without it is behind. When none has it (the zone is not delegated to
         // them, as in tests), there is nothing to compare. Unreachable servers tell us nothing.
-        if (answers.none { (_, have) -> have != null && want in have }) return@coroutineScope null
-        val wrong = answers.mapNotNull { (ns, have) ->
+        if (answers.none { (_, answer) -> answer != null && wanted in answer }) return@coroutineScope null
+        val wrong = answers.mapNotNull { (nameserver, answer) ->
             when {
-                have == null || want in have -> null
-                have.isEmpty() -> "$ns has no ${r.type} record yet"
-                else -> "$ns still answers ${have.joinToString()}"
+                answer == null || wanted in answer -> null
+                answer.isEmpty() -> "$nameserver has no ${record.type} record yet"
+                else -> "$nameserver still answers ${answer.joinToString()}"
             }
         }
         wrong.takeIf { it.isNotEmpty() }?.joinToString("; ")
     }
 
-    private fun key(r: DesiredDnsRecord) = "${r.fqdn}|${r.type}|${r.value}"
+    private fun key(record: DesiredDnsRecord) = "${record.fqdn}|${record.type}|${record.value}"
 }

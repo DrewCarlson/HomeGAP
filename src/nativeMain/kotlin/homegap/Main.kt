@@ -1,28 +1,51 @@
 package homegap
 
-import homegap.config.SharedDirs
 import dev.zacsweers.metro.createGraphFactory
 import homegap.api.ActionResponse
+import homegap.config.AppConfig
 import homegap.config.ConfigLoader
+import homegap.config.SharedDirs
+import homegap.dashboard.DashboardAuth
 import homegap.di.ControllerGraph
 import homegap.di.RunOptions
 import homegap.di.TunnelOptions
 import homegap.di.TunnelsGraph
+import homegap.discovery.DockerContainerSummary
+import homegap.mesh.MeshAgent
 import homegap.model.Planner
+import homegap.model.PublicResource
+import homegap.platform.Files
 import homegap.platform.env
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import platform.posix.fprintf
+import platform.posix.stderr
 import kotlin.system.exitProcess
 
 const val VERSION = "0.1.0"
+
+private const val EXIT_FAILURE = 1
+private const val EXIT_USAGE = 2
+private const val DEFAULT_CONFIG = "/config/config.yml"
+private const val DEFAULT_NEWT = "/usr/local/bin/newt"
+private const val DEFAULT_DATA_DIR = "/data"
+private const val DEFAULT_MAINTENANCE_MINUTES = 30
+private const val MAINTENANCE_TIMEOUT_MS = 5 * 60_000L
+
+/** The values of `HOMEGAP_DRY_RUN` that turn the dry run on. */
+private val TRUE_VALUES = setOf("1", "true", "yes")
 
 private val logger by lazy { KotlinLogging.logger("homegap") }
 
@@ -41,115 +64,196 @@ Usage:
 Environment: HOMEGAP_CONFIG (default /config/config.yml), HOMEGAP_DRY_RUN, DOCKER_SOCKET, DOCKER_HOST,
 HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR, HOMEGAP_MESH_DIR, HOMEGAP_MESH_HOST."""
 
+/** The command and the arguments after it. With no command, the command is `run`. */
+private class CommandLine(args: Array<String>) {
+    val command = args.firstOrNull()?.takeIf { !it.startsWith("--") } ?: "run"
+    val rest = if (args.firstOrNull() == command) args.drop(1) else args.toList()
+
+    /** The argument after [name], or null. */
+    fun option(name: String): String? = rest.indexOf(name).takeIf { it >= 0 }?.let { rest.getOrNull(it + 1) }
+
+    fun flag(name: String) = name in rest
+}
+
 fun main(args: Array<String>) {
     KotlinLoggingConfiguration.logStartupMessage = false
-    val cmd = args.firstOrNull()?.takeIf { !it.startsWith("--") } ?: "run"
-    val rest = if (args.firstOrNull() == cmd) args.drop(1) else args.toList()
-    fun opt(name: String): String? = rest.indexOf(name).takeIf { it >= 0 }?.let { rest.getOrNull(it + 1) }
-    fun flag(name: String) = name in rest
-    val configPath = opt("--config") ?: env("HOMEGAP_CONFIG") ?: "/config/config.yml"
+    val line = CommandLine(args)
+    val configPath = line.option("--config") ?: env("HOMEGAP_CONFIG") ?: DEFAULT_CONFIG
 
     try {
-        when (cmd) {
+        when (line.command) {
             "version", "--version" -> println(VERSION)
             "help", "--help", "-h" -> println(USAGE)
-            "validate" -> {
-                val c = ConfigLoader.load(configPath)
-                println("OK: ${c.nodes.size} node(s), domain ${c.domain}, zone ${c.bunny.zone}")
+            "validate" -> validate(configPath)
+            "plan" -> printPlan(configPath, line)
+            "render-node" -> renderNode(configPath, line)
+            "maintenance" -> {
+                val action = line.rest.firstOrNull { it == "start" || it == "end" } ?: error("maintenance start|end")
+                val minutes = line.option("--minutes")?.toIntOrNull() ?: DEFAULT_MAINTENANCE_MINUTES
+                maintenance(configPath, action, minutes)
             }
-            "plan" -> {
-                val c = ConfigLoader.load(configPath)
-                val labelsFile = opt("--labels") ?: error("--labels FILE required")
-                val raw = Json.decodeFromString<Map<String, Map<String, String>>>(homegap.platform.Files.readText(labelsFile))
-                val containers = raw.map { (name, labels) -> homegap.discovery.DockerContainerSummary(id = name, names = listOf("/$name"), labels = labels) }
-                val plan = Planner.plan(c, containers)
-                plan.labelErrors.forEach { println("ERROR ${it.container}: ${it.message}") }
-                plan.labelWarnings.forEach { println("WARN  ${it.container}: ${it.message}") }
-                for ((id, n) in plan.nodes) {
-                    println("node $id (${n.managementHost})")
-                    n.publicResources.forEach { println("  public  ${it.niceId}: ${it.mode.wire} ${it.fullDomain ?: ":${it.proxyPort}"} -> ${it.target.host}:${it.target.port}${it.target.method?.let { m -> " ($m)" }.orEmpty()}") }
-                    n.privateResources.forEach { println("  private ${it.niceId}: ${it.alias} -> ${it.destination} tcp=${it.tcpPorts} udp=${it.udpPorts}") }
-                    n.sniRoutes.forEach { println("  sni     ${it.name}: ${NodeTemplates.sniRule(it)}") }
-                    n.rawPorts.forEach { println("  port    ${it.entryPoint}") }
-                }
-                plan.dns.forEach { println("dns ${it.type} ${it.fqdn} -> ${it.value} [${it.nodeId}] ${it.purpose}${if (it.geo) " geo" else ""} monitor=${it.monitor}") }
+            "mesh" -> {
+                val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
+                runMesh(sharedDir(dir, volume = "homegap-mesh", other = "orchestrator"))
             }
-            "render-node" -> {
-                val c = ConfigLoader.load(configPath)
-                val id = rest.firstOrNull { !it.startsWith("--") && it != opt("--config") } ?: error("node id required")
-                val node = c.node(id) ?: error("unknown node $id")
-                val secrets = NodeSecrets("<setup-token>", "<server-secret>", NodeTemplates.adminEmail(c), "<password>", "<bouncer-key>")
-                val plan = Planner.plan(c, emptyList())
-                for (f in NodeTemplates.staticFiles(c, node, secrets, plan.nodes.getValue(id).rawPorts, c.nodes.indexOf(node))) {
-                    println("=== ${f.path} (${f.mode})")
-                    println(f.content)
-                }
-                println("=== ${NodeTemplates.DYNAMIC_ROUTES}")
-                println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
+            "tunnels" -> {
+                val dir = line.option("--dir") ?: SharedDirs.tunnels(DEFAULT_DATA_DIR)
+                val shared = sharedDir(dir, volume = "homegap-tunnels", other = "orchestrator")
+                runTunnels(shared, newt = line.option("--newt") ?: env("HOMEGAP_NEWT") ?: DEFAULT_NEWT)
             }
-            "maintenance" -> maintenance(configPath, rest.firstOrNull { it == "start" || it == "end" } ?: error("maintenance start|end"), opt("--minutes")?.toIntOrNull() ?: 30)
-            "mesh" -> runBlocking { homegap.mesh.MeshAgent(sharedDir(opt("--dir") ?: SharedDirs.mesh("/data"), "homegap-mesh", "orchestrator")).run() }
-            "tunnels" -> runTunnels(sharedDir(opt("--dir") ?: SharedDirs.tunnels("/data"), "homegap-tunnels", "orchestrator"), opt("--newt") ?: env("HOMEGAP_NEWT") ?: "/usr/local/bin/newt")
-            "run" -> runController(configPath, flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in setOf("1", "true", "yes"), flag("--once"))
+            "run" -> {
+                val dryRun = line.flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in TRUE_VALUES
+                runController(configPath, dryRun = dryRun, once = line.flag("--once"))
+            }
             else -> {
                 println(USAGE)
-                exitProcess(2)
+                exitProcess(EXIT_USAGE)
             }
         }
     } catch (e: Exception) {
         // A failed child coroutine surfaces as the parent's cancellation: report what caused it.
-        val root = generateSequence<Throwable>(e) { it.cause?.takeIf { c -> c !== it } }.last()
+        val root = generateSequence<Throwable>(e) { it.cause?.takeIf { cause -> cause !== it } }.last()
         eprintln("homegap: ${e.message}")
         if (root !== e) eprintln("homegap: caused by ${root::class.simpleName}: ${root.message}")
         if (env("HOMEGAP_DEBUG") != null) eprintln(root.stackTraceToString())
-        exitProcess(1)
+        exitProcess(EXIT_FAILURE)
     }
 }
 
-private fun eprintln(msg: String) {
-    platform.posix.fprintf(platform.posix.stderr, "%s\n", msg)
+private fun eprintln(message: String) {
+    fprintf(stderr, "%s\n", message)
 }
 
+private fun validate(configPath: String) {
+    val config = ConfigLoader.load(configPath)
+    println("OK: ${config.nodes.size} node(s), domain ${config.domain}, zone ${config.bunny.zone}")
+}
+
+/** Prints the desired state for the labels in the `--labels` file. */
+private fun printPlan(configPath: String, line: CommandLine) {
+    val config = ConfigLoader.load(configPath)
+    val labelsFile = line.option("--labels") ?: error("--labels FILE required")
+    val labelsByContainer = Json.decodeFromString<Map<String, Map<String, String>>>(Files.readText(labelsFile))
+    val containers = labelsByContainer.map { (name, labels) ->
+        DockerContainerSummary(id = name, names = listOf("/$name"), labels = labels)
+    }
+    val plan = Planner.plan(config, containers)
+    plan.labelErrors.forEach { println("ERROR ${it.container}: ${it.message}") }
+    plan.labelWarnings.forEach { println("WARN  ${it.container}: ${it.message}") }
+    for ((id, node) in plan.nodes) {
+        println("node $id (${node.managementHost})")
+        node.publicResources.forEach { println(publicLine(it)) }
+        for (resource in node.privateResources) {
+            val ports = "tcp=${resource.tcpPorts} udp=${resource.udpPorts}"
+            println("  private ${resource.niceId}: ${resource.alias} -> ${resource.destination} $ports")
+        }
+        node.sniRoutes.forEach { println("  sni     ${it.name}: ${NodeTemplates.sniRule(it)}") }
+        node.rawPorts.forEach { println("  port    ${it.entryPoint}") }
+    }
+    for (record in plan.dns) {
+        val route = "${record.fqdn} -> ${record.value} [${record.nodeId}]"
+        val geo = if (record.geo) " geo" else ""
+        println("dns ${record.type} $route ${record.purpose}$geo monitor=${record.monitor}")
+    }
+}
+
+private fun publicLine(resource: PublicResource): String {
+    val address = resource.fullDomain ?: ":${resource.proxyPort}"
+    val target = resource.target
+    val method = target.method?.let { " ($it)" }.orEmpty()
+    return "  public  ${resource.niceId}: ${resource.mode.wire} $address -> ${target.host}:${target.port}$method"
+}
+
+/** Prints the files of the stack of one node, with placeholders for the secrets. */
+private fun renderNode(configPath: String, line: CommandLine) {
+    val config = ConfigLoader.load(configPath)
+    val id = line.rest.firstOrNull { !it.startsWith("--") && it != line.option("--config") }
+        ?: error("node id required")
+    val node = config.node(id) ?: error("unknown node $id")
+    val plan = Planner.plan(config, emptyList())
+    val files = NodeTemplates.staticFiles(
+        config = config,
+        node = node,
+        secrets = placeholderSecrets(config),
+        rawPorts = plan.nodes.getValue(id).rawPorts,
+        slot = config.nodes.indexOf(node),
+    )
+    for ((path, content, mode) in files) {
+        println("=== $path ($mode)")
+        println(content)
+    }
+    println("=== ${NodeTemplates.DYNAMIC_ROUTES}")
+    println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
+}
+
+private fun placeholderSecrets(config: AppConfig) = NodeSecrets(
+    setupToken = "<setup-token>",
+    serverSecret = "<server-secret>",
+    adminEmail = NodeTemplates.adminEmail(config),
+    adminPassword = "<password>",
+    crowdsecBouncerKey = "<bouncer-key>",
+)
+
 private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = runBlocking {
-    val graph = createGraphFactory<ControllerGraph.Factory>().create(RunOptions(configPath, dryRun, once))
+    val options = RunOptions(configPath = configPath, dryRun = dryRun, once = once)
+    val graph = createGraphFactory<ControllerGraph.Factory>().create(options)
     val config = graph.config
-    logger.info { "homegap $VERSION starting: domain=${config.domain} nodes=${config.nodes.map { it.id }} dryRun=${dryRun || config.reconcile.dryRun}" }
+    logger.info {
+        val nodeIds = config.nodes.map { it.id }
+        val effectiveDryRun = dryRun || config.reconcile.dryRun
+        "homegap $VERSION starting: domain=${config.domain} nodes=$nodeIds dryRun=$effectiveDryRun"
+    }
     val controller = graph.controller
     if (!once) {
         graph.dashboard.start(config.dashboard.host, config.dashboard.port)
         logger.info { "dashboard listening on ${config.dashboard.bind}" }
-        graph.dashboardAuth.generatedFile?.let {
-            logger.warn { "no dashboard token is available from the config (dashboard.auth_token_env): the dashboard uses the generated token in $it" }
+        graph.dashboardAuth.generatedFile?.let { file ->
+            logger.warn {
+                "no dashboard token is available from the config (dashboard.auth_token_env): " +
+                    "the dashboard uses the generated token in $file"
+            }
         }
         if (config.publicOriginEnabled) {
             graph.speedTestServer.start(config.speedtest.host, config.speedtest.port)
-            val what = listOfNotNull("speed test".takeIf { config.speedtest.enabled }, "status page".takeIf { config.statusPage.enabled })
-            logger.info { "public origin (${what.joinToString(" and ")}) listening on ${config.speedtest.bind}" }
+            val origins = listOfNotNull(
+                "speed test".takeIf { config.speedtest.enabled },
+                "status page".takeIf { config.statusPage.enabled },
+            )
+            logger.info { "public origin (${origins.joinToString(" and ")}) listening on ${config.speedtest.bind}" }
         }
     }
     controller.run(this, once)
+}
+
+private fun runMesh(dir: String) = runBlocking {
+    MeshAgent(dir).run()
 }
 
 private fun runTunnels(dir: String, newt: String) = runBlocking {
     createGraphFactory<TunnelsGraph.Factory>().create(TunnelOptions(dir, newt)).supervisor.run()
 }
 
-/** Asks the running orchestrator (same container, its dashboard API) to begin or end maintenance. */
+/**
+ * Asks the running orchestrator (same container, its dashboard API) to start or end maintenance.
+ * The request uses plain HTTP, because it does not leave the container.
+ */
+@Suppress("HttpUrlsUsage")
 private fun maintenance(configPath: String, action: String, minutes: Int) = runBlocking {
     val config = ConfigLoader.load(configPath)
-    val token = homegap.dashboard.DashboardAuth.current(config)
+    val token = DashboardAuth.current(config)
     val host = config.dashboard.host.let { if (it == "0.0.0.0" || it.isEmpty()) "127.0.0.1" else it }
-    io.ktor.client.HttpClient(io.ktor.client.engine.cio.CIO) {
-        install(io.ktor.client.plugins.HttpTimeout) { requestTimeoutMillis = 5 * 60_000L }
+    val url = "http://$host:${config.dashboard.port}/api/cluster/maintenance/$action?minutes=$minutes"
+    HttpClient(CIO) {
+        install(HttpTimeout) { requestTimeoutMillis = MAINTENANCE_TIMEOUT_MS }
     }.use { http ->
-        val r = http.post("http://$host:${config.dashboard.port}/api/cluster/maintenance/$action?minutes=$minutes") {
-            token?.let { header(io.ktor.http.HttpHeaders.Authorization, "Bearer $it") }
+        val response = http.post(url) {
+            token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
         }
-        val body = r.bodyAsText()
+        val body = response.bodyAsText()
         val message = runCatching { Json.decodeFromString<ActionResponse>(body).message }.getOrDefault(body)
-        if (!r.status.isSuccess()) {
+        if (!response.status.isSuccess()) {
             eprintln("homegap maintenance $action: $message")
-            exitProcess(1)
+            exitProcess(EXIT_FAILURE)
         }
         println(message)
     }
@@ -157,6 +261,8 @@ private fun maintenance(configPath: String, action: String, minutes: Int) = runB
 
 /** Returns [path], and says so on stderr if it is not a volume that the [other] container can see. */
 private fun sharedDir(path: String, volume: String, other: String): String {
-    if (SharedDirs.notAVolume(path)) eprintln("warning: " + SharedDirs.notAVolumeHint(path, volume, other))
+    if (SharedDirs.notAVolume(path)) {
+        eprintln("warning: " + SharedDirs.notAVolumeHint(path, volume, other))
+    }
     return path
 }

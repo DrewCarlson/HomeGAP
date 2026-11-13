@@ -1,12 +1,10 @@
 package homegap.clients
 
+import homegap.platform.runCatchingCancellable
 import io.ktor.client.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import kotlin.io.encoding.Base64
@@ -19,16 +17,20 @@ private val lenient = Json {
     isLenient = true
 }
 
+private const val ERROR_BODY_LENGTH = 300
+private const val SESSION_COOKIE = "p_session_token"
+
 /** Decodes Pangolin's `{data, success, error, message, status}` envelope. */
 internal suspend fun HttpResponse.pangolinData(): JsonElement {
     val text = bodyAsText()
-    val obj = runCatching { lenient.parseToJsonElement(text).jsonObject }.getOrNull()
-        ?: throw PangolinApiException(status.value, "HTTP ${status.value}: ${text.take(300)}")
-    val success = obj["success"]?.jsonPrimitive?.booleanOrNull ?: status.isSuccess()
+    val envelope = runCatching { lenient.parseToJsonElement(text).jsonObject }.getOrNull()
+        ?: throw PangolinApiException(status.value, "HTTP ${status.value}: ${text.take(ERROR_BODY_LENGTH)}")
+    val success = envelope["success"]?.jsonPrimitive?.booleanOrNull ?: status.isSuccess()
     if (!success || !status.isSuccess()) {
-        throw PangolinApiException(status.value, obj["message"]?.jsonPrimitive?.contentOrNull ?: "HTTP ${status.value}")
+        val message = envelope["message"]?.jsonPrimitive?.contentOrNull ?: "HTTP ${status.value}"
+        throw PangolinApiException(status.value, message)
     }
-    return obj["data"] ?: JsonNull
+    return envelope["data"] ?: JsonNull
 }
 
 @Serializable
@@ -67,7 +69,7 @@ data class PangolinSite(
     val online: Boolean? = null,
     val type: String? = null,
     val exitNodeId: Int? = null,
-    /** The site's WireGuard address block inside its exit node's subnet, e.g. 100.89.128.4/30. */
+    /** The site's WireGuard address block inside its exit node's subnet, for example 100.89.128.4/30. */
     val subnet: String? = null,
     val newtVersion: String? = null,
     val megabytesIn: Double? = null,
@@ -142,17 +144,9 @@ data class PangolinClientEntry(
     val lastPing: Long? = null,
 )
 
-@Serializable
-data class PangolinDomain(
-    val domainId: String,
-    val baseDomain: String,
-    val verified: Boolean? = null,
-    val type: String? = null
-)
-
 /**
- * Pangolin Integration API client (`/v1`, Bearer `<apiKeyId>.<secret>`).
- * Node instances are reached through an SSH port-forward to the node's loopback-only API.
+ * Pangolin Integration API client (`/v1`, Bearer `<apiKeyId>.<secret>`). The orchestrator reaches
+ * the instance of a node through an SSH port-forward to the loopback-only API of the node.
  */
 open class PangolinClient(
     private val http: HttpClient,
@@ -176,62 +170,59 @@ open class PangolinClient(
             }
         }.pangolinData()
 
-    open suspend fun ping(): Boolean = runCatching {
+    /** The array [key] in the answer to a GET of [path], or an empty array. */
+    private suspend fun getArray(path: String, key: String): JsonElement =
+        get(path).jsonObject[key] ?: JsonArray(emptyList())
+
+    open suspend fun ping(): Boolean = runCatchingCancellable {
         http.get("$baseUrl/") { auth() }.status.isSuccess()
-    }.onFailure {
-        if (it is CancellationException) {
-            currentCoroutineContext().ensureActive()
-        }
     }.getOrDefault(false)
 
     open suspend fun getOrg(orgId: String): JsonElement = get("/org/$orgId")
 
-    open suspend fun listDomains(orgId: String): List<PangolinDomain> =
-        lenient.decodeFromJsonElement(get("/org/$orgId/domains").jsonObject["domains"] ?: JsonArray(emptyList()))
-
     open suspend fun listSites(orgId: String): List<PangolinSite> =
-        lenient.decodeFromJsonElement(
-            get("/org/$orgId/sites?pageSize=1000").jsonObject["sites"] ?: JsonArray(emptyList())
-        )
+        lenient.decodeFromJsonElement(getArray("/org/$orgId/sites?pageSize=1000", "sites"))
 
     open suspend fun pickSiteDefaults(orgId: String): SiteDefaults =
         lenient.decodeFromJsonElement(get("/org/$orgId/pick-site-defaults"))
 
-    open suspend fun createNewtSite(orgId: String, name: String, niceId: String, d: SiteDefaults): PangolinSite {
+    open suspend fun createNewtSite(
+        orgId: String,
+        name: String,
+        niceId: String,
+        defaults: SiteDefaults,
+    ): PangolinSite {
         val body = buildJsonObject {
             put("name", name)
             put("niceId", niceId)
             put("type", "newt")
-            put("exitNodeId", d.exitNodeId)
-            d.subnet?.let { put("subnet", it) }
-            d.clientAddress?.let { put("address", it) }
-            put("newtId", d.newtId)
-            put("secret", d.newtSecret)
+            put("exitNodeId", defaults.exitNodeId)
+            defaults.subnet?.let { put("subnet", it) }
+            defaults.clientAddress?.let { put("address", it) }
+            put("newtId", defaults.newtId)
+            put("secret", defaults.newtSecret)
         }
         return lenient.decodeFromJsonElement(send(HttpMethod.Put, "/org/$orgId/site", body))
     }
 
-    /** Rotates a newt site's secret (used when controller state was lost). Returns the newtId. */
+    /** Rotates the secret of a newt site, for a controller that lost its state. Returns the newtId. */
     open suspend fun regenerateNewtSecret(siteId: Int, secret: String): String? {
-        val data = send(HttpMethod.Post, "/re-key/$siteId/regenerate-site-secret", buildJsonObject {
+        val body = buildJsonObject {
             put("type", "newt")
             put("secret", secret)
             put("disconnect", true)
-        })
+        }
+        val data = send(HttpMethod.Post, "/re-key/$siteId/regenerate-site-secret", body)
         return (data as? JsonObject)?.get("newtId")?.jsonPrimitive?.contentOrNull
     }
 
     open suspend fun applyBlueprint(orgId: String, blueprint: JsonObject) {
-        val b64 = Base64.encode(blueprint.toString().encodeToByteArray())
-        send(HttpMethod.Put, "/org/$orgId/blueprint", buildJsonObject { put("blueprint", b64) })
+        val encoded = Base64.encode(blueprint.toString().encodeToByteArray())
+        send(HttpMethod.Put, "/org/$orgId/blueprint", buildJsonObject { put("blueprint", encoded) })
     }
 
     open suspend fun listResources(orgId: String): List<PangolinResource> =
-        lenient.decodeFromJsonElement(
-            get("/org/$orgId/resources?pageSize=1000").jsonObject["resources"] ?: JsonArray(
-                emptyList()
-            )
-        )
+        lenient.decodeFromJsonElement(getArray("/org/$orgId/resources?pageSize=1000", "resources"))
 
     open suspend fun deleteResource(resourceId: Int) {
         send(HttpMethod.Delete, "/resource/$resourceId", null)
@@ -239,8 +230,8 @@ open class PangolinClient(
 
     open suspend fun listSiteResources(orgId: String): List<PangolinSiteResource> {
         val data = get("/org/$orgId/site-resources?pageSize=1000").jsonObject
-        val arr = data["siteResources"] ?: data["resources"] ?: JsonArray(emptyList())
-        return lenient.decodeFromJsonElement(arr)
+        val resources = data["siteResources"] ?: data["resources"] ?: JsonArray(emptyList())
+        return lenient.decodeFromJsonElement(resources)
     }
 
     open suspend fun deleteSite(siteId: Int) {
@@ -254,41 +245,35 @@ open class PangolinClient(
     // ------------------------------------------------------------------ users and devices
 
     open suspend fun listRoles(orgId: String): List<PangolinRole> =
-        lenient.decodeFromJsonElement(
-            get("/org/$orgId/roles?pageSize=1000").jsonObject["roles"] ?: JsonArray(emptyList())
-        )
+        lenient.decodeFromJsonElement(getArray("/org/$orgId/roles?pageSize=1000", "roles"))
 
     open suspend fun listUsers(orgId: String): List<PangolinUser> =
-        lenient.decodeFromJsonElement(
-            get("/org/$orgId/users?pageSize=1000").jsonObject["users"] ?: JsonArray(emptyList())
-        )
+        lenient.decodeFromJsonElement(getArray("/org/$orgId/users?pageSize=1000", "users"))
 
     open suspend fun listInvitations(orgId: String): List<PangolinInvitation> =
-        lenient.decodeFromJsonElement(
-            get("/org/$orgId/invitations?limit=1000").jsonObject["invitations"] ?: JsonArray(
-                emptyList()
-            )
-        )
+        lenient.decodeFromJsonElement(getArray("/org/$orgId/invitations?limit=1000", "invitations"))
 
-    /** Invites [email] (no email is sent) and returns the invite link; [regenerate] replaces an open invite. */
+    /**
+     * Invites [email] and returns the invite link. Pangolin sends no email. [regenerate] replaces
+     * an open invite.
+     */
     open suspend fun createInvite(
         orgId: String,
         email: String,
         roleIds: List<Int>,
         validHours: Int,
-        regenerate: Boolean
+        regenerate: Boolean,
     ): String {
-        val data = send(HttpMethod.Post, "/org/$orgId/create-invite", buildJsonObject {
+        val body = buildJsonObject {
             put("email", email)
             putJsonArray("roleIds") { roleIds.forEach { add(it) } }
             put("validHours", validHours)
             put("sendEmail", false)
             put("regenerate", regenerate)
-        })
-        return data.jsonObject["inviteLink"]?.jsonPrimitive?.contentOrNull ?: throw PangolinApiException(
-            500,
-            "the invite has no link"
-        )
+        }
+        val data = send(HttpMethod.Post, "/org/$orgId/create-invite", body)
+        return data.jsonObject["inviteLink"]?.jsonPrimitive?.contentOrNull
+            ?: throw PangolinApiException(NO_INVITE_LINK_STATUS, "the invite has no link")
     }
 
     open suspend fun removeInvitation(orgId: String, inviteId: String) {
@@ -308,11 +293,7 @@ open class PangolinClient(
     }
 
     open suspend fun listClients(orgId: String): List<PangolinClientEntry> =
-        lenient.decodeFromJsonElement(
-            get("/org/$orgId/clients?pageSize=1000").jsonObject["clients"] ?: JsonArray(
-                emptyList()
-            )
-        )
+        lenient.decodeFromJsonElement(getArray("/org/$orgId/clients?pageSize=1000", "clients"))
 
     open suspend fun listUserDevices(orgId: String): List<PangolinClientEntry> {
         val data = get("/org/$orgId/user-devices?pageSize=1000").jsonObject
@@ -334,6 +315,7 @@ open class PangolinClient(
 
     companion object {
         val CLIENT_ACTIONS = setOf("archive", "unarchive", "block", "unblock")
+        private const val NO_INVITE_LINK_STATUS = 500
     }
 }
 
@@ -348,74 +330,77 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
         http.request("$baseUrl$path") {
             this.method = method
             header("X-CSRF-Token", "x-csrf-protection")
-            session?.let { header(HttpHeaders.Cookie, "p_session_token=$it") }
+            session?.let { header(HttpHeaders.Cookie, "$SESSION_COOKIE=$it") }
             if (body != null) {
                 contentType(ContentType.Application.Json)
                 setBody(body.toString())
             }
         }
 
-    suspend fun initialSetupComplete(): Boolean =
-        call(
-            HttpMethod.Get,
-            "/auth/initial-setup-complete"
-        ).pangolinData().jsonObject["complete"]?.jsonPrimitive?.booleanOrNull ?: false
+    suspend fun initialSetupComplete(): Boolean {
+        val data = call(HttpMethod.Get, "/auth/initial-setup-complete").pangolinData()
+        return data.jsonObject["complete"]?.jsonPrimitive?.booleanOrNull ?: false
+    }
 
     suspend fun setServerAdmin(email: String, password: String, setupToken: String) {
-        call(HttpMethod.Put, "/auth/set-server-admin", buildJsonObject {
+        val body = buildJsonObject {
             put("email", email)
             put("password", password)
             put("setupToken", setupToken)
-        }).pangolinData()
+        }
+        call(HttpMethod.Put, "/auth/set-server-admin", body).pangolinData()
     }
 
     suspend fun login(email: String, password: String) {
-        val resp = call(
-            method = HttpMethod.Post,
-            path = "/auth/login",
-            body = buildJsonObject {
-                put("email", email)
-                put("password", password)
-            }
-        )
-        resp.pangolinData()
-        session = resp.setCookie().firstOrNull { it.name == "p_session_token" }?.value
-            ?: resp.headers.getAll(HttpHeaders.SetCookie)?.firstNotNullOfOrNull { h ->
-                h.split(';').first().trim().takeIf { it.startsWith("p_session_token=") }?.substringAfter('=')
-            }
-                    ?: throw PangolinApiException(resp.status.value, "login did not return a session cookie")
+        val body = buildJsonObject {
+            put("email", email)
+            put("password", password)
+        }
+        val response = call(HttpMethod.Post, "/auth/login", body)
+        response.pangolinData()
+        session = response.setCookie().firstOrNull { it.name == SESSION_COOKIE }?.value
+            ?: sessionInRawCookies(response)
+            ?: throw PangolinApiException(response.status.value, "login did not return a session cookie")
     }
 
-    suspend fun orgExists(orgId: String): Boolean = runCatching {
+    /** Reads the session from the text of the `Set-Cookie` headers. */
+    private fun sessionInRawCookies(response: HttpResponse): String? =
+        response.headers.getAll(HttpHeaders.SetCookie)?.firstNotNullOfOrNull { header ->
+            header.split(';')
+                .first()
+                .trim()
+                .takeIf { it.startsWith("$SESSION_COOKIE=") }
+                ?.substringAfter('=')
+        }
+
+    suspend fun orgExists(orgId: String): Boolean = runCatchingCancellable {
         call(HttpMethod.Get, "/org/$orgId").pangolinData()
         true
-    }.onFailure {
-        if (it is CancellationException) {
-            currentCoroutineContext().ensureActive()
-        }
     }.getOrDefault(false)
 
     suspend fun createOrg(orgId: String, name: String) {
         val defaults = call(HttpMethod.Get, "/pick-org-defaults").pangolinData().jsonObject
-        call(HttpMethod.Put, "/org", buildJsonObject {
+        val body = buildJsonObject {
             put("orgId", orgId)
             put("name", name)
             put("subnet", defaults["subnet"]!!)
             put("utilitySubnet", defaults["utilitySubnet"]!!)
-        }).pangolinData()
+        }
+        call(HttpMethod.Put, "/org", body).pangolinData()
     }
 
     /** Returns (apiKeyId, secret). */
     suspend fun createRootApiKey(name: String): Pair<String, String> {
-        val d = call(HttpMethod.Put, "/api-key", buildJsonObject { put("name", name) }).pangolinData().jsonObject
-        return d["apiKeyId"]!!.jsonPrimitive.content to d["apiKey"]!!.jsonPrimitive.content
+        val body = buildJsonObject { put("name", name) }
+        val key = call(HttpMethod.Put, "/api-key", body).pangolinData().jsonObject
+        return key["apiKeyId"]!!.jsonPrimitive.content to key["apiKey"]!!.jsonPrimitive.content
     }
 
     suspend fun listRootApiKeys(): List<Pair<String, String>> {
-        val d = call(HttpMethod.Get, "/api-keys").pangolinData().jsonObject
-        return (d["apiKeys"] as? JsonArray).orEmpty().map {
-            val o = it.jsonObject
-            o["apiKeyId"]!!.jsonPrimitive.content to (o["name"]?.jsonPrimitive?.contentOrNull.orEmpty())
+        val data = call(HttpMethod.Get, "/api-keys").pangolinData().jsonObject
+        return (data["apiKeys"] as? JsonArray).orEmpty().map {
+            val key = it.jsonObject
+            key["apiKeyId"]!!.jsonPrimitive.content to (key["name"]?.jsonPrimitive?.contentOrNull.orEmpty())
         }
     }
 
@@ -424,9 +409,10 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
     }
 
     suspend fun setApiKeyActions(apiKeyId: String, actions: List<String>) {
-        call(HttpMethod.Post, "/api-key/$apiKeyId/actions", buildJsonObject {
+        val body = buildJsonObject {
             put("actionIds", JsonArray(actions.map { JsonPrimitive(it) }))
-        }).pangolinData()
+        }
+        call(HttpMethod.Post, "/api-key/$apiKeyId/actions", body).pangolinData()
     }
 
     suspend fun activateLicense(key: String) {
@@ -434,40 +420,36 @@ class PangolinBootstrapClient(private val http: HttpClient, private val baseUrl:
     }
 
     /**
-     * Completes an invite with a password: creates the user (and a session for it), then accepts
-     * the invite so the user joins the org with the invite's roles. [inviteToken] is the invite
-     * link's `token` parameter (`<inviteId>-<token>`).
+     * Completes an invite with a password. Creates the user and a session for it. Then accepts
+     * the invite, so the user joins the org with the roles of the invite. [inviteToken] is the
+     * `token` parameter of the invite link (`<inviteId>-<token>`).
      */
     suspend fun signUpWithInvite(email: String, password: String, inviteToken: String) {
         val inviteId = inviteToken.substringBefore('-')
         val token = inviteToken.substringAfter('-')
-        val resp = call(HttpMethod.Put, "/auth/signup", buildJsonObject {
+        val signup = buildJsonObject {
             put("email", email)
             put("password", password)
             put("inviteId", inviteId)
             put("inviteToken", token)
             put("skipVerificationEmail", true)
-        })
-        resp.pangolinData()
-        val userSession = resp.setCookie().firstOrNull { it.name == "p_session_token" }?.value
-            ?: throw PangolinApiException(resp.status.value, "signup did not return a session")
+        }
+        val accept = buildJsonObject {
+            put("inviteId", inviteId)
+            put("token", token)
+        }
+        val response = call(HttpMethod.Put, "/auth/signup", signup)
+        response.pangolinData()
+        val userSession = response.setCookie().firstOrNull { it.name == SESSION_COOKIE }?.value
+            ?: throw PangolinApiException(response.status.value, "signup did not return a session")
         val previous = session
         session = userSession
         try {
-            call(
-                HttpMethod.Post,
-                "/invite/accept",
-                buildJsonObject {
-                    put("inviteId", inviteId)
-                    put("token", token)
-                }
-            ).pangolinData()
+            call(HttpMethod.Post, "/invite/accept", accept).pangolinData()
         } finally {
             session = previous
         }
     }
-
-    suspend fun licenseKeys(): JsonElement = call(HttpMethod.Get, "/license/keys").pangolinData()
 
     /** Makes a running instance re-read the license (activated through another cluster node). */
     suspend fun recheckLicense() {

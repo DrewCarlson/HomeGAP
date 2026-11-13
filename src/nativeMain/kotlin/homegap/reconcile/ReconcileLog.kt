@@ -10,6 +10,7 @@ import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.builtins.ListSerializer
+import kotlin.concurrent.Volatile
 
 /**
  * Bounded log of reconcile actions, grouped by domain for the dashboard. With a [path] it is kept
@@ -25,13 +26,15 @@ class ReconcileLog(
     private var changeCount = 0
     private var errorCount = 0
     private var seq = 0L
-
     private var savedSeq = 0L
 
-    /** When a change was last logged for this DNS record name (`record` field), kept across the log's size. */
+    /**
+     * The time of the last change for each DNS record name (the `record` field). It keeps a name
+     * also after the entry leaves the log.
+     */
     private val recordChanges = mutableMapOf<String, Long>()
 
-    /** Sequence number of the newest entry; observers are woken on every new entry. */
+    /** The sequence number of the newest entry. Each new entry wakes the observers. */
     val revision = MutableStateFlow(0L)
 
     init {
@@ -55,12 +58,13 @@ class ReconcileLog(
             entries.toList()
         }
         runCatching {
-            Files.writeAtomic(target, ApiJson.encodeToString(ListSerializer(LogEntryDto.serializer()), snapshot), "600".toInt(8))
+            val text = ApiJson.encodeToString(ListSerializer(LogEntryDto.serializer()), snapshot)
+            Files.writeAtomic(target, text, "600".toInt(8))
         }.onFailure { logger.warn { "could not save the activity log to $target: ${it.message}" } }
     }
 
-    /** The pass being run; entries written meanwhile carry it. Null between passes. */
-    @kotlin.concurrent.Volatile
+    /** The pass that runs now. Each entry of that time has its number. Null between passes. */
+    @Volatile
     var pass: Long? = null
 
     /** The number the next pass gets: one more than the last pass in the log. */
@@ -68,16 +72,25 @@ class ReconcileLog(
 
     fun info(domain: String, message: String, target: String? = null, fields: Map<String, String> = emptyMap()) =
         add(LogLevel.INFO, domain, message, target, fields)
+
     fun change(domain: String, message: String, target: String? = null, fields: Map<String, String> = emptyMap()) =
         add(LogLevel.CHANGE, domain, message, target, fields)
 
-
-    fun lastRecordChange(name: String): Long? = synchronized(lock) { recordChanges[name] }
     fun warn(domain: String, message: String, target: String? = null) = add(LogLevel.WARN, domain, message, target)
+
     fun error(domain: String, message: String, target: String? = null, fields: Map<String, String> = emptyMap()) =
         add(LogLevel.ERROR, domain, message, target, fields)
 
-    private fun add(level: LogLevel, domain: String, message: String, target: String?, fields: Map<String, String> = emptyMap()) {
+    /** The time of the last change in the log for the DNS record [name], or null if there is none. */
+    fun lastRecordChange(name: String): Long? = synchronized(lock) { recordChanges[name] }
+
+    private fun add(
+        level: LogLevel,
+        domain: String,
+        message: String,
+        target: String?,
+        fields: Map<String, String> = emptyMap(),
+    ) {
         val line = "[$domain]${target?.let { " [$it]" }.orEmpty()} $message"
         when (level) {
             LogLevel.ERROR -> logger.error { line }
@@ -99,9 +112,11 @@ class ReconcileLog(
                     seq = seq,
                     pass = pass,
                     fields = fields,
-                )
+                ),
             )
-            while (entries.size > capacity) entries.removeFirst()
+            while (entries.size > capacity) {
+                entries.removeFirst()
+            }
         }
         revision.value = seq
     }
@@ -137,8 +152,11 @@ class ReconcileLog(
     /** Counts an error that is already in the log and is still there in this pass. */
     fun stillFailing() = synchronized(lock) { errorCount++ }
 
-    /** Counters since the last call (used to summarise one reconcile pass). */
+    /** Returns the number of changes and of errors since the last call, for the summary of one pass. */
     fun drainCounters(): Pair<Int, Int> = synchronized(lock) {
-        (changeCount to errorCount).also { changeCount = 0; errorCount = 0 }
+        val counters = changeCount to errorCount
+        changeCount = 0
+        errorCount = 0
+        counters
     }
 }

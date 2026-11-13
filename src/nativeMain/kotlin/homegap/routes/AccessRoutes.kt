@@ -14,6 +14,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 
 /** The cluster's users, invitations and devices. */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -21,23 +22,36 @@ class AccessRoutes(private val access: AccessService) : RoutingController {
     override fun init(parent: Route) {
         parent.route("/access") {
             get { respondRevalidated(access.overview()) }
-            post("/users") { call.respond(access.createUser(call.receive<CreateAccessUserRequest>()).also { access.changed() }) }
+            post("/users") {
+                val created = access.createUser(call.receive<CreateAccessUserRequest>())
+                access.changed()
+                call.respond(created)
+            }
             delete("/users/{id}") {
                 val (message, undo) = access.removeUser(param("id"))
                 call.respond(ActionResponse(true, message, undo))
             }
             put("/users/{id}/roles") {
                 val roles = call.receive<SetAccessRolesRequest>().roleIds
-                call.respond(ActionResponse(true, access.setRoles(param("id"), roles).also { access.changed() }))
+                val message = access.setRoles(param("id"), roles)
+                access.changed()
+                call.respond(ActionResponse(true, message))
             }
             post("/invitations/{id}/reissue") { call.respond(access.reissueInvitation(param("id"))) }
-            delete("/invitations/{id}") { call.respond(ActionResponse(true, access.removeInvitation(param("id")).also { access.changed() })) }
+            delete("/invitations/{id}") {
+                val message = access.removeInvitation(param("id"))
+                access.changed()
+                call.respond(ActionResponse(true, message))
+            }
             post("/devices/{id}/{action}") {
                 val id = requireNotNull(param("id").toIntOrNull()) { "device id must be a number" }
-                call.respond(ActionResponse(true, access.deviceAction(id, param("action")).also { access.changed() }))
+                val message = access.deviceAction(id, param("action"))
+                access.changed()
+                call.respond(ActionResponse(true, message))
             }
         }
     }
 
-    private fun RoutingContext.param(name: String): String = requireNotNull(call.parameters[name]) { "$name required" }
+    private fun RoutingContext.param(name: String): String =
+        requireNotNull(call.parameters[name]) { "$name required" }
 }

@@ -55,9 +55,11 @@ class CertOrderStore(dir: String) {
     private var cachedHistory: List<Record>? = null
 
     fun state(): State = synchronized(lock) {
-        cachedState ?: (Files.readTextOrNull(stateFile)?.let { runCatching { json.decodeFromString<State>(it) }.getOrNull() } ?: State())
-            .also { cachedState = it }
+        cachedState ?: (readState() ?: State()).also { cachedState = it }
     }
+
+    private fun readState(): State? =
+        Files.readTextOrNull(stateFile)?.let { runCatching { json.decodeFromString<State>(it) }.getOrNull() }
 
     fun update(change: (State) -> State): State = synchronized(lock) {
         val next = change(state())
@@ -68,9 +70,11 @@ class CertOrderStore(dir: String) {
 
     /** Newest first. */
     fun history(): List<Record> = synchronized(lock) {
-        cachedHistory ?: (Files.readTextOrNull(historyFile)?.let { runCatching { json.decodeFromString<List<Record>>(it) }.getOrNull() } ?: emptyList())
-            .also { cachedHistory = it }
+        cachedHistory ?: readHistory().orEmpty().also { cachedHistory = it }
     }
+
+    private fun readHistory(): List<Record>? =
+        Files.readTextOrNull(historyFile)?.let { runCatching { json.decodeFromString<List<Record>>(it) }.getOrNull() }
 
     fun add(record: Record) = synchronized(lock) {
         val next = (listOf(record) + history()).take(HISTORY)
@@ -104,25 +108,38 @@ data class OrderCause(val code: String, val text: String) {
 
         /** Reads the cause from the error text of an order. */
         fun of(message: String): OrderCause {
-            val m = message.lowercase()
+            val text = message.lowercase()
+            fun has(vararg marks: String) = marks.any { it in text }
             return when {
-                "do not fit on one certificate" in m -> TOO_MANY_NAMES
-                "bunny" in m && ("key" in m || "zone" in m || "401" in m || "unauthorized" in m) -> BUNNY_KEY
-                "ratelimited" in m || "rate limit" in m || "too many" in m -> RATE_LIMIT
-                "caa" in m -> CAA
-                "propagation" in m || "time limit exceeded" in m || "txt record" in m || "dns problem" in m || "nxdomain" in m -> DNS_TIMEOUT
-                "connection refused" in m || "no such host" in m || "i/o timeout" in m || "dial tcp" in m ||
-                    "get directory" in m || "could not create client" in m || "service unavailable" in m -> ACME_UNREACHABLE
+                has("do not fit on one certificate") -> TOO_MANY_NAMES
+                "bunny" in text && has("key", "zone", "401", "unauthorized") -> BUNNY_KEY
+                has("ratelimited", "rate limit", "too many") -> RATE_LIMIT
+                has("caa") -> CAA
+                has(*DNS_TIMEOUT_MARKS) -> DNS_TIMEOUT
+                has(*ACME_UNREACHABLE_MARKS) -> ACME_UNREACHABLE
                 else -> OTHER
             }
         }
 
         /**
-         * The error text without anything that looks like a challenge value or a token. An ACME
-         * client can print one in an error; the activity log never holds it.
+         * The error text without the parts that look like a challenge value or a token. An ACME
+         * client can print one in an error, and the activity log must not hold it.
          */
         fun redact(text: String): String = TOKEN.replace(text, "[hidden]")
 
         private val TOKEN = Regex("[A-Za-z0-9_-]{40,}")
+
+        // Parts of the error text of Lego, in lower case.
+        private val DNS_TIMEOUT_MARKS =
+            arrayOf("propagation", "time limit exceeded", "txt record", "dns problem", "nxdomain")
+        private val ACME_UNREACHABLE_MARKS = arrayOf(
+            "connection refused",
+            "no such host",
+            "i/o timeout",
+            "dial tcp",
+            "get directory",
+            "could not create client",
+            "service unavailable",
+        )
     }
 }

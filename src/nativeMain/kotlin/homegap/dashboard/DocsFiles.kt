@@ -40,9 +40,9 @@ object DocsFiles {
 
     /** The file under the docs directory a request path names, or null if it names none. */
     internal fun resolve(requestPath: String, dir: String = DIR): String? {
-        val rel = MapFiles.decode(requestPath).removePrefix(PREFIX).trimStart('/')
-        if (".." in rel.split('/') || '\\' in rel || '\u0000' in rel) return null
-        val path = "$dir/$rel".trimEnd('/')
+        val relative = MapFiles.decode(requestPath).removePrefix(PREFIX).trimStart('/')
+        if (".." in relative.split('/') || '\\' in relative || '\u0000' in relative) return null
+        val path = "$dir/$relative".trimEnd('/')
         return when {
             Files.isDirectory(path) -> "$path/index.html".takeIf { Files.exists(it) }
             Files.exists(path) -> path
@@ -55,18 +55,24 @@ object DocsFiles {
         if (requestPath == PREFIX) return call.respondRedirect("$PREFIX/")
         // A directory without its slash: relative links on the page need it.
         val file = resolve(requestPath)
-        if (file != null && file.endsWith("/index.html") && !requestPath.endsWith("/") && !requestPath.endsWith("index.html")) {
+        val directoryWithoutSlash = file != null &&
+            file.endsWith("/index.html") &&
+            !requestPath.endsWith("/") &&
+            !requestPath.endsWith("index.html")
+        if (directoryWithoutSlash) {
             return call.respondRedirect("$requestPath/")
         }
         if (file == null) {
             val notFound = resolve("$PREFIX/404.html")
-            if (notFound == null) return call.respond(HttpStatusCode.NotFound, NO_DOCS)
-            return call.respondBytes(Files.readBytes(notFound), ContentType.parse(TYPES.getValue("html")), HttpStatusCode.NotFound)
+                ?: return call.respond(HttpStatusCode.NotFound, NO_DOCS)
+            val page = Files.readBytes(notFound)
+            return call.respondBytes(page, ContentType.parse(TYPES.getValue("html")), HttpStatusCode.NotFound)
         }
         call.response.header(HttpHeaders.CacheControl, "no-cache")
         val type = TYPES[file.substringAfterLast('.', "").lowercase()] ?: "application/octet-stream"
         call.respondBytes(Files.readBytes(file), ContentType.parse(type))
     }
 
-    private const val NO_DOCS = "The documentation is not part of this build. It is in the docs/ folder of the repository."
+    private const val NO_DOCS =
+        "The documentation is not part of this build. It is in the docs/ folder of the repository."
 }

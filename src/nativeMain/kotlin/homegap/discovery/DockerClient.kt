@@ -1,15 +1,13 @@
 package homegap.discovery
 
+import homegap.platform.runCatchingCancellable
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.client.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.utils.io.*
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withTimeout
@@ -22,7 +20,10 @@ import kotlin.time.Duration.Companion.seconds
  * Docker Engine API client that only reads (container list, events, image metadata). It talks to
  * [host] when one is given (`tcp://name:port`, a filtering socket proxy), else to the unix socket.
  * A socket mount gives the whole API whatever its mount mode, so the proxy is what limits it.
+ *
+ * The requests use plain HTTP, because the Docker socket and the socket proxy have no TLS.
  */
+@Suppress("HttpUrlsUsage")
 class DockerClient(
     client: HttpClient,
     private val json: Json,
@@ -31,27 +32,40 @@ class DockerClient(
 ) {
     private val logger = KotlinLogging.logger {}
     private val requestTimeout = 10.seconds
-    private val tcp = host?.trim()?.takeIf { it.startsWith("tcp://") || it.startsWith("http://") }
-        ?.substringAfter("://")?.trimEnd('/')?.takeIf { it.isNotEmpty() }
-    private val baseUrl = "http://${tcp ?: "localhost"}/v1.43"
+    private val tcp = host?.trim()
+        ?.takeIf { it.startsWith("tcp://") || it.startsWith("http://") }
+        ?.substringAfter("://")
+        ?.trimEnd('/')
+        ?.takeIf { it.isNotEmpty() }
+    private val baseUrl = "http://${tcp ?: "localhost"}/$API_VERSION"
 
-    private val httpClient = if (tcp != null) client else client.config {
-        defaultRequest { unixSocket(socketPath) }
+    private val httpClient = when {
+        tcp != null -> client
+        else -> client.config { defaultRequest { unixSocket(socketPath) } }
     }
 
     suspend fun listContainers(filters: Map<String, List<String>>): List<DockerContainerSummary> =
         withTimeout(requestTimeout) {
-            val resp = httpClient.get("$baseUrl/containers/json") { parameter("filters", json.encodeToString(filters)) }
-            check(resp.status.value in 200..299) { "Docker API ${resp.status.value}: ${resp.bodyAsText().take(200)}" }
-            json.decodeFromString<List<DockerContainerSummary>>(resp.bodyAsText())
+            val response = httpClient.get("$baseUrl/containers/json") {
+                parameter("filters", json.encodeToString(filters))
+            }
+            json.decodeFromString<List<DockerContainerSummary>>(bodyOf(response))
         }
 
     /** A local image by reference (`repo:tag`, `repo@digest` or id), or null when it isn't here. */
     suspend fun image(ref: String): DockerImage? = withTimeout(requestTimeout) {
-        val resp = httpClient.get("$baseUrl/images/$ref/json")
-        if (resp.status.value == 404) return@withTimeout null
-        check(resp.status.value in 200..299) { "Docker API ${resp.status.value}: ${resp.bodyAsText().take(200)}" }
-        json.decodeFromString<DockerImage>(resp.bodyAsText())
+        val response = httpClient.get("$baseUrl/images/$ref/json")
+        if (response.status.value == NOT_FOUND) {
+            return@withTimeout null
+        }
+        json.decodeFromString<DockerImage>(bodyOf(response))
+    }
+
+    /** Returns the body of [response]. Throws with the start of the body if the status is an error. */
+    private suspend fun bodyOf(response: HttpResponse): String {
+        val status = response.status.value
+        check(status in 200..299) { "Docker API $status: ${response.bodyAsText().take(ERROR_BODY_CHARS)}" }
+        return response.bodyAsText()
     }
 
     fun streamEvents(filters: Map<String, List<String>>): Flow<DockerEvent> = callbackFlow {
@@ -62,19 +76,21 @@ class DockerClient(
             val channel: ByteReadChannel = response.bodyAsChannel()
             while (!channel.isClosedForRead) {
                 val line = channel.readLine() ?: break
-                if (line.isBlank()) continue
-                try {
-                    send(json.decodeFromString<DockerEvent>(line))
-                } catch (e: Exception) {
-                    if (e is CancellationException) {
-                        currentCoroutineContext().ensureActive()
-                    }
-                    logger.warn(e) { "Failed to parse Docker event: $line" }
+                if (line.isBlank()) {
+                    continue
                 }
+                runCatchingCancellable { send(json.decodeFromString<DockerEvent>(line)) }
+                    .onFailure { e -> logger.warn(e) { "Failed to parse Docker event: $line" } }
             }
         }
         close()
         awaitClose()
+    }
+
+    private companion object {
+        const val API_VERSION = "v1.43"
+        const val NOT_FOUND = 404
+        const val ERROR_BODY_CHARS = 200
     }
 }
 
@@ -117,11 +133,13 @@ data class DockerImage(
     @SerialName("Created") val created: String = "",
 ) {
     /**
-     * [ref] pinned to the registry digest this image was pulled by (`repo@sha256:…`), so another
-     * host pulls exactly this image; [ref] itself for an image that never came from a registry.
+     * Returns [ref] with the registry digest of this image (`repo@sha256:…`), so another host pulls
+     * exactly this image. Returns [ref] itself for an image that did not come from a registry.
      */
     fun pinned(ref: String): String {
-        val repo = ref.substringBefore('@').let { r -> if (r.lastIndexOf(':') > r.lastIndexOf('/')) r.substringBeforeLast(':') else r }
+        val name = ref.substringBefore('@')
+        val hasTag = name.lastIndexOf(':') > name.lastIndexOf('/')
+        val repo = if (hasTag) name.substringBeforeLast(':') else name
         return repoDigests.orEmpty().firstOrNull { it.substringBefore('@') == repo } ?: ref
     }
 }

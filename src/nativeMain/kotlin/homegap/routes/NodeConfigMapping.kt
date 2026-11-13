@@ -21,7 +21,7 @@ internal fun NodeConfig.toDto() = NodeConfigDto(
     sshAllowFrom = sshAllowFrom,
 )
 
-/** Validates a node submitted from the dashboard (400 on bad input via IllegalArgumentException). */
+/** Checks a node that the dashboard sends. Bad input throws IllegalArgumentException, which gives a 400. */
 internal fun NodeConfigDto.toConfig(): NodeConfig {
     require(ConfigLoader.NODE_ID.matches(id)) { "node id must match ${ConfigLoader.NODE_ID.pattern}" }
     require(host.isNotBlank()) { "host is required" }
@@ -35,10 +35,18 @@ internal fun NodeConfigDto.toConfig(): NodeConfig {
         sshUser = sshUser,
         sshPort = sshPort,
         sshKeyFile = sshKeyFile,
-        location = latitude?.let { lat -> longitude?.let { lon -> GeoLocation(lat, lon, locationName?.trim()?.ifBlank { null }) } },
+        location = location(),
         managementHost = managementHost?.takeIf { it.isNotBlank() },
         sshAllowFrom = sshAllowFrom.map { it.trim() }.filter { it.isNotEmpty() },
     )
-    ConfigLoader.nodeErrors(node).firstOrNull()?.let { throw IllegalArgumentException(it) }
+    val error = ConfigLoader.nodeErrors(node).firstOrNull()
+    require(error == null) { error.orEmpty() }
     return node
+}
+
+/** The location of the node, or null if the latitude or the longitude is not there. */
+private fun NodeConfigDto.location(): GeoLocation? {
+    val latitude = latitude ?: return null
+    val longitude = longitude ?: return null
+    return GeoLocation(latitude, longitude, locationName?.trim()?.ifBlank { null })
 }

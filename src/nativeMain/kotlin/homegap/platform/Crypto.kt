@@ -1,71 +1,75 @@
 package homegap.platform
 
 import kotlinx.cinterop.*
-import okio.ByteString.Companion.encodeUtf8
 import platform.posix.*
 
 object Crypto {
     private const val ALNUM_LOWER = "abcdefghijklmnopqrstuvwxyz0123456789"
     private const val ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    private const val SETUP_TOKEN_LENGTH = 32
+    private const val PASSWORD_TOKEN_LENGTH = 28
+
+    /** One character of each class that the password policy of Pangolin asks for. */
+    private const val PASSWORD_SUFFIX = "-Aa1!"
 
     /** Cryptographically secure random bytes from the kernel CSPRNG. */
-    fun randomBytes(n: Int): ByteArray {
-        val out = ByteArray(n)
+    fun randomBytes(count: Int): ByteArray {
+        val bytes = ByteArray(count)
         val fd = open("/dev/urandom", O_RDONLY)
         check(fd >= 0) { "cannot open /dev/urandom" }
         try {
-            out.usePinned { p ->
-                var off = 0
-                while (off < n) {
-                    val r = read(fd, p.addressOf(off), (n - off).convert())
-                    check(r > 0) { "short read from /dev/urandom" }
-                    off += r.toInt()
+            bytes.usePinned { pinned ->
+                var offset = 0
+                while (offset < count) {
+                    val received = read(fd, pinned.addressOf(offset), (count - offset).convert())
+                    check(received > 0) { "short read from /dev/urandom" }
+                    offset += received.toInt()
                 }
             }
         } finally {
             close(fd)
         }
-        return out
+        return bytes
     }
 
     /** Unbiased random string over [alphabet] (rejection sampling). */
     fun token(length: Int, alphabet: String = ALNUM): String {
         val limit = 256 - (256 % alphabet.length)
-        val sb = StringBuilder(length)
-        while (sb.length < length) {
-            for (b in randomBytes(length * 2)) {
-                val v = b.toInt() and 0xff
-                if (v < limit) sb.append(alphabet[v % alphabet.length])
-                if (sb.length == length) break
+        val text = StringBuilder(length)
+        while (text.length < length) {
+            for (byte in randomBytes(length * 2)) {
+                val value = byte.toInt() and 0xff
+                if (value < limit) text.append(alphabet[value % alphabet.length])
+                if (text.length == length) break
             }
         }
-        return sb.toString()
+        return text.toString()
     }
 
-    /** Pangolin requires setup tokens matching ^[a-z0-9]{32}$. */
-    fun setupToken(): String = token(32, ALNUM_LOWER)
+    /** Pangolin requires a setup token that matches ^[a-z0-9]{32}$. */
+    fun setupToken(): String = token(SETUP_TOKEN_LENGTH, ALNUM_LOWER)
 
-    /** Password satisfying Pangolin's policy (upper, lower, digit, symbol). */
-    fun password(): String = token(28) + "-Aa1!"
+    /** A password that satisfies the policy of Pangolin (upper, lower, digit, symbol). */
+    fun password(): String = token(PASSWORD_TOKEN_LENGTH) + PASSWORD_SUFFIX
 
-    /** SHA-256 of [s] (UTF-8) as lowercase hex. */
-    fun sha256Hex(s: String): String = s.encodeUtf8().sha256().hex()
-
-    /** Whether [a] and [b] are equal, in time that does not depend on where they differ. */
-    fun constantTimeEquals(a: String, b: String): Boolean {
-        val x = a.encodeToByteArray()
-        val y = b.encodeToByteArray()
-        var diff = x.size xor y.size
-        for (i in x.indices) diff = diff or (x[i].toInt() xor (if (y.isEmpty()) 0 else y[i % y.size].toInt()))
+    /** Whether [first] and [second] are equal, in time that does not depend on where they differ. */
+    fun constantTimeEquals(first: String, second: String): Boolean {
+        val firstBytes = first.encodeToByteArray()
+        val secondBytes = second.encodeToByteArray()
+        var diff = firstBytes.size xor secondBytes.size
+        for (i in firstBytes.indices) {
+            val other = if (secondBytes.isEmpty()) 0 else secondBytes[i % secondBytes.size].toInt()
+            diff = diff or (firstBytes[i].toInt() xor other)
+        }
         return diff == 0
     }
 
-    fun fnv64(s: String): String {
-        var h = 0xcbf29ce484222325uL
-        for (b in s.encodeToByteArray()) {
-            h = h xor (b.toULong() and 0xffuL)
-            h *= 0x100000001b3uL
+    fun fnv64(text: String): String {
+        var hash = 0xcbf29ce484222325uL
+        for (byte in text.encodeToByteArray()) {
+            hash = hash xor (byte.toULong() and 0xffuL)
+            hash *= 0x100000001b3uL
         }
-        return h.toString(16).padStart(16, '0')
+        return hash.toString(16).padStart(16, '0')
     }
 }

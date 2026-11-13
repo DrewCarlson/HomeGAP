@@ -12,6 +12,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 
 /** The actions of the Certificates screen. None of them moves certificate material. */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject

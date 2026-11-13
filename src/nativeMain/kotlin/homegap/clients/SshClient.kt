@@ -5,7 +5,7 @@ import homegap.platform.Files
 import homegap.platform.ProcessResult
 import homegap.platform.Subprocess
 import homegap.platform.nowMillis
-import io.github.oshai.kotlinlogging.KotlinLogging
+import homegap.provision.ClusterTemplates
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.io.encoding.Base64
@@ -14,7 +14,7 @@ import kotlin.time.Duration.Companion.seconds
 class SshException(message: String) : Exception(message)
 
 /**
- * Thin wrapper over the OpenSSH client binary using a persistent ControlMaster per node, so
+ * A thin wrapper over the OpenSSH client binary. It keeps one ControlMaster for each node, so
  * repeated commands and port-forwards reuse one authenticated connection.
  */
 class SshSession(
@@ -23,7 +23,6 @@ class SshSession(
     private val knownHostsFile: String,
     private val sshBinary: String = "ssh",
 ) {
-    private val logger = KotlinLogging.logger {}
     private val mutex = Mutex()
     private val controlPath = "$controlDir/${node.id}.sock"
     private val forwards = mutableMapOf<Int, Int>()
@@ -45,35 +44,47 @@ class SshSession(
 
     private val target: String get() = "${node.sshUser}@${node.host}"
 
-    private suspend fun io(argv: List<String>, stdin: String = "", timeout: Int = 900): ProcessResult =
-        Subprocess.run(argv, stdin, timeout.seconds)
+    private suspend fun ssh(
+        args: List<String>,
+        stdin: String = "",
+        timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS,
+    ): ProcessResult =
+        Subprocess.run(baseArgs() + args, stdin, timeoutSeconds.seconds)
 
-    /** When the master connection was last known to be up; checks within [MASTER_TRUST] are skipped. */
+    /**
+     * The last time that the master connection was up. For [MASTER_TRUST_MS] after it,
+     * [ensureMaster] does not check the connection again.
+     */
     private var masterVerifiedAt = 0L
 
-    private fun markMasterSuspect() { masterVerifiedAt = 0L }
+    private fun markMasterSuspect() {
+        masterVerifiedAt = 0L
+    }
+
+    private suspend fun masterIsUp(): Boolean =
+        ssh(listOf("-O", "check", target), timeoutSeconds = CONTROL_TIMEOUT_SECONDS).ok
 
     suspend fun ensureMaster() = mutex.withLock {
-        // Every pass runs several commands per node; one `ssh -O check` fork per window is enough.
+        // Every pass runs several commands per node. One `ssh -O check` fork per window is enough.
         if (nowMillis() - masterVerifiedAt < MASTER_TRUST_MS) return@withLock
         Files.mkdirs(controlDir)
         Files.chmodPath(controlDir, "700".toInt(8))
-        if (io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
+        if (masterIsUp()) {
             masterVerifiedAt = nowMillis()
             return@withLock
         }
         forwards.clear()
-        // A socket left behind by a previous process (e.g. container restart) blocks a new master.
+        // A socket from a previous process (for example a container restart) blocks a new master.
         Files.delete(controlPath)
-        // `ssh -f` returns once logged in; the master it leaves behind detaches from our pipes.
-        val r = io(
-            baseArgs() + listOf("-M", "-f", "-N", "-o", "ControlPersist=15m", "-o", "ExitOnForwardFailure=yes", target),
-            timeout = 60,
+        // `ssh -f` returns after the login. The master that stays detaches from our pipes.
+        val login = ssh(
+            listOf("-M", "-f", "-N", "-o", "ControlPersist=15m", "-o", "ExitOnForwardFailure=yes", target),
+            timeoutSeconds = LOGIN_TIMEOUT_SECONDS,
         )
-        if (!r.ok || !io(baseArgs() + listOf("-O", "check", target), timeout = 20).ok) {
-            val detail = r.stderr.trim().takeLast(500).takeIf { it.isNotEmpty() }
-                ?: "the connection was closed or dropped before login, with no message from ssh (a login blocker such as fail2ban may have banned this address)"
-            throw SshException("ssh to ${node.id} (${node.host}) failed (exit ${r.exitCode}): $detail")
+        if (!login.ok || !masterIsUp()) {
+            val detail = login.stderr.trim().takeLast(LOGIN_ERROR_LENGTH).takeIf { it.isNotEmpty() }
+                ?: NO_MESSAGE_FROM_SSH
+            throw SshException("ssh to ${node.id} (${node.host}) failed (exit ${login.exitCode}): $detail")
         }
         masterVerifiedAt = nowMillis()
     }
@@ -88,24 +99,31 @@ class SshSession(
     }
 
     /**
-     * Runs a bash script on the node as root (via `sudo -n` unless already root). Scripts start
-     * with [ownerPreamble]: `hg_own` hands HomeGAP's files to the login user, and Docker then runs
-     * as that user.
+     * Runs a bash script on the node as root (through `sudo -n` unless the login user is root).
+     * Scripts start with [ownerPreamble]: `hg_own` hands HomeGAP's files to the login user, and
+     * Docker then runs as that user.
      */
-    suspend fun runScript(script: String, timeoutSeconds: Int = 900): ProcessResult {
+    suspend fun runScript(script: String, timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS): ProcessResult {
         ensureMaster()
         val wrapped = "set -euo pipefail\n${ownerPreamble(node.sshUser)}\n$script\n"
-        val cmd = if (node.sshUser == "root") "bash -s" else "sudo -n bash -s"
-        val r = io(baseArgs() + listOf(target, cmd), wrapped, timeoutSeconds)
-        // 255 is ssh's own failure (connection lost): re-check the master next time.
-        if (r.exitCode == 255) markMasterSuspect()
-        return r
+        val shell = if (node.sshUser == "root") "bash -s" else "sudo -n bash -s"
+        val result = ssh(listOf(target, shell), wrapped, timeoutSeconds)
+        // This exit code is ssh's own failure (connection lost): re-check the master next time.
+        if (result.exitCode == SSH_FAILURE_EXIT) markMasterSuspect()
+        return result
     }
 
-    suspend fun runScriptOrThrow(step: String, script: String, timeoutSeconds: Int = 900): String {
-        val r = runScript(script, timeoutSeconds)
-        if (!r.ok) throw SshException("[$step] exit ${r.exitCode}: ${(r.stderr.ifBlank { r.stdout }).trim().takeLast(1500)}")
-        return r.stdout
+    suspend fun runScriptOrThrow(
+        step: String,
+        script: String,
+        timeoutSeconds: Int = DEFAULT_TIMEOUT_SECONDS,
+    ): String {
+        val result = runScript(script, timeoutSeconds)
+        if (!result.ok) {
+            val output = result.stderr.ifBlank { result.stdout }.trim().takeLast(SCRIPT_ERROR_LENGTH)
+            throw SshException("[$step] exit ${result.exitCode}: $output")
+        }
+        return result.stdout
     }
 
     /**
@@ -117,13 +135,17 @@ class SshSession(
         return mutex.withLock {
             forwards[remotePort]?.let { return@withLock it }
             var local = localBase
-            repeat(50) {
-                val r = io(baseArgs() + listOf("-O", "forward", "-L", "127.0.0.1:$local:127.0.0.1:$remotePort", target), timeout = 20)
-                if (r.ok) {
+            repeat(FORWARD_ATTEMPTS) {
+                val forward = "127.0.0.1:$local:127.0.0.1:$remotePort"
+                val result = ssh(
+                    listOf("-O", "forward", "-L", forward, target),
+                    timeoutSeconds = CONTROL_TIMEOUT_SECONDS,
+                )
+                if (result.ok) {
                     forwards[remotePort] = local
                     return@withLock local
                 }
-                if (r.exitCode == 255 && "forward" !in r.stderr) markMasterSuspect()
+                if (result.exitCode == SSH_FAILURE_EXIT && "forward" !in result.stderr) markMasterSuspect()
                 local++
             }
             throw SshException("could not open a port-forward to ${node.id}:$remotePort")
@@ -131,34 +153,52 @@ class SshSession(
     }
 
     suspend fun close() = mutex.withLock {
-        io(baseArgs() + listOf("-O", "exit", target), timeout = 10)
+        ssh(listOf("-O", "exit", target), timeoutSeconds = EXIT_TIMEOUT_SECONDS)
         forwards.clear()
         masterVerifiedAt = 0L
     }
 
     companion object {
+        const val MASTER_TRUST_MS = 30_000L
+        const val DEFAULT_TIMEOUT_SECONDS = 900
+
+        private const val CONTROL_TIMEOUT_SECONDS = 20
+        private const val LOGIN_TIMEOUT_SECONDS = 60
+        private const val EXIT_TIMEOUT_SECONDS = 10
+        private const val FORWARD_ATTEMPTS = 50
+        private const val SSH_FAILURE_EXIT = 255
+        private const val LOGIN_ERROR_LENGTH = 500
+        private const val SCRIPT_ERROR_LENGTH = 1500
+        private const val ROOT_PREAMBLE = "hg_own() { :; }"
+        private const val NO_MESSAGE_FROM_SSH =
+            "the connection was closed or dropped before login, with no message from ssh " +
+                "(a login blocker such as fail2ban may have banned this address)"
+
         /** Shell snippet that writes [content] to [path] atomically with [mode], only if it changed. */
-        fun writeFileSnippet(path: String, content: String, mode: String = "0644", owner: String = "root:root"): String {
-            val b64 = Base64.encode(content.encodeToByteArray())
-            val q = shQuote(path)
+        fun writeFileSnippet(
+            path: String,
+            content: String,
+            mode: String = "0644",
+            owner: String = "root:root",
+        ): String {
+            val encoded = Base64.encode(content.encodeToByteArray())
+            val quoted = shQuote(path)
             return """
-                |install -d -m 0755 "$(dirname $q)"
-                |printf '%s' '$b64' | base64 -d > $q.homegap-new
-                |if ! cmp -s $q.homegap-new $q 2>/dev/null; then chmod $mode $q.homegap-new; chown $owner $q.homegap-new; mv -f $q.homegap-new $q; echo "CHANGED $path"; else rm -f $q.homegap-new; chmod $mode $q; fi
+                |install -d -m 0755 "$(dirname $quoted)"
+                |printf '%s' '$encoded' | base64 -d > $quoted.homegap-new
+                |if ! cmp -s $quoted.homegap-new $quoted 2>/dev/null; then chmod $mode $quoted.homegap-new; chown $owner $quoted.homegap-new; mv -f $quoted.homegap-new $quoted; echo "CHANGED $path"; else rm -f $quoted.homegap-new; chmod $mode $quoted; fi
             """.trimMargin()
         }
-
-        const val MASTER_TRUST_MS = 30_000L
 
         /**
          * Shell functions every node script starts with. For a login user other than root,
          * `hg_own TOP [SKIP...]` gives the root-owned files under TOP (except the SKIP trees) to
          * that user, and from then on `docker` runs as the user when it is in the docker group, so
          * Compose reads the `.env` files the user now owns. Root logins get a no-op `hg_own`.
-         * Scripts look for the Docker binary with `type -P docker`, since `command -v` would also
-         * find the function.
+         * Scripts look for the Docker binary with `type -P docker`, because `command -v` also
+         * finds the function.
          */
-        fun ownerPreamble(user: String): String = if (user == "root") "hg_own() { :; }" else $$"""
+        fun ownerPreamble(user: String): String = if (user == "root") ROOT_PREAMBLE else $$"""
             |HG_OWNER=$${shQuote(user)}
             |HG_GROUP=$(id -gn "$HG_OWNER" 2>/dev/null || echo "$HG_OWNER")
             |HG_HOME=$(getent passwd "$HG_OWNER" | cut -d: -f6 || true)
@@ -178,12 +218,12 @@ class SshSession(
             |}
         """.trimMargin()
 
-        /** `hg_own` for the install dir [dir], leaving the cluster member's data to its containers. */
+        /** `hg_own` for the install dir [dir]. It leaves the data of the cluster member to its containers. */
         fun ownInstallDir(dir: String): String =
-            (listOf(dir) + homegap.provision.ClusterTemplates.DATA_DIRS.map { "$dir/cluster/$it" })
+            (listOf(dir) + ClusterTemplates.DATA_DIRS.map { "$dir/cluster/$it" })
                 .joinToString(" ", prefix = "hg_own ") { shQuote(it) }
 
-        fun shQuote(s: String): String = "'" + s.replace("'", "'\"'\"'") + "'"
+        fun shQuote(text: String): String = "'" + text.replace("'", "'\"'\"'") + "'"
     }
 }
 
@@ -198,8 +238,8 @@ class SshPool(private val controlDir: String, private val knownHostsFile: String
         SshSession(node, controlDir, knownHostsFile).also { sessions[node.id] = it }
     }
 
-    private fun NodeConfig.sameConnection(o: NodeConfig) =
-        host == o.host && sshUser == o.sshUser && sshPort == o.sshPort && sshKeyFile == o.sshKeyFile
+    private fun NodeConfig.sameConnection(other: NodeConfig) =
+        host == other.host && sshUser == other.sshUser && sshPort == other.sshPort && sshKeyFile == other.sshKeyFile
 
     suspend fun drop(nodeId: String) = lock.withLock { sessions.remove(nodeId)?.close() }
 }

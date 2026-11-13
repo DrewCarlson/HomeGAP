@@ -1,11 +1,11 @@
 package homegap.provision
 
 /**
- * `hg_apt`: `apt-get` that waits for another apt to finish instead of failing. On a fresh VPS,
- * cloud-init or unattended-upgrades may be running, and the mesh and the first provisioning
- * (Docker, ufw) install packages at the same time. `DPkg::Lock::Timeout` only covers the dpkg
- * lock, not `apt-get update`'s lists lock, so lock failures are retried here (about 10 minutes
- * in all). Other failures are reported at once. Output is printed only on failure.
+ * `hg_apt`: `apt-get` that waits for another apt to finish and does not fail. On a new VPS,
+ * cloud-init or unattended-upgrades can run while the mesh setup and the first provisioning
+ * (Docker, ufw) install packages. `DPkg::Lock::Timeout` covers only the dpkg lock, not the lists
+ * lock of `apt-get update`. Thus the function tries again after a lock failure, for about 10
+ * minutes in all. It reports other failures at once. It prints output only after a failure.
  */
 object Apt {
     val FUNCTION: String = $$"""

@@ -21,6 +21,7 @@ import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 
 /** The config file, the desired-vs-actual diff and the referenced secrets (presence only). */
+@Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
 @Inject
@@ -42,7 +43,7 @@ class ConfigRoutes(
                 writable = config.dashboard.allowConfigEdits,
                 yaml = Files.readTextOrNull(options.configPath) ?: ConfigLoader.encode(config),
                 nodes = config.nodes.map { it.toDto() },
-            )
+            ),
         )
     }
 
