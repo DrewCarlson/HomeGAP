@@ -17,6 +17,7 @@ import homegap.provision.NodeTemplates
 import homegap.reconcile.DepartedSentinels
 import homegap.reconcile.ResourceReconciler
 import homegap.reconcile.SwitchBack
+import io.ktor.client.engine.mock.respond
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -281,5 +282,39 @@ class ClusterTest {
         assertNull(DepartedSentinels.stale(members, clean), "nothing outside the cluster, or unreachable")
         val stale = clean + ("na1" to view("10.77.0.1", "10.77.0.11", "10.77.0.12"))
         assertEquals(na1 to setOf("10.77.0.12"), DepartedSentinels.stale(members, stale))
+    }
+
+    @Test
+    fun aLearnerIsPromotedThroughTheLeaderOfEtcd() = kotlinx.coroutines.test.runTest {
+        // With authentication on, a member that is not the leader sends the call on without the user.
+        val asked = mutableListOf<String>()
+        fun etcd(host: String, answer: String?) = homegap.clients.EtcdClient(
+            io.ktor.client.HttpClient(
+                io.ktor.client.engine.mock.MockEngine { request ->
+                    asked += "$host ${request.url.encodedPath}"
+                    val json = io.ktor.http.headersOf(io.ktor.http.HttpHeaders.ContentType, "application/json")
+                    if (answer == null) {
+                        respond("{}", io.ktor.http.HttpStatusCode.OK, json)
+                    } else {
+                        respond("""{"message":"$answer"}""", io.ktor.http.HttpStatusCode.InternalServerError, json)
+                    }
+                },
+            ),
+            "http://$host:2379",
+        )
+        val forwarded = "auth: user name is empty"
+        etcd("10.77.0.1", forwarded).promoteThroughAny("7", listOf(etcd("10.77.0.10", null), etcd("10.77.0.12", forwarded)))
+        assertEquals(
+            listOf("10.77.0.1 /v3/cluster/member/promote", "10.77.0.10 /v3/cluster/member/promote"),
+            asked,
+            "the call stops at the member that accepts it",
+        )
+
+        // No member accepts it. The reason is the answer of the leader, not of a member that sent the call on.
+        val behind = "etcdserver: can only promote a learner member which is in sync with leader"
+        val refusal = runCatching {
+            etcd("10.77.0.1", forwarded).promoteThroughAny("7", listOf(etcd("10.77.0.10", behind), etcd("10.77.0.12", forwarded)))
+        }.exceptionOrNull()
+        assertTrue("in sync with leader" in refusal?.message.orEmpty(), refusal?.message)
     }
 }

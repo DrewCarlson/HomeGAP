@@ -80,6 +80,7 @@ class ClusterReconciler(
     /** The homelab only votes (`cluster.homelab_role: vote`), as of the last pass. */
     @Volatile private var voteOnly = false
     private val lastErrors = mutableMapOf<String, String>()
+    private val promotionRefusals = mutableMapOf<String, String>()
 
     /** The members whose database serves (the primary, or a streaming replica), as of the last pass. */
     @Volatile private var ready: Set<String> = emptySet()
@@ -181,12 +182,7 @@ class ClusterReconciler(
         val data = data(pass.members)
         writeHomelab(pass)
 
-        val etcd = EtcdClient(
-            http = http,
-            base = etcdUrl(pass.homelab.meshIp),
-            user = ClusterTemplates.ETCD_USER,
-            password = secrets.etcd,
-        )
+        val etcd = etcdClient(pass.homelab, secrets)
         val patroni = PatroniClient(http, ClusterTemplates.REST_USER, secrets.rest)
         val etcdMembers = runCatchingCancellable { etcd.members() }.getOrNull()
         report(ctx, "etcd", if (etcdMembers == null) "the homelab's etcd is not reachable yet" else null)
@@ -299,10 +295,14 @@ class ClusterReconciler(
                     existing.learner -> {
                         val etcdPeers = etcdInitial(etcdMembers, pass.members)
                         syncNode(pass, nodeMember, MemberSetup(etcdPeers, ETCD_ONLY, nodeImage(pass, node)))
-                        val promoted = runCatchingCancellable { etcd.promote(existing.id) }.isSuccess
-                        if (promoted) {
+                        val voters = pass.members.filter { it.id != member.id && it.id != pass.homelab.id }
+                        val refusal = runCatchingCancellable {
+                            etcd.promoteThroughAny(existing.id, voters.map { etcdClient(it, pass.secrets) })
+                        }.exceptionOrNull()
+                        if (refusal == null) {
                             ctx.log.change(DOMAIN, "joined the cluster vote", node.id)
                         }
+                        reportPromotion(ctx, node.id, refusal?.message)
                     }
                     else -> {
                         val etcdPeers = etcdInitial(etcdMembers, pass.members)
@@ -1234,6 +1234,25 @@ class ClusterReconciler(
             voteOnly = voteOnly && member.id == Mesh.HOMELAB,
         )
     }
+
+    /**
+     * Logs why etcd does not promote the learner of [nodeId]. A learner that is not in sync yet is
+     * the usual reason for some passes, so the log gets each different reason once.
+     */
+    private fun reportPromotion(ctx: ReconcileContext, nodeId: String, refusal: String?) {
+        if (refusal == null) {
+            promotionRefusals.remove(nodeId)
+        } else if (promotionRefusals.put(nodeId, refusal) != refusal) {
+            ctx.log.warn(DOMAIN, "etcd does not promote this node to a voter yet: $refusal", nodeId)
+        }
+    }
+
+    private fun etcdClient(member: Member, secrets: ClusterSecrets) = EtcdClient(
+        http = http,
+        base = etcdUrl(member.meshIp),
+        user = ClusterTemplates.ETCD_USER,
+        password = secrets.etcd,
+    )
 
     /**
      * Logs an error the first time and after each change. Logs the recovery once. An error that

@@ -103,6 +103,24 @@ class EtcdClient(
         call("/v3/cluster/member/promote", buildJsonObject { put("ID", id) })
     }
 
+    /**
+     * Promotes learner [id] through this member, then through each of [others] until one accepts
+     * the call. With authentication on, only the leader of etcd accepts it: a different member
+     * sends the call to the leader without the user, and the leader refuses it. Throws the error
+     * of the leader if no member accepts the call.
+     */
+    suspend fun promoteThroughAny(id: String, others: List<EtcdClient>) {
+        var refusal: Throwable? = null
+        for (client in listOf(this) + others) {
+            val failure = runCatchingCancellable { client.promote(id) }.exceptionOrNull() ?: return
+            // The answer of a member that only sends the call on says nothing about the learner.
+            if (refusal == null || FORWARDED_WITHOUT_USER !in failure.message.orEmpty()) {
+                refusal = failure
+            }
+        }
+        throw checkNotNull(refusal)
+    }
+
     suspend fun remove(id: String) {
         call("/v3/cluster/member/remove", buildJsonObject { put("ID", id) })
     }
@@ -142,6 +160,7 @@ class EtcdClient(
     private companion object {
         const val ROOT_ROLE = "root"
         const val AUTH_OFF = "authentication is not enabled"
+        const val FORWARDED_WITHOUT_USER = "user name is empty"
         const val HEALTH_TIMEOUT_MS = 5_000L
         const val CALL_TIMEOUT_MS = 10_000L
         val AUTH_ERRORS = listOf(
