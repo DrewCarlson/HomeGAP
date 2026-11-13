@@ -26,6 +26,8 @@ data class AddNodeScreenModel(
     val notices: List<NoticeModel>,
     /** Problems blocking the current step (shown once the user tried to continue). */
     val errors: List<String>,
+    /** The first problem of each field that has one, shown under the field. */
+    val fieldErrors: Map<WizardField, String> = emptyMap(),
     val review: List<ReviewLine>,
     val job: JobModel?,
     val starting: Boolean,

@@ -595,7 +595,10 @@ internal class CertificatesView(
             "none" -> "No certificate"
             "mismatch" -> "Wrong name · ${cell.subject.orEmpty()}"
             "unknown" -> "—"
-            else -> "${cell.subject?.substringAfter("CN=")?.substringBefore(',') ?: "?"} · ${cell.daysRemaining ?: "?"} d"
+            else -> listOfNotNull(
+                cell.subject?.substringAfter("CN=")?.substringBefore(',')?.ifBlank { null },
+                cell.daysRemaining?.let { "$it d" },
+            ).joinToString(" · ").ifEmpty { "?" }
         } + stale
     }
 

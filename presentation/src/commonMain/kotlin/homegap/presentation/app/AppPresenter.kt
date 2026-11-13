@@ -32,6 +32,7 @@ import homegap.presentation.routing.Location
 import homegap.presentation.routing.Router
 import homegap.presentation.search.SearchHit
 import homegap.presentation.search.SearchKind
+import homegap.presentation.search.preferLiteral
 import homegap.presentation.search.search
 import homegap.presentation.search.searchIndex
 import homegap.presentation.search.suggestions
@@ -269,7 +270,7 @@ class AppPresenter(
             } else {
                 val local = search(index, query)
                 val known = local.mapNotNull { it.location }.toSet()
-                (local + serverHits.filter { it.location !in known }).sortedBy { it.kind.ordinal }
+                preferLiteral(local + serverHits.filter { it.location !in known }, query).sortedBy { it.kind.ordinal }
             }
             found.filter { kind == null || it.kind == kind }
         }
@@ -293,6 +294,11 @@ class AppPresenter(
             kinds = SearchKind.entries,
             groups = groups,
             highlighted = if (highlighted == NO_HIT) NO_HIT else highlighted.coerceIn(0, (hits.size - 1).coerceAtLeast(0)),
+            emptyText = when {
+                hits.isNotEmpty() -> null
+                query.isBlank() -> "Type to search${kind?.let { " in ${it.title}" }.orEmpty()}."
+                else -> "Nothing matches “${query.trim()}”${kind?.let { " in ${it.title}" }.orEmpty()}."
+            },
             onOpen = { isOpen = true },
             onClose = close,
             onQuery = {
@@ -463,15 +469,25 @@ class AppPresenter(
         var draft by remember { mutableStateOf(tokens.token.orEmpty()) }
         // A saved token that still gets 401 was not accepted (a token remembered from before too).
         var rejected by remember { mutableStateOf(tokens.token != null) }
+        var revealed by remember { mutableStateOf(false) }
+        var checking by remember { mutableStateOf(false) }
         val save = appScope.rememberEventTrigger {
-            tokens.token = draft.ifBlank { null }
-            session.refresh()
-            session.reconnect()
-            rejected = tokens.token != null && session.problem.value == ConnectionProblem.Unauthorized
+            checking = true
+            try {
+                tokens.token = draft.ifBlank { null }
+                session.refresh()
+                session.reconnect()
+                rejected = tokens.token != null && session.problem.value == ConnectionProblem.Unauthorized
+            } finally {
+                checking = false
+            }
         }
         val prompt = TokenPromptModel(
             value = draft,
             rejected = rejected,
+            revealed = revealed,
+            checking = checking,
+            onToggleReveal = { revealed = !revealed },
             onChange = remember {
                 { value: String ->
                     draft = value

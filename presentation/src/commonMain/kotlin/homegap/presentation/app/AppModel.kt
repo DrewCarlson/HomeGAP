@@ -118,7 +118,12 @@ data class LostConnectionModel(
 data class TokenPromptModel(
     val value: String,
     val rejected: Boolean = false,
+    /** The token shows as text, so a pasted value can be checked. */
+    val revealed: Boolean = false,
+    /** The orchestrator checks the token now. */
+    val checking: Boolean = false,
     val onChange: (String) -> Unit,
+    val onToggleReveal: () -> Unit = {},
     val onSave: () -> Unit,
 )
 
@@ -144,6 +149,8 @@ data class SearchModel(
     val kinds: List<SearchKind>,
     val groups: List<SearchGroup>,
     val highlighted: Int,
+    /** What the list says when it has no result, or null when it has one. */
+    val emptyText: String? = null,
     val onOpen: () -> Unit,
     val onClose: () -> Unit,
     val onQuery: (String) -> Unit,

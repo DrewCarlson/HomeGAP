@@ -192,6 +192,10 @@ class AccessScreenPresenter(
                 password = password,
                 roles = current.roles.map { RoleOptionModel(it.id, it.name, it.id in roles) },
                 error = formError ?: problem.takeIf { email.isNotBlank() },
+                emailError = "This is not an email address".takeIf { email.isNotBlank() && !EMAIL.matches(email.trim()) },
+                rolesError = "Pick at least one role".takeIf { roles.isEmpty() },
+                passwordError = "The password needs at least 8 characters".takeIf { setPassword && password.isNotEmpty() && password.length < 8 },
+                serverError = formError,
                 canSubmit = problem == null && !submitting,
                 submitText = when {
                     submitting -> "Creating…"
@@ -288,12 +292,11 @@ class AccessScreenPresenter(
             ConfirmModel(
                 title = "Remove $name?",
                 text = "$name can no longer sign in to the Pangolin apps, and their devices are disconnected.",
-                confirmLabel = "Remove $name",
+                confirmLabel = "Remove user",
                 consequences = listOf(
                     "Their devices stop connecting",
                     "Undo is offered for 30 s, until the removal goes through",
                 ),
-                typeToConfirm = name,
                 danger = true,
             )
         ) {

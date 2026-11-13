@@ -186,7 +186,7 @@ class AddNodeScreenPresenter(
         }
 
         val step = draft.step
-        val errors = if (draft.showErrors) AddNodeValidation.errors(draft, step, props.existingNodeIds) else emptyList()
+        val problems = if (draft.showErrors) AddNodeValidation.problems(draft, step, props.existingNodeIds) else emptyList()
         val target = AddNodeValidation.targetUser(draft)
         return AddNodeScreenModel(
             step = step,
@@ -208,7 +208,8 @@ class AddNodeScreenPresenter(
             lockableLogin = AddNodeValidation.lockableLogin(draft),
             firewallRules = firewallRules(draft),
             notices = notices(draft),
-            errors = errors,
+            errors = problems.map { it.text },
+            fieldErrors = problems.filter { it.field != null }.groupBy({ it.field!! }, { it.text }).mapValues { it.value.first() },
             review = review(draft),
             job = draft.job?.toModel(),
             starting = starting,

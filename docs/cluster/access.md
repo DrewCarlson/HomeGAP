@@ -48,7 +48,7 @@ The panel shows "Pick at least one role" if you do not select a role.
 The **People** panel shows "Everyone who can sign in, on every node". Each row shows the name, the email address, the roles and the number of devices of a user. Click a user to open the user in the Inspector.
 
 - To change the roles of a user, select the roles under **Roles** in the Inspector. Then click **Save**.
-- To remove a user, click **Remove** in the Inspector. Then type the email address of the user to confirm. HomeGAP removes the user after 30 seconds. Until then, you can undo the removal. After the removal, the user can no longer sign in, and the devices of the user stop.
+- To remove a user, click **Remove** in the Inspector. Then confirm. HomeGAP removes the user after 30 seconds. Until then, you can undo the removal. After the removal, the user can no longer sign in, and the devices of the user stop.
 
 For the server admin account that HomeGAP creates, the Inspector shows **server admin**. You cannot change or remove this user here.
 

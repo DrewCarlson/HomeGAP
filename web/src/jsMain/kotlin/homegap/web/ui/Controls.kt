@@ -1,6 +1,7 @@
 package homegap.web.ui
 
 import androidx.compose.runtime.Composable
+import homegap.presentation.ui.FieldKind
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.disabled
 import org.jetbrains.compose.web.attributes.placeholder
@@ -35,6 +36,8 @@ fun TextField(
     value: String,
     placeholder: String,
     type: InputType<String> = InputType.Text,
+    kind: FieldKind = FieldKind.Text,
+    error: String? = null,
     onChange: (String) -> Unit,
 ) {
     Label {
@@ -42,8 +45,24 @@ fun TextField(
         Input(type) {
             value(value)
             placeholder(placeholder)
+            if (kind != FieldKind.Text) {
+                attr("autocapitalize", "off")
+                attr("autocorrect", "off")
+                spellCheck(false)
+            }
+            when (kind) {
+                FieldKind.Number -> attr("inputmode", "numeric")
+                FieldKind.Host -> attr("inputmode", "url")
+                else -> Unit
+            }
+            if (error != null) {
+                classes("invalid")
+                attr("aria-invalid", "true")
+            }
             onInput { onChange(it.value) }
         }
+        // Inside the label, so a screen reader reads the problem with the field.
+        error?.let { Span({ classes("field-note", "error") }) { Text(it) } }
     }
 }
 

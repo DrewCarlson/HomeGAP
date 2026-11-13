@@ -2,12 +2,16 @@ package homegap.presentation.addnode
 
 import homegap.api.SshLoginDto
 
+/** One problem that stops a step. [field] is the field that has it, or null for a problem of the whole step. */
+data class WizardProblem(val text: String, val field: WizardField? = null)
+
 /** Per-step checks of an [AddNodeDraft]; pure, so they are easy to test. */
 internal object AddNodeValidation {
     private val NODE_ID = Regex("^[a-z][a-z0-9-]{0,30}$")
     private val UNIX_USER = Regex("^[a-z_][a-z0-9_-]{0,31}$")
     private val IPV4 = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(/(\d{1,2}))?$""")
     private val IPV6 = Regex("""^[0-9a-fA-F:]*:[0-9a-fA-F:]*(/\d{1,3})?$""")
+    private val HOST_NAME = Regex("""^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*\.?$""")
 
     fun port(draft: AddNodeDraft): Int? = draft[WizardField.Port].trim().toIntOrNull()?.takeIf { it in 1..65535 }
 
@@ -35,29 +39,40 @@ internal object AddNodeValidation {
         hostKeyFingerprint = draft.confirmedHostKey.takeIf { draft.auth == AuthMethod.Password },
     )
 
-    fun errors(draft: AddNodeDraft, step: WizardStep, existingNodeIds: Set<String>): List<String> = buildList {
+    /** The texts of [problems], for the summary over the step. */
+    fun errors(draft: AddNodeDraft, step: WizardStep, existingNodeIds: Set<String>): List<String> =
+        problems(draft, step, existingNodeIds).map { it.text }
+
+    /** What stops [step], each problem with the field that has it. */
+    fun problems(draft: AddNodeDraft, step: WizardStep, existingNodeIds: Set<String>): List<WizardProblem> = buildList {
+        fun add(text: String, field: WizardField? = null) = add(WizardProblem(text, field))
         when (step) {
             WizardStep.Server -> {
                 val id = draft[WizardField.NodeId].trim()
-                if (!NODE_ID.matches(id)) add("Node id: lowercase letters, digits and dashes, starting with a letter.")
-                if (id in existingNodeIds) add("A node named $id already exists.")
-                if (draft[WizardField.Host].isBlank()) add("Enter the server's public IP or host name.")
-                if (port(draft) == null) add("SSH port must be a number from 1 to 65535.")
+                if (!NODE_ID.matches(id)) add("Node id: lowercase letters, digits and dashes, starting with a letter.", WizardField.NodeId)
+                if (id in existingNodeIds) add("A node named $id already exists.", WizardField.NodeId)
+                val host = draft[WizardField.Host].trim()
+                when {
+                    host.isEmpty() -> add("Enter the server's public IP or host name.", WizardField.Host)
+                    !validHost(host) -> add("$host is not an IP address or a host name.", WizardField.Host)
+                }
+                if (port(draft) == null) add("SSH port must be a number from 1 to 65535.", WizardField.Port)
                 val lat = draft[WizardField.Latitude].trim()
                 val lon = draft[WizardField.Longitude].trim()
                 if (lat.isNotEmpty() || lon.isNotEmpty()) {
-                    val la = lat.toDoubleOrNull()
-                    val lo = lon.toDoubleOrNull()
-                    if (la == null || lo == null || la !in -90.0..90.0 || lo !in -180.0..180.0) {
-                        add("Location needs both latitude (-90 to 90) and longitude (-180 to 180).")
+                    if (lat.toDoubleOrNull()?.takeIf { it in -90.0..90.0 } == null) {
+                        add("Latitude must be a number from -90 to 90.", WizardField.Latitude)
+                    }
+                    if (lon.toDoubleOrNull()?.takeIf { it in -180.0..180.0 } == null) {
+                        add("Longitude must be a number from -180 to 180.", WizardField.Longitude)
                     }
                 }
             }
             WizardStep.Login -> {
-                if (!UNIX_USER.matches(draft[WizardField.LoginUser].trim())) add("Enter the user to log in as.")
+                if (!UNIX_USER.matches(draft[WizardField.LoginUser].trim())) add("Enter the user to log in as.", WizardField.LoginUser)
                 when (draft.auth) {
-                    AuthMethod.Password -> if (draft[WizardField.Password].isEmpty()) add("Enter the password.")
-                    AuthMethod.Key -> if (draft[WizardField.LoginKeyFile].isBlank()) add("Enter the key file path.")
+                    AuthMethod.Password -> if (draft[WizardField.Password].isEmpty()) add("Enter the password.", WizardField.Password)
+                    AuthMethod.Key -> if (draft[WizardField.LoginKeyFile].isBlank()) add("Enter the key file path.", WizardField.LoginKeyFile)
                 }
                 val test = draft.test
                 when {
@@ -69,8 +84,8 @@ internal object AddNodeValidation {
             WizardStep.Access -> {
                 val target = targetUser(draft)
                 if (draft.has(WizardToggle.CreateUser)) {
-                    if (!UNIX_USER.matches(target)) add("User name: lowercase letters, digits, - and _.")
-                    if (target == "root") add("Pick a name other than root for the new user.")
+                    if (!UNIX_USER.matches(target)) add("User name: lowercase letters, digits, - and _.", WizardField.NewUser)
+                    if (target == "root") add("Pick a name other than root for the new user.", WizardField.NewUser)
                 }
                 if (draft.has(WizardToggle.DisableRootLogin) && target == "root") {
                     add("Root login can only be disabled when the node is managed as another user; create one.")
@@ -79,11 +94,19 @@ internal object AddNodeValidation {
             }
             WizardStep.Firewall -> if (draft.has(WizardToggle.Firewall) && draft.has(WizardToggle.RestrictSsh)) {
                 val sources = sources(draft)
-                if (sources.isEmpty()) add("List at least one allowed source, or allow SSH from anywhere.")
-                sources.filterNot { IPV4.matches(it) || IPV6.matches(it) }.forEach { add("$it is not an IP address or CIDR.") }
+                if (sources.isEmpty()) add("List at least one allowed source, or allow SSH from anywhere.", WizardField.AllowFrom)
+                sources.filterNot { IPV4.matches(it) || IPV6.matches(it) }
+                    .forEach { add("$it is not an IP address or CIDR.", WizardField.AllowFrom) }
             }
             WizardStep.Review -> Unit
         }
+    }
+
+    /** An IPv4 address with each part up to 255, an IPv6 address, or a host name. Digits and dots alone are not a host name. */
+    private fun validHost(host: String): Boolean {
+        IPV4.matchEntire(host)?.let { match -> return match.groupValues[5].isEmpty() && (1..4).all { match.groupValues[it].toInt() <= 255 } }
+        if (host.all { it.isDigit() || it == '.' }) return false
+        return ':' in host && IPV6.matches(host) || HOST_NAME.matches(host)
     }
 
     /** Whether [ip] is one of [sources] or inside one of their IPv4 ranges. */

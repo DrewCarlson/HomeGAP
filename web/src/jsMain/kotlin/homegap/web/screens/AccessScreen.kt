@@ -1,6 +1,7 @@
 package homegap.web.screens
 
 import androidx.compose.runtime.Composable
+import homegap.presentation.ui.FieldKind
 import androidx.compose.runtime.key
 import homegap.presentation.access.AccessScreenModel
 import homegap.presentation.access.DeviceRowModel
@@ -287,6 +288,8 @@ private fun AddUser(
                         value = form.email,
                         placeholder = "person@example.com",
                         type = InputType.Email,
+                        kind = FieldKind.Identifier,
+                        error = form.emailError,
                         onChange = form.onEmail,
                     )
                     Div({ classes("field") }) {
@@ -296,6 +299,7 @@ private fun AddUser(
                             enabled = true,
                             onToggle = form.onToggleRole,
                         )
+                        form.rolesError?.let { Span({ classes("field-note", "error") }) { Text(it) } }
                     }
                     CheckOption(
                         title = "Set a password now",
@@ -309,10 +313,11 @@ private fun AddUser(
                             value = form.password,
                             placeholder = "at least 8 characters",
                             type = InputType.Password,
+                            error = form.passwordError,
                             onChange = form.onPassword,
                         )
                     }
-                    form.error?.let { ErrorText(it, mono = false) }
+                    form.serverError?.let { ErrorText(it, mono = false) }
                 }
             }
             Div({ classes("form-actions") }) {

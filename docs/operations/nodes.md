@@ -51,6 +51,8 @@ You can pause at three levels:
 - One node, with **Pause** on the **Nodes** page.
 - One service, with **Pause** on the **Services** page, or with the label `homegap.pause`.
 
+The dashboard asks you to confirm a pause of everything and a pause of a node. A resume needs no confirmation.
+
 HomeGAP observes a paused target, but it never changes it. It keeps the DNS records of paused nodes and services. The API call is `POST /api/pause` with a body like this:
 
 ```json

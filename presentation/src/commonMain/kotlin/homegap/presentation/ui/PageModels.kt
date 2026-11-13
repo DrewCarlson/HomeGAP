@@ -95,6 +95,20 @@ data class ActionModel(
  * button that does it, and for irreversible actions the name to type first ([typeToConfirm]).
  * Destructive buttons are never the default.
  */
+/** What a text field holds, so a phone shows a fitting keyboard and leaves the text as typed. */
+enum class FieldKind {
+    Text,
+
+    /** An id, a user name, a path or an address: no capital letters and no corrections. */
+    Identifier,
+
+    /** Digits only. */
+    Number,
+
+    /** A host name or an IP address. */
+    Host,
+}
+
 @Immutable
 data class ConfirmModel(
     val title: String,

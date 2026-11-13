@@ -1,5 +1,6 @@
 package homegap.presentation.addnode
 
+import homegap.presentation.ui.FieldKind
 import dev.zacsweers.metro.Inject
 import homegap.api.ApiJson
 import homegap.api.ConnectionTestDto
@@ -30,22 +31,22 @@ enum class KeyMode(val wire: String, val label: String) {
 }
 
 /** Text inputs of the wizard. */
-enum class WizardField(val label: String, val placeholder: String = "") {
-    NodeId("Node id", "eu1"),
-    Host("Public IP or host name", "203.0.113.30"),
-    Port("SSH port", "22"),
+enum class WizardField(val label: String, val placeholder: String = "", val kind: FieldKind = FieldKind.Text) {
+    NodeId("Node id", "eu1", FieldKind.Identifier),
+    Host("Public IP or host name", "203.0.113.30", FieldKind.Host),
+    Port("SSH port", "22", FieldKind.Number),
     Region("Region code", "EU"),
     Provider("Provider", "optional"),
-    Latitude("Latitude", "50.1"),
-    Longitude("Longitude", "8.7"),
+    Latitude("Latitude", "50.1", FieldKind.Identifier),
+    Longitude("Longitude", "8.7", FieldKind.Identifier),
     LocationName("Place name", "Frankfurt"),
-    LoginUser("User", "root"),
+    LoginUser("User", "root", FieldKind.Identifier),
     Password("Password"),
-    LoginKeyFile("Private key on the orchestrator", "/secrets/ssh/provider"),
-    NewUser("User name", "homegap"),
+    LoginKeyFile("Private key on the orchestrator", "/secrets/ssh/provider", FieldKind.Identifier),
+    NewUser("User name", "homegap", FieldKind.Identifier),
     ImportKey("Private key", "-----BEGIN OPENSSH PRIVATE KEY-----"),
-    ExistingKey("Key file on the orchestrator", "/secrets/ssh/eu1"),
-    AllowFrom("Allowed sources", "203.0.113.7, 198.51.100.0/24"),
+    ExistingKey("Key file on the orchestrator", "/secrets/ssh/eu1", FieldKind.Identifier),
+    AllowFrom("Allowed sources", "203.0.113.7, 198.51.100.0/24", FieldKind.Identifier),
 }
 
 /** On/off choices of the wizard. */

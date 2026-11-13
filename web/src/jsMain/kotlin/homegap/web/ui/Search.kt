@@ -132,9 +132,7 @@ fun SearchOverlay(search: SearchModel, viewport: Viewport) {
                 attr("role", "listbox")
             }) {
                 ScrollHint()
-                if (search.count == 0 && search.query.isNotBlank()) {
-                    P({ classes("search-none") }) { Text("Nothing matches “${search.query}”.") }
-                }
+                search.emptyText?.let { P({ classes("search-none") }) { Text(it) } }
                 var index = 0
                 search.groups.forEach { group ->
                     Div({ classes("caption", "search-group") }) { Text(group.title) }
@@ -189,7 +187,7 @@ private fun Result(hit: SearchHit, highlighted: Boolean, onChoose: (SearchHit) -
             Span({ classes("search-hit-sub") }) { Text(hit.subtitle) }
         }
         Span({ classes("search-hit-kind") }) {
-            Text(if (hit.run != null) "↵ run" else hit.kind.title)
+            Text(if (hit.run != null && highlighted) "↵ run" else hit.kind.title)
         }
     }
 }

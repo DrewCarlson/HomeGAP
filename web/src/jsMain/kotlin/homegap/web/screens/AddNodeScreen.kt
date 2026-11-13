@@ -160,7 +160,9 @@ private fun Field(
         label = field.label,
         value = model[field],
         placeholder = field.placeholder,
-        type = type
+        type = type,
+        kind = field.kind,
+        error = model.fieldErrors[field],
     ) {
         model.onEvent(WizardEvent.Edit(field, it))
     }

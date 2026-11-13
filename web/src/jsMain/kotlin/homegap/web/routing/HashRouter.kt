@@ -16,6 +16,9 @@ class HashRouter : Router {
     var location by mutableStateOf(Location.fromPath(window.location.hash))
         private set
 
+    /** The location before the current one, if this page came from it. */
+    private var previous: Location? = null
+
     init {
         window.addEventListener("hashchange", {
             val next = Location.fromPath(window.location.hash)
@@ -24,12 +27,23 @@ class HashRouter : Router {
             if (next.route != location.route) {
                 window.scrollTo(0.0, 0.0)
             }
+            previous = location
             location = next
         })
     }
 
+    /**
+     * Opens [location]. A close of the selected item goes back in the history when the item was
+     * opened from its list, so the back button does not open the item again.
+     */
     override fun open(location: Location) {
-        window.location.hash = location.path
+        val current = this.location
+        val closesItem = location.selection == null && current.selection != null && location.route == current.route
+        if (closesItem && location == previous) {
+            window.history.back()
+        } else {
+            window.location.hash = location.path
+        }
     }
 
     companion object {

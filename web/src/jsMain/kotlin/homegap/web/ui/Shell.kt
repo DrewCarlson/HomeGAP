@@ -29,6 +29,7 @@ import homegap.web.terminal.TerminalPanel
 import org.jetbrains.compose.web.attributes.ATarget
 import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.autoFocus
+import org.jetbrains.compose.web.attributes.disabled
 import org.jetbrains.compose.web.attributes.onSubmit
 import org.jetbrains.compose.web.attributes.target
 import org.jetbrains.compose.web.dom.*
@@ -466,13 +467,26 @@ private fun SignInDialog(connection: ConnectionModel) {
             Img(src = "/emblem.svg", alt = "") { classes("sign-in-mark") }
             H2({ id("sign-in-title") }) { Text("Enter your dashboard token") }
             P({ classes("sign-in-text") }) {
-                Text("It's the value of ")
+                Text("Paste the value of ")
                 Span({ classes("mono") }) { Text("HOMEGAP_DASHBOARD_TOKEN") }
-                Text(" in the orchestrator's environment. Only this orchestrator checks it.")
+                Text(" from the orchestrator's environment.")
             }
             Label {
-                Text("Token")
-                Input(InputType.Password) {
+                Span({ classes("sign-in-label") }) {
+                    Text("Token")
+                    Button({
+                        classes("link-button")
+                        attr("type", "button")
+                        attr("aria-pressed", prompt.revealed.toString())
+                        onClick { prompt.onToggleReveal() }
+                    }) {
+                        Text(if (prompt.revealed) "Hide" else "Show")
+                    }
+                }
+                Input(if (prompt.revealed) InputType.Text else InputType.Password) {
+                    attr("autocapitalize", "off")
+                    attr("autocorrect", "off")
+                    spellCheck(false)
                     value(prompt.value)
                     attr("autocomplete", "current-password")
                     attr("aria-invalid", prompt.rejected.toString())
@@ -496,15 +510,18 @@ private fun SignInDialog(connection: ConnectionModel) {
                     if (prompt.rejected) {
                         "That token wasn't accepted. Check for extra spaces and try again."
                     } else {
-                        "Paste the full token."
+                        ""
                     }
                 )
             }
             Button({
                 classes("btn", "primary", "wide")
                 attr("type", "submit")
+                if (prompt.checking) {
+                    disabled()
+                }
             }) {
-                Text("Sign in")
+                Text(if (prompt.checking) "Checking…" else "Sign in")
             }
             P({ classes("sign-in-foot") }) {
                 Text("Lost it? Set a new token in the orchestrator's environment and restart it · ")

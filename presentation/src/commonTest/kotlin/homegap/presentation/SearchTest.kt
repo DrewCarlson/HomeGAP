@@ -32,4 +32,16 @@ class SearchTest {
         assertTrue(search(index, "diag").any { it.kind == SearchKind.Page && it.title == "Diagnostics" })
         assertTrue(search(index, "").isEmpty())
     }
+
+    @Test
+    fun aLiteralMatchHidesTheLooseOnes() {
+        val index = searchIndex(
+            snapshot = snapshot(nodes = listOf(node("git1"), node("pangolin-test"))),
+            log = emptyList(),
+            actions = emptyList(),
+        )
+        assertEquals(listOf("git1"), search(index, "git").filter { it.kind == SearchKind.Node && it.location?.selection != null }.map { it.title })
+        assertTrue(search(index, "homelab").any { it.title == "Homelab" })
+        assertTrue(search(index, "mesh").any { it.title == "Nodes" }, "a page answers for what it shows")
+    }
 }

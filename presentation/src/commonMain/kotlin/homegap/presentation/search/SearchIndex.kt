@@ -46,7 +46,7 @@ fun searchIndex(
                 title = node.id,
                 subtitle = listOfNotNull(node.location?.name, node.health.name.lowercase()).joinToString(" · "),
                 location = Location(Route.Nodes, node.id),
-                keywords = "${node.region} ${node.provider} ${node.host}",
+                keywords = "${node.region} ${node.provider} ${node.host} ${node.managementHost}",
             )
         )
     }
@@ -61,13 +61,39 @@ fun searchIndex(
             )
         )
     }
-    snapshot.dns.distinctBy { it.name }.forEach { record ->
+    snapshot.dns.groupBy { it.name }.forEach { (name, records) ->
+        val record = records.first()
         add(
             SearchHit(
                 kind = SearchKind.Dns,
-                title = record.name,
+                title = name,
                 subtitle = "${record.type} ${record.value}",
-                location = Location(Route.Dns, record.name),
+                location = Location(Route.Dns, name),
+                // Every value of the name, so an address finds its record.
+                keywords = records.joinToString(" ") { it.value },
+            )
+        )
+    }
+    add(
+        SearchHit(
+            kind = SearchKind.Node,
+            title = "Homelab",
+            subtitle = listOfNotNull(
+                snapshot.homelab?.name,
+                snapshot.cluster?.primary?.let { "database primary: $it" },
+            ).joinToString(" · "),
+            location = Location(Route.Nodes),
+            keywords = "homelab origin",
+        )
+    )
+    snapshot.mesh?.members?.forEach { member ->
+        add(
+            SearchHit(
+                kind = SearchKind.Node,
+                title = "${member.id} on the mesh",
+                subtitle = member.address,
+                location = Location(Route.Nodes),
+                keywords = "mesh wireguard cluster",
             )
         )
     }
@@ -101,10 +127,12 @@ fun searchIndex(
                 title = route.title,
                 subtitle = route.subtitle,
                 location = Location(route),
+                keywords = PAGE_WORDS[route].orEmpty(),
             )
         )
     }
-    log.take(LOG_ENTRIES_SEARCHED).forEach { entry ->
+    // A message that repeats shows once, as its newest entry.
+    log.take(LOG_ENTRIES_SEARCHED).distinctBy { it.target to it.message }.forEach { entry ->
         add(
             SearchHit(
                 kind = SearchKind.Log,
@@ -120,7 +148,7 @@ fun searchIndex(
 fun search(index: List<SearchHit>, query: String, limit: Int = 30): List<SearchHit> {
     val trimmed = query.trim()
     if (trimmed.isEmpty()) return emptyList()
-    return index
+    return preferLiteral(index, trimmed)
         .mapNotNull { hit ->
             val score = maxOf(
                 fuzzyScore(trimmed, hit.title) ?: -1,
@@ -132,6 +160,16 @@ fun search(index: List<SearchHit>, query: String, limit: Int = 30): List<SearchH
         .sortedWith(compareBy<Pair<SearchHit, Int>> { it.first.kind.ordinal }.thenByDescending { it.second })
         .take(limit)
         .map { it.first }
+}
+
+/**
+ * The hits of [hits] that hold [query] as it is typed, or all of [hits] when none does. A loose
+ * match shows only when there is no literal one.
+ */
+fun preferLiteral(hits: List<SearchHit>, query: String): List<SearchHit> {
+    val needle = query.trim().lowercase()
+    val literal = hits.filter { hit -> listOf(hit.title, hit.subtitle, hit.keywords).any { needle in it.lowercase() } }
+    return literal.ifEmpty { hits }
 }
 
 /**
@@ -199,6 +237,16 @@ fun suggestions(snapshot: StatusSnapshot, actions: List<SearchHit>): List<Search
 }
 
 private const val LOG_ENTRIES_SEARCHED = 300
+
+/** Words for the things on a page that have no result of their own. */
+private val PAGE_WORDS = mapOf(
+    Route.Nodes to "edges fleet mesh cluster database primary replica homelab",
+    Route.Tunnels to "newt connector site",
+    Route.Certificates to "tls acme caa renew",
+    Route.Access to "users people roles devices invite",
+    Route.Config to "secrets yaml diff",
+    Route.Activity to "log events",
+)
 
 /** A server hit (config key, secret, older log entry) as a search result. */
 fun SearchHitDto.toHit(): SearchHit = SearchHit(

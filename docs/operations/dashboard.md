@@ -25,14 +25,14 @@ If the dashboard cannot reach the orchestrator for more than 5 seconds, a dialog
 
 ## The layout
 
-The menu has two groups: **Operate** (Overview, Nodes, Services, Access, Speed test) and **Plumbing** (DNS, Tunnels, Activity, Diagnostics, Config). A number next to a page is the count of items that need attention there. On a tablet the menu is a rail of icons. On a phone it is a grid of icons under the header, which gets smaller when you scroll.
+The menu has two groups: **Operate** (Overview, Nodes, Services, Access, Speed test) and **Plumbing** (DNS, Tunnels, Activity, Diagnostics, Config). A number next to a page is the count of items that need attention there. On a tablet the menu is a rail of icons. On a phone it is one row of pages under the header. Swipe the row sideways to see all pages. When you scroll the page, the dashboard hides the header, and **Search** moves into the row.
 
 The box at the bottom of the menu shows the last pass, and two controls:
 
 - **Resync** queues a pass now.
-- **Pause** stops all changes everywhere. HomeGAP then only observes, and every page shows a banner with **Resume**. While changes are paused, the box offers **Run one pass**: one pass that applies changes, after which HomeGAP is paused again. A re-provision or a switch of the primary while paused asks if you want to apply just that change or resume everything.
+- **Pause** stops all changes everywhere. The dashboard asks you to confirm first. HomeGAP then only observes, and every page shows a banner with **Resume**. While changes are paused, the box offers **Run one pass**: one pass that applies changes, after which HomeGAP is paused again. A re-provision or a switch of the primary while paused asks if you want to apply just that change or resume everything.
 
-Each page starts with a headline that states the answer, for example "5 of 6 edges healthy.". Under it, a status line shows the most important message. When there are more, **+N more** opens all of them.
+Each page starts with a headline that states the answer, for example "5 of 6 edges serve.". An edge with a warning still serves, and the headline gives the count of such edges. Under the headline, a status line shows the most important message. When there are more, **+N more** opens the other messages.
 
 Select a node, a service or another item to open it in the **Inspector**. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.
 
@@ -59,7 +59,7 @@ The whole system at a glance:
 
 The fleet table shows each node's health, its checks, its Pangolin API probe over the last hour, its tunnel, its certificate, its stack and its drift. While a stack update runs or is held, a strip above the table shows each node's part in the rollout.
 
-Select a node to open it in the Inspector. The Inspector shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its checks, its system facts, its stack and its last 10 provisioning runs. While a job runs, the stack column shows its step, for example "writing the stack (4 of 7)". The actions on a node are **Re-provision**, **Pause** or **Resume**, **Diagnostics**, **Speed test**, **Change location** and **Remove**. **Change location** moves the node to a known city or a point on the map. Geo DNS and the maps use the new place from the next pass. After a removal, the action is **Decommission**. During a held rollout, the node also has **Retry update** and **Skip update**. See [Manage nodes](nodes.md) and [Node updates and rollback](node-updates.md).
+Select a node to open it in the Inspector. The Inspector shows its checks, with the checks that fail at the top. Then it shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its system facts, its stack and its last 10 provisioning runs. While a job runs, the stack column shows its step, for example "writing the stack (4 of 7)". The actions on a node are **Re-provision**, **Pause** or **Resume**, **Diagnostics**, **Speed test**, **Change location** and **Remove**. **Change location** moves the node to a known city or a point on the map. Geo DNS and the maps use the new place from the next pass. After a removal, the action is **Decommission**. During a held rollout, the node also has **Retry update** and **Skip update**. See [Manage nodes](nodes.md) and [Node updates and rollback](node-updates.md).
 
 **+ Add node** opens the wizard over the page. When a run fails, **Retry** runs each step again and keeps the user that the failed run made. If something blocked the new SSH connections of the orchestrator, the button shows a time, for example "Retry in 2:59". A retry before that time fails for the same reason. See [Add a node](../getting-started/add-node.md). In cluster mode, the page also has the **Cluster database** and **Cluster mesh** panels. See [Cluster mesh](../cluster/mesh.md) and [Cluster database](../cluster/database.md).
 
@@ -133,7 +133,7 @@ The dashboard can open a shell on a node. The **Terminal** action is in the menu
 The shell runs on the orchestrator, through the SSH connection that the orchestrator already has to the node. The browser gets no key and no password. You are the management user of the node, in the install directory of the stack.
 
 - Each session has a tab. You can have 2 sessions for one node and 6 sessions in total.
-- A session continues when you close or reload the page. When you open the dashboard again, the tab is there and shows the last output.
+- A session continues when you close or reload the page. When you open the dashboard again, the tab is there and shows the last output. The panel is then a bar at the bottom. Select the tab to open the panel.
 - If you open the same session in a second window, that window takes the session.
 - **Commands** types a common command for you, for example the list of containers or the log of a container.
 - A session ends when the shell exits, or when you close its tab. HomeGAP also ends a session that had no browser for 15 minutes, and each session after 8 hours. A restart of the orchestrator ends all sessions.

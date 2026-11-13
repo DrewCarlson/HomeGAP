@@ -149,7 +149,7 @@ p { margin: 0; }
 .nav-foot { padding: 0 10px; font: 11px/1.6 var(--mono); color: var(--ink-faint); word-break: break-all; }
 .nav-foot .docs-link { color: var(--ink-dim); text-decoration: underline; word-break: normal; }
 .nav-foot .docs-link:hover { color: var(--ink); }
-.nav-foot .sign-out { display: block; padding: 0; border: 0; background: none; font: inherit; color: var(--ink-dim); text-decoration: underline; cursor: pointer; }
+.nav-foot .sign-out { display: block; padding: 6px 0; border: 0; background: none; font: inherit; color: var(--ink-dim); text-decoration: underline; cursor: pointer; }
 .nav-foot .sign-out:hover { color: var(--ink); }
 
 /* One column that may shrink below its content (minmax(0, 1fr)): a long value inside a figure
@@ -180,6 +180,11 @@ p { margin: 0; }
 .btn.danger:hover { background: var(--down-soft); border-color: var(--down); }
 .btn.sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
 .btn:disabled { opacity: .5; cursor: default; }
+/* A primary button that cannot be pressed loses its color, so it does not look ready. */
+.btn.primary:disabled { opacity: 1; background: var(--panel-raised); border-color: var(--rule-strong); color: var(--ink-faint); font-weight: 500; }
+/* One focus ring for every control. */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.link-button { padding: 0; border: 0; background: none; font: inherit; color: var(--cyan-soft); text-decoration: underline; cursor: pointer; }
 .btn:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, .segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .link { font-size: 13px; font-weight: 500; }
 
@@ -214,7 +219,8 @@ input[type=checkbox] { height: 16px; width: 16px; accent-color: var(--accent); }
 .menu-item.danger { color: var(--rose); }
 .icon-btn.highlighted { background: var(--amber); border-color: var(--amber); color: var(--ground); }
 input.invalid { border-color: var(--rose); }
-::placeholder { color: var(--ink-faint); opacity: 1; }
+/* Dim, so an example does not read as a value that is already there. */
+::placeholder { color: var(--ink-faint); opacity: .65; }
 .field-note { font-size: 12.5px; color: var(--ink-dim); }
 .field-note.error { color: #FFB3BE; }
 
@@ -258,6 +264,10 @@ html.overlay-open { overflow: hidden; padding-right: var(--scrollbar-width, 0px)
 .sign-in-text .mono { color: #FFFFFF; }
 .sign-in input { font: 16px var(--mono); height: 48px; }
 .sign-in-foot { font-size: 12px; color: var(--ink-dim); text-align: center; }
+.sign-in-label { display: flex; justify-content: space-between; align-items: baseline; }
+.sign-in .field-note:empty { display: none; }
+/* Nothing of the app shows behind the sign-in card. */
+.overlay:has(.sign-in:not(.lost))::backdrop { background: var(--ground); backdrop-filter: none; }
 .sign-in-foot a { text-decoration: underline; }
 /* Connection lost: a pulsing status, the error as the browser reported it, and the next try. */
 .lost-status { display: flex; align-items: center; gap: 8px; color: var(--rose); }
@@ -606,7 +616,7 @@ kbd { font: 10.5px var(--mono); padding: 2px 5px; border: 1px solid var(--rule-s
 @media (hover: none) { .search-keys { font-size: 0; justify-content: flex-end; } .search-keys span { font-size: 11px; } }
 
 /* ---------------------------------------------------------------- page head and status line */
-.status-line { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 2px; min-width: 0; }
+.status-line { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 2px; min-width: 0; width: fit-content; max-width: 100%; }
 .status-first {
   flex: 0 1 auto; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   font-size: 28px; font-weight: 500; letter-spacing: -.03em; line-height: 1.2;
@@ -621,7 +631,8 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .status-more > summary::-webkit-details-marker { display: none; }
 .status-dot-small { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .status-box {
-  position: absolute; top: calc(100% + 8px); left: 0; z-index: var(--z-status); width: min(520px, 90vw);
+  /* Under the pill: its right edge at the end of the line, or its left edge at the start of a short line. */
+  position: absolute; top: calc(100% + 8px); left: max(0px, calc(100% - 520px)); z-index: var(--z-status); width: min(520px, 90vw);
   padding: 14px 16px; border: 1px solid var(--rule-strong); border-radius: 10px; background: var(--panel-raised);
   box-shadow: var(--shadow-lg);
 }
@@ -641,16 +652,16 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .figure-actions { display: flex; align-items: center; gap: 8px; flex: 0 1 auto; flex-wrap: wrap; min-width: 0; max-width: 100%; }
 .figure-body { padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
 .figure-flush { overflow-x: auto; }
-/* A round arrow over a scrollable box's edge (ScrollHint): fades in, nudges the way to scroll
-   now and then, and fades out once the box has scrolled. */
+/* A fade along the edge of a box that scrolls (ScrollHint), with a small arrow that points the
+   way. It takes no clicks, and it goes away once the box has scrolled. */
 .scroll-hint-host { position: relative; }
 .scroll-hint {
-  position: absolute; z-index: 3; width: 32px; height: 32px; display: grid; place-items: center;
-  border: 1px solid var(--rule-strong); border-radius: 50%; background: rgba(13, 18, 54, .92); color: var(--cyan-soft);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .45); cursor: pointer;
-  opacity: 0; transform: scale(.85); pointer-events: none; transition: opacity .3s ease, transform .3s ease;
+  position: absolute; z-index: 3; display: grid; place-items: end center; padding: 2px; color: var(--cyan-soft);
+  background: linear-gradient(to bottom, transparent, rgba(8, 12, 37, .94));
+  opacity: 0; pointer-events: none; transition: opacity .3s ease;
 }
-.scroll-hint.shown { opacity: 1; transform: none; pointer-events: auto; }
+.scroll-hint.right { place-items: center end; background: linear-gradient(to right, transparent, rgba(8, 12, 37, .94)); }
+.scroll-hint.shown { opacity: 1; }
 .scroll-hint.down svg { transform: rotate(90deg); }
 .scroll-hint.shown.right svg { animation: hint-right 2.6s ease-in-out 1s infinite; }
 .scroll-hint.shown.down svg { animation: hint-down 2.6s ease-in-out 1s infinite; }
@@ -658,7 +669,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 @keyframes hint-down { 0%, 60%, 100% { transform: rotate(90deg); } 75% { transform: rotate(90deg) translateX(3px); } }
 @media (prefers-reduced-motion: reduce) {
   .scroll-hint.shown svg { animation: none; }
-  .scroll-hint { transition: opacity .2s; transform: none; }
+  .scroll-hint { transition: opacity .2s; }
 }
 .show-all { border-top: 1px solid var(--rule); justify-items: center; }
 .figure-note { padding: 10px 16px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-dim); }
@@ -820,11 +831,13 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 /* ---------------------------------------------------------------- confirm and empty states */
 .confirm { padding: 22px 22px 18px; display: grid; gap: 14px; }
 .confirm h2 { font-size: 19px; font-weight: 600; }
+.confirm h2, .confirm-text, .confirm-list, .confirm label { min-width: 0; overflow-wrap: anywhere; }
+.confirm input { width: 100%; min-width: 0; }
 .confirm.danger { border-color: color-mix(in srgb, var(--rose) 50%, var(--rule-strong)); }
 .confirm-text { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); }
 .confirm-list { margin: 0; padding: 10px 12px 10px 28px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); font-size: 13px; line-height: 1.7; }
 .confirm-actions { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
-.confirm-actions .btn { height: 44px; }
+.confirm-actions .btn { height: auto; min-height: 44px; min-width: 0; padding-top: 6px; padding-bottom: 6px; white-space: normal; overflow-wrap: anywhere; }
 .btn.danger:not(:disabled) { background: #7A2E3D; border-color: #7A2E3D; color: #FFE3E8; }
 .empty-state { padding: 28px 24px; border: 1px dashed var(--rule-strong); border-radius: var(--radius); background: var(--panel); display: grid; gap: 10px; max-width: 720px; }
 .empty-state h2 { font-size: 17px; font-weight: 600; }
@@ -908,6 +921,8 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .fleet th { padding: 8px 12px; border-bottom: 1px solid var(--rule); text-align: left; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--ink-dim); white-space: nowrap; }
 .fleet td { padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
 .fleet-row { cursor: pointer; }
+/* The state and the count of checks stay on one line when the Inspector narrows the table. */
+.fleet-health > div:first-child { white-space: nowrap; }
 .fleet td.fleet-menu { width: 1%; padding: 0 4px 0 0; cursor: default; }
 .fleet-menu .kebab { width: 28px; }
 .fleet-row:hover td { background: #10154A; }
@@ -939,11 +954,13 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .wizard-progress { display: none; gap: 4px; padding: 10px 20px 0; }
 .wizard-progress-step { flex: 1; height: 3px; background: var(--rule); }
 .wizard-progress-step.done, .wizard-progress-step.current { background: var(--cyan-soft); }
-.wizard-body { flex: 1; overflow-y: auto; padding: 16px 20px 0; display: grid; gap: 16px; align-content: start; }
+.wizard-body { flex: 1; overflow-y: auto; padding: 16px 20px 0; display: flex; flex-direction: column; gap: 16px; }
+.wizard-body > * { flex: none; }
 .wizard-body .figure { border: 0; background: transparent; border-radius: 0; overflow: visible; }
 .wizard-body .figure-head { padding: 0 0 8px; border-bottom: 0; }
 .wizard-body .figure-body { padding: 0; }
-.wizard-body .wizard-actions { position: sticky; bottom: 0; margin: 0 -20px; padding: 12px 20px; border-top: 1px solid var(--rule); background: #080C25; }
+/* The footer stays at the bottom of the panel, also when the step is short. */
+.wizard-body .wizard-actions { position: sticky; bottom: 0; margin: auto -20px 0; padding: 12px 20px; border-top: 1px solid var(--rule); background: #080C25; }
 .wizard-aside .wizard-steps { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
 .wizard-aside .wizard-step { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 8px; border-radius: var(--radius); background: transparent; border: 0; }
 .wizard-aside .wizard-step.current { background: #141A4A; }
@@ -1039,7 +1056,19 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .nav-label { display: none; }
   .nav-label-short { display: block; }
   .nav-count { position: absolute; top: 6px; right: 10px; }
-  .reconcile .pass-status { display: none; }
+  /* The rail keeps the state of the last pass: a dot over a short text. */
+  .reconcile .pass-status { flex-direction: column; gap: 4px; padding: 8px 2px; font-size: 10px; line-height: 1.3; text-align: center; }
+  /* The monitor column is hidden here, so the state takes the last column. */
+  .record-members li { grid-template-columns: 80px minmax(0, 1fr) 140px; }
+  /* A long caption gives the controls of the figure their own line. */
+  .figure-head { flex-wrap: wrap; }
+  .figure-head .segmented { flex-wrap: nowrap; }
+  /* Touch sizes for the small controls. */
+  .segmented button { height: var(--touch); }
+  .chip { min-height: 40px; }
+  .page-tab { min-height: var(--touch); }
+  input:not([type=checkbox]):not([type=radio]), select, .select, .filter-field { height: var(--touch); }
+  .terminal-tab-close { min-width: 32px; min-height: 32px; }
   .reconcile-actions { grid-template-columns: 1fr; border-top: 0; }
   .reconcile-actions .btn { font-size: 11px; height: var(--touch); padding: 0 4px; }
   .reconcile-actions .btn + .btn { border-top: 1px solid var(--rule); }

@@ -186,7 +186,6 @@ class NodeActions(
                     "Nothing is deleted on the server yet",
                     "Undo: add the node again with the same id",
                 ),
-                typeToConfirm = id,
                 danger = true,
             )
         ) {

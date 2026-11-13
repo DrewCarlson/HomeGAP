@@ -429,6 +429,21 @@ class PresenterTest {
     }
 
     @Test
+    fun wizardNamesTheFieldOfEachProblem() {
+        fun server(vararg values: Pair<WizardField, String>) = AddNodeValidation.problems(
+            draft = AddNodeDraft(values = mapOf(WizardField.NodeId to "eu1", WizardField.Port to "22") + values),
+            step = WizardStep.Server,
+            existingNodeIds = emptySet(),
+        )
+        assertEquals(listOf(WizardField.Host), server(WizardField.Host to "999.1.1").map { it.field })
+        assertEquals(listOf(WizardField.Host), server(WizardField.Host to "300.1.1.1").map { it.field })
+        assertEquals(emptyList(), server(WizardField.Host to "203.0.113.30"))
+        assertEquals(emptyList(), server(WizardField.Host to "eu1.example.net"))
+        val place = server(WizardField.Host to "eu1.example.net", WizardField.Latitude to "abc", WizardField.Longitude to "8.7")
+        assertEquals(listOf(WizardField.Latitude), place.map { it.field }, "only the wrong coordinate is named")
+    }
+
+    @Test
     fun wizardRefusesToDisableRootLoginForRoot() = runTest {
         val draft = AddNodeDraft(toggles = setOf(WizardToggle.DisableRootLogin), values = mapOf(WizardField.LoginUser to "root"))
         assertTrue(AddNodeValidation.errors(draft, WizardStep.Access, emptySet()).any { "Root login" in it })

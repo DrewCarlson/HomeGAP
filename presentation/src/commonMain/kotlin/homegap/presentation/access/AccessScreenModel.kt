@@ -62,7 +62,14 @@ data class NewUserFormModel(
     val setPassword: Boolean,
     val password: String,
     val roles: List<RoleOptionModel>,
+    /** The first thing that stops the form, or what the orchestrator answered. */
     val error: String?,
+    /** The problem of each field, shown under it. A field that is still empty shows none. */
+    val emailError: String? = null,
+    val rolesError: String? = null,
+    val passwordError: String? = null,
+    /** What the orchestrator answered when it refused the user. */
+    val serverError: String? = null,
     val canSubmit: Boolean,
     val submitText: String,
     val onEmail: (String) -> Unit,
