@@ -11,6 +11,7 @@ import dev.zacsweers.metro.SingleIn
 import homegap.api.Health
 import homegap.api.NodeStatusDto
 import homegap.api.StatusSnapshot
+import homegap.presentation.overview.edgesSentence
 import homegap.presentation.common.Badge
 import homegap.presentation.core.Presenter
 import homegap.presentation.data.Preferences
@@ -56,12 +57,11 @@ class NodesScreenPresenter(
                 preferences.set(MESH_MODE_KEY, mode.name)
             }
         }
-        val healthy = status.nodes.count { it.health == Health.OK }
         val selected = status.nodes.firstOrNull { it.id == props.selection }
         return NodesScreenModel(
             head = PageHeadModel(
                 caption = "Nodes · ${plural(status.nodes.size, "edge server")}",
-                headline = "$healthy of ${status.nodes.size} edges healthy.",
+                headline = edgesSentence(status.nodes),
                 statusLine = statusLineOf(status.attention.on(Route.Nodes)),
                 actions = listOf(
                     ActionModel(
@@ -128,7 +128,11 @@ class NodesScreenPresenter(
             place = node.location?.name ?: node.region,
             meta = listOf(node.provider, node.region, node.host).filter { it.isNotBlank() }.joinToString(" · "),
             health = node.health,
-            status = if (node.waitingForCertificate) "waiting for certificate" else node.health.label,
+            status = when {
+                node.paused -> "paused · ${node.health.label}"
+                node.waitingForCertificate -> "waiting for certificate"
+                else -> node.health.label
+            },
             passing = "$passing / ${node.checks.size}",
             checks = node.checks.map { it.health },
             chart = chartOf(

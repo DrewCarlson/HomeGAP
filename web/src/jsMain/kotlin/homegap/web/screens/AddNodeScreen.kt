@@ -16,8 +16,8 @@ import org.jetbrains.compose.web.dom.*
 
 /**
  * The Add node wizard, over the Nodes page: a dialog with the step list on desktops, a drawer with
- * a stepper on tablets, and a full-screen sheet with fixed Back and Continue on phones. The draft
- * is kept on this device, so closing it loses nothing; a running setup carries on.
+ * a stepper on tablets, and a full-screen sheet with fixed Back and Continue on phones. Closing it
+ * drops the draft. A running setup carries on.
  */
 @Composable
 fun AddNodeWizard(
@@ -41,7 +41,7 @@ fun AddNodeWizard(
                 H2({ id("add-node-title") }) { Text("Add a node") }
                 P({ classes("muted") }) { Text("Sets up a new server as an edge node. Nothing changes until you run it.") }
                 Stepper(model)
-                P({ classes("wizard-draft", "muted") }) { Text("Draft kept on this device.") }
+                P({ classes("wizard-draft", "muted") }) { Text("Closing the wizard discards this draft.") }
             }
             Div({ classes("wizard-main") }) {
                 Div({ classes("wizard-head") }) {
@@ -54,7 +54,7 @@ fun AddNodeWizard(
                     }
                     IconButton(
                         iconPath = Icons.CLOSE,
-                        label = "Close; the draft is kept",
+                        label = "Close and discard the draft",
                         onClick = onClose,
                     )
                 }

@@ -15,6 +15,7 @@ import homegap.api.CertProbeDto
 import homegap.api.CertProbeRowDto
 import homegap.api.CertificatesDto
 import homegap.api.Health
+import homegap.api.IssuedCertificateDto
 import homegap.api.StatusSnapshot
 import homegap.presentation.core.Presenter
 import homegap.presentation.data.ActionRunner
@@ -284,7 +285,7 @@ internal class CertificatesView(
                 left = if (days < 0) "expired" else "${plural(days, "day")} left",
                 todayPercent = ((nowSeconds - cert.notBefore) / span * 100).coerceIn(0.0, 100.0),
                 renewPercent = ((cert.renewAt - cert.notBefore) / span * 100).coerceIn(0.0, 100.0),
-                tone = expiryTone(days),
+                tone = lifetimeTone(cert),
             ),
             facts = listOf(
                 FactRow("Issuer", cert.issuer, mono = true),
@@ -452,7 +453,7 @@ internal class CertificatesView(
             kind = "Certificate",
             title = "Node certificate",
             status = "${daysLeft?.let { plural(it, "day") + " left" } ?: ""} · ${plural(cert.names.size, "name")}",
-            health = toneHealth(expiryTone(daysLeft ?: 0)),
+            health = toneHealth(lifetimeTone(cert)),
             sections = listOf(
                 InspectorSection.Facts(
                     title = null,
@@ -618,6 +619,12 @@ internal class CertificatesView(
         "behind", "unknown" -> Tone.Warn
         "waiting" -> Tone.Accent
         else -> Tone.Down
+    }
+
+    /** A certificate that is not yet due for its renewal is fine, however few days it has. */
+    private fun lifetimeTone(cert: IssuedCertificateDto): Tone {
+        val days = daysLeft ?: 0
+        return if (days >= 0 && nowSeconds < cert.renewAt) Tone.Ok else expiryTone(days)
     }
 
     private fun expiryTone(days: Int): Tone = when {

@@ -108,14 +108,13 @@ class OverviewScreenPresenter(
     }
 
     private fun head(status: StatusSnapshot, now: Long): PageHeadModel {
-        val edges = status.nodes.size
-        val healthy = status.nodes.count { it.health == Health.OK }
         val services = status.services.size
         val reachable = status.services.count { it.reachable() }
+        val edges = edgesSentence(status.nodes)
         val headline = when {
-            services == 0 -> "$healthy of $edges edges healthy."
-            reachable == services -> "All $services services reachable on $healthy of $edges edges."
-            else -> "$reachable of $services services reachable on $healthy of $edges edges."
+            services == 0 -> edges
+            reachable == services -> "All $services services reachable. $edges"
+            else -> "$reachable of $services services reachable. $edges"
         }
         return PageHeadModel(
             caption = "Overview · whole system · updated ${ago(status.generatedAt, now)}",
@@ -266,12 +265,19 @@ class OverviewScreenPresenter(
         add(FactRow("Version", "${status.project} · ${status.version}"))
     }
 
-    private fun recent(log: List<LogEntryDto>): List<RecentChangeModel> =
-        log.filter { it.level != LogLevel.INFO }.take(RECENT_CHANGES).map { entry ->
+    /** The newest changes, warnings and errors. A message that repeats shows once, with how often it came. */
+    private fun recent(log: List<LogEntryDto>): List<RecentChangeModel> = log
+        .filter { it.level != LogLevel.INFO }
+        .groupBy { it.target to it.message }
+        .values
+        .take(RECENT_CHANGES)
+        .map { entries ->
+            val entry = entries.first()
+            val text = listOfNotNull(entry.target, entry.message).joinToString(": ")
             RecentChangeModel(
                 time = times.time(entry.time),
                 absolute = times.dateTime(entry.time),
-                text = listOfNotNull(entry.target, entry.message).joinToString(": "),
+                text = if (entries.size == 1) text else "$text (${entries.size} times)",
                 severity = when (entry.level) {
                     LogLevel.ERROR -> Severity.Down
                     LogLevel.WARN -> Severity.Warn
@@ -307,6 +313,15 @@ class OverviewScreenPresenter(
         const val RECENT_CHANGES = 6
         const val LAG_FULL_SCALE = 1024L * 1024L
     }
+}
+
+/** How many edges serve, and how many of them with a warning: a warning is not an outage. */
+internal fun edgesSentence(nodes: List<NodeStatusDto>): String {
+    val serving = nodes.count { it.health == Health.OK || it.health == Health.DEGRADED }
+    val warned = nodes.count { it.health == Health.DEGRADED }
+    val serve = if (serving == 1) "serves" else "serve"
+    val warning = if (warned == 0) "" else ", $warned with a warning"
+    return "$serving of ${plural(nodes.size, "edge")} $serve$warning."
 }
 
 /** Reachable on every edge that serves it. */

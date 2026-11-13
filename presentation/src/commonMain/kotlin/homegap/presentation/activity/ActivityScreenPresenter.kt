@@ -91,7 +91,10 @@ class ActivityScreenPresenter(
             query = query,
             pass = pass,
             onClearPass = { pass = null },
-            entries = shown.take(MAX_SHOWN).map { it.toRow() },
+            entries = when {
+                query.isBlank() && pass == null -> foldIdlePasses(shown).take(MAX_SHOWN).map { (entry, passes) -> entry.toRow(passes) }
+                else -> shown.take(MAX_SHOWN).map { it.toRow() }
+            },
             emptyText = if (all.isEmpty()) "Nothing logged yet." else "No entries match the filters.",
             canLoadOlder = !exhausted && all.isNotEmpty(),
             loadingOlder = loading,
@@ -137,7 +140,8 @@ class ActivityScreenPresenter(
         )
     }
 
-    private fun LogEntryDto.toRow(): LogRowModel = LogRowModel(
+    /** The row of the entry. [passes] over 1 makes it stand for that many passes that changed nothing. */
+    private fun LogEntryDto.toRow(passes: Int = 1): LogRowModel = LogRowModel(
         seq = seq,
         time = times.time(time),
         absolute = times.dateTime(time),
@@ -145,7 +149,10 @@ class ActivityScreenPresenter(
         severity = level.severity(),
         domain = domain,
         target = target,
-        message = message,
+        message = when (passes) {
+            1 -> message
+            else -> "$passes passes with no changes, the last in ${fields["duration_ms"].orEmpty()} ms"
+        },
         location = Location(Route.Activity, seq.toString()),
     )
 
@@ -195,6 +202,27 @@ class ActivityScreenPresenter(
         const val PAGE = 200
         const val MAX_SHOWN = 1500
     }
+}
+
+/** A reconcile pass that changed nothing and had no error. */
+private val LogEntryDto.isIdlePass: Boolean
+    get() = domain == "controller" && fields["changes"] == "0" && fields["errors"] == "0"
+
+/**
+ * Folds each run of passes that changed nothing into its newest entry, with the size of the run.
+ * A quiet system logs two of them a minute, and they hide the entries that matter.
+ */
+internal fun foldIdlePasses(entries: List<LogEntryDto>): List<Pair<LogEntryDto, Int>> {
+    val folded = mutableListOf<Pair<LogEntryDto, Int>>()
+    for (entry in entries) {
+        val last = folded.lastOrNull()
+        if (entry.isIdlePass && last != null && last.first.isIdlePass) {
+            folded[folded.lastIndex] = last.first to last.second + 1
+        } else {
+            folded += entry to 1
+        }
+    }
+    return folded
 }
 
 private fun LogEntryDto.matches(level: LogLevel?, domain: String?, query: String): Boolean {

@@ -18,6 +18,7 @@ import homegap.presentation.access.AccessScreenProps
 import homegap.presentation.activity.ActivityScreenModel
 import homegap.presentation.activity.ActivityScreenPresenter
 import homegap.presentation.activity.ActivityScreenProps
+import homegap.presentation.activity.foldIdlePasses
 import homegap.presentation.app.AppPresenter
 import homegap.presentation.app.AppProps
 import homegap.presentation.config.ConfigScreenPresenter
@@ -32,6 +33,7 @@ import homegap.presentation.nodes.NodesScreenProps
 import homegap.presentation.overview.OverviewScreenModel
 import homegap.presentation.overview.OverviewScreenPresenter
 import homegap.presentation.overview.OverviewScreenProps
+import homegap.presentation.overview.edgesSentence
 import homegap.presentation.routing.Location
 import homegap.presentation.services.ServiceActions
 import homegap.presentation.nodes.NodeActions
@@ -116,7 +118,41 @@ class PresenterTest {
         assertEquals(Health.DEGRADED, nodes.health)
         assertEquals(Health.UNKNOWN, model.gauges.first { it.label == "DNS in sync" }.health, "nothing to count")
         assertEquals(listOf("a1", "b1"), model.edges.map { it.id })
-        assertEquals("1 of 2 edges healthy.", model.head.headline)
+        assertEquals("1 of 2 edges serves.", model.head.headline)
+    }
+
+    @Test
+    fun aWarningOnAnEdgeIsNotAnOutageInTheHeadline() {
+        val nodes = listOf(node("a1", Health.DEGRADED), node("b1", Health.DEGRADED))
+        assertEquals("2 of 2 edges serve, 2 with a warning.", edgesSentence(nodes))
+    }
+
+    @Test
+    fun passesThatChangeNothingFoldIntoTheNewest() {
+        fun pass(seq: Long, changes: Int) = LogEntryDto(
+            time = seq,
+            domain = "controller",
+            level = LogLevel.INFO,
+            message = "pass complete",
+            seq = seq,
+            fields = mapOf("changes" to changes.toString(), "errors" to "0", "duration_ms" to "10"),
+        )
+        val warning = LogEntryDto(time = 3, domain = "dns", level = LogLevel.WARN, message = "slow", seq = 3)
+        val folded = foldIdlePasses(listOf(pass(6, 0), pass(5, 0), pass(4, 1), warning, pass(2, 0)))
+        assertEquals(listOf(6L to 2, 4L to 1, 3L to 1, 2L to 1), folded.map { (entry, passes) -> entry.seq to passes })
+    }
+
+    @Test
+    fun aPauseAsksFirstAndAResumeDoesNot() = runTest {
+        val g = graph
+        g.nodeActions.togglePause(id = "a1", paused = false)
+        testScheduler.runCurrent()
+        assertEquals("Pause a1?", g.confirmations.pending.value?.model?.title)
+        assertEquals(emptyList(), g.api.calls)
+        g.confirmations.resolve(confirmed = true)
+        g.nodeActions.togglePause(id = "a1", paused = true)
+        testScheduler.runCurrent()
+        assertEquals(2, g.api.calls.size)
     }
 
     @Test

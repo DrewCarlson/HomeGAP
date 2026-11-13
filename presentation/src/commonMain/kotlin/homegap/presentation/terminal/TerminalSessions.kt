@@ -88,7 +88,7 @@ class TerminalSessions(
 
     private val attaching = mutableMapOf<String, Job>()
 
-    /** Reads the open sessions and adds a tab for each one that has none. */
+    /** Reads the open sessions and adds a tab for each one that has none. Tabs added to an empty panel start minimized. */
     suspend fun restore() {
         val overview = runCatchingCancellable { api.terminals() }.getOrNull() ?: return
         val known = _state.value.tabs.map { it.id }.toSet()
@@ -104,6 +104,8 @@ class TerminalSessions(
                 enabled = overview.enabled,
                 tabs = state.tabs + restored,
                 selected = state.selected ?: restored.firstOrNull()?.id,
+                // Sessions from before the page loaded come back as a bar, not over the page.
+                layout = if (state.tabs.isEmpty() && restored.isNotEmpty()) TerminalLayout.Minimized else state.layout,
             )
         }
         restored.forEach { attach(it.id) }

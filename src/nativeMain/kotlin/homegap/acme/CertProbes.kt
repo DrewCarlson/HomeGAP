@@ -87,13 +87,20 @@ object CertProbes {
 
     /**
      * The state of [result] for [name] at [nowSeconds]: `ok`, `soon` (fewer than 14 days),
-     * `expiring` (fewer than 7), `none`, `default` or `mismatch`.
+     * `expiring` (fewer than 7), `none`, `default` or `mismatch`. [renewAt] is the time of the next
+     * order if the certificate is the one that HomeGAP renews. Such a certificate is `expiring`
+     * only when its renewal is late.
      */
-    fun state(name: String, result: Result, nowSeconds: Long): String {
+    fun state(name: String, result: Result, nowSeconds: Long, renewAt: Long? = null): String {
         if (!result.served) return "none"
         if (result.subject.orEmpty().contains(DEFAULT_SUBJECT, ignoreCase = true)) return "default"
         if (!covers(name, result)) return "mismatch"
         val days = daysLeft(result, nowSeconds) ?: return "ok"
+        val notAfter = result.notAfter
+        if (renewAt != null && notAfter != null && days >= 0) {
+            val late = renewalIsLate(notAfter = notAfter, renewAt = renewAt, nowSeconds = nowSeconds)
+            return if (late) "expiring" else "ok"
+        }
         return when {
             days < EXPIRING_DAYS -> "expiring"
             days < SOON_DAYS -> "soon"
@@ -120,3 +127,10 @@ object CertProbes {
         }
     }
 }
+
+/**
+ * True when half of the time between the renewal and the expiry has passed. A certificate that is
+ * valid for a few days is always near its expiry, so the days alone do not tell that a renewal is late.
+ */
+internal fun renewalIsLate(notAfter: Long, renewAt: Long, nowSeconds: Long): Boolean =
+    nowSeconds >= renewAt + (notAfter - renewAt) / 2

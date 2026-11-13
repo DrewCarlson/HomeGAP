@@ -5,6 +5,7 @@ import homegap.api.Health
 import homegap.api.MetricPointDto
 import homegap.api.NodeStatusDto
 import homegap.api.ServiceNodeHealthDto
+import homegap.api.ServiceStatusDto
 import homegap.api.StatusSnapshot
 import homegap.api.TunnelStatusDto
 import homegap.reconcile.Controller
@@ -74,6 +75,32 @@ class EdgeDataTest {
             since = seen,
         )
         assertEquals(listOf(1_000L, 1_000L), later.map { it.since })
+    }
+
+    @Test
+    fun aServiceThatFailsOnEveryEdgeIsOneItem() {
+        fun service(vararg edges: ServiceNodeHealthDto) = ServiceStatusDto(
+            key = "git",
+            container = "git",
+            hostname = "git.example.net",
+            wildcard = false,
+            protocol = "http",
+            tls = "terminate",
+            access = "public",
+            auth = "none",
+            regions = emptyList(),
+            kind = "container",
+            paused = false,
+            perNode = edges.toList(),
+        )
+        val down = ServiceNodeHealthDto(nodeId = "a1", health = Health.DOWN, detail = "no answer", code = 0)
+        val everywhere = snapshot(1_000).copy(services = listOf(service(down, down.copy(nodeId = "b1"))))
+        val item = attentionItems(everywhere, emptyMap()).single()
+        assertEquals("git.example.net failing on every edge", item.title)
+        assertEquals("no answer", item.detail)
+
+        val oneEdge = snapshot(1_000).copy(services = listOf(service(down, ServiceNodeHealthDto("b1", Health.OK))))
+        assertEquals("git.example.net failing on a1", attentionItems(oneEdge, emptyMap()).single().title)
     }
 
     @Test

@@ -240,10 +240,11 @@ private fun History(rows: List<HistoryRowModel>) {
         caption = "Fig. 03 · History",
         flush = true,
     ) {
-        val headers = listOf("When", "Path", "Node", "Ping", "Jitter", "Down", "Up", "Notes")
+        val headers = listOf("When", "Path", "Node", "Ping", "Jitter", "Down", "Up")
         DataTable(headers, "No results yet.", rows.isEmpty()) {
             rows.forEach { row ->
                 key(row.id) {
+                    val notes = listOfNotNull(row.client, row.cpu, row.homelabCpu)
                     Tr {
                         Cell("When", "nowrap") { Text(row.time) }
                         Cell("Path") {
@@ -255,11 +256,14 @@ private fun History(rows: List<HistoryRowModel>) {
                         Cell("Jitter", "mono") { Text(row.jitter) }
                         Cell("Down", "mono") { Text(row.down) }
                         Cell("Up", "mono") { Text(row.up) }
-                        Cell("Notes") {
-                            row.error?.let { ErrorText(it, mono = false) }
-                            row.client?.let { Muted(it) }
-                            row.cpu?.let { Muted(it) }
-                            row.homelabCpu?.let { Muted(it) }
+                    }
+                    // The notes are long, so they get the full width under the row and not a column.
+                    if (row.error != null || notes.isNotEmpty()) {
+                        Tr({ classes("note-row") }) {
+                            Td({ attr("colspan", headers.size.toString()) }) {
+                                row.error?.let { ErrorText(it, mono = false) }
+                                notes.forEach { Muted(it) }
+                            }
                         }
                     }
                 }

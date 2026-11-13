@@ -9,6 +9,7 @@ import homegap.acme.CertNames
 import homegap.acme.CertProbes
 import homegap.acme.CertificateStatus
 import homegap.acme.NodeCertificate
+import homegap.acme.renewalIsLate
 import homegap.api.*
 import homegap.clients.*
 import homegap.clients.SshSession.Companion.shQuote
@@ -1176,10 +1177,13 @@ class Controller(
         val epoch = probe.substringBefore('|').toLongOrNull() ?: 0
         val subject = probe.substringAfter('|')
         val days = if (epoch > 0) ((epoch * 1000 - nowMillis()) / DAY_MS).toInt() else null
+        // The nodes' own certificate renews on its own: it warns only when that renewal is late.
+        val own = nodeCert.meta()?.takeIf { which == "mgmt" && it.notAfter == epoch }
+        val late = own?.let { renewalIsLate(notAfter = it.notAfter, renewAt = nodeCert.renewAt(it), nowSeconds = nowMillis() / 1000) }
         val health = when {
             days == null -> Health.UNKNOWN
             days < 0 -> Health.DOWN
-            days < CERT_EXPIRY_WARNING_DAYS -> Health.DEGRADED
+            late ?: (days < CERT_EXPIRY_WARNING_DAYS) -> Health.DEGRADED
             else -> Health.OK
         }
         val certificate = CertificateDto(
@@ -1189,7 +1193,8 @@ class Controller(
             source = which,
             health = health,
         )
-        return CheckDto("tls-$which", health, "$subject${days?.let { ", $it days left" }.orEmpty()}") to certificate
+        val detail = listOfNotNull(subject.ifEmpty { null }, days?.let { "$it days left" }).joinToString(", ")
+        return CheckDto("tls-$which", health, detail) to certificate
     }
 
     /** The check of the Pangolin API probe of a node, which took [apiMs]. */

@@ -71,7 +71,10 @@ fun ServicesScreen(
                 Tbody {
                     model.rows.forEach { row ->
                         key(row.hostname) {
-                            Tr({ classes("matrix-row") }) {
+                            Tr({
+                                classes("matrix-row")
+                                onClick { onOpen(row.location) }
+                            }) {
                                 Td({ classes("matrix-host") }) {
                                     NavLink(
                                         href = HashRouter.href(row.location),

@@ -334,7 +334,10 @@ private fun Matrix(matrix: MatrixModel, onOpen: (Location) -> Unit) {
                 Tbody {
                     matrix.rows.forEach { row ->
                         key(row.label) {
-                            Tr {
+                            Tr({
+                                classes("matrix-row")
+                                onClick { onOpen(row.location) }
+                            }) {
                                 Td({ classes("matrix-host") }) {
                                     NavLink(
                                         href = HashRouter.href(row.location),

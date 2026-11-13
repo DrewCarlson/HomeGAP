@@ -59,7 +59,7 @@ class ConfigScreenPresenter(private val api: ControllerApi) : Presenter<ConfigSc
                     null -> "Loading the config…"
                     0 -> "Everything matches the config."
                     else -> "${plural(pending, "difference")} from the config."
-                },
+                } + if (missing.isEmpty()) "" else " ${plural(missing.size, "secret")} ${if (missing.size == 1) "is" else "are"} missing.",
                 statusLine = missing.takeIf { it.isNotEmpty() }?.let { secrets ->
                     StatusLineModel(
                         secrets.map { secret ->

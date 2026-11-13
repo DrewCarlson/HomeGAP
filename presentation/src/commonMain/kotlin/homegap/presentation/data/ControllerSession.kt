@@ -54,6 +54,14 @@ class ControllerSession(
     private val _problem = MutableStateFlow<ConnectionProblem?>(null)
     val problem: StateFlow<ConnectionProblem?> = _problem.asStateFlow()
 
+    private val _streamRefused = MutableStateFlow<String?>(null)
+
+    /**
+     * Why the controller refuses the event stream while it still answers requests, or null. Without
+     * the stream the status comes from a poll, and the log and the terminals get nothing new.
+     */
+    val streamRefused: StateFlow<String?> = _streamRefused.asStateFlow()
+
     private val _failedAttempts = MutableStateFlow(0)
 
     /**
@@ -122,16 +130,19 @@ class ControllerSession(
         while (true) {
             loadMetrics()
             // A fresh request each time, so a reconnect asks only for the log entries it missed.
+            var refusal: String? = null
             api.events(lastLogSeq)
                 .onEach { onEvent(it) }
                 .catch { error ->
                     if (error is ApiException) {
                         _problem.value = error.toProblem()
+                        refusal = error.message
                     }
                 }
                 .collect()
             // The stream ended or dropped: poll once to stay current, then reconnect.
             refresh()
+            _streamRefused.value = refusal.takeIf { _problem.value == null }
             val failing = _problem.value != null
             if (failing) {
                 _failedAttempts.value += 1
@@ -182,6 +193,7 @@ class ControllerSession(
             is ServerEvent.Status -> {
                 setSnapshot(event.snapshot)
                 connected()
+                _streamRefused.value = null
             }
 
             is ServerEvent.Patch -> {

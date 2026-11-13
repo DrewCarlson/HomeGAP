@@ -290,6 +290,14 @@ table.data th {
 table.data td { padding: 10px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
 table.data tbody tr:last-child td { border-bottom: none; }
 table.data tbody tr:hover td { background: #0F1440; }
+/* The row menu stays in view when a wide table scrolls sideways. */
+@media (min-width: 600px) {
+  table.data td.row-menu { position: sticky; right: 0; background: var(--panel); }
+}
+/* A row of notes under the row it belongs to. */
+table.data tr:has(+ tr.note-row) td { border-bottom: none; padding-bottom: 4px; }
+table.data tr.note-row td { padding-top: 0; font-size: 12.5px; }
+table.data tr.note-row:hover td { background: none; }
 table.data tr.empty td { color: var(--muted); text-align: center; padding: 28px 14px; }
 table.data tr.empty:hover td { background: none; }
 .inline-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -682,7 +690,8 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 @media (min-width: 600px) {
   .shell { height: 100vh; height: 100dvh; overflow: hidden; }
   .nav { height: 100%; overscroll-behavior: contain; }
-  .page { height: 100%; overflow-y: auto; overscroll-behavior: contain; }
+  /* The rows keep their height: an auto row with a clipped item would shrink to nothing in a page that scrolls. */
+  .page { height: 100%; overflow-y: auto; overscroll-behavior: contain; grid-auto-rows: max-content; }
   .inspector-column { position: static; height: 100%; }
 }
 
@@ -942,6 +951,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .filter-field { flex: 1; min-width: 220px; flex-direction: row; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); color: var(--ink-dim); }
 .filter-field input { flex: 1; height: 34px; border: 0; background: transparent; color: var(--ink); font: 13.5px var(--sans); outline: none; padding: 0; }
 .services td { vertical-align: middle; }
+.matrix-row { cursor: pointer; }
 .matrix-row:hover td { background: #10154A; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .record-set { border-bottom: 1px solid var(--rule); }
@@ -1140,6 +1150,9 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   table.data td.row-menu { position: absolute; top: 8px; right: 8px; }
   table.data td.primary-cell { font-size: 14.5px; }
   table.data td.primary-cell::before, table.data td.actions::before { content: none; }
+  table.data tr:has(+ tr.note-row) { border-bottom: none; padding-bottom: 0; }
+  table.data tr.note-row { display: block; padding-top: 6px; }
+  table.data tr.note-row td::before { content: none; }
   table.data tr.empty { display: block; }
   table.data tr.empty td { text-align: center; }
   table.data tr.empty td::before { content: none; }

@@ -158,8 +158,21 @@ class NodeActions(
         }
     }
 
+    /** Resumes at once. A pause asks first, because the node then misses config changes and updates. */
     fun togglePause(id: String, paused: Boolean) {
-        actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Node, id, !paused) }
+        if (paused) {
+            actions.run("Resume") { api.pause(PauseScope.Node, id, false) }
+            return
+        }
+        confirmations.ask(
+            ConfirmModel(
+                title = "Pause $id?",
+                text = "HomeGAP leaves $id as it is and only observes it. Config changes and updates wait until you resume.",
+                confirmLabel = "Pause $id",
+            )
+        ) {
+            actions.run("Pause") { api.pause(PauseScope.Node, id, true) }
+        }
     }
 
     fun removeNode(id: String) {

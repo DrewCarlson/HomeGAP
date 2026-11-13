@@ -101,7 +101,12 @@ object CertificateStatus {
             val result = probes.results[name] ?: return CertProbeDto(node = node, state = "unknown")
             return CertProbeDto(
                 node = node,
-                state = CertProbes.state(name, result, now),
+                state = CertProbes.state(
+                    name = name,
+                    result = result,
+                    nowSeconds = now,
+                    renewAt = inputs.renewAt.takeIf { inputs.meta?.notAfter == result.notAfter },
+                ),
                 daysRemaining = CertProbes.daysLeft(result, now),
                 subject = result.subject,
                 issuer = result.issuer,

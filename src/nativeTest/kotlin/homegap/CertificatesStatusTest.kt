@@ -7,7 +7,9 @@ import homegap.acme.CertificateStatus
 import homegap.acme.NodeCertificate
 import homegap.acme.OrderCause
 import homegap.acme.X509
+import homegap.api.AttentionItemDto
 import homegap.api.CertificatesDto
+import homegap.api.CheckDto
 import homegap.api.Health
 import homegap.api.NodeStatusDto
 import homegap.api.StatusSnapshot
@@ -238,6 +240,49 @@ class CertificatesStatusTest {
         assertEquals("certificates:order", items.first { it.id == "node:na1:waiting" }.parent)
         assertEquals("certificates:order", items.first { it.id == "tunnel:na1" }.parent)
         assertNull(items.firstOrNull { it.id == "node:na1:down" })
+    }
+
+    @Test
+    fun aShortCertificateWarnsOnlyWhenItsRenewalIsLate() {
+        fun items(issuedDaysAgo: Int): List<AttentionItemDto> {
+            val certs = build(
+                meta = NodeCertificate.Meta(
+                    names = CertNames.of(config, plan),
+                    directory = config.acme.directoryUrl(),
+                    certName = "homegap-1",
+                    notBefore = now - issuedDaysAgo * DAY_SECONDS,
+                    notAfter = now + (6 - issuedDaysAgo) * DAY_SECONDS,
+                ),
+                history = emptyList(),
+                probes = emptyMap(),
+            )
+            val node = NodeStatusDto(
+                id = "na1",
+                region = "NA",
+                provider = "",
+                host = "",
+                managementHost = "pangolin-na1.test.example.net",
+                health = Health.DEGRADED,
+                reachable = true,
+                checks = listOf(CheckDto("tls-mgmt", Health.DEGRADED, "1 days left")),
+            )
+            val snapshot = StatusSnapshot(
+                generatedAt = now * 1000,
+                version = "t",
+                dryRun = false,
+                project = "p",
+                domain = config.domain,
+                paused = false,
+                nodes = listOf(node),
+                certificates = certs,
+            )
+            return attentionItems(snapshot, emptyMap())
+        }
+        // Valid for six days: the renewal is on day four, and it is late from day five.
+        assertNull(items(issuedDaysAgo = 1).firstOrNull { it.id == "certificates:expiry" }, "five days left is normal")
+        val late = items(issuedDaysAgo = 5)
+        assertEquals("the renewal is late", late.first { it.id == "certificates:expiry" }.detail)
+        assertEquals("certificates:expiry", late.first { it.id == "node:na1:degraded" }.parent)
     }
 
     private fun assertCause(expected: OrderCause, message: String) = assertEquals(expected, OrderCause.of(message))

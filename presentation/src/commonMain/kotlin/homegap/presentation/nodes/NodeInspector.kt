@@ -116,11 +116,10 @@ fun nodeInspector(
             node.updateWaiting?.takeIf { node.job == null }?.let {
                 add(InspectorSection.Note(text = "Update waiting: $it", severity = Severity.Info))
             }
-            add(InspectorSection.Charts(charts))
             add(
                 InspectorSection.Marks(
                     title = "Checks",
-                    rows = node.checks.map { check ->
+                    rows = node.checks.sortedBy { it.health.problemRank }.map { check ->
                         val root = node.managementHost.substringAfter('.')
                         val homelabRoot = certificates?.probes?.any { it.kind == "homelab" && it.name == root } == true
                         check.toMark().let { mark ->
@@ -144,6 +143,8 @@ fun nodeInspector(
                     )
                 )
             }
+            // The charts come after the checks and the drift: what is wrong shows before the history.
+            add(InspectorSection.Charts(charts))
             add(
                 InspectorSection.Facts(
                     title = "System",
@@ -191,6 +192,14 @@ fun nodeInspector(
         actions = actions,
     )
 }
+
+/** Failing first, then degraded, then the rest in their own order. */
+private val Health.problemRank: Int
+    get() = when (this) {
+        Health.DOWN -> 0
+        Health.DEGRADED -> 1
+        else -> 2
+    }
 
 /** A check as a row: its dashboard name, its detail, and its measured value against the threshold. */
 fun CheckDto.toMark(): MarkRow = MarkRow(

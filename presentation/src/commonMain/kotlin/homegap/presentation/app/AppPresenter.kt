@@ -100,12 +100,15 @@ class AppPresenter(
     private companion object {
         /** How long the controller must stay out of reach before the dashboard says so. */
         val LOST_GRACE = 5.seconds
+
+        const val NO_HIT = -1
     }
 
     @Composable
     override fun model(props: AppProps): AppModel {
         LaunchedEffect(Unit) { session.follow() }
         val status by session.status.collectAsState()
+        val streamRefused by session.streamRefused.collectAsState()
         val problem by session.problem.collectAsState()
         val toasts by actions.toasts.collectAsState()
         val log by session.log.collectAsState()
@@ -134,7 +137,7 @@ class AppPresenter(
                     lastUpdate = snapshot?.generatedAt,
                 )
             },
-            banners = remember(snapshot) { snapshot?.banners().orEmpty() },
+            banners = remember(snapshot, streamRefused) { listOfNotNull(streamRefused?.let(::noLiveUpdates)) + snapshot?.banners().orEmpty() },
             rollout = snapshot?.let { rollout(it, now) },
             screen = snapshot?.let {
                 screen(
@@ -185,7 +188,8 @@ class AppPresenter(
         var isOpen by remember { mutableStateOf(false) }
         var query by remember { mutableStateOf("") }
         var kind by remember { mutableStateOf<SearchKind?>(null) }
-        var highlighted by remember { mutableStateOf(0) }
+        // With no query nothing is highlighted, so Enter alone runs no suggested action.
+        var highlighted by remember { mutableStateOf(NO_HIT) }
         val paused = snapshot?.paused == true
         val terminalNodes = if (terminals.enabled) snapshot?.nodes?.map { it.id }.orEmpty() else emptyList()
         val actionHits = remember(paused, terminalNodes) {
@@ -206,7 +210,7 @@ class AppPresenter(
                     kind = SearchKind.Action,
                     title = if (paused) "Resume changes" else "Pause all changes",
                     subtitle = if (paused) "Apply waiting changes" else "Observe only",
-                    run = { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } },
+                    run = { togglePause(paused) },
                 ),
                 SearchHit(
                     kind = SearchKind.Action,
@@ -280,7 +284,7 @@ class AppPresenter(
             isOpen = false
             query = ""
             kind = null
-            highlighted = 0
+            highlighted = NO_HIT
         }
         return SearchModel(
             isOpen = isOpen,
@@ -288,16 +292,16 @@ class AppPresenter(
             kind = kind,
             kinds = SearchKind.entries,
             groups = groups,
-            highlighted = highlighted.coerceIn(0, (hits.size - 1).coerceAtLeast(0)),
+            highlighted = if (highlighted == NO_HIT) NO_HIT else highlighted.coerceIn(0, (hits.size - 1).coerceAtLeast(0)),
             onOpen = { isOpen = true },
             onClose = close,
             onQuery = {
                 query = it
-                highlighted = 0
+                highlighted = if (it.isBlank()) NO_HIT else 0
             },
             onKind = {
                 kind = it
-                highlighted = 0
+                highlighted = if (query.isBlank()) NO_HIT else 0
             },
             onMove = { delta -> highlighted = (highlighted + delta).coerceIn(0, (hits.size - 1).coerceAtLeast(0)) },
             onChoose = { hit ->
@@ -410,6 +414,24 @@ class AppPresenter(
         else -> null
     }
 
+    /** Resumes at once. A pause asks first, because nothing is applied while it lasts. */
+    private fun togglePause(paused: Boolean) {
+        if (paused) {
+            actions.run("Resume") { api.pause(PauseScope.Global, null, false) }
+            return
+        }
+        confirmations.ask(
+            ConfirmModel(
+                title = "Pause all changes?",
+                text = "HomeGAP only observes: health and drift keep updating, but it applies nothing to the nodes, " +
+                    "DNS or the tunnels until you resume.",
+                confirmLabel = "Pause changes",
+            )
+        ) {
+            actions.run("Pause") { api.pause(PauseScope.Global, null, true) }
+        }
+    }
+
     @Composable
     private fun header(status: StatusSnapshot, busy: Boolean, now: Long): HeaderModel {
         val paused by rememberUpdatedState(status.paused)
@@ -421,9 +443,7 @@ class AppPresenter(
             busy = busy,
             onResync = remember { { pausedGuard.run("Resync") { actions.run("Resync") { api.resync() } } } },
             onApplyOnce = remember { { actions.run("Run one pass") { api.applyOnce() } } },
-            onTogglePause = remember {
-                { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } }
-            },
+            onTogglePause = remember { { togglePause(paused) } },
             onSignOut = remember { ::signOut },
         )
     }
@@ -569,6 +589,13 @@ internal fun StatusSnapshot.attentionCounts(): Map<Route, AttentionCount> =
             severity = if (anyDown(items)) Health.DOWN else Health.DEGRADED,
         )
     }
+
+/** The banner for a controller that answers requests but refuses the event stream, with its [reason]. */
+internal fun noLiveUpdates(reason: String) = BannerModel(
+    kind = BannerKind.Warn,
+    text = "No live updates: ${reason.trimEnd('.')}. The status still refreshes every few seconds, but the log shows " +
+        "nothing new and a terminal cannot connect.",
+)
 
 internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
     if (dryRun) add(BannerModel(BannerKind.Warn, "Dry-run mode: discovery and planning only. Nothing is written to nodes, Pangolin or DNS."))

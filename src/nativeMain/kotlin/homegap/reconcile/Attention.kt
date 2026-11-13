@@ -1,11 +1,13 @@
 package homegap.reconcile
 
+import homegap.acme.renewalIsLate
 import homegap.api.AttentionItemDto
 import homegap.api.CertProbeRowDto
 import homegap.api.CertificatesDto
 import homegap.api.CheckDto
 import homegap.api.DnsRecordStatusDto
 import homegap.api.Health
+import homegap.api.IssuedCertificateDto
 import homegap.api.LabelErrorDto
 import homegap.api.NodeStatusDto
 import homegap.api.ServiceNodeHealthDto
@@ -21,6 +23,13 @@ private const val EXPIRY_WARNING_DAYS = 14
 
 /** A certificate with fewer days than this is a severe fault. */
 private const val EXPIRY_SEVERE_DAYS = 7
+
+private const val EXPIRY_ID = "certificates:expiry"
+
+private fun renewalIsLate(issued: IssuedCertificateDto, nowSeconds: Long) =
+    renewalIsLate(notAfter = issued.notAfter, renewAt = issued.renewAt, nowSeconds = nowSeconds)
+
+private fun plural(count: Int, noun: String) = if (count == 1) "1 $noun" else "$count ${noun}s"
 
 /**
  * What needs attention in [snapshot], worst first, then oldest first. [since] gives the time when
@@ -108,15 +117,18 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
                 ),
             )
         }
-        if (days != null && days < EXPIRY_WARNING_DAYS) {
+        val issued = certs.issued
+        val failed = certs.order.state == "failed"
+        if (issued != null && days != null && days < EXPIRY_WARNING_DAYS && (failed || renewalIsLate(issued, nowSeconds))) {
             add(
                 Finding(
-                    id = "certificates:expiry",
+                    id = EXPIRY_ID,
                     severity = if (days < EXPIRY_SEVERE_DAYS) Health.DOWN else Health.DEGRADED,
-                    title = if (days < 0) "The certificate expired" else "The certificate expires in $days days",
-                    detail = "renewal does not work: see the last order",
+                    title = if (days < 0) "The certificate expired" else "The certificate expires in ${plural(days, "day")}",
+                    detail = if (failed) "renewal does not work: see the last order" else "the renewal is late",
                     route = "certificates",
                     selection = "certificate",
+                    parent = cause.takeIf { failed },
                 ),
             )
         }
@@ -270,12 +282,20 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
                 detail = firstProblem.orEmpty(),
                 route = "nodes",
                 selection = node.id,
+                parent = expiryCause.takeIf { onlyTheCertificate(node) },
             )
 
             else -> return
         }
         add(finding)
     }
+
+    /** The item that a node with only a certificate warning folds under, if the expiry is listed. */
+    private val expiryCause: String? get() = items.firstOrNull { it.id == EXPIRY_ID }?.let { it.parent ?: it.id }
+
+    private fun onlyTheCertificate(node: NodeStatusDto): Boolean = node.checks
+        .filter { it.health == Health.DOWN || it.health == Health.DEGRADED }
+        .all { it.name == "tls-mgmt" }
 
     private fun problemText(check: CheckDto): String {
         val measured = check.value?.let { value -> "${value.toLong()} ${check.unit.orEmpty()}".trim() }
@@ -318,24 +338,31 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
 
     // ------------------------------------------------------------------ services, DNS, tunnels, cluster
 
+    /** Adds one item for the edges where the service fails and one for those where it is slow. */
     fun addServiceItems(service: ServiceStatusDto) {
-        service.perNode
-            .filter { it.health == Health.DOWN || it.health == Health.DEGRADED }
-            .forEach { addServiceEdge(service, it) }
+        for (health in listOf(Health.DOWN, Health.DEGRADED)) {
+            val edges = service.perNode.filter { it.health == health }
+            if (edges.isNotEmpty()) addServiceEdges(service, health, edges)
+        }
     }
 
-    private fun addServiceEdge(service: ServiceStatusDto, edge: ServiceNodeHealthDto) {
-        val state = if (edge.health == Health.DOWN) "failing" else "slow"
+    private fun addServiceEdges(service: ServiceStatusDto, health: Health, edges: List<ServiceNodeHealthDto>) {
+        val state = if (health == Health.DOWN) "failing" else "slow"
+        val where = when {
+            edges.size > 1 && edges.size == service.perNode.size -> "every edge"
+            else -> edges.joinToString(", ") { it.nodeId }
+        }
+        val first = edges.first()
         val details = listOfNotNull(
-            edge.code?.toString(),
-            edge.ms?.let { "${it.toLong()} ms" },
-            edge.detail.ifEmpty { null },
+            first.code?.takeIf { it > 0 }?.toString(),
+            first.ms?.let { "${it.toLong()} ms" },
+            first.detail.ifEmpty { null },
         )
         add(
             Finding(
-                id = "service:${service.key}:${edge.nodeId}",
-                severity = edge.health,
-                title = "${service.hostname} $state on ${edge.nodeId}",
+                id = "service:${service.key}:$state",
+                severity = health,
+                title = "${service.hostname} $state on $where",
                 detail = details.joinToString(" · "),
                 route = "services",
                 selection = service.hostname,
