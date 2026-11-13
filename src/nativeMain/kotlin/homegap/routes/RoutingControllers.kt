@@ -4,7 +4,13 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.dashboard.DashboardAuth
+import homegap.api.ActionResponse
+import homegap.api.ApiJson
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
+import io.ktor.server.application.createRouteScopedPlugin
+import io.ktor.server.response.respondText
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
 import io.ktor.server.auth.UserIdPrincipal
@@ -31,7 +37,7 @@ class RoutingControllers(
         application.install(Authentication) {
             bearer(AUTH) {
                 authenticate { credential ->
-                    if (auth.matches(credential.token)) UserIdPrincipal("dashboard") else null
+                    if (auth.accepts(credential.token, request.local.remoteHost)) UserIdPrincipal("dashboard") else null
                 }
             }
         }
@@ -39,6 +45,7 @@ class RoutingControllers(
             // Their own checks (the homelab Traefik polls without the token).
             open.forEach { it.init(this, auth) }
             route("/api") {
+                install(BlockedAddresses) { this.auth = this@RoutingControllers.auth }
                 authenticate(AUTH) {
                     controllers.forEach { it.init(this) }
                 }
@@ -48,6 +55,21 @@ class RoutingControllers(
 
     private companion object {
         const val AUTH = "dashboard"
+    }
+}
+
+private class BlockedConfig {
+    lateinit var auth: DashboardAuth
+}
+
+/** Answers 429 to an address that sent too many wrong tokens, before the token check. */
+private val BlockedAddresses = createRouteScopedPlugin("BlockedAddresses", ::BlockedConfig) {
+    val auth = pluginConfig.auth
+    onCall { call ->
+        if (auth.blocked(call.request.local.remoteHost)) {
+            val body = ApiJson.encodeToString(ActionResponse.serializer(), ActionResponse(false, "Too many wrong tokens. Try again in a minute."))
+            call.respondText(body, ContentType.Application.Json, HttpStatusCode.TooManyRequests)
+        }
     }
 }
 

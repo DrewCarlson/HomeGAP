@@ -12,6 +12,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.connector
@@ -51,6 +52,7 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
             timeout = 40.seconds
             maxFrameSize = 1024 * 1024
         }
+        install(SecurityHeaders)
         install(StatusPages) {
             exception<IllegalArgumentException> { call, e -> call.respond(HttpStatusCode.BadRequest, ActionResponse(false, e.message ?: "bad request")) }
             exception<IllegalStateException> { call, e -> call.respond(HttpStatusCode.Conflict, ActionResponse(false, e.message ?: "conflict")) }
@@ -82,6 +84,26 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
     }
 
     private companion object {
+        /**
+         * The dashboard loads its own files only, and no page can put it in a frame. The docs
+         * have scripts in their pages, so they get those too.
+         */
+        val SecurityHeaders = createApplicationPlugin("SecurityHeaders") {
+            onCall { call ->
+                val docs = call.request.path().startsWith(DocsFiles.PREFIX)
+                call.response.header("Content-Security-Policy", if (docs) DOCS_POLICY else POLICY)
+                call.response.header("X-Content-Type-Options", "nosniff")
+                call.response.header("X-Frame-Options", "DENY")
+                call.response.header("Referrer-Policy", "no-referrer")
+            }
+        }
+
+        const val POLICY = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+            "img-src 'self' data: blob:; font-src 'self'; worker-src 'self' blob:; child-src blob:; connect-src 'self'; " +
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        const val DOCS_POLICY = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+            "img-src 'self' data:; worker-src 'self' blob:; base-uri 'self'; form-action 'none'; frame-ancestors 'none'"
+
         const val NO_BUNDLE = "<!doctype html><title>HomeGAP</title><p>Dashboard bundle not embedded " +
             "(built with -Phomegap.skipWeb). API: <a href=\"/api/status\">/api/status</a></p>"
     }

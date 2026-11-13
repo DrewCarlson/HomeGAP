@@ -71,4 +71,14 @@ class RoutingControllersTest {
         assertEquals("one", client.get("/api/one") { bearerAuth("s3cret") }.bodyAsText())
         Files.delete(tokenFile)
     }
+
+    @Test
+    fun manyWrongTokensBlockTheAddressForAWhile() = testApplication {
+        application { RoutingControllers(controllers, DashboardAuth("s3cret", null), emptySet()).init(this) }
+        repeat(DashboardAuth.MAX_FAILURES + 1) {
+            assertEquals(HttpStatusCode.Unauthorized, client.get("/api/one") { bearerAuth("wrong") }.status)
+        }
+        // The right token does not pass either, so a trial of tokens learns nothing.
+        assertEquals(HttpStatusCode.TooManyRequests, client.get("/api/one") { bearerAuth("s3cret") }.status)
+    }
 }

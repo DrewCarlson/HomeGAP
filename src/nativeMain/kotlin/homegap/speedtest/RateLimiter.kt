@@ -15,13 +15,23 @@ class RateLimiter(private val limit: Int, private val windowMillis: Long, privat
 
     /** Counts one request for [key]. False if the key is over its limit for this window. */
     fun allow(key: String): Boolean = synchronized(lock) {
+        roll()
+        val count = (counts[key] ?: 0) + 1
+        counts[key] = count
+        count <= limit
+    }
+
+    /** True if [key] has a request in this window. Counts nothing. */
+    fun seen(key: String): Boolean = synchronized(lock) {
+        roll()
+        key in counts
+    }
+
+    private fun roll() {
         val current = now() / windowMillis
         if (current != window) {
             window = current
             counts.clear()
         }
-        val count = (counts[key] ?: 0) + 1
-        counts[key] = count
-        count <= limit
     }
 }
