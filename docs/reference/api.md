@@ -78,6 +78,29 @@ The status snapshot has a `certificates` part. It holds only public facts: the n
 | `GET /api/nodes/{id}/logs?service=&since=&tail=` | Returns the logs of a container. See [Diagnostics and troubleshooting](../operations/troubleshooting.md#log-services). The default of `since` is `30m`. The default of `tail` is 300 lines, and the maximum is 5000. |
 | `GET /api/nodes/{id}/diagnostics` | Returns the read-only diagnostics bundle of the node: `{node, title, text, at}`. |
 
+## Terminal
+
+These routes answer with an error when `dashboard.terminal` is off.
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/terminal` | Returns `enabled` and the open sessions. |
+| `POST /api/nodes/{id}/terminal?rows=N&columns=N` | Starts a shell on the node and returns its session. |
+| `POST /api/terminal/{id}/ticket` | Returns a ticket for one WebSocket connection to the session. The ticket works one time, for 30 seconds. |
+| `DELETE /api/terminal/{id}` | Ends the session. |
+| `GET /api/terminal/ws?ticket=TICKET` | The WebSocket of the session. It needs no bearer token, because a browser cannot send one. The ticket is the check, and the `Origin` header must be the host of the dashboard. |
+
+On the WebSocket, a binary frame has the bytes of the terminal: input from the browser, and output from the shell. A text frame has a JSON message with a `type`:
+
+| Type | From | Fields | What it means |
+| --- | --- | --- | --- |
+| `hello` | Orchestrator | `offset` | The first message. `offset` is the position of the next output byte in the output of the session. |
+| `exit` | Orchestrator | `code` | The shell ended. |
+| `resize` | Browser | `rows`, `columns` | The new size of the terminal. |
+| `ack` | Browser | `offset` | The browser has shown the output up to this position. The orchestrator stops the output while the browser is more than 128 KiB behind. |
+
+A new connection first gets the last output of the session, at most 256 KiB.
+
 ## Node setup (the add-node wizard)
 
 | Route | What it does |

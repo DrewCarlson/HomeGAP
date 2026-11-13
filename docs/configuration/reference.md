@@ -157,6 +157,7 @@ If a node has a `region` but no `location`, HomeGAP uses a rough center of the r
 | `auth_token_env` | string | None. | The environment variable with the bearer token. |
 | `auth_token_file` | string | None. | A file with the bearer token. |
 | `allow_config_edits` | boolean | `true` | Lets the dashboard add and remove nodes. This writes the config file again. |
+| `terminal` | boolean | `true` | Lets the dashboard open a shell on a node. See [Terminal](../operations/dashboard.md#terminal). |
 
 Every `/api` route needs the bearer token. If neither key gives a token, HomeGAP creates one in `<data_dir>/dashboard-token`.
 

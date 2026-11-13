@@ -126,6 +126,23 @@ The page shows:
 
 <img src="../img/dashboard/config.png" alt="The Config page with the diff and the secrets">
 
+## Terminal
+
+The dashboard can open a shell on a node. The **Terminal** action is in the menu of a node on the **Nodes** page and in the Inspector of the node. The terminal opens in a panel at the bottom of the dashboard, and the panel stays open when you go to a different page.
+
+The shell runs on the orchestrator, through the SSH connection that the orchestrator already has to the node. The browser gets no key and no password. You are the management user of the node, in the install directory of the stack.
+
+- Each session has a tab. You can have 2 sessions for one node and 6 sessions in total.
+- A session continues when you close or reload the page. When you open the dashboard again, the tab is there and shows the last output.
+- If you open the same session in a second window, that window takes the session.
+- **Commands** types a common command for you, for example the list of containers or the log of a container.
+- A session ends when the shell exits, or when you close its tab. HomeGAP also ends a session that had no browser for 15 minutes, and each session after 8 hours. A restart of the orchestrator ends all sessions.
+
+The activity log shows when a terminal opens and closes, with the node. It does not record what you type or what the shell prints.
+
+!!! danger "Warning"
+    A terminal gives a shell with root access on the node to each person who has the dashboard token. To turn the terminal off, set `dashboard.terminal: false`.
+
 ## Node checks
 
 The Nodes page shows these checks:

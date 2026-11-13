@@ -29,6 +29,8 @@ On each node, the Pangolin API key of the orchestrator is a root key, restricted
 
 The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. The orchestrator reaches them only through SSH port forwarding.
 
+The dashboard can open a shell on a node. See [Terminal](../operations/dashboard.md#terminal). The shell uses the SSH connection of the orchestrator, so the key stays on the homelab. A WebSocket carries the terminal. It accepts only a single-use ticket from the API, and only from the page of the dashboard. `dashboard.terminal: false` turns the feature off.
+
 `ufw` on the node opens only the ports in [Ports and firewall](ports.md). HomeGAP adds new rules before it removes its old rules. It never touches rules that it did not add.
 
 ## The homelab
