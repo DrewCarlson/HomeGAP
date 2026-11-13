@@ -67,6 +67,7 @@ kotlin {
                 implementation(libs.ktor.server.content.negotiation)
                 implementation(libs.ktor.server.status.pages)
                 implementation(libs.ktor.server.auth)
+                implementation(libs.ktor.server.websockets)
                 implementation(libs.kotlinx.serialization.json)
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.io.core)

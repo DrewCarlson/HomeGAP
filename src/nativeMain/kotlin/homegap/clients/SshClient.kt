@@ -79,6 +79,15 @@ class SshSession(
     }
 
     /**
+     * The command line of an interactive shell on the node that runs [command], for a local
+     * terminal. It goes through the connection that is already open, so the node sees no new login.
+     */
+    suspend fun interactive(command: String): List<String> {
+        ensureMaster()
+        return baseArgs() + listOf("-tt", target, command)
+    }
+
+    /**
      * Runs a bash script on the node as root (via `sudo -n` unless already root). Scripts start
      * with [ownerPreamble]: `hg_own` hands HomeGAP's files to the login user, and Docker then runs
      * as that user.

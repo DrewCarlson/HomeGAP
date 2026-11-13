@@ -399,6 +399,8 @@ data class DashboardConfig(
     @SerialName("auth_token_file") val authTokenFile: String? = null,
     /** Allow node add/remove from the dashboard (rewrites the config file). */
     @SerialName("allow_config_edits") val allowConfigEdits: Boolean = true,
+    /** Lets the dashboard open a shell on a node. */
+    val terminal: Boolean = true,
 ) {
     fun authToken(): SecretRef? =
         if (authTokenEnv == null && authTokenFile == null) null

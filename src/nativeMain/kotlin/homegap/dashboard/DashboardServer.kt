@@ -25,6 +25,10 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
+import io.ktor.server.websocket.WebSockets
+import io.ktor.server.websocket.pingPeriod
+import io.ktor.server.websocket.timeout
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * The dashboard: the REST API (route groups in `homegap.routes`, mounted by [RoutingControllers])
@@ -41,6 +45,12 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
 
     fun Application.module() {
         install(ContentNegotiation) { json(ApiJson) }
+        // The pings show a connection that is gone, so its terminal session is free for the next one.
+        install(WebSockets) {
+            pingPeriod = 20.seconds
+            timeout = 40.seconds
+            maxFrameSize = 1024 * 1024
+        }
         install(StatusPages) {
             exception<IllegalArgumentException> { call, e -> call.respond(HttpStatusCode.BadRequest, ActionResponse(false, e.message ?: "bad request")) }
             exception<IllegalStateException> { call, e -> call.respond(HttpStatusCode.Conflict, ActionResponse(false, e.message ?: "conflict")) }
