@@ -1,5 +1,6 @@
 package homegap.reconcile
 
+import com.charleskorn.kaml.EmptyYamlDocumentException
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlList
 import com.charleskorn.kaml.YamlMap
@@ -394,10 +395,7 @@ class ResourceReconciler(
             else -> ctx.state.node(scope).facts[BASE_BLUEPRINT_FACT]
         }
         if (applied == hash || paused) return
-        val blueprint = when {
-            text.trimStart().startsWith("{") -> Json.parseToJsonElement(text).jsonObject
-            else -> yamlToJson(text).jsonObject
-        }
+        val blueprint = blueprintOf(text) ?: return
         api.applyBlueprint(orgId, blueprint)
         if (cluster) {
             ctx.state.update { state ->
@@ -715,6 +713,19 @@ class ResourceReconciler(
         private val FLOAT = Regex("^-?\\d+\\.\\d+$")
 
         fun yamlToJson(text: String): JsonElement = toJson(Yaml.default.parseToYamlNode(text))
+
+        /**
+         * The blueprint in [text], which is JSON or YAML. Null if the YAML has no content, as the
+         * example file with only comments.
+         */
+        fun blueprintOf(text: String): JsonObject? = when {
+            text.trimStart().startsWith("{") -> Json.parseToJsonElement(text).jsonObject
+            else -> try {
+                yamlToJson(text).jsonObject
+            } catch (_: EmptyYamlDocumentException) {
+                null
+            }
+        }
 
         private fun toJson(node: YamlNode): JsonElement = when (node) {
             is YamlMap -> JsonObject(node.entries.entries.associate { (key, value) -> key.content to toJson(value) })

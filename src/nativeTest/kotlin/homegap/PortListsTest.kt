@@ -254,4 +254,26 @@ class PortListsTest {
             unnamed.labelErrors.toString(),
         )
     }
+
+    @Test
+    fun aContainerWithOnlyNamedServicesDeclaresAService() {
+        assertTrue(declaresService(mapOf("homegap.services.web.expose" to "lk.test.example.net")))
+        assertTrue(declaresService(mapOf("homegap.expose" to "app.test.example.net")))
+        assertFalse(declaresService(mapOf("homegap.port" to "80", "traefik.enable" to "true")))
+    }
+
+    @Test
+    fun aNamedServiceNamesItsOwnTraefikApi() {
+        val labels = mapOf(
+            "homegap.expose" to "app.test.example.net",
+            "homegap.services.web.expose" to "lk.test.example.net",
+            "homegap.services.web.private_network" to "p",
+            "homegap.services.web.private_middleware" to "private-only@file",
+            "homegap.services.web.traefik_api" to "http://other:9000",
+        )
+        assertEquals(listOf("http://other:9000"), traefikApiUrls("front", labels))
+        val parsed = parseContainerLabels("id", "front", labels, "test.example.net")
+        assertEquals("http://other:9000", parsed.specs.single { it.name == "web" }.traefikApi)
+        assertEquals(emptyList(), traefikApiUrls("front", mapOf("homegap.expose" to "app.test.example.net")))
+    }
 }

@@ -192,6 +192,22 @@ fun routerHosts(routers: List<TraefikRouter>, middleware: String): Pair<List<Str
 fun traefikApiUrl(containerName: String, labels: Map<String, String>): String =
     labels[Labels.TRAEFIK_API]?.trim()?.trimEnd('/')?.takeIf(::isLocalApiUrl) ?: defaultTraefikApiUrl(containerName)
 
+/**
+ * The Traefik API of each service of a container that has `homegap.private_middleware`: the
+ * top-level service and each named service.
+ */
+fun traefikApiUrls(containerName: String, labels: Map<String, String>): List<String> {
+    val topLabels = labels.filterKeys { !it.startsWith(Labels.SERVICES_PREFIX) }
+    return (listOf(topLabels) + namedServiceLabels(labels).values)
+        .filter { !it[Labels.PRIVATE_MIDDLEWARE].isNullOrBlank() }
+        .map { traefikApiUrl(containerName, it) }
+        .distinct()
+}
+
+/** True if [labels] declare a service: a top-level `homegap.expose`, or a named service. */
+fun declaresService(labels: Map<String, String>): Boolean =
+    Labels.EXPOSE in labels || labels.keys.any { it.startsWith(Labels.SERVICES_PREFIX) }
+
 /** The Traefik API of a container on a Docker network of the homelab, where it has no TLS. */
 @Suppress("HttpUrlsUsage")
 private fun defaultTraefikApiUrl(containerName: String): String = "http://$containerName:8080"
@@ -665,17 +681,12 @@ fun parseContainerLabels(
     errors += topResult.errors
     warnings += topResult.warnings
 
-    val groups = labels.keys
-        .filter { it.startsWith(Labels.SERVICES_PREFIX) }
-        .groupBy({ it.removePrefix(Labels.SERVICES_PREFIX).substringBefore('.') }, { it })
-    for ((name, keys) in groups.entries.sortedBy { it.key }) {
+    for ((name, ownLabels) in namedServiceLabels(labels).entries.sortedBy { it.key }) {
         val where = "services.$name"
         if (!SERVICE_NAME.matches(name)) {
             errors += "$where: the name must be lowercase letters, digits and dashes"
             continue
         }
-        val ownLabels = keys.filter { '.' in it.removePrefix(Labels.SERVICES_PREFIX) }
-            .associate { Labels.PREFIX + it.removePrefix(Labels.SERVICES_PREFIX + name + ".") to labels.getValue(it) }
         if (Labels.EXPOSE !in ownLabels) {
             errors += "$where: ${Labels.EXPOSE} is required (as ${Labels.SERVICES_PREFIX}$name.expose)"
             continue
@@ -688,6 +699,17 @@ fun parseContainerLabels(
     }
     return ContainerParseResult(specs, errors, warnings)
 }
+
+/** The labels of each named service, by its name, with the keys of top-level labels (`homegap.<label>`). */
+private fun namedServiceLabels(labels: Map<String, String>): Map<String, Map<String, String>> =
+    labels.keys
+        .filter { it.startsWith(Labels.SERVICES_PREFIX) }
+        .groupBy { it.removePrefix(Labels.SERVICES_PREFIX).substringBefore('.') }
+        .mapValues { (name, keys) ->
+            val prefix = Labels.SERVICES_PREFIX + name + "."
+            keys.filter { '.' in it.removePrefix(Labels.SERVICES_PREFIX) }
+                .associate { Labels.PREFIX + it.removePrefix(prefix) to labels.getValue(it) }
+        }
 
 /** Ports a regional node already uses for itself (SSH, web, tunnels, Pangolin internals). */
 val RESERVED_NODE_PORTS = setOf(

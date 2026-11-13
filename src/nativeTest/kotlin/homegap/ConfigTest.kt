@@ -48,4 +48,12 @@ class ConfigTest {
         assertEquals(2.minutes, parseDuration("2m"))
         assertEquals(30.seconds, parseDuration("30"))
     }
+
+    @Test
+    fun aNameIsRelativeToTheZone() {
+        val bunny = testConfig().bunny
+        assertEquals("test", bunny.relativeName("test.example.net"))
+        assertEquals("*.test", bunny.relativeName("*.test.example.net"))
+        assertEquals("", bunny.relativeName("example.net"))
+    }
 }

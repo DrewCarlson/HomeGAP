@@ -23,7 +23,7 @@ data class MeshMemberRow(
     val status: Badge,
     val error: String?,
     val peers: List<Badge>,
-    /** This member's probe of each other member from the host (empty without a probe, e.g. the homelab). */
+    /** This member's probe of each other member from the host (empty without a probe). */
     val probes: List<Badge> = emptyList(),
     /** The same from inside its Docker network, where Pangolin's database traffic starts. */
     val containerProbes: List<Badge> = emptyList(),

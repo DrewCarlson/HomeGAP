@@ -132,4 +132,11 @@ class TemplatesTest {
         val compose = files.getValue("compose.yml").content
         assertTrue("checkip.amazonaws.com=127.0.0.1" in compose, compose)
     }
+
+    @Test
+    fun aBlueprintWithOnlyCommentsHasNothingToApply() {
+        assertNull(ResourceReconciler.blueprintOf("# Shared policies\n# public-policies:\n#   allow: 1\n"))
+        assertEquals("1", ResourceReconciler.blueprintOf("allow: 1\n")!!["allow"]!!.jsonPrimitive.content)
+        assertEquals("1", ResourceReconciler.blueprintOf("{\"allow\": 1}")!!["allow"]!!.jsonPrimitive.content)
+    }
 }

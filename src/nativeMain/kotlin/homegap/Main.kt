@@ -42,7 +42,15 @@ private const val DEFAULT_CONFIG = "/config/config.yml"
 private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
 private const val DEFAULT_MAINTENANCE_MINUTES = 30
-private const val MAINTENANCE_TIMEOUT_MS = 5 * 60_000L
+
+/**
+ * The orchestrator waits up to 10 minutes for a node that updates its own member, and then it
+ * moves the primaries. The request must not end before that.
+ */
+private const val MAINTENANCE_TIMEOUT_MS = 15 * 60_000L
+
+/** The options that are commands: `homegap --version` does not start the controller. */
+private val COMMAND_OPTIONS = setOf("--version", "--help")
 
 /** The values of `HOMEGAP_DRY_RUN` that turn the dry run on. */
 private val TRUE_VALUES = setOf("1", "true", "yes")
@@ -56,7 +64,7 @@ Usage:
   homegap tunnels [--dir PATH] [--newt PATH]           Run the Newt tunnel supervisor
   homegap mesh [--dir PATH]                            Run the homelab's mesh agent (cluster mode)
   homegap validate [--config PATH]                     Validate the config file
-  homegap plan [--config PATH] [--labels FILE]         Print the desired state for a label set (JSON map of container -> labels)
+  homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
   homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
   homegap version
@@ -66,7 +74,7 @@ HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR, HOMEGAP_MESH_DIR, HOMEGAP_MESH_
 
 /** The command and the arguments after it. With no command, the command is `run`. */
 private class CommandLine(args: Array<String>) {
-    val command = args.firstOrNull()?.takeIf { !it.startsWith("--") } ?: "run"
+    val command = args.firstOrNull()?.takeIf { !it.startsWith("--") || it in COMMAND_OPTIONS } ?: "run"
     val rest = if (args.firstOrNull() == command) args.drop(1) else args.toList()
 
     /** The argument after [name], or null. */

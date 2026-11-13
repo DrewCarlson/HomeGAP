@@ -1,4 +1,4 @@
-// Opens a terminal on a harness node, types commands, resizes, reattaches. Usage: node wstest.mjs <base> <token> <node>
+// Opens a terminal on a harness node, types commands, resizes, reattaches. Usage: node verify-terminal.mjs <base> <token> <node>
 const [base, token, node] = process.argv.slice(2);
 const auth = { Authorization: `Bearer ${token}` };
 const api = async (method, path) => {

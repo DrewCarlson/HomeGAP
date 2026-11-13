@@ -266,4 +266,27 @@ class PrivatePathTest {
         // Clustered nodes read Pangolin's own definition from its file. A second one clashes with it.
         assertFalse(transport in NodeTemplates.dynamicRoutes(node, ids, cluster = true))
     }
+
+    @Test
+    fun aNamedServiceKeepsItsOwnHostForPublicTraffic() {
+        val app = container(
+            "app",
+            "homegap.services.web.expose" to "web.test.example.net",
+            "homegap.services.web.protocol" to "https",
+            "homegap.services.web.host" to "app-public",
+            "homegap.services.web.private_network" to "homegap-private",
+        ).copy(
+            networkSettings = ContainerNetworkSettings(
+                mapOf(
+                    "traefik" to NetworkEndpoint("172.32.0.5"),
+                    "homelab_homegap-private" to NetworkEndpoint("172.33.0.2"),
+                ),
+            ),
+        )
+        val plan = Planner.plan(testConfig(), listOf(app))
+        assertTrue(plan.labelErrors.isEmpty(), plan.labelErrors.toString())
+        val web = plan.services.single { it.name == "web" }
+        assertEquals("app-public", web.targetHost)
+        assertEquals("172.33.0.2", web.privateHost)
+    }
 }

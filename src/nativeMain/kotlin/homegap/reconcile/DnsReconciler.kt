@@ -25,7 +25,7 @@ class DnsReconciler(
     var lastObserved: List<Observed> = emptyList()
         private set
 
-    /** The CAA records at the zone's apex, as `flags tag "value"`, from the last zone read. */
+    /** The CAA records at `domain`, as `flags tag "value"`, from the last zone read. */
     var lastCaa: List<String>? = null
         private set
 
@@ -68,7 +68,7 @@ class DnsReconciler(
             ctx.state.update { state -> state.copy(bunnyZoneId = null) }
             throw it
         }
-        lastCaa = apexCaa(zone.records)
+        lastCaa = domainCaa(zone.records)
         val pass = ZonePass(
             bunny = bunny,
             zoneId = zoneId,
@@ -97,10 +97,12 @@ class DnsReconciler(
         return id
     }
 
-    private fun apexCaa(records: List<BunnyRecord>): List<String> {
+    /** HomeGAP publishes its CAA records at `domain`, which is the apex only if the zone is the domain. */
+    private fun domainCaa(records: List<BunnyRecord>): List<String> {
         val caaType = BunnyRecord.typeCode("CAA")
+        val name = ctx.config.bunny.relativeName(ctx.config.domain)
         return records
-            .filter { it.type == caaType && it.name.isEmpty() }
+            .filter { it.type == caaType && it.name.equals(name, ignoreCase = true) }
             .map { "${it.flags ?: 0} ${it.tag.orEmpty()} \"${it.value}\"" }
             .sorted()
     }

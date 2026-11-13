@@ -1,17 +1,24 @@
 package homegap
 
+import homegap.api.SwitchoverRequest
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
+import homegap.dashboard.DashboardServer
 import homegap.platform.Files
 import homegap.routes.OpenRoutingController
 import homegap.routes.RoutingController
 import homegap.routes.RoutingControllers
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.server.request.receive
+import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import io.ktor.server.routing.post
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -80,6 +87,24 @@ class RoutingControllersTest {
         }
         // The right token does not pass either, so a trial of tokens learns nothing.
         assertEquals(HttpStatusCode.TooManyRequests, client.get("/api/one") { bearerAuth("s3cret") }.status)
+    }
+
+    @Test
+    fun aBodyThatTheApiCannotReadIsABadRequest() = testApplication {
+        val echo = object : RoutingController {
+            override fun init(parent: Route) {
+                parent.post("/echo") { call.respond(call.receive<SwitchoverRequest>()) }
+            }
+        }
+        val routes = RoutingControllers(setOf(echo), DashboardAuth("s3cret", null), emptySet())
+        application { with(DashboardServer(routes, testConfig())) { module() } }
+        val malformed = client.post("/api/echo") {
+            bearerAuth("s3cret")
+            contentType(ContentType.Application.Json)
+            setBody("{not json")
+        }
+        assertEquals(HttpStatusCode.BadRequest, malformed.status)
+        assertEquals(HttpStatusCode.BadRequest, client.post("/api/echo") { bearerAuth("s3cret") }.status)
     }
 
     @Test

@@ -27,12 +27,12 @@ import homegap.di.RunOptions
 import homegap.discovery.DiscoveryMemory
 import homegap.discovery.DockerClient
 import homegap.discovery.DockerContainerSummary
-import homegap.discovery.Labels
 import homegap.discovery.ServiceSpec
 import homegap.discovery.TraefikApi
 import homegap.discovery.TraefikRouter
 import homegap.discovery.concernsHomegap
-import homegap.discovery.traefikApiUrl
+import homegap.discovery.declaresService
+import homegap.discovery.traefikApiUrls
 import homegap.model.DesiredDnsRecord
 import homegap.model.DesiredState
 import homegap.model.Planner
@@ -233,15 +233,12 @@ class Controller(
     private val traefikApi by lazy { TraefikApi(localHttp) }
 
     /**
-     * Reads the routers of every Traefik API a front door names (`homegap.private_middleware`).
+     * Reads the routers of every Traefik API that a service names (`homegap.private_middleware`).
      * Null when one has never answered: its private paths are unknown, so discovery counts as
      * failed and does not delete them.
      */
     private suspend fun traefikRouters(containers: List<DockerContainerSummary>): Map<String, List<TraefikRouter>>? {
-        val urls = containers
-            .filter { !it.labels[Labels.PRIVATE_MIDDLEWARE].isNullOrBlank() }
-            .map { traefikApiUrl(it.name, it.labels) }
-            .distinct()
+        val urls = containers.flatMap { traefikApiUrls(it.name, it.labels) }.distinct()
         var complete = true
         for (url in urls) {
             runCatchingCancellable {
@@ -497,7 +494,8 @@ class Controller(
             // 1. Service discovery. If it fails, the destructive domains do not run: an empty view must
             // never delete everything.
             val listed: List<DockerContainerSummary>? = runCatchingCancellable {
-                docker.listContainers(mapOf("status" to listOf("running"), "label" to listOf(Labels.EXPOSE)))
+                // Docker has no filter for a label prefix, and a container can have only named services.
+                docker.listContainers(mapOf("status" to listOf("running"))).filter { declaresService(it.labels) }
             }.onFailure {
                 log.error("discovery", "cannot list containers: ${it.message}")
             }.getOrNull()

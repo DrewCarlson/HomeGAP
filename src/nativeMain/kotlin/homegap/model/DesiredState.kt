@@ -317,7 +317,7 @@ object Planner {
                 return spec.copy(privateNetwork = null, privateHosts = emptyList())
             }
             val targetHost = when {
-                Labels.HOST in container.labels -> spec.targetHost
+                declaresHost(spec, container) -> spec.targetHost
                 else -> publicTargetHost(spec, network, others, issues)
             }
             return spec.copy(
@@ -325,6 +325,12 @@ object Planner {
                 privateHost = privateAddress,
                 privateHosts = allowedPrivateHosts(spec, issues),
             )
+        }
+
+        /** True if a label gives the host of [spec]: `homegap.host`, or the `host` of its named service. */
+        private fun declaresHost(spec: ServiceSpec, container: DockerContainerSummary): Boolean {
+            val ownHost = spec.name?.let { Labels.SERVICES_PREFIX + it + "." + Labels.HOST.removePrefix(Labels.PREFIX) }
+            return Labels.HOST in container.labels || (ownHost != null && ownHost in container.labels)
         }
 
         /**
@@ -836,7 +842,6 @@ object Planner {
     /** Collects the DNS records of one plan. */
     private class DnsPlan(private val config: AppConfig) {
         val records = mutableListOf<DesiredDnsRecord>()
-        private val zone = config.bunny.zone
         private val geo = config.bunny.routing != "none"
 
         /**
@@ -916,7 +921,7 @@ object Planner {
         private fun addressRecords(node: NodeConfig): List<Pair<String, String>> =
             listOfNotNull(node.ipv4()?.let { "A" to it }, node.publicIpv6?.let { "AAAA" to it })
 
-        private fun relativeName(fqdn: String) = if (fqdn == zone) "" else fqdn.removeSuffix(".$zone")
+        private fun relativeName(fqdn: String) = config.bunny.relativeName(fqdn)
     }
 
     // ------------------------------------------------------------------ passthrough ports

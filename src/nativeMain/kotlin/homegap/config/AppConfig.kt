@@ -98,6 +98,9 @@ data class BunnyConfig(
     @SerialName("api_url") val apiUrl: String = "https://api.bunny.net",
 ) {
     val apiKey: SecretRef get() = SecretRef("bunny.api_key", envVar = apiKeyEnv, file = apiKeyFile)
+
+    /** The name of [fqdn] in the zone, as Bunny stores it. The zone itself has the empty name. */
+    fun relativeName(fqdn: String): String = if (fqdn == zone) "" else fqdn.removeSuffix(".$zone")
 }
 
 @Serializable

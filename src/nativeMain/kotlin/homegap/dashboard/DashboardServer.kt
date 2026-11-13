@@ -12,11 +12,15 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.CannotTransformContentToTypeException
+import io.ktor.server.plugins.UnsupportedMediaTypeException
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.request.path
@@ -65,9 +69,13 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
         }
         install(SecurityHeaders)
         install(StatusPages) {
-            exception<IllegalArgumentException> { call, e ->
-                call.respond(HttpStatusCode.BadRequest, ActionResponse(false, e.message ?: "bad request"))
-            }
+            // On Kotlin/Native, StatusPages takes the handler of the exact class of an exception. If
+            // there is none, the handler for Throwable answers. Thus each exception for a body that
+            // Ktor cannot read has its own entry.
+            exception<BadRequestException> { call, e -> badRequest(call, e) }
+            exception<CannotTransformContentToTypeException> { call, e -> badRequest(call, e) }
+            exception<UnsupportedMediaTypeException> { call, e -> badRequest(call, e) }
+            exception<IllegalArgumentException> { call, e -> badRequest(call, e) }
             exception<IllegalStateException> { call, e ->
                 call.respond(HttpStatusCode.Conflict, ActionResponse(false, e.message ?: "conflict"))
             }
@@ -84,6 +92,10 @@ class DashboardServer(private val routingControllers: RoutingControllers, privat
             get("${DocsFiles.PREFIX}/{path...}") { with(DocsFiles) { serveDocs() } }
             get("/{path...}") { serveAsset() }
         }
+    }
+
+    private suspend fun badRequest(call: ApplicationCall, e: Throwable) {
+        call.respond(HttpStatusCode.BadRequest, ActionResponse(false, e.message ?: "bad request"))
     }
 
     /** The SPA: a known asset path gives its file. Each other path gives index.html, for the routes of the client. */

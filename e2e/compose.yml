@@ -1,4 +1,4 @@
-# End-to-end harness: one fake regional node (DinD VPS), a simulated homelab, the
+# End-to-end harness: fake regional nodes (DinD VPS), a simulated homelab, the
 # orchestrator, the tunnel supervisor and a Bunny API stand-in, on one private network.
 # Run ./run.sh rather than using this file directly.
 name: homegap-e2e
