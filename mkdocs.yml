@@ -144,3 +144,4 @@ nav:
       - End-to-end tests: development/e2e.md
       - Documentation: development/documentation.md
       - Writing style guide: development/style-guide.md
+      - Code style: development/code-style.md
