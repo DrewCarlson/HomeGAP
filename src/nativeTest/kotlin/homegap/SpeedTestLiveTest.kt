@@ -11,7 +11,7 @@ class SpeedTestLiveTest {
     @Test
     fun followsTheRunningTestThroughItsPhases() {
         var t = 0L
-        val live = SpeedTestLive { t }
+        val live = SpeedTestLive(clock = { t })
         assertNull(live.snapshot(), "nothing runs")
         live.start("tok", "na1")
         // Pings one after another: each gap is a round trip; the first only starts the clock.

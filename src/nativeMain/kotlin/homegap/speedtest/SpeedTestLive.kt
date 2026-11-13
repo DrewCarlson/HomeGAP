@@ -1,5 +1,7 @@
 package homegap.speedtest
 
+import homegap.platform.Files
+import homegap.api.NodeCpuDto
 import homegap.api.SpeedTestLiveDto
 import homegap.platform.nowMillis
 import kotlinx.atomicfu.locks.SynchronizedObject
@@ -11,7 +13,11 @@ import kotlinx.atomicfu.locks.synchronized
  * about one round trip; the bytes the origin sends and receives give the rates. The script's own
  * figures replace these once it finishes.
  */
-class SpeedTestLive(private val clock: () -> Long = ::nowMillis) {
+class SpeedTestLive(
+    private val clock: () -> Long = ::nowMillis,
+    /** The CPU counters of this host. A container reads the counters of the whole host here. */
+    private val cpu: () -> CpuCounters? = { Files.readTextOrNull("/proc/stat")?.let(CpuCounters::parse) },
+) {
     private val lock = SynchronizedObject()
     private var token: String? = null
     private var nodeId = ""
@@ -25,14 +31,29 @@ class SpeedTestLive(private val clock: () -> Long = ::nowMillis) {
     private val samples = mutableListOf<Double>()
     private var lastSample = 0L
     private var downMbps: Double? = null
+    /** The CPU counters at the start of the download, at the change to the upload, and at the end. */
+    private val marks = arrayOfNulls<CpuCounters>(3)
 
     fun start(token: String, nodeId: String) = synchronized(lock) {
         this.token = token; this.nodeId = nodeId; phase = "ping"; lastPing = null; pings.clear()
         resetPhase()
         downMbps = null
+        marks.fill(null)
     }
 
     fun stop(token: String) = synchronized(lock) { if (this.token == token) this.token = null }
+
+    /**
+     * How busy this host was in the download and in the upload phase of the test of [token].
+     * Call it when the test ends, before [stop].
+     */
+    fun hostCpu(token: String): Pair<NodeCpuDto?, NodeCpuDto?> = synchronized(lock) {
+        if (this.token != token) return@synchronized null to null
+        val end = cpu()
+        val down = marks[0]?.let { start -> (marks[1] ?: end)?.since(start) }
+        val up = marks[1]?.let { start -> end?.since(start) }
+        down to up
+    }
 
     fun ping(token: String?) = synchronized(lock) {
         if (token == null || token != this.token) return@synchronized
@@ -49,6 +70,7 @@ class SpeedTestLive(private val clock: () -> Long = ::nowMillis) {
             if (phase == "download") downMbps = average()
             phase = p
             resetPhase()
+            marks[if (upload) 1 else 0] = cpu()
         }
         val t = clock()
         bytes += n

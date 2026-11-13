@@ -227,16 +227,23 @@ class SpeedTestScreenPresenter(
         up = formatMbps(upMbps),
         error = error,
         client = client?.let(::shortClient),
-        cpu = cpuText(downCpu, upCpu),
+        cpu = cpuText("node", downCpu, upCpu),
+        homelabCpu = cpuText("homelab", homelabDownCpu, homelabUpCpu),
     )
 
-    /** For example "node CPU of 2 cores: down 96% (kernel 61%, steal 3%), up 88% (kernel 70%, steal 2%)". */
-    private fun cpuText(down: NodeCpuDto?, up: NodeCpuDto?): String? {
-        fun phase(name: String, c: NodeCpuDto?) =
-            c?.let { "$name ${it.busyPct.roundToInt()}% (kernel ${it.kernelPct.roundToInt()}%, steal ${it.stealPct.roundToInt()}%)" }
+    /** For example "node CPU of 4 cores: down 31% (busiest core 99%, kernel 20%, steal 0%), up 28% (...)". */
+    private fun cpuText(where: String, down: NodeCpuDto?, up: NodeCpuDto?): String? {
+        fun phase(name: String, c: NodeCpuDto?) = c?.let {
+            val parts = listOfNotNull(
+                it.maxCorePct?.let { m -> "busiest core ${m.roundToInt()}%" },
+                "kernel ${it.kernelPct.roundToInt()}%",
+                "steal ${it.stealPct.roundToInt()}%",
+            )
+            "$name ${it.busyPct.roundToInt()}% (${parts.joinToString()})"
+        }
         val phases = listOfNotNull(phase("down", down), phase("up", up)).ifEmpty { return null }
         val cores = (down ?: up)!!.cores
-        return "node CPU of $cores ${if (cores == 1) "core" else "cores"}: ${phases.joinToString()}"
+        return "$where CPU of $cores ${if (cores == 1) "core" else "cores"}: ${phases.joinToString()}"
     }
 
     private companion object {

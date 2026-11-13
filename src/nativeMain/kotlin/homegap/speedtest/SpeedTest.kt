@@ -461,8 +461,7 @@ object TunnelSpeedTest {
         |H=$${sh(host)}
         |C=(curl -sk --resolve "$H:443:127.0.0.1" -H $${sh("${SpeedTestServer.TOKEN_HEADER}: $token")} -H 'Expect:' --max-time 90)
         |T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
-        |cpu() { read -r _ a b c d e f g h _ < /proc/stat && echo "S $1 $a $b $c $d $e $f $g $h"; }
-        |echo "N $(nproc)"
+        |cpu() { grep '^cpu' /proc/stat | sed "s/^/S $1 /"; }
         |URLS=()
         |for i in $(seq 0 $$PINGS); do URLS+=("https://$H/speedtest/ping?i=$i"); done
         |"${C[@]}" -w 'P %{time_pretransfer} %{time_starttransfer} %{http_code}\n' "${URLS[@]}" || true
@@ -493,19 +492,6 @@ object TunnelSpeedTest {
         val upCpu: NodeCpuDto? = null,
     )
 
-    /**
-     * The CPU use between two lines of `/proc/stat` counters: user, nice, system, idle, iowait,
-     * irq, softirq and steal. Null if a line is missing or no time passed.
-     */
-    fun cpuUse(cores: Int?, before: List<Long>?, after: List<Long>?): NodeCpuDto? {
-        if (cores == null || before?.size != 8 || after?.size != 8) return null
-        val d = after.zip(before) { a, b -> (a - b).coerceAtLeast(0) }
-        val total = d.sum().toDouble()
-        if (total <= 0) return null
-        fun pct(ticks: Long) = kotlin.math.round(ticks * 1000 / total) / 10
-        return NodeCpuDto(cores, busyPct = pct(d.sum() - d[3] - d[4]), kernelPct = pct(d[2] + d[5] + d[6]), stealPct = pct(d[7]))
-    }
-
     fun parse(out: String, host: String, streams: Int = 1): Parsed {
         val errors = mutableListOf<String>()
         fun codeError(phase: String, code: String) {
@@ -522,8 +508,7 @@ object TunnelSpeedTest {
         var pingCode: String? = null
         val downs = mutableListOf<Double>()
         val uploadJson = mutableListOf<String>()
-        var cores: Int? = null
-        val cpu = mutableMapOf<String, List<Long>>()
+        val stat = mutableMapOf<String, StringBuilder>()
         for (l in out.lines()) {
             val p = l.trim().split(' ')
             when (p.firstOrNull()) {
@@ -546,9 +531,8 @@ object TunnelSpeedTest {
                     }
                 }
 
-                "N" -> cores = p.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }
-
-                "S" -> if (p.size == 10) p.drop(2).mapNotNull { it.toLongOrNull() }.takeIf { it.size == 8 }?.let { cpu[p[1]] = it }
+                // A line of /proc/stat, with the point of the test that it is from.
+                "S" -> if (p.size > 2) stat.getOrPut(p[1]) { StringBuilder() }.appendLine(p.drop(2).joinToString(" "))
 
                 "U" -> {
                     if (p.size == 2 && p[1] != "200") {
@@ -591,9 +575,14 @@ object TunnelSpeedTest {
             error = errors.distinct().joinToString("; ").ifEmpty { null },
             downStreams = downs,
             upStreams = ups,
-            downCpu = cpuUse(cores, cpu["d0"], cpu["d1"]),
-            upCpu = cpuUse(cores, cpu["u0"], cpu["u1"]),
+            downCpu = cpuBetween(stat["d0"], stat["d1"]),
+            upCpu = cpuBetween(stat["u0"], stat["u1"]),
         )
+    }
+
+    private fun cpuBetween(before: CharSequence?, after: CharSequence?): NodeCpuDto? {
+        val then = before?.let { CpuCounters.parse(it.toString()) } ?: return null
+        return after?.let { CpuCounters.parse(it.toString()) }?.since(then)
     }
 
     /** Mean round trip and jitter (mean absolute difference of consecutive samples). */

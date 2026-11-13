@@ -433,15 +433,19 @@ data class SpeedTestResultDto(
     /** The CPU of the node in the download and the upload phase (tunnel tests). */
     val downCpu: NodeCpuDto? = null,
     val upCpu: NodeCpuDto? = null,
+    /** The CPU of the homelab host in the same two phases. */
+    val homelabDownCpu: NodeCpuDto? = null,
+    val homelabUpCpu: NodeCpuDto? = null,
 )
 
 /**
  * How busy the CPU of a node was in one phase of a test, in percent of all its cores. [kernelPct]
  * is the part in the kernel, which holds the network stack and WireGuard. [stealPct] is the time
- * that the host of the server gave to other machines.
+ * that the host of the server gave to other machines. [maxCorePct] is the busiest core: a value
+ * near 100 with a low [busyPct] shows a step that uses one core only.
  */
 @Serializable
-data class NodeCpuDto(val cores: Int, val busyPct: Double, val kernelPct: Double, val stealPct: Double)
+data class NodeCpuDto(val cores: Int, val busyPct: Double, val kernelPct: Double, val stealPct: Double, val maxCorePct: Double? = null)
 
 @Serializable
 data class SpeedTestOverview(

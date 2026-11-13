@@ -1313,12 +1313,13 @@ class Controller(
             val n = (streams ?: cfg.speedtest.streams).coerceIn(1, homegap.speedtest.TunnelSpeedTest.MAX_STREAMS)
             val r = ssh.session(node).runScript(homegap.speedtest.TunnelSpeedTest.script(host, token, secs, n), secs * 2 + 120)
             val p = homegap.speedtest.TunnelSpeedTest.parse(r.stdout, host, n)
+            val (homelabDown, homelabUp) = speedTokens.live.hostCpu(token)
             val err = p.error ?: if (!r.ok) r.stderr.trim().take(300).ifEmpty { "exit ${r.exitCode}" } else null
             val result = SpeedTestResultDto(
                 id = homegap.speedtest.newResultId(), at = nowMillis(), kind = "tunnel", nodeId = nodeId,
                 pingMs = p.pingMs, jitterMs = p.jitterMs, downMbps = p.downMbps, upMbps = p.upMbps, pingSamples = p.samples, error = err,
                 streams = n, downStreamsMbps = p.downStreams, upStreamsMbps = p.upStreams,
-                downCpu = p.downCpu, upCpu = p.upCpu,
+                downCpu = p.downCpu, upCpu = p.upCpu, homelabDownCpu = homelabDown, homelabUpCpu = homelabUp,
                 client = "node $nodeId (newt mtu ${cfg.tunnels.mtu ?: "default"}${if (cfg.tunnels.native) ", kernel wireguard" else ""})",
             )
             speedStore.add(result)

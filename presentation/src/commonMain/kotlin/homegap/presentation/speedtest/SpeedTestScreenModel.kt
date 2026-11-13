@@ -100,6 +100,7 @@ data class HistoryRowModel(
     val up: String,
     val error: String?,
     val client: String?,
-    /** How busy the CPU of the node was in each phase, for a homelab to node test. */
+    /** How busy the CPU of the node, and of the homelab, was in each phase of a homelab to node test. */
     val cpu: String? = null,
+    val homelabCpu: String? = null,
 )

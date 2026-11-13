@@ -259,6 +259,7 @@ private fun History(rows: List<HistoryRowModel>) {
                             row.error?.let { ErrorText(it, mono = false) }
                             row.client?.let { Muted(it) }
                             row.cpu?.let { Muted(it) }
+                            row.homelabCpu?.let { Muted(it) }
                         }
                     }
                 }

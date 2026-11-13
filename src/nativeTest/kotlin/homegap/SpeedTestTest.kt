@@ -150,17 +150,20 @@ class SpeedTestTest {
     @Test
     fun aTunnelTestShowsTheCpuOfTheNodeInEachPhase() {
         val out = """
-            N 2
             P 0 0.1 204
-            S d0 100 0 100 800 0 0 0 0
-            S d1 300 0 500 1000 0 0 100 100
+            S d0 cpu  100 0 100 800 0 0 0 0 0 0
+            S d0 cpu0 50 0 50 400 0 0 0 0 0 0
+            S d0 cpu1 50 0 50 400 0 0 0 0 0 0
+            S d1 cpu  300 0 500 1000 0 0 100 100 0 0
+            S d1 cpu0 250 0 250 400 0 0 0 0 0 0
+            S d1 cpu1 50 0 250 600 0 0 100 100 0 0
             D 50000000 0.2 8.2 200
-            S u0 300 0 500 1000 0 0 100 100
-            S u1 300 0 500 2000 0 0 100 100
+            S u0 cpu  300 0 500 1000 0 0 100 100 0 0
+            S u1 cpu  300 0 500 2000 0 0 100 100 0 0
         """.trimIndent()
         val p = TunnelSpeedTest.parse(out, "h")
-        // Download: 1000 ticks, 200 idle. Kernel is system and softirq.
-        assertEquals(homegap.api.NodeCpuDto(cores = 2, busyPct = 80.0, kernelPct = 50.0, stealPct = 10.0), p.downCpu)
+        // Download: 1000 ticks, 200 idle. Kernel is system and softirq. Core 0 has no idle tick.
+        assertEquals(homegap.api.NodeCpuDto(cores = 2, busyPct = 80.0, kernelPct = 50.0, stealPct = 10.0, maxCorePct = 100.0), p.downCpu)
         assertEquals(0.0, p.upCpu?.busyPct)
         assertTrue(TunnelSpeedTest.script("h", "t", 8, 4).contains("cpu d0"))
     }
@@ -170,5 +173,26 @@ class SpeedTestTest {
         val p = TunnelSpeedTest.parse("P 0 0.1 204\nD 50000000 0.2 8.2 200\n", "h")
         assertEquals(null, p.downCpu)
         assertEquals(null, p.upCpu)
+    }
+
+    @Test
+    fun theHomelabCpuIsReadAtTheChangeOfEachPhase() {
+        var idle = 0L
+        // Each read: 100 more ticks, of which [idle] are idle.
+        var total = 0L
+        var idleSum = 0L
+        val live = homegap.speedtest.SpeedTestLive(cpu = {
+            total += 100; idleSum += idle
+            homegap.speedtest.CpuCounters.parse("cpu  ${total - idleSum} 0 0 $idleSum 0 0 0 0\ncpu0 ${total - idleSum} 0 0 $idleSum 0 0 0 0\n")
+        })
+        live.start("t", "na1")
+        live.bytes("t", upload = false, n = 10)
+        idle = 25
+        live.bytes("t", upload = true, n = 10)
+        idle = 100
+        val (down, up) = live.hostCpu("t")
+        assertEquals(75.0, down?.busyPct)
+        assertEquals(0.0, up?.busyPct)
+        assertEquals(null to null, live.hostCpu("other"))
     }
 }
