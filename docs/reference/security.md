@@ -8,7 +8,7 @@ The orchestrator holds every SSH key and every API key. Thus:
 
 - Run it on a minimal host.
 - Mount the secrets. Do not put them in the image.
-- Keep the dashboard private. Every `/api` route needs the dashboard token. Set your own token with `dashboard.auth_token_env`. An address that sends more than 20 wrong tokens in one minute gets the answer `429` until that minute ends. The dashboard loads only its own files, and no other page can show it in a frame.
+- Keep the dashboard private. Every `/api` route needs the dashboard token. Set your own token with `dashboard.auth_token_env`. An address that sends more than 20 wrong tokens in one minute gets the answer `429` until that minute ends. For a request that the front door forwards, the address is the address of the viewer, so one viewer cannot lock a different viewer out. The dashboard loads only its own files, and no other page can show it in a frame.
 
 !!! danger "Warning"
     If somebody gets access to the dashboard or to the orchestrator host, that person has control of every node.

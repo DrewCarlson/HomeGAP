@@ -7,9 +7,11 @@ import homegap.dashboard.DashboardAuth
 import homegap.api.ActionResponse
 import homegap.api.ApiJson
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.createRouteScopedPlugin
+import io.ktor.server.request.ApplicationRequest
 import io.ktor.server.response.respondText
 import io.ktor.server.application.install
 import io.ktor.server.auth.Authentication
@@ -37,7 +39,7 @@ class RoutingControllers(
         application.install(Authentication) {
             bearer(AUTH) {
                 authenticate { credential ->
-                    if (auth.accepts(credential.token, request.local.remoteHost)) UserIdPrincipal("dashboard") else null
+                    if (auth.accepts(credential.token, auth.client(request))) UserIdPrincipal("dashboard") else null
                 }
             }
         }
@@ -58,6 +60,9 @@ class RoutingControllers(
     }
 }
 
+private fun DashboardAuth.client(request: ApplicationRequest): String =
+    client(request.local.remoteAddress, request.headers[HttpHeaders.XForwardedFor])
+
 private class BlockedConfig {
     lateinit var auth: DashboardAuth
 }
@@ -66,7 +71,7 @@ private class BlockedConfig {
 private val BlockedAddresses = createRouteScopedPlugin("BlockedAddresses", ::BlockedConfig) {
     val auth = pluginConfig.auth
     onCall { call ->
-        if (auth.blocked(call.request.local.remoteHost)) {
+        if (auth.blocked(auth.client(call.request))) {
             val body = ApiJson.encodeToString(ActionResponse.serializer(), ActionResponse(false, "Too many wrong tokens. Try again in a minute."))
             call.respondText(body, ContentType.Application.Json, HttpStatusCode.TooManyRequests)
         }

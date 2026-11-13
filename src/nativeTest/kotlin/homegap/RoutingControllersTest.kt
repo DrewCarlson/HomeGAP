@@ -81,4 +81,20 @@ class RoutingControllersTest {
         // The right token does not pass either, so a trial of tokens learns nothing.
         assertEquals(HttpStatusCode.TooManyRequests, client.get("/api/one") { bearerAuth("s3cret") }.status)
     }
+
+    @Test
+    fun theFrontDoorNamesTheClientOfARequest() {
+        val auth = DashboardAuth("s3cret", null) { setOf("172.32.0.2") }
+        assertEquals("203.0.113.9", auth.client("172.32.0.2", "203.0.113.9"))
+        // A client can write the start of the header, but the front door writes the end.
+        assertEquals("203.0.113.9", auth.client("172.32.0.2", "198.51.100.1, 203.0.113.9"))
+        assertEquals("172.32.0.2", auth.client("172.32.0.2", null))
+        // A sender that is not the front door can write what it wants.
+        assertEquals("192.168.1.50", auth.client("192.168.1.50", "203.0.113.9"))
+
+        // Wrong tokens from one viewer do not block a different viewer behind the same front door.
+        repeat(DashboardAuth.MAX_FAILURES + 1) { auth.accepts("wrong", auth.client("172.32.0.2", "203.0.113.9")) }
+        assertEquals(false, auth.accepts("s3cret", auth.client("172.32.0.2", "203.0.113.9")))
+        assertEquals(true, auth.accepts("s3cret", auth.client("172.32.0.2", "203.0.113.10")))
+    }
 }

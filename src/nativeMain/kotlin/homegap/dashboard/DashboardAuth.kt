@@ -14,6 +14,8 @@ class DashboardAuth(
     val token: String,
     /** Where the token was generated, or null when it comes from the config. */
     val generatedFile: String?,
+    /** The addresses of the front door container, the proxy that publishes the dashboard. */
+    private val frontDoor: () -> Set<String> = { emptySet() },
 ) {
     private val failures = RateLimiter(MAX_FAILURES, 60_000)
     private val blocks = RateLimiter(0, 60_000)
@@ -33,6 +35,16 @@ class DashboardAuth(
         return false
     }
 
+    /**
+     * The address of the client of a request from [peer]. The front door adds the address that it
+     * got the request from to the end of `X-Forwarded-For`, so each viewer has an own address.
+     * From all other senders the header is not trusted, because a client can write it.
+     */
+    fun client(peer: String, forwardedFor: String?): String {
+        val forwarded = forwardedFor?.substringAfterLast(',')?.trim()?.takeIf { it.isNotEmpty() }
+        return if (forwarded != null && peer in frontDoor()) forwarded else peer
+    }
+
     /** True while [address] is blocked after too many wrong tokens. */
     fun blocked(address: String): Boolean = blocks.seen(address)
 
@@ -43,14 +55,14 @@ class DashboardAuth(
         fun tokenFile(config: AppConfig): String = "${config.dataDir}/dashboard-token"
 
         /** The configured token, else the generated one (created now if there is none yet). */
-        fun resolve(config: AppConfig): DashboardAuth {
-            config.dashboard.authToken()?.resolve()?.let { return DashboardAuth(it, null) }
+        fun resolve(config: AppConfig, frontDoor: () -> Set<String> = { emptySet() }): DashboardAuth {
+            config.dashboard.authToken()?.resolve()?.let { return DashboardAuth(it, null, frontDoor) }
             val file = tokenFile(config)
             val kept = stored(file)
-            if (kept != null) return DashboardAuth(kept, file)
+            if (kept != null) return DashboardAuth(kept, file, frontDoor)
             val created = Crypto.token(LENGTH)
             Files.writeAtomic(file, created + "\n", "600".toInt(8))
-            return DashboardAuth(created, file)
+            return DashboardAuth(created, file, frontDoor)
         }
 
         /** The token a running orchestrator uses, without creating one (for the CLI). */

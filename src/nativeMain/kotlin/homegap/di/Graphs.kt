@@ -103,7 +103,7 @@ interface ControllerGraph {
     fun speedStore(config: AppConfig): SpeedTestStore = SpeedTestStore("${config.dataDir}/speedtests.json")
 
     @Provides @SingleIn(AppScope::class)
-    fun dashboardAuth(config: AppConfig): DashboardAuth = DashboardAuth.resolve(config)
+    fun dashboardAuth(config: AppConfig, controller: Controller): DashboardAuth = DashboardAuth.resolve(config) { controller.frontDoorAddresses }
 
     @Provides @SingleIn(AppScope::class)
     fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer =
