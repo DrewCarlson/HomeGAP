@@ -19,9 +19,9 @@ data class ClusterSecrets(
     /** The role pg_rewind connects with (`rewinder`). */
     val rewind: String,
     /** The etcd `root` user. Only the members and the orchestrator hold it, never Pangolin. */
-    val etcd: String = "",
+    val etcd: String,
     /** Sentinel's `requirepass`. It is not the Valkey password, which Pangolin holds. */
-    val sentinel: String = "",
+    val sentinel: String,
 )
 
 /**

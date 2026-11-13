@@ -54,16 +54,6 @@ val AppConfig.meshDir: String get() = SharedDirs.mesh(dataDir)
 
 val AppConfig.tunnelsDir: String get() = tunnels.stateDir ?: SharedDirs.tunnels(dataDir)
 
-/**
- * After a move of a shared directory to its own volume: brings over the files the old place
- * holds, so the cluster member keeps its write-once settings and the connectors keep their specs.
- * Only files that the new place does not have yet are copied.
- */
-fun AppConfig.adoptSharedDirs() {
-    Files.copyMissing("$dataDir/cluster/config", clusterConfigDir)
-    Files.copyMissing("$dataDir/tunnels", tunnelsDir)
-}
-
 /** One line for each shared directory of this config that is not a volume. */
 fun AppConfig.sharedDirProblems(): List<String> = buildList {
     if (nodes.isNotEmpty() && SharedDirs.notAVolume(tunnelsDir)) add(SharedDirs.notAVolumeHint(tunnelsDir, "homegap-tunnels", "tunnels"))

@@ -1,6 +1,5 @@
 package homegap.reconcile
 
-import homegap.config.adoptSharedDirs
 import homegap.config.clusterConfigDir
 import homegap.config.meshDir
 import homegap.config.sharedDirProblems
@@ -346,9 +345,6 @@ class Controller(
 
     suspend fun run(scope: CoroutineScope, once: Boolean) {
         loop = currentCoroutineContext()[kotlin.coroutines.ContinuationInterceptor] as? CoroutineDispatcher
-        if (!dryRun) {
-            runCatching { config.adoptSharedDirs() }.onFailure { log.error("controller", "could not bring the shared files to their new place: ${it.message}") }
-        }
         config.sharedDirProblems().forEach { log.error("controller", it) }
         if (once) {
             reconcileOnce("startup")

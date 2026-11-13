@@ -457,7 +457,7 @@ class NodeReconciler(
 
     fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, slot: Int): List<RenderedFile> {
         val link = ctx.config.cluster?.let { c ->
-            val db = if (ctx.dryRun || cluster == null) ClusterSecrets("<generated>", "<generated>", "<generated>", "<generated>", "<generated>", "<generated>") else cluster.secrets()
+            val db = if (ctx.dryRun || cluster == null) ClusterSecrets("<generated>", "<generated>", "<generated>", "<generated>", "<generated>", "<generated>", "<generated>", "<generated>") else cluster.secrets()
             ClusterLink(Mesh.nodeAddress(c.mesh, slot), db)
         }
         return NodeTemplates.staticFiles(ctx.config, node, secrets, desired.rawPorts, slot, link)

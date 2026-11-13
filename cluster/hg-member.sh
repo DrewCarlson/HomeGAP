@@ -40,14 +40,10 @@ sentinel_password() {
   sed -n 's/^requirepass //p' "$1" 2>/dev/null | head -n 1 | tr -d '"'
 }
 
-# valkey-cli for a Sentinel, with the Sentinel password $1 if there is one.
+# valkey-cli for a Sentinel, with the Sentinel password $1.
 sentinel_cli() {
   pw=$1; shift
-  if [ -n "$pw" ]; then
-    timeout 3 env REDISCLI_AUTH="$pw" valkey-cli --no-auth-warning "$@"
-  else
-    timeout 3 valkey-cli "$@"
-  fi
+  timeout 3 env REDISCLI_AUTH="$pw" valkey-cli --no-auth-warning "$@"
 }
 
 # Reloads HAProxy (PID 1 of the haproxy container) with the current config. Each server's up/down
@@ -119,7 +115,7 @@ case "$ROLE" in
     . "$CONFIG/valkey.env"
     master=""
     for s in $HG_SENTINELS; do
-      master=$(sentinel_cli "${HG_SENTINEL_PASSWORD:-}" -h "$s" -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1) || master=""
+      master=$(sentinel_cli "$HG_SENTINEL_PASSWORD" -h "$s" -p 26379 SENTINEL get-master-addr-by-name homegap 2>/dev/null | head -n 1) || master=""
       # An error text is not an address.
       case "$master" in *[!0-9.]*) master="" ;; esac
       if [ -n "$master" ]; then break; fi
@@ -145,21 +141,6 @@ case "$ROLE" in
     wait_for "$CONFIG/sentinel.conf"
     STATE=/var/lib/sentinel/sentinel.conf
     [ -s "$STATE" ] || install -D -m 0600 "$CONFIG/sentinel.conf" "$STATE"
-    # The password is the one setting that goes from the rendered config into the kept copy.
-    want=$(sentinel_password "$CONFIG/sentinel.conf")
-    if [ "$want" != "$(sentinel_password "$STATE")" ]; then
-      sed -i '/^requirepass /d' "$STATE"
-      [ -z "$want" ] || echo "requirepass $want" >> "$STATE"
-    fi
-    # Sentinel also keeps the default user in its copy, and that line wins over the password.
-    # Without the line, Sentinel makes the user from the password and writes it again.
-    [ -z "$want" ] || sed -i '/^user default on nopass /d' "$STATE"
-    # A new password needs a new start: Sentinel (PID 1 below) reads it only then.
-    (
-      while sleep 10; do
-        [ "$(sentinel_password "$CONFIG/sentinel.conf")" = "$want" ] || kill -TERM 1
-      done
-    ) &
     exec valkey-sentinel "$STATE"
     ;;
   haproxy)

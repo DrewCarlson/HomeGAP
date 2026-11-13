@@ -233,8 +233,7 @@ class ValkeyCli(private val password: String, private val sentinelPassword: Stri
     private suspend fun cli(host: String, port: Int, vararg args: String, auth: Boolean): String? {
         val argv = listOf("redis-cli", "-h", host, "-p", port.toString(), "--raw", "--no-auth-warning") + args
         val secret = if (auth) password else sentinelPassword
-        val env = if (secret.isNotEmpty()) mapOf("REDISCLI_AUTH" to secret) else emptyMap()
-        val r = runCatching { Subprocess.run(argv, timeout = 5.seconds, env = env) }.getOrNull() ?: return null
+        val r = runCatching { Subprocess.run(argv, timeout = 5.seconds, env = mapOf("REDISCLI_AUTH" to secret)) }.getOrNull() ?: return null
         return r.stdout.takeIf { r.ok && !r.stdout.startsWith("ERR") && !r.stdout.contains("Could not connect") }
     }
 }

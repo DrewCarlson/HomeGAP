@@ -514,13 +514,7 @@ class ClusterReconciler(
                         "the cluster database keeps the passwords in that file.",
                 )
             }
-            // A password that an older file does not have is new. It replaces no password in use.
-            val complete = read.copy(
-                etcd = read.etcd.ifEmpty { Crypto.token(32) },
-                sentinel = read.sentinel.ifEmpty { Crypto.token(32) },
-            )
-            if (complete != read) Files.writeAtomic(secretsFile, json.encodeToString(complete), "600".toInt(8))
-            return complete.also { loadedSecrets = it }
+            return read.also { loadedSecrets = it }
         }
         check(!Files.exists(initializedFile) && !inUse()) {
             "The cluster secrets file $secretsFile is missing, but the cluster is in use. HomeGAP does not create new " +

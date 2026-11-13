@@ -95,7 +95,7 @@ class DiagnosticsTest {
     @Test
     fun theProxyPublishesStatsOnLoopbackOnly() {
         val m = ClusterTemplates.Member("na1", "10.77.0.10")
-        assertTrue("stats uri /stats" in ClusterTemplates.haproxy(listOf(m), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind")))
+        assertTrue("stats uri /stats" in ClusterTemplates.haproxy(listOf(m), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind", "etcd", "sentinel")))
         assertTrue("\"127.0.0.1:8404:8404\"" in ClusterTemplates.nodeCompose("img", emptyMap()))
     }
 
@@ -147,7 +147,7 @@ class DiagnosticsTest {
     @Test
     fun theContainerProbeChecksEveryOtherMemberFromHaproxy() {
         val members = listOf(ClusterTemplates.Member("homelab", "10.77.0.1"), ClusterTemplates.Member("na1", "10.77.0.10"), ClusterTemplates.Member("as1", "10.77.0.11"))
-        val cfg = ClusterTemplates.haproxy(members, homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind"), self = "na1")
+        val cfg = ClusterTemplates.haproxy(members, homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind", "etcd", "sentinel"), self = "na1")
         val probe = cfg.substringAfter("backend mesh-probe")
         assertTrue("server homelab 10.77.0.1:2379 check" in probe && "server as1 10.77.0.11:2379 check" in probe, probe)
         assertFalse("server na1" in probe, "not itself")
@@ -186,7 +186,7 @@ class DiagnosticsTest {
 
     @Test
     fun patroniRunsWithoutJit() {
-        val yml = ClusterTemplates.patroni(ClusterTemplates.Member("na1", "10.77.0.10"), homegap.config.MeshConfig(), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind"))
+        val yml = ClusterTemplates.patroni(ClusterTemplates.Member("na1", "10.77.0.10"), homegap.config.MeshConfig(), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind", "etcd", "sentinel"))
         assertTrue("  parameters:\n    jit: \"off\"" in yml, yml)
         assertFalse("org.homegap.config" in ClusterTemplates.nodeCompose("img", mapOf("valkey" to "x")).substringAfter("  db:").substringBefore("  valkey:"),
             "a settings change reloads Patroni instead of recreating the database")
