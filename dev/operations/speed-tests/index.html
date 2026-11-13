@@ -2460,7 +2460,15 @@
 <p>The <strong>Speed test</strong> page has two tests. Each test measures ping, jitter, download and upload.</p>
 <h3 id="homelab-node">Homelab ↔ node<a class="headerlink" href="#homelab-node" title="Permanent link">&para;</a></h3>
 <p>The orchestrator runs <code>curl</code> on the node over SSH, against port 443 of the node, with the speed test hostname of the node. Thus the traffic takes the production path through the tunnel.</p>
-<p>The test uses <code>speedtest.streams</code> parallel streams, and the rates are the sum. One stream shows what a single connection gets over the distance. Several streams show the capacity of the tunnel. You can select the number of streams for each run.</p>
+<p>The test uses <code>speedtest.streams</code> parallel streams, and the rates are the sum. One stream shows what a single connection gets over the distance. Several streams show the capacity of the tunnel.</p>
+<p>The result also shows how busy the CPU of the node and of the homelab was in each phase, in percent of all cores. "Kernel" is the part in the network stack and WireGuard. "Steal" is the time that the host of the server gave to other machines. "Busiest core" is the core with the most load.</p>
+<ul>
+<li>If the CPU is near 100%, or the steal is high, that machine is the limit, not the network.</li>
+<li>If the busiest core is near 100% and the total is low, one step uses one core only. More cores do not help.</li>
+<li>If both machines have free CPU, the limit is the network between them.</li>
+</ul>
+<p>The test program on the node is a part of the load of the node.
+ You can select the number of streams for each run.</p>
 <p>To run the test, click <strong>Run test</strong>, or click a node on the map. <strong>Test all nodes</strong> runs the test on each node in turn.</p>
 <p>While a test runs, a gauge shows it live: the round trip of each ping, then the download rate, then the upload rate, with a bar for each sample. The speed test origin measures these as the traffic arrives. The final figures come from the node when the test ends.</p>
 <h3 id="your-device-node-homelab">Your device → node → homelab<a class="headerlink" href="#your-device-node-homelab" title="Permanent link">&para;</a></h3>
