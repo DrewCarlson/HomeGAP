@@ -42,7 +42,10 @@ The **Speed test** page has two tests. Each test measures ping, jitter, download
 
 The orchestrator runs `curl` on the node over SSH, against port 443 of the node, with the speed test hostname of the node. Thus the traffic takes the production path through the tunnel.
 
-The test uses `speedtest.streams` parallel streams, and the rates are the sum. One stream shows what a single connection gets over the distance. Several streams show the capacity of the tunnel. You can select the number of streams for each run.
+The test uses `speedtest.streams` parallel streams, and the rates are the sum. One stream shows what a single connection gets over the distance. Several streams show the capacity of the tunnel.
+
+The result also shows how busy the CPU of the node was in each phase, in percent of all its cores. "Kernel" is the part in the network stack and WireGuard. "Steal" is the time that the host of the server gave to other machines. If the CPU is near 100%, or the steal is high, the node is the limit, not the network. The test program on the node is a part of this load.
+ You can select the number of streams for each run.
 
 To run the test, click **Run test**, or click a node on the map. **Test all nodes** runs the test on each node in turn.
 

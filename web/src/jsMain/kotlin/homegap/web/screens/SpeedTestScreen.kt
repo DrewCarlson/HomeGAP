@@ -258,6 +258,7 @@ private fun History(rows: List<HistoryRowModel>) {
                         Cell("Notes") {
                             row.error?.let { ErrorText(it, mono = false) }
                             row.client?.let { Muted(it) }
+                            row.cpu?.let { Muted(it) }
                         }
                     }
                 }

@@ -1318,6 +1318,7 @@ class Controller(
                 id = homegap.speedtest.newResultId(), at = nowMillis(), kind = "tunnel", nodeId = nodeId,
                 pingMs = p.pingMs, jitterMs = p.jitterMs, downMbps = p.downMbps, upMbps = p.upMbps, pingSamples = p.samples, error = err,
                 streams = n, downStreamsMbps = p.downStreams, upStreamsMbps = p.upStreams,
+                downCpu = p.downCpu, upCpu = p.upCpu,
                 client = "node $nodeId (newt mtu ${cfg.tunnels.mtu ?: "default"}${if (cfg.tunnels.native) ", kernel wireguard" else ""})",
             )
             speedStore.add(result)

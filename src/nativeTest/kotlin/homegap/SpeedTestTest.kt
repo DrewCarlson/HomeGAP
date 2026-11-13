@@ -146,4 +146,29 @@ class SpeedTestTest {
         val spec = homegap.tunnels.TunnelFiles.json.decodeFromString(TunnelSpec.serializer(), old)
         assertNull(spec.mtu); assertNull(spec.nativeInterface)
     }
+
+    @Test
+    fun aTunnelTestShowsTheCpuOfTheNodeInEachPhase() {
+        val out = """
+            N 2
+            P 0 0.1 204
+            S d0 100 0 100 800 0 0 0 0
+            S d1 300 0 500 1000 0 0 100 100
+            D 50000000 0.2 8.2 200
+            S u0 300 0 500 1000 0 0 100 100
+            S u1 300 0 500 2000 0 0 100 100
+        """.trimIndent()
+        val p = TunnelSpeedTest.parse(out, "h")
+        // Download: 1000 ticks, 200 idle. Kernel is system and softirq.
+        assertEquals(homegap.api.NodeCpuDto(cores = 2, busyPct = 80.0, kernelPct = 50.0, stealPct = 10.0), p.downCpu)
+        assertEquals(0.0, p.upCpu?.busyPct)
+        assertTrue(TunnelSpeedTest.script("h", "t", 8, 4).contains("cpu d0"))
+    }
+
+    @Test
+    fun aTestWithoutCpuLinesHasNoCpuFigures() {
+        val p = TunnelSpeedTest.parse("P 0 0.1 204\nD 50000000 0.2 8.2 200\n", "h")
+        assertEquals(null, p.downCpu)
+        assertEquals(null, p.upCpu)
+    }
 }

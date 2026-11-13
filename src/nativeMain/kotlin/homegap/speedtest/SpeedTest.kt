@@ -1,5 +1,6 @@
 package homegap.speedtest
 
+import homegap.api.NodeCpuDto
 import homegap.api.DeviceResultRequest
 import homegap.api.SpeedTestResultDto
 import homegap.config.AppConfig
@@ -452,22 +453,29 @@ object TunnelSpeedTest {
      * Ping, then [streams] parallel downloads, then [streams] parallel uploads. Each stream is
      * its own TCP connection (and so its own congestion window) sharing the one tunnel, like
      * real traffic from several viewers or browser connections. Rates are summed.
+     *
+     * The script reads the CPU counters of the node before and after each phase, so the result
+     * shows if the CPU of the node is the limit. curl on the node is a part of that load.
      */
     fun script(host: String, token: String, seconds: Int, streams: Int = 1): String = $$"""
         |H=$${sh(host)}
         |C=(curl -sk --resolve "$H:443:127.0.0.1" -H $${sh("${SpeedTestServer.TOKEN_HEADER}: $token")} -H 'Expect:' --max-time 90)
         |T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+        |cpu() { read -r _ a b c d e f g h _ < /proc/stat && echo "S $1 $a $b $c $d $e $f $g $h"; }
+        |echo "N $(nproc)"
         |URLS=()
         |for i in $(seq 0 $$PINGS); do URLS+=("https://$H/speedtest/ping?i=$i"); done
         |"${C[@]}" -w 'P %{time_pretransfer} %{time_starttransfer} %{http_code}\n' "${URLS[@]}" || true
+        |cpu d0
         |for s in $(seq 1 $$streams); do
         |  "${C[@]}" -o /dev/null -w 'D %{size_download} %{time_starttransfer} %{time_total} %{http_code}\n' "https://$H/speedtest/down?seconds=$$seconds" > "$T/d$s" 2>/dev/null &
         |done
-        |wait; for s in $(seq 1 $$streams); do cat "$T/d$s" 2>/dev/null || echo 'D 0 0 0 000'; done
+        |wait; cpu d1; for s in $(seq 1 $$streams); do cat "$T/d$s" 2>/dev/null || echo 'D 0 0 0 000'; done
+        |cpu u0
         |for s in $(seq 1 $$streams); do
         |  { { timeout $$seconds cat /dev/zero || true; } | "${C[@]}" -T - -w '\nU %{http_code}\n' "https://$H/speedtest/up" > "$T/u$s" 2>/dev/null; } &
         |done
-        |wait; for s in $(seq 1 $$streams); do cat "$T/u$s" 2>/dev/null; echo; done
+        |wait; cpu u1; for s in $(seq 1 $$streams); do cat "$T/u$s" 2>/dev/null; echo; done
     """.trimMargin()
 
     private fun sh(s: String) = "'" + s.replace("'", "'\"'\"'") + "'"
@@ -481,7 +489,22 @@ object TunnelSpeedTest {
         val error: String?,
         val downStreams: List<Double> = emptyList(),
         val upStreams: List<Double> = emptyList(),
+        val downCpu: NodeCpuDto? = null,
+        val upCpu: NodeCpuDto? = null,
     )
+
+    /**
+     * The CPU use between two lines of `/proc/stat` counters: user, nice, system, idle, iowait,
+     * irq, softirq and steal. Null if a line is missing or no time passed.
+     */
+    fun cpuUse(cores: Int?, before: List<Long>?, after: List<Long>?): NodeCpuDto? {
+        if (cores == null || before?.size != 8 || after?.size != 8) return null
+        val d = after.zip(before) { a, b -> (a - b).coerceAtLeast(0) }
+        val total = d.sum().toDouble()
+        if (total <= 0) return null
+        fun pct(ticks: Long) = kotlin.math.round(ticks * 1000 / total) / 10
+        return NodeCpuDto(cores, busyPct = pct(d.sum() - d[3] - d[4]), kernelPct = pct(d[2] + d[5] + d[6]), stealPct = pct(d[7]))
+    }
 
     fun parse(out: String, host: String, streams: Int = 1): Parsed {
         val errors = mutableListOf<String>()
@@ -499,6 +522,8 @@ object TunnelSpeedTest {
         var pingCode: String? = null
         val downs = mutableListOf<Double>()
         val uploadJson = mutableListOf<String>()
+        var cores: Int? = null
+        val cpu = mutableMapOf<String, List<Long>>()
         for (l in out.lines()) {
             val p = l.trim().split(' ')
             when (p.firstOrNull()) {
@@ -520,6 +545,10 @@ object TunnelSpeedTest {
                         }
                     }
                 }
+
+                "N" -> cores = p.getOrNull(1)?.toIntOrNull()?.takeIf { it > 0 }
+
+                "S" -> if (p.size == 10) p.drop(2).mapNotNull { it.toLongOrNull() }.takeIf { it.size == 8 }?.let { cpu[p[1]] = it }
 
                 "U" -> {
                     if (p.size == 2 && p[1] != "200") {
@@ -562,6 +591,8 @@ object TunnelSpeedTest {
             error = errors.distinct().joinToString("; ").ifEmpty { null },
             downStreams = downs,
             upStreams = ups,
+            downCpu = cpuUse(cores, cpu["d0"], cpu["d1"]),
+            upCpu = cpuUse(cores, cpu["u0"], cpu["u1"]),
         )
     }
 

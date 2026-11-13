@@ -1,5 +1,7 @@
 package homegap.presentation.speedtest
 
+import homegap.api.NodeCpuDto
+import kotlin.math.roundToInt
 import androidx.compose.runtime.*
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -225,7 +227,17 @@ class SpeedTestScreenPresenter(
         up = formatMbps(upMbps),
         error = error,
         client = client?.let(::shortClient),
+        cpu = cpuText(downCpu, upCpu),
     )
+
+    /** For example "node CPU of 2 cores: down 96% (kernel 61%, steal 3%), up 88% (kernel 70%, steal 2%)". */
+    private fun cpuText(down: NodeCpuDto?, up: NodeCpuDto?): String? {
+        fun phase(name: String, c: NodeCpuDto?) =
+            c?.let { "$name ${it.busyPct.roundToInt()}% (kernel ${it.kernelPct.roundToInt()}%, steal ${it.stealPct.roundToInt()}%)" }
+        val phases = listOfNotNull(phase("down", down), phase("up", up)).ifEmpty { return null }
+        val cores = (down ?: up)!!.cores
+        return "node CPU of $cores ${if (cores == 1) "core" else "cores"}: ${phases.joinToString()}"
+    }
 
     private companion object {
         val STREAM_CHOICES = listOf(1, 4, 8)
