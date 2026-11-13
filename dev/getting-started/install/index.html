@@ -2639,7 +2639,6 @@
 <li><code>BUNNY_API_KEY</code>. It is necessary.</li>
 <li><code>PANGOLIN_LICENSE_KEY</code>. It is optional.</li>
 <li><code>HOMEGAP_DASHBOARD_TOKEN</code>. The bearer token of the dashboard. If it is empty, HomeGAP creates a token.</li>
-<li><code>HOMEGAP_CLUSTER_CONFIG_DIR</code>, <code>HOMEGAP_TUNNELS_DIR</code> and <code>HOMEGAP_MESH_DIR</code>. The mount points of the three shared volumes.</li>
 <li><code>DOCKER_HOST</code>. The address of <code>docker-proxy</code>.</li>
 <li><code>HOMEGAP_DRY_RUN</code>. It is optional.</li>
 </ul>
@@ -2648,10 +2647,12 @@
 <li><code>./config/config.yml:/config/config.yml</code>. This mount must be writable only if you enable config edits on the dashboard.</li>
 <li><code>./secrets/ssh:/secrets/ssh:ro</code>. The SSH keys of the nodes.</li>
 <li><code>homegap-data:/data</code>. The state cache, <code>known_hosts</code>, the generated SSH keys and the dashboard token. No other container mounts this volume.</li>
-<li><code>homegap-cluster-config:/cluster-config</code>. The config that the orchestrator writes for the cluster containers. They mount it read-only.</li>
-<li><code>homegap-tunnels:/tunnels</code>. The connector specs. The <code>tunnels</code> container mounts the same volume.</li>
-<li><code>homegap-mesh:/mesh</code>. The description of the mesh, for the mesh agent.</li>
+<li><code>homegap-cluster-config:/cluster-config</code>. The config that the orchestrator writes for the cluster containers. They mount it read-only at <code>/config</code>.</li>
+<li><code>homegap-tunnels:/tunnels</code>. The connector specs. The <code>tunnels</code> container mounts the same volume at <code>/tunnels</code>.</li>
+<li><code>homegap-mesh:/mesh</code>. The description of the mesh. The mesh agent mounts the same volume at <code>/mesh</code>.</li>
 </ul>
+<p>The paths <code>/cluster-config</code>, <code>/tunnels</code> and <code>/mesh</code> are fixed in the HomeGAP image. You set no variable for them. Mount each volume at its path in both containers that share it.</p>
+<p>If a shared directory is not a volume, the other container cannot see it. Then the orchestrator writes an error with the path and the name of the volume to its log at start.</p>
 <p>The orchestrator does not mount the Docker socket. See <a href="../../reference/security/#the-homelab">Security model</a>.</p>
 <h3 id="docker-proxy"><code>docker-proxy</code><a class="headerlink" href="#docker-proxy" title="Permanent link">&para;</a></h3>
 <p>The service mounts the Docker socket and accepts only <code>GET</code> requests for containers, images and events. It is only on the <code>homegap-docker</code> network, so no other container can reach it.</p>

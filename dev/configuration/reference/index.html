@@ -3450,13 +3450,13 @@
 </tr>
 <tr>
 <td><code>HOMEGAP_TUNNELS_DIR</code></td>
-<td><code>&lt;data_dir&gt;/tunnels</code></td>
-<td>The directory of the connector specs, for the orchestrator and the tunnel supervisor.</td>
+<td><code>/tunnels</code></td>
+<td>The directory of the connector specs, for the orchestrator and the tunnel supervisor. The default is the mount point of the shipped compose file.</td>
 </tr>
 <tr>
 <td><code>HOMEGAP_MESH_DIR</code></td>
-<td><code>&lt;data_dir&gt;/mesh</code></td>
-<td>The directory that the orchestrator and the mesh agent share.</td>
+<td><code>/mesh</code></td>
+<td>The directory that the orchestrator and the mesh agent share. The default is the mount point of the shipped compose file.</td>
 </tr>
 <tr>
 <td><code>HOMEGAP_MESH_HOST</code></td>
@@ -3465,8 +3465,8 @@
 </tr>
 <tr>
 <td><code>HOMEGAP_CLUSTER_CONFIG_DIR</code></td>
-<td><code>&lt;data_dir&gt;/cluster/config</code></td>
-<td>The directory where the orchestrator writes the config of the cluster containers of the homelab.</td>
+<td><code>/cluster-config</code></td>
+<td>The directory where the orchestrator writes the config of the cluster containers of the homelab. The default is the mount point of the shipped compose file.</td>
 </tr>
 <tr>
 <td><code>HOMEGAP_NEWT</code></td>

@@ -2524,7 +2524,7 @@
 </tr>
 </tbody>
 </table>
-<p>The activity log shows each order, with the number of names.</p>
+<p>The activity log shows each order, with the number of names. An order can take some minutes, because it waits for DNS. The reconcile pass does not wait for the order. When the order is complete, the next pass gives the new certificate to the nodes.</p>
 <h3 id="the-front-door-in-terminate-mode-with-a-wildcard">The front door in terminate mode with a wildcard<a class="headerlink" href="#the-front-door-in-terminate-mode-with-a-wildcard" title="Permanent link">&para;</a></h3>
 <p>This is the only setup that puts a wildcard certificate on the nodes. The nodes then end TLS for each name one label under your domain. A person with root on a node can read all of that traffic.</p>
 <div class="admonition danger">
