@@ -68,6 +68,7 @@ class TunnelsScreenPresenter(
                     location = Location(Route.Tunnels, tunnel.nodeId),
                 )
             },
+            selected = selected?.let { Location(Route.Tunnels, it.nodeId) },
             inspector = selected?.let { tunnel ->
                 inspector(
                     tunnel = tunnel,

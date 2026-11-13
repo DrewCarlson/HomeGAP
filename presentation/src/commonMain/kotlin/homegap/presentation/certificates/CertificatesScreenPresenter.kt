@@ -215,7 +215,7 @@ internal class CertificatesView(
             issued == null -> "There is no certificate. The nodes answer their names with a default certificate."
             nowSeconds >= issued.renewAt -> "${plural(daysLeft ?: 0, "day")} left. A new order starts in the next pass."
             else -> {
-                val who = if (current == total) "All ${plural(total, "node")} have it." else "$current of ${plural(total, "node")} have it."
+                val who = if (total == 1 && current == 1) "The node has it." else if (current == total) "All ${plural(total, "node")} have it." else "$current of ${plural(total, "node")} have it."
                 "Valid for ${plural(daysLeft ?: 0, "day")}. HomeGAP orders a new one on ${date(issued.renewAt)}. $who"
             }
         }

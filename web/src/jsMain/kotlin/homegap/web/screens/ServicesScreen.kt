@@ -73,6 +73,9 @@ fun ServicesScreen(
                         key(row.hostname) {
                             Tr({
                                 classes("matrix-row")
+                                if (row.location == model.selected) {
+                                    classes("selected")
+                                }
                                 onClick { onOpen(row.location) }
                             }) {
                                 Td({ classes("matrix-host") }) {

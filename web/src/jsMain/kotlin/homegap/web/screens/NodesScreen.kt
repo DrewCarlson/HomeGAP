@@ -23,6 +23,7 @@ fun NodesScreen(
     model.rollout?.let { RolloutStrip(it) }
     Fleet(
         rows = model.fleet,
+        selected = model.selected,
         onOpen = onOpen,
     )
     model.database?.let { database ->
@@ -59,7 +60,7 @@ private fun RolloutStrip(rollout: RolloutStripModel) {
 }
 
 @Composable
-private fun Fleet(rows: List<FleetRowModel>, onOpen: (Location) -> Unit) {
+private fun Fleet(rows: List<FleetRowModel>, selected: Location?, onOpen: (Location) -> Unit) {
     val headers = remember {
         listOf(
             "Node",
@@ -89,6 +90,9 @@ private fun Fleet(rows: List<FleetRowModel>, onOpen: (Location) -> Unit) {
                     key(row.id) {
                         Tr({
                             classes("fleet-row")
+                            if (row.location == selected) {
+                                classes("selected")
+                            }
                             onClick { onOpen(row.location) }
                         }) {
                             Td({ classes("fleet-node") }) {

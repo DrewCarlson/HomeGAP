@@ -150,7 +150,7 @@ fun SearchOverlay(search: SearchModel, viewport: Viewport) {
             }
             Div({ classes("search-keys") }) {
                 Text("↑↓ move · ↵ open · > actions")
-                Span { Text("${search.count} results") }
+                Span { Text(if (search.count == 1) "1 result" else "${search.count} results") }
             }
         }
     }

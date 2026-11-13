@@ -25,6 +25,8 @@ data class NodesScreenModel(
     val onSwitchPrimary: (memberId: String) -> Unit,
     /** The cluster mesh; null when the cluster is not configured. */
     val mesh: MeshMatrixModel?,
+    /** The row that the Inspector shows, so the list can mark it. */
+    val selected: Location? = null,
     override val inspector: InspectorModel? = null,
     override val empty: EmptyStateModel? = null,
 ) : ScreenModel

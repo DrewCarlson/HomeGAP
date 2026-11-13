@@ -41,7 +41,7 @@ fun NodeLocationDialog(model: NodeLocationModel, viewport: Viewport) {
                     matches = model.matches,
                     onQuery = model.onQuery,
                     onPick = model.onChoose,
-                    placeholder = "Search a city, or tap the map",
+                    placeholder = "Search a city, or pick a point on the map",
                 )
                 WorldMap(
                     model = MapModel(),

@@ -131,6 +131,7 @@ class ActivityScreenPresenter(
                     }
                 }
             },
+            selected = selected?.let { Location(Route.Activity, it.seq.toString()) },
             inspector = selected?.let { entry ->
                 inspector(
                     entry = entry,

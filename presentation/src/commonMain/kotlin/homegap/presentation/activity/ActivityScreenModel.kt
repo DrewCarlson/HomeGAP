@@ -29,6 +29,8 @@ data class ActivityScreenModel(
     val onDomain: (String?) -> Unit,
     val onQuery: (String) -> Unit,
     val onLoadOlder: () -> Unit,
+    /** The row that the Inspector shows, so the list can mark it. */
+    val selected: Location? = null,
     override val inspector: InspectorModel? = null,
     override val empty: EmptyStateModel? = null,
 ) : ScreenModel

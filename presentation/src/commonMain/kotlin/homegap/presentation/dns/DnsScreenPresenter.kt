@@ -71,6 +71,7 @@ class DnsScreenPresenter(
                     )
                 }
                 .orEmpty(),
+            selected = selected?.let { Location(Route.Dns, props.selection) },
             inspector = selected?.let {
                 inspector(
                     records = it,
@@ -144,7 +145,7 @@ class DnsScreenPresenter(
                                 health = record.health(),
                                 name = "${record.nodeId ?: "—"} · ${record.value}",
                                 detail = listOfNotNull(
-                                    record.geo?.let { "geo $it" },
+                                    record.geo,
                                     if (record.monitor == "none") null else "monitor ${record.monitorStatus}",
                                     if (record.inSync) null else (record.diff ?: "differs"),
                                 ).joinToString(" · "),

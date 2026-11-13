@@ -8,7 +8,9 @@ import homegap.presentation.ui.Severity
 import homegap.presentation.ui.StatusLineModel
 import homegap.presentation.ui.StatusMessage
 import homegap.web.routing.HashRouter
+import kotlinx.browser.document
 import org.jetbrains.compose.web.dom.*
+import org.w3c.dom.HTMLElement
 
 /** The top of a screen: caption, headline and at most one status line. */
 @Composable
@@ -63,7 +65,14 @@ fun StatusLine(
             className = "status-first",
         )
         if (line.more > 0) {
-            Details({ classes("status-more") }) {
+            Details({
+                classes("status-more")
+                onKeyDown { event ->
+                    if (event.key == "Escape") {
+                        (event.nativeEvent.currentTarget as? HTMLElement)?.removeAttribute("open")
+                    }
+                }
+            }) {
                 Summary({
                     attr("aria-label", "Show all ${line.messages.size} messages")
                 }) {
@@ -77,7 +86,14 @@ fun StatusLine(
                     attr("role", "dialog")
                     attr("aria-label", "All status messages")
                 }) {
-                    Div({ classes("caption") }) { Text("Status · ${line.messages.size} messages") }
+                    Div({ classes("status-box-head") }) {
+                        Div({ classes("caption") }) { Text("Status · ${line.messages.size} messages") }
+                        IconButton(
+                            iconPath = Icons.CLOSE,
+                            label = "Close the status messages",
+                            onClick = { document.querySelector(".status-more[open]")?.removeAttribute("open") },
+                        )
+                    }
                     Ul({ classes("status-list") }) {
                         line.messages.forEach { message ->
                             Li {

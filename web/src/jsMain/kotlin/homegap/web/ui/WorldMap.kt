@@ -21,6 +21,8 @@ private val mapModule: Promise<dynamic> by lazy {
     js("import(url)").unsafeCast<Promise<dynamic>>()
 }
 
+private const val FAILED_HEIGHT = 72
+
 /**
  * The self-hosted map. [onMarkerClick] makes markers clickable; [onPick] turns clicks on the map
  * into picked coordinates (latitude, longitude), shown at [pick].
@@ -40,7 +42,8 @@ fun WorldMap(
     val pickClick by rememberUpdatedState(onPick)
     Div({
         classes("map-box")
-        style { height(heightPx.px) }
+        // A map that failed keeps a short box for its message, not the height of the map.
+        style { height(if (failed == null) heightPx.px else FAILED_HEIGHT.px) }
     }) {
         DisposableEffect(Unit) {
             val element = scopeElement as HTMLElement

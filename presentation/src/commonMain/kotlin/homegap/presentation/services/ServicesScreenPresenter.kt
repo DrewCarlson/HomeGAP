@@ -59,6 +59,7 @@ class ServicesScreenPresenter(
             rows = rows,
             onQuery = { query = it },
             onProblemsOnly = { problemsOnly = it },
+            selected = selected?.let { Location(Route.Services, it.hostname) },
             inspector = selected?.let { service ->
                 serviceInspector(
                     service = service,

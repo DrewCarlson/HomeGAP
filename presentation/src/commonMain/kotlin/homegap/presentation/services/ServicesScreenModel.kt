@@ -21,6 +21,8 @@ data class ServicesScreenModel(
     val rows: List<ServiceRowModel>,
     val onQuery: (String) -> Unit,
     val onProblemsOnly: (Boolean) -> Unit,
+    /** The row that the Inspector shows, so the list can mark it. */
+    val selected: Location? = null,
     override val inspector: InspectorModel? = null,
     override val empty: EmptyStateModel? = null,
 ) : ScreenModel

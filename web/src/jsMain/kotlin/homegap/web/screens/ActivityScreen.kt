@@ -85,6 +85,7 @@ fun ActivityScreen(
                 key(entry.seq) {
                     LogRow(
                         entry = entry,
+                        selected = entry.location == model.selected,
                         onOpen = onOpen,
                     )
                 }
@@ -103,12 +104,12 @@ fun ActivityScreen(
 }
 
 @Composable
-private fun LogRow(entry: LogRowModel, onOpen: (Location) -> Unit) {
+private fun LogRow(entry: LogRowModel, selected: Boolean, onOpen: (Location) -> Unit) {
     Li {
         NavLink(
             href = HashRouter.href(entry.location),
             onNavigate = { onOpen(entry.location) },
-            classNames = listOf("log-entry"),
+            classNames = listOfNotNull("log-entry", "selected".takeIf { selected }),
         ) {
             Span({
                 classes("mono", "log-time")

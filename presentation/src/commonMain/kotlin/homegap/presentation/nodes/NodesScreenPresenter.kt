@@ -89,6 +89,7 @@ class NodesScreenPresenter(
                     onMode = onMeshMode,
                 )
             },
+            selected = selected?.let { Location(Route.Nodes, it.id) },
             inspector = selected?.let { node ->
                 nodeInspector(
                     node = node,

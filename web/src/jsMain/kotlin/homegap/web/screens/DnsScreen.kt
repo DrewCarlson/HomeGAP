@@ -34,7 +34,12 @@ fun DnsScreen(
     ) {
         model.sets.forEach { set ->
             key("${set.name} ${set.type}") {
-                Div({ classes("record-set") }) {
+                Div({
+                    classes("record-set")
+                    if (set.location == model.selected) {
+                        classes("selected")
+                    }
+                }) {
                     NavLink(
                         href = HashRouter.href(set.location),
                         onNavigate = { onOpen(set.location) },

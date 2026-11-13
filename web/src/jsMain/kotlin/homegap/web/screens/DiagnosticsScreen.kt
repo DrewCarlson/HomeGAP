@@ -137,7 +137,7 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
     // The certificate facts come last, so a result shows right under the button that asked for it.
     if (model.certificate.isNotEmpty()) {
         Figure(caption = "Certificate · ${model.node.orEmpty()} · no file content") {
-            Dl({ classes("fact-list") }) {
+            Dl({ classes("fact-list", "names") }) {
                 model.certificate.forEach { fact ->
                     Div {
                         Dt({ classes("mono") }) { Text(fact.label) }

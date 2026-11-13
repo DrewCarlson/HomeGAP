@@ -14,6 +14,8 @@ import homegap.presentation.ui.PageHeadModel
 data class TunnelsScreenModel(
     override val head: PageHeadModel,
     val tunnels: List<TunnelCardModel>,
+    /** The row that the Inspector shows, so the list can mark it. */
+    val selected: Location? = null,
     override val inspector: InspectorModel? = null,
     override val empty: EmptyStateModel? = null,
 ) : ScreenModel

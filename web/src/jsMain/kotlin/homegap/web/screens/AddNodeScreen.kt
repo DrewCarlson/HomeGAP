@@ -37,7 +37,6 @@ fun AddNodeWizard(
     ) {
         Div({ classes("overlay-panel", "wizard") }) {
             Aside({ classes("wizard-aside") }) {
-                Div({ classes("caption") }) { Text("Nodes ›") }
                 H2({ id("add-node-title") }) { Text("Add a node") }
                 P({ classes("muted") }) { Text("Sets up a new server as an edge node. Nothing changes until you run it.") }
                 Stepper(model)
@@ -120,9 +119,11 @@ private fun AddNodeContent(model: AddNodeScreenModel) {
             }
         }
         model.nextLabel?.let { nextLabel ->
+            // On the login step the test is the next thing to do, so Continue is quiet until it passed.
+            val untested = model.step == WizardStep.Login && model.connection?.ok != true
             ActionButton(
                 text = nextLabel,
-                style = ButtonStyle.Primary
+                style = if (untested) ButtonStyle.Default else ButtonStyle.Primary,
             ) {
                 send(WizardEvent.Next)
             }
@@ -257,7 +258,7 @@ private fun LoginStep(model: AddNodeScreenModel) {
         Div({ classes("inline-row") }) {
             ActionButton(
                 text = if (model.testing) "Testing…" else "Test connection",
-                style = ButtonStyle.Primary,
+                style = if (model.connection?.ok == true) ButtonStyle.Default else ButtonStyle.Primary,
                 enabled = !model.testing
             ) {
                 send(WizardEvent.TestConnection)

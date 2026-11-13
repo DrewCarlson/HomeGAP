@@ -29,7 +29,7 @@ fun TunnelsScreen(
                     NavLink(
                         href = HashRouter.href(tunnel.location),
                         onNavigate = { onOpen(tunnel.location) },
-                        classNames = listOf("edge-card"),
+                        classNames = listOfNotNull("edge-card", "selected".takeIf { tunnel.location == model.selected }),
                     ) {
                         Div({ classes("edge-card-head") }) {
                             B { Text(tunnel.nodeId) }

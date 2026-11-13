@@ -200,8 +200,14 @@ private fun CertificatePanel(panel: CertificatePanelModel, onOpen: (Location) ->
                 attr("aria-hidden", "true")
             }) {
                 Span({ classes("lifetime-issued") }) { Text("issued"); Br(); B { Text(life.issued) } }
-                Span({ classes("lifetime-now") }) { Text("today"); Br(); B { Text(life.left) } }
-                Span({ classes("lifetime-renews") }) { Text("renews"); Br(); B { Text(life.renews) } }
+                // The labels stand in the order of their marks, side by side, so they never overprint.
+                if (life.todayPercent <= life.renewPercent) {
+                    Span({ classes("lifetime-now") }) { Text("today"); Br(); B { Text(life.left) } }
+                    Span({ classes("lifetime-renews") }) { Text("renews"); Br(); B { Text(life.renews) } }
+                } else {
+                    Span({ classes("lifetime-renews") }) { Text("renews"); Br(); B { Text(life.renews) } }
+                    Span({ classes("lifetime-now") }) { Text("today"); Br(); B { Text(life.left) } }
+                }
                 Span({ classes("lifetime-expires") }) { Text("expires"); Br(); B { Text(life.expires) } }
             }
         }

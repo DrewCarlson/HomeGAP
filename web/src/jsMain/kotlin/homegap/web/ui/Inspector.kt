@@ -1,14 +1,20 @@
 package homegap.web.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import homegap.api.Health
 import homegap.presentation.data.Toast
 import homegap.presentation.routing.Location
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.InspectorSection
 import homegap.presentation.ui.MarkRow
+import kotlinx.browser.document
 import kotlinx.browser.window
 import org.jetbrains.compose.web.dom.*
+import org.w3c.dom.HTMLElement
+import org.w3c.dom.events.Event
 
 /**
  * The selected item. On wide desktops it is a column beside the page; on narrower ones and
@@ -28,6 +34,7 @@ fun InspectorHost(
             classes("inspector", "inspector-column")
             attr("aria-label", "Inspector")
         }) {
+            CloseOnEscape(onClose)
             InspectorContent(
                 inspector = inspector,
                 toasts = emptyList(),
@@ -55,6 +62,27 @@ fun InspectorHost(
                 )
             }
         }
+    }
+}
+
+/**
+ * Closes the Inspector column on Escape. A dialog, a menu and a field that is being edited take
+ * the key first.
+ */
+@Composable
+private fun CloseOnEscape(onClose: () -> Unit) {
+    val close by rememberUpdatedState(onClose)
+    DisposableEffect(Unit) {
+        val onKey: (Event) -> Unit = { event ->
+            val target = event.target as? HTMLElement
+            val busy = document.querySelector("dialog[open], [popover]:popover-open, details[open]") != null ||
+                target?.closest("input, textarea, select, [contenteditable]") != null
+            if (event.asDynamic().key == "Escape" && !event.defaultPrevented && !busy) {
+                close()
+            }
+        }
+        document.addEventListener("keydown", onKey)
+        onDispose { document.removeEventListener("keydown", onKey) }
     }
 }
 

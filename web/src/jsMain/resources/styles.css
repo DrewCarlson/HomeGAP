@@ -483,14 +483,13 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .lifetime.tone-down .lifetime-bar { background: linear-gradient(90deg, var(--rose) 0, var(--rose) var(--renew), var(--rule-strong) var(--renew)); }
 .lifetime-today { position: absolute; top: -6px; left: var(--today); width: 2px; height: 20px; margin-left: -1px; background: #FFFFFF; }
 .lifetime-renew { position: absolute; top: -3px; left: var(--renew); width: 14px; height: 14px; margin-left: -7px; border: 2px solid var(--ground); border-radius: 50%; background: var(--violet); box-sizing: border-box; }
-.lifetime-marks { position: relative; height: 40px; margin-top: 8px; font-size: 11px; color: var(--ink-dim); }
+.lifetime-marks { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin-top: 12px; font-size: 11px; color: var(--ink-dim); }
 .lifetime-marks b { font-weight: 500; color: var(--ink); }
-.lifetime-marks > span { position: absolute; white-space: nowrap; }
-.lifetime-issued { left: 0; }
-.lifetime-now { left: var(--today); transform: translateX(-50%); text-align: center; }
-.lifetime-renews { left: var(--renew); transform: translateX(-50%); text-align: center; color: var(--violet); }
+.lifetime-marks > span { white-space: nowrap; }
+.lifetime-now { text-align: center; }
+.lifetime-renews { text-align: center; color: var(--violet); }
 .lifetime-renews b { color: var(--violet); }
-.lifetime-expires { right: 0; text-align: right; }
+.lifetime-expires { text-align: right; }
 .cert-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--rule); }
 .cert-facts > div { padding: 10px 16px; border-right: 1px solid var(--rule); min-width: 0; }
 .cert-facts > div:last-child { border-right: 0; }
@@ -531,6 +530,10 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .cert-caa li > span:last-child { flex: none; }
 .cert-warning { margin: 0 0 10px; padding: 8px 10px; border: 1px solid #5C4A1E; border-radius: var(--radius); background: #1C1810; color: var(--amber); font-size: 12.5px; line-height: 1.5; }
 table.data tr.selected td { background: #1A1650; }
+/* The row that the Inspector shows. */
+.fleet-row.selected td, .matrix-row.selected td, .matrix-row.selected td.matrix-host { background: #1A1650; }
+.record-set.selected, .log-entry.selected { background: #1A1650; }
+.edge-card.selected { border-color: var(--violet); }
 @media (max-width: 1199px) {
   .cert-lower { grid-template-columns: 1fr; }
 }
@@ -573,7 +576,7 @@ table.data tr.selected td { background: #1A1650; }
 .search-field-text { flex: 1; }
 kbd { font: 10.5px var(--mono); padding: 2px 5px; border: 1px solid var(--rule-strong); border-radius: 3px; color: var(--ink-dim); }
 .overlay-modal:has(.search) { width: min(680px, calc(100vw - 24px)); margin-top: 11vh; }
-.search { display: flex; flex-direction: column; max-height: 76vh; padding: 0; overflow: hidden; }
+.search, .overlay-modal .overlay-panel.search { display: flex; flex-direction: column; max-height: 76vh; padding: 0; overflow: hidden; }
 .overlay-full .search { max-height: none; }
 .search-input { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--rule); color: var(--ink-dim); }
 .search-input input { flex: 1; min-width: 0; height: 36px; border: 0; background: transparent; font: 18px var(--sans); color: var(--ink); outline: none; padding: 0; }
@@ -599,11 +602,13 @@ kbd { font: 10.5px var(--mono); padding: 2px 5px; border: 1px solid var(--rule-s
 .search-hit-kind { font: 11px var(--mono); color: var(--ink-faint); }
 .search-none { padding: 18px 16px; color: var(--ink-dim); }
 .search-keys { display: flex; justify-content: space-between; padding: 8px 16px; border-top: 1px solid var(--rule); font: 11px var(--mono); color: var(--ink-faint); }
+/* No keyboard, so no key hints: only the count stays. */
+@media (hover: none) { .search-keys { font-size: 0; justify-content: flex-end; } .search-keys span { font-size: 11px; } }
 
 /* ---------------------------------------------------------------- page head and status line */
 .status-line { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 2px; min-width: 0; }
 .status-first {
-  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 0 1 auto; min-width: 0; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   font-size: 28px; font-weight: 500; letter-spacing: -.03em; line-height: 1.2;
 }
 a.status-first:hover, a.status-item:hover { text-decoration: underline; text-underline-offset: 4px; }
@@ -620,6 +625,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   padding: 14px 16px; border: 1px solid var(--rule-strong); border-radius: 10px; background: var(--panel-raised);
   box-shadow: var(--shadow-lg);
 }
+.status-box-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .status-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .status-list li { padding: 9px 0; border-top: 1px solid var(--rule); font-size: 14px; }
 .status-item { display: block; }
@@ -794,6 +800,9 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .fact-list { display: grid; gap: 0; margin: 0; }
 .fact-list > div { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
 .fact-list dt { color: var(--ink-dim); font-size: 12.5px; }
+/* Labels that are host names get room, and break at a dot before they break in a word. */
+.fact-list.names > div { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+.fact-list.names dt { overflow-wrap: anywhere; }
 .fact-list dd { margin: 0; font-size: 13px; word-break: break-word; }
 .marks { list-style: none; margin: 0; padding: 0; }
 .mark-row { display: flex; align-items: baseline; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); font-size: 13px; }
@@ -999,6 +1008,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 .form-body { flex: 1; overflow-y: auto; padding: 16px 20px; display: grid; gap: 14px; align-content: start; }
 .form-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; padding: 12px 20px; border-top: 1px solid var(--rule); }
 .form-actions .btn { height: 44px; }
+.form-actions .btn:only-child { grid-column: 1 / -1; }
 .overlay-drawer:has(.form-panel) { width: min(460px, 100vw); }
 
 /* ---------------------------------------------------------------- speed test */
@@ -1052,7 +1062,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .path { grid-template-columns: 1fr; gap: 12px; }
   .path-row { grid-template-columns: 60px minmax(140px, 200px) minmax(0, 1fr); }
   .system-grid { grid-template-columns: 1fr; }
-  .status-first { font-size: 22px; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .status-first { font-size: 22px; }
   .status-more > summary { height: 40px; }
   .status-more[open] > summary::after { content: ""; position: fixed; inset: 0; z-index: calc(var(--z-status) - 1); background: rgba(4, 6, 20, .72); }
   .status-box { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - 24px)); }
