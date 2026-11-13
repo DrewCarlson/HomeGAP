@@ -92,8 +92,11 @@ services:
       homegap-cluster: {}
     # Speed tests and the status page (speedtest.enabled, status_page.enabled): route their names
     # here on port 8089.
+    # The orchestrator is on three networks: name the one that Traefik shares with it, or Traefik
+    # can choose a different one and answer 504.
     # labels:
     #   traefik.enable: "true"
+    #   traefik.docker.network: traefik
     #   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.example\\.net$`)"
     #   traefik.http.routers.homegap-speedtest.entrypoints: websecure
     #   traefik.http.routers.homegap-speedtest.tls: "true"

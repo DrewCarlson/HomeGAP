@@ -63,11 +63,14 @@ The status page uses the listener of the speed test, `speedtest.bind`. Thus rout
 ```yaml
 labels:
   traefik.enable: "true"
+  traefik.docker.network: traefik
   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.example\\.net$`)"
   traefik.http.routers.homegap-speedtest.entrypoints: websecure
   traefik.http.routers.homegap-speedtest.tls: "true"
   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
 ```
+
+The orchestrator is on more than one Docker network. `traefik.docker.network` tells Traefik which network to use. Without it, Traefik can choose a network that it is not on, and each request ends with a 504 after 30 seconds. Use the full name of your Traefik network, as `docker network ls` shows it.
 
 To put the homelab on the map, set its location on the **Locations** page. See [Maps and locations](maps.md).
 

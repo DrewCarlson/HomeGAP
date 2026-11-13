@@ -23,11 +23,14 @@ The front door already forwards `speedtest-<node>.<domain>` from the nodes. A no
 ```yaml
 labels:
   traefik.enable: "true"
+  traefik.docker.network: traefik
   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"
   traefik.http.routers.homegap-speedtest.entrypoints: websecure
   traefik.http.routers.homegap-speedtest.tls: "true"
   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
 ```
+
+The orchestrator is on more than one Docker network. `traefik.docker.network` tells Traefik which network to use. Without it, Traefik can choose a network that it is not on, and each request ends with a 504 after 30 seconds. Use the full name of your Traefik network, as `docker network ls` shows it.
 
 If you also enable the status page, use one rule for both. See [Status page](status-page.md#routing).
 
