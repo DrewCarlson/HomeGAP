@@ -56,26 +56,37 @@ Once a second, each node opens a TCP connection to the etcd port of every other 
 - From the host, like etcd, Patroni and replication. A small `probe` container in the cluster member of the node does this on the host network. The node keeps the readings in `/run/homegap-probe`, so a reboot clears them.
 - From inside the Docker network, through the checks of HAProxy. This is the path of the database and Valkey traffic of Pangolin, across the `homegap-cluster` bridge and its NAT.
 
-The homelab does not send probes, but every node sends probes to it.
+Every node sends probes to the homelab. The homelab has no probe container. In each pass, the orchestrator sends one request to the Patroni of each node over the mesh. Thus the homelab row has a host probe with fewer samples, and no container probe.
 
 ## The Cluster mesh panel
 
-The **Nodes** page has a **Cluster mesh** panel. For each node and peer, it shows **Host probe (last hour)** and **Container probe (last hour)**. Each probe column shows:
+The **Nodes** page has a **Cluster mesh** panel. It is a matrix: each row is a member, and each column is a peer of that member. The caption shows how many links are up. Three buttons select what the cells show: **Host probe**, **Container probe** or **Handshake**.
+
+With **Host probe** or **Container probe**, a cell shows:
 
 - The latest round trip.
 - The part of the probes lost in the last hour.
-- Each outage, with its start and its duration. An outage is three or more lost probes in a row.
+- The number of outages in the last hour. An outage is three or more lost probes in a row. The tooltip of the cell gives the start and the duration of each outage.
 
-A degraded pill means some loss or an outage in the last hour. A red pill means that the peer does not answer now. If only the container column shows a problem, the link is good. The problem is then in the Docker network of that node.
+The color of a cell tells the state:
 
-The **Last handshake with** column shows a pill for each peer, with the peer and the time since the last WireGuard handshake. The color and the description of the pill tell the state:
+| Color | Meaning |
+| --- | --- |
+| Cyan | No outage in the last hour, and less than 0.5 % of the probes lost. |
+| Amber | An outage in the last hour that is over, or 0.5 % or more of the probes lost. |
+| Rose | The peer does not answer now, or 5 % or more of the probes lost. |
 
-| Pill | Description | Meaning |
+If only the container probe shows a problem, the link is good. The problem is then in the Docker network of that node.
+
+With **Handshake**, a cell shows the time since the last WireGuard handshake with the peer. The color and the tooltip of the cell tell the state:
+
+| Cell | Tooltip | Meaning |
 | --- | --- | --- |
-| Green | None. | The last handshake is 3 minutes old or less. |
-| Yellow | "No recent handshake" | The last handshake is 3 to 10 minutes old. |
-| Red | "No handshake for over 10 minutes" | The last handshake is more than 10 minutes old. |
-| Red, `never` | "No handshake yet" | The member has never had a handshake with the peer. |
-| Red, `not configured` | "Not in this member's peer list yet" | The member does not have this peer in its configuration yet. |
+| Cyan | None. | The last handshake is 3 minutes old or less. |
+| Amber | "No recent handshake" | The last handshake is 3 to 10 minutes old. |
+| Rose | "No handshake for over 10 minutes" | The last handshake is more than 10 minutes old. |
+| Rose, `never` | "No handshake yet" | The member has never had a handshake with the peer. |
+| Rose, `not configured` | "Not in this member's peer list yet" | The member does not have this peer in its configuration yet. |
+| Dim | "This member could not be read" | HomeGAP cannot read the state of the member. |
 
-<img src="../img/cluster/01-mesh-panel.png" alt="The Cluster mesh panel on the Nodes page with the probe columns">
+<img src="../img/cluster/01-mesh-panel.png" alt="The Cluster mesh panel on the Nodes page with the probe matrix">

@@ -44,7 +44,7 @@ A connected app reaches these services:
 
 The Pangolin app has the setting **DNS over tunnel**. With this setting, the app sends its DNS queries through the tunnel to its upstream DNS server. The default upstream server of the app is `8.8.8.8`. The app can send queries only to a server that is a Pangolin resource. Without such a resource, the app resolves only the names of your private services, and other sites do not open.
 
-HomeGAP makes each server in `cluster.tunnel_dns.resolvers` a private resource, `hg-dns-<address>`, on port 53 (TCP and UDP). The default is `8.8.8.8`, the default of the app, so the app needs no change. The roles in `cluster.tunnel_dns.roles` can use it.
+HomeGAP makes each server in `cluster.tunnel_dns.resolvers` a private resource on port 53 (TCP and UDP). Its identifier is `hg-dns-<address>`, with `-` in the place of each dot or colon, for example `hg-dns-8-8-8-8`. The default is `8.8.8.8`, the default of the app, so the app needs no change. The roles in `cluster.tunnel_dns.roles` can use it.
 
 - If `cluster.exit_nodes.nodes` is enabled, the resource is on the exit site of each node. The queries leave from the node that the device uses, the nearest node. Thus geo-steered names resolve to locations near the device.
 - If not, the resource is on the homelab site of each node. The queries leave from your homelab.

@@ -6,7 +6,8 @@ The `e2e/` folder has a self-contained end-to-end harness. This page tells you w
 
 The harness has these parts:
 
-- A fake Ubuntu VPS, with sshd and its own Docker daemon.
+- Two fake Ubuntu VPS nodes (`node-na1` and `node-as1`), each with sshd and its own Docker daemon.
+- A fresh server (`node-fr1`) for the add-node wizard. It is not in the config.
 - A simulated homelab, with Traefik, whoami and socat.
 - The orchestrator and the tunnel supervisor.
 - A stand-in for the Bunny API.
@@ -26,7 +27,7 @@ The harness has these parts:
     e2e/verify.sh
     ```
 
-To test EE features, put the keys, for example `PANGOLIN_LICENSE_KEY`, in an untracked `.env` file at the root of the repository. `e2e/run.sh` exports it.
+To test EE features, put `PANGOLIN_LICENSE_KEY` in an untracked `.env` file at the root of the repository. `e2e/run.sh` exports it.
 
 The dashboard of the harness is at `http://127.0.0.1:18088`.
 
@@ -41,14 +42,19 @@ The dashboard of the harness is at `http://127.0.0.1:18088`.
 - Passthrough of the wildcard.
 - The management API, which the node serves itself.
 - In cluster mode, the client address: the login page and the API on this node.
+- The shared names of the status page and the speed test, which this node answers itself.
 - The health endpoint on port 80, which Bunny probes.
 - The redirect from HTTP to HTTPS.
 - A dedicated passthrough service, with the certificate of the origin.
 - A dedicated terminate service, with the certificate that HomeGAP orders for the nodes.
 - Raw TCP on the public port 19000.
-- The certificate on the node has no wildcard and no passthrough name. The ACME store of the node is empty.
+- A port list on TCP (7881 and 3478) and on UDP (3478), and a named service on 17000/udp.
+- Two UDP callers at the same time on port 7882.
+- The certificate on the node has the terminate name, no wildcard and no passthrough name. The ACME store of the node is empty.
 
-The script also checks that the zone has the two CAA records.
+The script also checks that the zone has the two CAA records, and it prints the number of challenge records that stay in the zone.
+
+Most checks print the result next to the value to expect. Compare them. The script stops with an error only for the names on the certificate and for the CAA records.
 
 ## The certificate of the nodes
 
@@ -89,4 +95,4 @@ COMPOSE_PROJECT_NAME=homegap-e2e-vote e2e/verify-cluster.sh
 Two harnesses cannot run at the same time, because they use the same addresses and ports. Before you start the second harness, run `docker compose down` in `e2e/` for the first one.
 
 !!! note
-    If you recreate a node container of the harness, recreate the `gerbil`, `traefik` and `maintenance` containers in it. Also recreate the connector in `/opt/homegap/exit`. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.
+    If you recreate a node container of the harness, recreate the `gerbil`, `traefik` and `maintenance` services in it. Also recreate the connector in `/opt/homegap/exit`. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.

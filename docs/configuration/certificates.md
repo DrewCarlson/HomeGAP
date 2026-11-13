@@ -18,7 +18,7 @@ For this reason, HomeGAP gives a node no certificate for a passthrough name.
 | A service with `homegap.tls: terminate`. | Yes. |
 | A service with `homegap.tls: passthrough`. | No. |
 | The front door with `passthrough`, with or without `homegap.wildcard`. | No. |
-| The front door with `terminate`. | Yes: the root name, and `*.<domain>` if the front door has `homegap.wildcard`. |
+| The front door with `terminate`. | Yes: the root name, and the names of the status page and the speed test for each node. With `homegap.wildcard`, `*.<domain>` is on the certificate, and it replaces each name one label under the domain. |
 
 The activity log shows each order, with the number of names. An order can take some minutes, because it waits for DNS. The reconcile pass does not wait for the order. When the order is complete, the next pass gives the new certificate to the nodes.
 
@@ -53,7 +53,7 @@ HomeGAP orders a new certificate, with a new key, in these cases:
 - One third of the lifetime of the certificate remains.
 - The ACME directory in the config changes.
 
-If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes have its key. This occurs when you remove a node, or when you change a service from `terminate` to `passthrough`.
+If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes have its key. This occurs when you remove a node, or when you change a service from `terminate` to `passthrough`. HomeGAP revokes the old certificate only after the new order succeeds. It does not revoke the old certificate if `acme.directory` changed in the same order.
 
 A new certificate does not restart the stack of a node. Traefik loads it in a few seconds.
 

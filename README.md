@@ -111,8 +111,8 @@ explains each step.
 
 ## A quick look
 
-Label your homelab Traefik as the front door. Every name that it serves under the domain is then
-published through the nodes, with no more labels:
+Label your homelab Traefik as the front door. The root and every name one label under the domain
+that it serves are then published through the nodes, with no more labels:
 
 ```yaml
 traefik:
@@ -177,7 +177,7 @@ a public issue.
 ## Contributing
 
 Issues and pull requests are welcome. Before you open a pull request, make sure that the unit
-tests pass (`./gradlew macosArm64Test`). For changes to provisioning, routing or DNS, the
+tests pass (`./gradlew macosArm64Test :presentation:jsNodeTest`). For changes to provisioning, routing or DNS, the
 [end-to-end tests](https://drewcarlson.github.io/HomeGAP/latest/development/e2e/) must also pass.
 [Build from source](https://drewcarlson.github.io/HomeGAP/latest/development/building/) tells you
 how to build and test HomeGAP.

@@ -78,7 +78,7 @@ dns <type> <fqdn> -> <value> [<node>] <purpose> [geo] monitor=<monitor>
 homegap render-node ID [--config PATH]
 ```
 
-Prints the stack files that HomeGAP writes to a node, with the secrets redacted. The last file is the dynamic routes file.
+Prints the stack files that HomeGAP writes to a node, with the secrets redacted. The last file is the dynamic routes file. The command reads only the config file, so the output has no services from labels. In cluster mode, the output does not show the cluster settings of the stack.
 
 ## maintenance
 
@@ -86,7 +86,7 @@ Prints the stack files that HomeGAP writes to a node, with the secrets redacted.
 homegap maintenance start [--minutes N] | end
 ```
 
-Asks the orchestrator in the same container to move the cluster primaries off the homelab. The orchestrator holds them there for up to N minutes (default 30). `end` ends the hold. The command uses the dashboard API, with the dashboard token if you set one. See [Cluster database](../cluster/database.md#maintenance-of-the-homelab-member).
+Asks the orchestrator in the same container to move the cluster primaries off the homelab. The orchestrator holds them there for up to N minutes (default 30, from 5 to 240). `end` ends the hold. The command uses the dashboard API, with your dashboard token or the token that HomeGAP created. See [Cluster database](../cluster/database.md#maintenance-of-the-homelab-member).
 
 ## version and help
 

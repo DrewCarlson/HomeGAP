@@ -27,7 +27,7 @@ Put these files in one folder:
 | `orchestrator` | The image `ghcr.io/drewcarlson/homegap:latest` with the command `run`. It drops all capabilities except `NET_ADMIN` and `DAC_OVERRIDE`. |
 | `docker-proxy` | A filter in front of the Docker socket. The orchestrator reads the container list, the events and the image data through it. |
 | `homegap-etcd`, `homegap-db`, `homegap-valkey`, `homegap-sentinel` | The cluster member of the homelab. HomeGAP uses them only with `cluster:`. |
-| `tunnels` | The same image with the command `tunnels --dir /tunnels`. It keeps one Newt connector for each node. |
+| `tunnels` | The same image with the command `tunnels`. Its directory is `/tunnels`. It keeps one Newt connector for each node. |
 
 ### `homegap-mesh`
 
@@ -53,7 +53,7 @@ The orchestrator reads these environment variables:
 
 The orchestrator has these volumes:
 
-- `./config/config.yml:/config/config.yml`. This mount must be writable only if you enable config edits on the dashboard.
+- `./config/config.yml:/config/config.yml`. This mount must be writable, unless you set `dashboard.allow_config_edits: false`.
 - `./secrets/ssh:/secrets/ssh:ro`. The SSH keys of the nodes.
 - `homegap-data:/data`. The state cache, `known_hosts`, the generated SSH keys and the dashboard token. No other container mounts this volume.
 - `homegap-cluster-config:/cluster-config`. The config that the orchestrator writes for the cluster containers. They mount it read-only at `/config`.
@@ -99,7 +99,7 @@ For `tunnels.native: true`, the service needs `cap_add: [NET_ADMIN]` and `device
     PANGOLIN_LICENSE_KEY=...
     HOMEGAP_DASHBOARD_TOKEN=...
     ```
-    `PANGOLIN_LICENSE_KEY` is optional. For `HOMEGAP_DASHBOARD_TOKEN`, use a long random string.
+    `PANGOLIN_LICENSE_KEY` is optional. To use it, also set `pangolin.license_key_env: PANGOLIN_LICENSE_KEY` in the config. The example config has this line as a comment. For `HOMEGAP_DASHBOARD_TOKEN`, use a long random string.
 9. Make sure that the config has `dashboard.auth_token_env: HOMEGAP_DASHBOARD_TOKEN`. The example config has it.
 10. If you set no dashboard token, read the token that HomeGAP creates after the first start. See [Dashboard](../operations/dashboard.md#access).
 11. Make the file readable only by you:
@@ -155,7 +155,7 @@ For a first look, publish the dashboard only on the loopback address of the home
     ```bash
     ssh -L 8088:127.0.0.1:8088 <homelab>
     ```
-4. Open `http://localhost:8088` in your browser. If you set a token, the dashboard asks for it.
+4. Open `http://localhost:8088` in your browser. The dashboard asks for the token: your `HOMEGAP_DASHBOARD_TOKEN`, or the token that HomeGAP created.
 
 For the long term, publish the dashboard as a private Pangolin resource. See [Private services](../services/private.md).
 

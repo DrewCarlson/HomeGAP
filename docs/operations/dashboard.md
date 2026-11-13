@@ -7,7 +7,7 @@ The orchestrator serves a dashboard on `dashboard.bind`. This page tells you how
 
 ## Access
 
-A bearer token protects every `/api` route. Set it with `dashboard.auth_token_env` or `dashboard.auth_token_file`. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file `dashboard-token` in its data directory, with mode 0600. To read the token, run this command:
+A bearer token protects the `/api` routes. Two routes have their own check. The terminal WebSocket uses a one-time ticket, which the token gets. The Traefik of the homelab can read `/api/traefik/homelab` from the front door container without the token. Set the token with `dashboard.auth_token_env` or `dashboard.auth_token_file`. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file `dashboard-token` in its data directory, with mode 0600. To read the token, run this command:
 
 ```bash
 docker compose exec orchestrator cat /data/dashboard-token
@@ -19,7 +19,7 @@ To remove the token from the browser, click **Sign out** at the bottom of the me
 
 The dashboard updates live. It uses one server-sent event stream (`/api/events`). After the first snapshot, the stream sends only the parts that change. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens the stream again when you return to the tab.
 
-The orchestrator writes to the stream every 25 seconds or less. If the dashboard gets nothing for 60 seconds, it opens a new stream. The orchestrator keeps 32 streams open at most. A dashboard above that number gets an error until a different one closes.
+The orchestrator writes to the stream approximately every 25 seconds, and after 30 seconds at most. If the dashboard gets nothing for 60 seconds, it opens a new stream. The orchestrator keeps 32 streams open at most. A dashboard above that number gets an error until a different one closes.
 
 If the dashboard cannot reach the orchestrator for more than 5 seconds, a dialog says so. The dialog shows the error and the time to the next try, and it has **Reconnect now**. It closes by itself when the orchestrator answers again. Until then, the page shows the last data from the orchestrator.
 
@@ -69,13 +69,13 @@ Select a node to open it in the Inspector. The Inspector shows its graphs (the P
 
 Each service, with its response time through each edge. Amber is slow (over 1 s). Rose is failing, with the status code. A dash means that the edge does not serve it. The orchestrator measures this on each pass with one request through each edge's proxy.
 
-Filter by text, or show only the problems. Select a service to see how each edge serves it, how it is published and its source labels. Each service has **Open**, **Pause** or **Resume**, and **Logs**.
+Filter by text, or show only the problems. Select a service to see how each edge serves it, how it is published and its source labels. Each service has **Pause** or **Resume**, and **Logs**, which opens the **Diagnostics** page. An `http` or `https` service also has **Open**.
 
 <img src="../img/dashboard/services.png" alt="The Services page with the response time through each edge">
 
 ### DNS
 
-The records that HomeGAP manages, grouped into record sets. The page shows the state of each member, its monitor, and if it matches the desired state. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them. The geo steering strip shows which edges answer now and which are withdrawn, and for how long. The Inspector shows when HomeGAP last changed each record.
+The records that HomeGAP manages, grouped into record sets. The page shows the state of each member, its monitor, and if it matches the desired state. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them. The geo steering strip shows which edges answer now and which are withdrawn, and for how long. The Inspector shows when HomeGAP last changed the record set.
 
 <img src="../img/dashboard/dns.png" alt="The DNS page with the record sets">
 
@@ -152,8 +152,9 @@ The Nodes page shows these checks:
 | --- | --- |
 | `ssh` | If the orchestrator can reach the node over SSH. |
 | `docker` | If Docker is on the node. |
-| One check for each container | `running`, with its Docker health in parentheses. `starting` is degraded, and `unhealthy` is down. |
-| `gerbil-udp` | If Gerbil answers on 51820/udp. |
+| `pangolin`, `gerbil` and `traefik` | One check for each of these containers: `running`, with its Docker health in parentheses. `starting` is degraded, and `unhealthy` is down. |
+| `tls-mgmt` and `tls-root` | The certificate that the node serves for its management host and for the root name, with the days that remain. No certificate is down. Fewer than 14 days is degraded. |
+| `gerbil-udp` | If a process listens on 51820/udp. |
 | `pangolin-api` | The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. The limit is the fastest probe of the node since the start of the orchestrator, plus 300 ms. A probe over the limit is degraded. |
 | `tunnel` | If the homelab site on the node is online, with the Newt version. |
 | `mode` | In dry run, it shows that HomeGAP does no remote access. |
@@ -164,9 +165,10 @@ The Nodes page shows these checks:
 
 The dashboard shows a banner in these cases:
 
+- HomeGAP runs in dry-run mode.
 - Changes are paused. The banner has **Resume**.
 - A node update fails and holds the rollout. See [Node updates and rollback](node-updates.md).
-- Two or more nodes are configured, and none of them answers over SSH. The banner tells you that the homelab lost every node. The log records the start and the end. The nodes continue to serve.
+- Two or more nodes are configured, and none of them answers over SSH. The banner tells you that the homelab lost every node. The log records the start and the end. The nodes continue to serve. After the homelab reaches a node again, a banner tells you how long the loss was. That banner stays for one hour.
 
 ## Documentation
 

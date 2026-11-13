@@ -12,7 +12,7 @@ This page lists every key of the config file, with its type and its default. A k
 | `reconcile` | object | See below. | The reconcile loop. |
 | `bunny` | object | None. Necessary. | Bunny DNS. |
 | `pangolin` | object | See below. | The Pangolin stack on the nodes. |
-| `certificates` | object | See below. | The certificate that HomeGAP sends to the nodes. |
+| `acme` | object | See below. | The certificate that HomeGAP orders and sends to the nodes. |
 | `tunnels` | object | See below. | The Newt tunnels. |
 | `cluster` | object | None. | Cluster mode. Without this key, each node runs an independent Pangolin. |
 | `nodes` | list | `[]` | The nodes. |
@@ -40,7 +40,7 @@ This page lists every key of the config file, with its type and its default. A k
 | `zone` | string | None. Necessary. | The Bunny DNS zone. It is equal to `domain` or a parent of it. |
 | `api_key_env` | string | `BUNNY_API_KEY` | The environment variable with the Bunny API key. |
 | `api_key_file` | string | None. | A file with the Bunny API key. |
-| `ttl` | integer | `60` | The TTL of the records, in seconds. |
+| `ttl` | integer | `60` | The TTL of the A and AAAA records, in seconds. The CAA records always have a TTL of 3600. |
 | `routing` | string | `geolocation` | `geolocation`, `latency` or `none`. |
 | `monitor` | string | `http` | The monitor on each geo record: `http`, `ping` or `none`. |
 | `api_url` | string | `https://api.bunny.net` | The URL of the Bunny API. |
@@ -88,8 +88,8 @@ See [Certificates](certificates.md).
 
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `state_dir` | string | None. | The directory that the orchestrator and the tunnel supervisor share. |
-| `newt_binary` | string | `/usr/local/bin/newt` | The path of the Newt binary. |
+| `state_dir` | string | `HOMEGAP_TUNNELS_DIR`, then `/tunnels`, then `<data_dir>/tunnels`. | The directory where the orchestrator writes the connector specs. Give the tunnel supervisor the same directory with `--dir` or `HOMEGAP_TUNNELS_DIR`. |
+| `newt_binary` | string | `/usr/local/bin/newt` | Not used. The tunnel supervisor takes the path of the Newt binary from `--newt` or `HOMEGAP_NEWT`. |
 | `mtu` | integer | None. | The WireGuard MTU of every Newt connector and every Gerbil, from 1280 to 1500. Without it, the upstream default of 1280 applies. |
 | `native` | boolean | `false` | Runs each Newt tunnel on a kernel WireGuard interface. |
 
@@ -156,10 +156,10 @@ If a node has a `region` but no `location`, HomeGAP uses a rough center of the r
 | `bind` | string | `127.0.0.1:8088` | The listen address of the dashboard, as `host:port`. |
 | `auth_token_env` | string | None. | The environment variable with the bearer token. |
 | `auth_token_file` | string | None. | A file with the bearer token. |
-| `allow_config_edits` | boolean | `true` | Lets the dashboard add and remove nodes. This writes the config file again. |
+| `allow_config_edits` | boolean | `true` | Lets the dashboard add and remove nodes, and set the location of a node and of the homelab. Each of these changes writes the config file again. |
 | `terminal` | boolean | `true` | Lets the dashboard open a shell on a node. See [Terminal](../operations/dashboard.md#terminal). |
 
-Every `/api` route needs the bearer token. If neither key gives a token, HomeGAP creates one in `<data_dir>/dashboard-token`.
+Every `/api` route needs the bearer token, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read `/api/traefik/homelab` without the token. If neither key gives a token, HomeGAP creates one in `<data_dir>/dashboard-token`.
 
 ## speedtest
 
@@ -201,10 +201,10 @@ Every `/api` route needs the bearer token. If neither key gives a token, HomeGAP
 | `HOMEGAP_DRY_RUN` | None. | With `1`, `true` or `yes`, the orchestrator runs in dry run. |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | The path of the Docker socket. |
 | `DOCKER_HOST` | None. | The address of the Docker socket proxy, as `tcp://host:port`. With it, the orchestrator does not use the socket. The shipped compose file sets it. |
-| `HOMEGAP_TUNNELS_DIR` | `/tunnels` | The directory of the connector specs, for the orchestrator and the tunnel supervisor. The default is the mount point of the shipped compose file. |
-| `HOMEGAP_MESH_DIR` | `/mesh` | The directory that the orchestrator and the mesh agent share. The default is the mount point of the shipped compose file. |
+| `HOMEGAP_TUNNELS_DIR` | `/tunnels` | The directory of the connector specs, for the orchestrator and the tunnel supervisor. The default is the mount point of the shipped compose file. If that directory does not exist, HomeGAP uses `<data_dir>/tunnels`. |
+| `HOMEGAP_MESH_DIR` | `/mesh` | The directory that the orchestrator and the mesh agent share. The default is the mount point of the shipped compose file. If that directory does not exist, HomeGAP uses `<data_dir>/mesh`. |
 | `HOMEGAP_MESH_HOST` | `homegap-mesh` | The name of the mesh namespace on the network that it shares with the orchestrator. |
-| `HOMEGAP_CLUSTER_CONFIG_DIR` | `/cluster-config` | The directory where the orchestrator writes the config of the cluster containers of the homelab. The default is the mount point of the shipped compose file. |
+| `HOMEGAP_CLUSTER_CONFIG_DIR` | `/cluster-config` | The directory where the orchestrator writes the config of the cluster containers of the homelab. The default is the mount point of the shipped compose file. If that directory does not exist, HomeGAP uses `<data_dir>/cluster/config`. |
 | `HOMEGAP_NEWT` | `/usr/local/bin/newt` | The path of the Newt binary, for the tunnel supervisor. |
 | `HOMEGAP_DEBUG` | None. | If set, prints stack traces on fatal errors. |
 | `HOMEGAP_DOCS_DIR` | `/usr/share/homegap/docs` | The directory where the dashboard finds these docs. |

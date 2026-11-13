@@ -21,7 +21,7 @@ The release image includes the tiles. Without them, the maps still show the mark
 
 ## The Overview map
 
-The Overview map shows every node and the homelab as markers that pulse in their health color. A marker pulses faster when it is not healthy. Lines go from the homelab to each node, in the color of its tunnel.
+The Overview map shows every node and the homelab as markers that pulse in their health color. A marker pulses faster when it is not healthy. Lines go from the homelab to each node, in the color of its tunnel. The homelab marker and the lines show only after you set the location of the homelab. A node with a region but no location is at the center of its region, marked "(approximate)". A node with neither has no marker.
 
 When you move the pointer over a node, the map shows details of the node. These are its health, its tunnel, its round trip to the homelab, its provider and its failed checks.
 

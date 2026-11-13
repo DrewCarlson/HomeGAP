@@ -4,7 +4,7 @@ This page tells you how to send the first real traffic through HomeGAP, and how 
 
 ## Publish through the front door
 
-The front door claims the root domain and `*.<domain>`. Thus HomeGAP publishes each name that your homelab Traefik serves under the domain, and you add no more labels.
+The front door claims the root domain and `*.<domain>`. Thus HomeGAP publishes the root and each name one label under the domain that your homelab Traefik serves, and you add no more labels.
 
 To publish a service, add a normal Traefik router at home, for example with the rule ``Host(`whoami.example.net`)``.
 

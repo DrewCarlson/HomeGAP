@@ -29,6 +29,9 @@ The orchestrator needs outbound access to these destinations:
 
 - The nodes, over SSH.
 - The Bunny API at `api.bunny.net`. The config key `bunny.api_url` sets the URL (default `https://api.bunny.net`).
-- The container registries.
+- The ACME server of Let's Encrypt, for the certificate of the nodes. The config key `acme.directory` sets the URL.
+- The nameservers of the zone, for DNS queries.
+
+The Docker daemon of the homelab and the nodes need access to the container registries.
 
 The orchestrator needs no inbound access.

@@ -33,4 +33,4 @@ Do these checks on the test domain:
 - Failover works.
 - The change between `passthrough` and `terminate` works.
 
-When all checks pass, set `domain` to your production domain. Then move that domain to Bunny DNS.
+When all checks pass, set `domain` and `bunny.zone` to your production domain and its zone. Then move that domain to Bunny DNS.

@@ -14,7 +14,7 @@ Use the add-node wizard, or add an entry to `nodes[]` in the config. HomeGAP pro
 
 The API call is `POST /api/nodes/{id}/decommission?confirm={id}`.
 
-Until the decommission, you can undo the removal. The dashboard offers **Undo** for one day, and you can add the node to the config again. The node stays in the cluster, so it needs no new join.
+Until the decommission, you can undo the removal. The dashboard offers **Undo** for 30 seconds. After that, you can add the node to the config again. The node stays in the cluster, so it needs no new join.
 
 HomeGAP removes only its own records. In cluster mode, the decommission also does these steps:
 
@@ -63,7 +63,7 @@ The `scope` is `global`, `node` or `service`.
 
 Newt and the Pangolin client must reach the Pangolin API of each node. HomeGAP routes `https://<management_host>/api/v1` on each node. The default of `management_host` is `pangolin-<id>.<domain>`. This name is not part of the wildcard passthrough, and it has its own plain DNS record.
 
-The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. By default, the web UI of Pangolin is not public. To open it, use SSH port forwarding:
+The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. In standalone mode, the web UI of Pangolin is not public by default. In cluster mode, each node serves it at `https://<client_hostname>.<domain>`. To open it on one node, use SSH port forwarding:
 
 1. Open the tunnel:
     ```bash

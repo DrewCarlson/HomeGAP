@@ -10,7 +10,7 @@ The orchestrator finds the file in this order:
 2. The `HOMEGAP_CONFIG` environment variable.
 3. The default path, `/config/config.yml`.
 
-The repository has a complete example in `config/config.example.yml`. For every key, see the [Configuration reference](reference.md).
+The repository has an example with the common keys in `config/config.example.yml`. For every key, see the [Configuration reference](reference.md).
 
 The parser is strict. An unknown key is an error.
 
@@ -33,10 +33,11 @@ The orchestrator reads the file again on each pass. Thus most edits apply withou
 
 These changes need a restart of the orchestrator:
 
-- A change of `speedtest.enabled` or `speedtest.bind`.
-- The first activation of the status page (`status_page.enabled`).
+- The first activation of the speed test (`speedtest.enabled`) or the status page (`status_page.enabled`), if neither was on at the start. The two share one listener, which starts only with the orchestrator.
+- A change of `speedtest.bind`.
 - A change of the dashboard token. The orchestrator reads the token one time, at the start.
 - A change of `dashboard.bind`.
+- A change of `data_dir`.
 
 ## Check the file
 
@@ -50,7 +51,7 @@ To check a different file, add `--config PATH`. If the file is valid, the comman
 
 ## Edits from the dashboard
 
-With `dashboard.allow_config_edits: true` (the default), the dashboard can add and remove nodes. Each such change writes the config file again. The config mount must be writable for this.
+With `dashboard.allow_config_edits: true` (the default), the dashboard can add and remove nodes, and set the location of a node and of the homelab. Each such change writes the config file again. The config mount must be writable for this.
 
 Each change from the dashboard starts from the file on the disk. Thus an edit that you make by hand a moment before stays in the file. If the file has an error, HomeGAP does not write it, and the dashboard shows the error.
 

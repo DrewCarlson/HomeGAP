@@ -48,7 +48,7 @@ This page defines the terms that the HomeGAP docs use.
 : A service under `homegap.services.<name>.` on a container that can also have other services. Its key is `<host slug>--<name>`. See [Named services](../services/labels.md#named-services).
 
 **Newt**
-: The tunnel client of Pangolin. HomeGAP runs it on the homelab as connectors.
+: The tunnel client of Pangolin. HomeGAP runs it on the homelab as connectors. With `cluster.exit_nodes.nodes`, each node also runs one as its exit connector.
 
 **niceId**
 : The fixed id of a Pangolin resource. The ids of the resources that HomeGAP manages start with `hg-`. HomeGAP deletes only stale `hg-*` resources.
@@ -60,7 +60,7 @@ This page defines the terms that the HomeGAP docs use.
 : The Pangolin client in the Pangolin apps.
 
 **Orchestrator**
-: The `homegap run` process on the homelab. It reads the labels and manages the nodes, the tunnels and DNS. It is never in the traffic path.
+: The `homegap run` process on the homelab. It reads the labels and manages the nodes, the tunnels and DNS. It is never in the traffic path of your services. It serves only its own pages: the dashboard and, if enabled, the status page and the speed test.
 
 **Pangolin EE**
 : The Enterprise Edition of Pangolin, by Fossorial. HomeGAP needs it for cluster mode and for wildcard resources in `terminate` mode. See [Pangolin EE licenses](../configuration/licenses.md).

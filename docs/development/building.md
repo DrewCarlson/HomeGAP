@@ -10,7 +10,7 @@ You need JDK 21. The build downloads Gradle, Kotlin/Native and Node (for the das
 
 | Command | What it does |
 | --- | --- |
-| `./gradlew macosArm64Test` | Runs the unit tests on the host target. |
+| `./gradlew macosArm64Test` | Runs the unit tests on an Apple Silicon Mac. The other targets are `linuxX64` and `linuxArm64`. |
 | `./gradlew :presentation:jsNodeTest` | Runs the presenter tests of the dashboard, on Node. |
 | `./gradlew linkReleaseExecutableLinuxX64 linkReleaseExecutableLinuxArm64` | Builds the two Linux binaries. |
 | `./gradlew -Phomegap.skipWeb=true …` | Skips the dashboard bundle, for fast iteration. |
@@ -34,7 +34,7 @@ The Dockerfile builds the map tiles and these docs (`mkdocs.embedded.yml`) itsel
 
 ## CI
 
-`.github/workflows/build.yml` runs on pushes to `main`, on version tags and on pull requests. It runs the unit tests and the presenter tests, then builds the multi-arch image. On pushes to `main` and on version tags, it publishes the image to GHCR. The image tags are:
+`.github/workflows/build.yml` runs on pushes to `main`, on version tags, on pull requests and on a manual start. It runs the unit tests and the presenter tests. Then it builds two multi-arch images: the orchestrator image and the cluster image from `cluster/Dockerfile`. On each run that is not a pull request, it publishes the two images to GHCR and signs them with cosign. The name of the cluster image has the suffix `-cluster`. The image tags are:
 
 | Event | Tags |
 | --- | --- |
@@ -49,23 +49,38 @@ src/nativeMain/kotlin/homegap/
   model/        pure planner: labels + config -> desired state
   reconcile/    controller loop and the node, tunnel, resource and DNS reconcilers
   clients/      Pangolin (integration + bootstrap), Bunny, SSH (OpenSSH ControlMaster)
-  provision/    node stack templates, certificates, YAML emitter
+  provision/    node, cluster and exit stack templates, firewall rules, maintenance page, YAML emitter
+  acme/         the certificate of the nodes: orders, DNS challenge, probes
+  setup/        the add-node wizard: first login, keys, setup scripts
+  mesh/         the mesh agent of the homelab
   state/        local state cache
-  dashboard/    REST API + embedded SPA, and the map's files
+  dashboard/    HTTP server, token check, embedded SPA, and the map and docs files
+  routes/       the REST API routes
+  access/       users and devices of the cluster
+  diagnostics/  node logs and the diagnostics bundle
+  terminal/     shell sessions on the nodes
+  speedtest/    speed tests and the public listener
+  status/       the public status page
   locations/    the locations catalog (shipped list + local edits)
   tunnels/      Newt connector supervisor
+  config/       config file, secrets, shared directories
+  platform/     files, processes, crypto and other native helpers
+  di/           the dependency graphs
 api/            wire types shared by the API and the dashboard
+presentation/   presenters and UI models of the dashboard, tested on Node
 web/            Compose for HTML dashboard, bundled with Vite (kotlin-vite)
-deploy/         homelab compose; reference node stack
+cluster/        the cluster image (PostgreSQL with Patroni, etcd, Valkey, HAProxy)
+deploy/         homelab compose (homelab-compose.yml) and the upgrade script (upgrade.sh)
 blueprints/     example Pangolin base blueprint
 config/         example configuration
 locations/      the shipped data-center catalog (datacenters.yml)
-tools/          build-map.sh: the self-hosted map's tiles
+tools/          build-map.sh: the self-hosted map's tiles; localize-docs-assets.py: local copies of the docs theme files
+docs/           these docs
 e2e/            end-to-end harness
 ```
 
 ## Contributing
 
-Issues and pull requests are welcome. Before you open a pull request, make sure that the unit tests pass (`./gradlew macosArm64Test`). For changes to provisioning, routing or DNS, the end-to-end harness must also pass. See [End-to-end tests](e2e.md).
+Issues and pull requests are welcome. Before you open a pull request, make sure that the unit tests and the presenter tests pass (`./gradlew macosArm64Test :presentation:jsNodeTest`). For changes to provisioning, routing or DNS, the end-to-end harness must also pass. See [End-to-end tests](e2e.md).
 
 For changes to these docs, see [Documentation](documentation.md).

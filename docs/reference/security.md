@@ -8,7 +8,7 @@ The orchestrator holds every SSH key and every API key. Thus:
 
 - Run it on a minimal host.
 - Mount the secrets. Do not put them in the image.
-- Keep the dashboard private. Every `/api` route needs the dashboard token. Set your own token with `dashboard.auth_token_env`. An address that sends more than 20 wrong tokens in one minute gets the answer `429` until that minute ends. For a request that the front door forwards, the address is the address of the viewer, so one viewer cannot lock a different viewer out. The dashboard loads only its own files, and no other page can show it in a frame.
+- Keep the dashboard private. Every `/api` route needs the dashboard token, except the terminal WebSocket (a one-time ticket) and `/api/traefik/homelab`, which the Traefik of the homelab reads from the front door container. Set your own token with `dashboard.auth_token_env`. An address that sends more than 20 wrong tokens in one minute gets the answer `429` until that minute ends. For a request that the front door forwards, the address is the address of the viewer, so one viewer cannot lock a different viewer out. The dashboard loads only its own files, and no other page can show it in a frame.
 
 !!! danger "Warning"
     If somebody gets access to the dashboard or to the orchestrator host, that person has control of every node.
@@ -35,7 +35,7 @@ The dashboard can open a shell on a node. See [Terminal](../operations/dashboard
 
 ## The homelab
 
-The orchestrator has no Docker socket. It reads Docker through the `docker-proxy` service, which accepts only `GET` requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries traffic.
+The orchestrator has no Docker socket. It reads Docker through the `docker-proxy` service, which accepts only `GET` requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries the traffic of your services.
 
 The orchestrator runs with two capabilities: `NET_ADMIN` for its route to the mesh, and `DAC_OVERRIDE` to read the mounted keys and config.
 
@@ -63,7 +63,7 @@ The add-node wizard sends a password only to a host key that you confirmed. Afte
 
 ## Images
 
-The default images of the node stack have a version tag. A node gets a new version only when the default or your config changes. See [Node updates and rollback](../operations/node-updates.md).
+The default images of Pangolin, Gerbil, Traefik and CrowdSec have a version tag. A node gets a new version of them only when the default or your config changes. The default cluster image has the tag `latest`, and the cluster member of a node follows the image of the homelab. See [Node updates and rollback](../operations/node-updates.md).
 
 The release build signs the HomeGAP images. HomeGAP does not check a signature before it uses an image. To check the images yourself, see [Check the image signatures](../operations/upgrade.md#check-the-image-signatures).
 
@@ -101,7 +101,7 @@ Your own Traefik on the homelab is configured by you. Set `global.checkNewVersio
 ## What the public can see
 
 - The public status page shows the id, the region, the state and the location of each node. It also uses the name `status-<node>.<domain>` of each node, which resolves to the public address of that node. It shows the homelab only as its region. See [Status page](../operations/status-page.md#what-the-page-tells-a-visitor).
-- The token of a speed test link for a device is in the fragment of the URL. The browser never sends it to a server, so no log contains it. See [Speed tests](../operations/speed-tests.md).
+- The token of a speed test link for a device is in the fragment of the URL. Thus it is never part of a request URL, and no access log contains it. The test page sends it in a header. See [Speed tests](../operations/speed-tests.md).
 - The nodes end TLS for the shared names `status.<domain>` and `speedtest.<domain>`, which serve only these HomeGAP pages. A node then sends each request back into its own port 443 under its own name, and the front door carries it home still encrypted. On that inner connection the node does not check the certificate, because the connection does not leave the node before it enters the tunnel.
 
 ## Report a security issue

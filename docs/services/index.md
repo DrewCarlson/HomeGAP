@@ -8,7 +8,7 @@ The orchestrator reads the `homegap.*` labels of your containers from Docker. It
 
 ## Most services need no labels
 
-The front door carries every name under your domain. The **front door** is the homelab Traefik container with the root domain in `homegap.expose` and `homegap.wildcard: "true"`. To publish a service through the front door, add a normal Traefik router at home.
+The front door carries the root and every name one label under your domain. The **front door** is the homelab Traefik container with the root domain in `homegap.expose` and `homegap.wildcard: "true"`. To publish a service through the front door, add a normal Traefik router at home.
 
 HomeGAP treats a service as the front door when its `homegap.expose` is equal to `domain` and its access is public. A raw service is never the front door.
 
@@ -48,11 +48,11 @@ When a container with `homegap.*` labels stops, HomeGAP keeps its services for `
 
 The grace period prevents a short outage after a restart of the homelab. The orchestrator can start before your app containers. Without the grace period, HomeGAP removes each service and creates it again a moment later.
 
-A new container that claims the same hostname immediately replaces the container that is gone. If the orchestrator cannot list the containers at all, it uses the containers of the last list until Docker answers again.
+A new container with the same hostname in its top-level `homegap.expose` immediately replaces the container that is gone. If the orchestrator cannot list the containers at all, it uses the containers of the last list until Docker answers again.
 
 ## Errors and warnings
 
-The **Services** page on the dashboard and the log show the label errors of each container. HomeGAP does not publish a service with errors. The errors of one container never stop the other services. The errors of a named service start with `services.<name>:`, and they drop only that service.
+The **Services** page on the dashboard and the log show the label errors of each container. HomeGAP does not publish a service whose labels have errors. An error about `homegap.private_network` or `homegap.private_hosts` that comes from the Docker networks or from the client addresses removes only the private path. The public service still publishes. The errors of one container never stop the other services. The errors of a named service start with `services.<name>:`, and they drop only that service.
 
 A warning does not stop the publication of the service. An unknown `homegap.*` label gives this warning, and HomeGAP ignores the label:
 

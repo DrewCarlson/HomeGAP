@@ -4,7 +4,7 @@ This page tells you where to find logs and diagnostics, and what to check for co
 
 ## The Diagnostics page
 
-The **Diagnostics** page shows the logs of any container on a node. It also runs a read-only diagnostics bundle. The bundle has:
+The **Diagnostics** page shows the logs of the containers in the table below. It also runs a read-only diagnostics bundle. The bundle has:
 
 - The containers, and the backends of the cluster proxy.
 - The mesh interface and the probe.
@@ -53,8 +53,8 @@ With `HOMEGAP_DEBUG=1`, the orchestrator prints stack traces for fatal errors.
 
 | Problem | What to check |
 | --- | --- |
-| HomeGAP ignores a label. | The errors and warnings on the **Services** page. Look for an unknown label, or a hostname that two containers claim. See [Services](../services/index.md). |
-| A node stays `provisioning…`. | The **Activity** log and the `ssh` check. HomeGAP tries a failed first provisioning again after 5 minutes. |
+| HomeGAP ignores a label. | The label errors on the **Services** page, for example a hostname that two containers claim. The `discovery` warnings on the **Activity** page, for example an unknown label. See [Services](../services/index.md). |
+| A node stays in a provisioning phase. | The **Activity** log and the `ssh` check. HomeGAP tries a failed first provisioning again after 5 minutes. |
 | SSH times out, or the server cuts it before login. | A login blocker (fail2ban, sshguard or CrowdSec) can ban the orchestrator. Remove the ban from the console of the provider. Also check `ssh_allow_from` against the public IP address of the orchestrator. |
 | A name does not resolve to the nearest node. | The monitor state on the **DNS** page. Failover takes 1 to 5 minutes. One node cannot fail over. |
 | A node is not in the wildcard set. | The `ee-license` check. `terminate` on the front door needs an EE license on every node. |

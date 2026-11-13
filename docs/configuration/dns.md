@@ -12,7 +12,7 @@ Bunny DNS sends each viewer to the nearest healthy node. This page tells you how
 | `latency` | By the Bunny latency zones. Each node needs a `latency_zone`. |
 | `none` | No smart routing. The records are plain records. |
 
-`bunny.ttl` sets the TTL of the records (default 60 seconds).
+`bunny.ttl` sets the TTL of the A and AAAA records (default 60 seconds). The CAA records always have a TTL of 3600 seconds.
 
 ## Monitors
 
@@ -24,7 +24,7 @@ Bunny DNS sends each viewer to the nearest healthy node. This page tells you how
 
 The records for the management hosts, the speed test of each node and the status page of each node have no monitor.
 
-The health path is the `homegap.healthcheck` of the front door (default `/`). Bunny sends a probe every 30 seconds from three regions. If the origin is down, the probe gets a 502. If the tunnel is down, the probe fails within 5 seconds.
+The health path is the `homegap.healthcheck` of the front door (default `/`). On a node that does not serve the front door, it is the health check of the first HTTP service of that node. A node with no HTTP service answers 502, so an `http` monitor shows it as offline. Bunny sends a probe every 30 seconds from three regions. If the origin is down, the probe gets a 502. If the tunnel is down, the probe fails within 5 seconds.
 
 ## Failover
 
@@ -44,23 +44,27 @@ In practice, failover takes approximately 1 to 5 minutes: the health interval, p
 | Each public dedicated hostname | `service:<key>` | One geo record set for each hostname, also when several raw services share it. The key is the key of the first service. |
 | `pangolin.<domain>` | `client` | In cluster mode, a geo record set with all nodes. |
 | `speedtest.<domain>` | `speedtest` | A geo record set, only without a wildcard. |
-| `speedtest-<node>.<domain>` | `speedtest` | A plain record for each node. |
+| `speedtest-<node>.<domain>` | `speedtest` | A plain record for each node that serves the front door. |
 | `status.<domain>` | `status` | A geo record set, also with a wildcard. |
-| `status-<node>.<domain>` | `status` | A plain record for each node. |
+| `status-<node>.<domain>` | `status` | A plain record for each node that serves the front door. |
 | `pangolin-<node>.<domain>` | `management` | A plain record for each node. |
+| `<domain>` | `caa` | Two CAA records (`issue` and `issuewild`), with `acme.caa: true` (the default). See [Certificates](certificates.md). |
 
-HomeGAP creates A records, and AAAA records for nodes with `public_ipv6`.
+The records of the speed test and the status page exist only when a front door exists.
+
+HomeGAP creates A records, and AAAA records for nodes with `public_ipv6`. During a certificate order, it also creates TXT records at `_acme-challenge` names. It removes them after the order.
 
 A record set includes only the nodes that serve the service (`homegap.regions`). For a shared hostname, it includes every node that serves any of its services. If a node refuses the wildcard (`terminate` without EE), HomeGAP leaves it out of the wildcard set. When you remove a node, HomeGAP first removes it from DNS.
 
 ## Ownership of records
 
-HomeGAP marks each of its records with the comment `managed-by:homegap <purpose> node=<id>`. It does not touch records that it did not create, except at the names that it manages.
+HomeGAP marks each of its records with the comment `managed-by:homegap <purpose> node=<id>`. The comment of a challenge record is `managed-by:homegap acme-challenge`. It does not touch records that it did not create, except at the names that it manages.
 
 !!! danger "Warning"
     At a name that HomeGAP manages, HomeGAP deletes some records that it did not create. The log and the **Config** diff give the reason "collides with a managed record set".
 
     - HomeGAP deletes an A or AAAA record with the same name and type as a managed record.
+    - With `acme.caa: true`, HomeGAP deletes a CAA record at `domain` that it did not create.
     - HomeGAP deletes any CNAME record at that name.
     - HomeGAP adopts a record that has exactly the desired value.
 

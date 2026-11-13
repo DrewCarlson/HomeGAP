@@ -222,7 +222,7 @@ They show that a text is generated, and they give no information:
 - Admonitions: see Rule 7.1. Use `???` (a closed block) for long optional detail.
 - Use content tabs (`=== "Standalone"` / `=== "Cluster"`) when one step is different in the two
   modes.
-- Links between pages are relative paths to the `.md` file (`../cluster/index.md#the-vote`).
+- Links between pages are relative paths to the `.md` file (`../cluster/database.md#switch-back`).
 - Tables for reference data (labels, config keys, ports, API routes). Each cell that is a
   sentence follows the rules above.
 - The `hg_version` variable (in double braces) gives the version of the docs. Pages go through

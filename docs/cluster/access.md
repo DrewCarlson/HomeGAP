@@ -2,7 +2,7 @@
 
 The **Access** page manages the people who can sign in to the Pangolin apps, and their devices. This page tells you how to use it.
 
-The page is available only in cluster mode. Its subtitle is "Who can sign in to the Pangolin apps, and their devices". You do not sign in to Pangolin as the admin.
+The page is available only in cluster mode. Its caption is "Access · Pangolin users and devices". You do not sign in to Pangolin as the admin.
 
 <img src="../img/access/01-page.png" alt="The Access page with the app address, the Add a user form, the users and the devices">
 
@@ -14,19 +14,20 @@ The first time, HomeGAP gives its API key the permissions that the page needs. T
 
 ## The Pangolin app address
 
-The **Pangolin app address** panel shows `https://<client_hostname>.<domain>`. Click **Copy**, and give the address to your users. In the Pangolin app, they add it as a self-hosted server. See [Connect the Pangolin apps](pangolin-apps.md).
+The **Pangolin app address** panel shows `https://<client_hostname>.<domain>` and a QR code of the address. Click **Copy**, and give the address to your users. In the Pangolin app, they add it as a self-hosted server, or they scan the code with a phone. See [Connect the Pangolin apps](pangolin-apps.md).
 
 ## Add a user
 
-1. In **Add a user**, type the email address in **Email**.
-2. Under **Roles**, select one or more roles. A new user has the role with the least privilege by default.
-3. Select how the user gets a password. Do one of the procedures below.
+1. Click **+ Add user**. The **Add a user** panel opens.
+2. Type the email address in **Email**.
+3. Under **Roles**, select one or more roles. A new user has the role with the least privilege by default.
+4. Select how the user gets a password. Do one of the procedures below.
 
-The page shows "Pick at least one role" if you do not select a role.
+The panel shows "Pick at least one role" if you do not select a role.
 
 ### With a password
 
-1. Select **Set a password now**. The text tells you "They can sign in straight away. Share it with them privately."
+1. Select **Set a password now**. The text tells you "They can sign in at once. Share it with them privately."
 2. In **Password**, type a password with at least 8 characters.
 3. Click **Create user**.
 4. Give the password to the user on a private channel.
@@ -34,38 +35,42 @@ The page shows "Pick at least one role" if you do not select a role.
 ### With an invite link
 
 1. Clear **Set a password now**.
-2. Click **Create invite link**. The page shows the **Invite link**.
-3. Click **Copy**.
+2. Click **Create invite link**. The panel shows the link.
+3. Click **Copy link**.
 4. Send the link to the person. The link is valid for 7 days. The person opens it and chooses a password.
+5. Click **Done**.
 
 <img src="../img/access/02-add-user.png" alt="The Add a user form with an email, a role and Set a password now selected" width="566px">
 <img src="../img/access/03-invite-link.png" alt="The Add a user form with a new invite link and the Copy button" width="566px">
 
 ## Users
 
-The **Users** panel shows "Everyone who can sign in, on every node".
+The **People** panel shows "Everyone who can sign in, on every node". Each row shows the name, the email address, the roles and the number of devices of a user. Click a user to open the user in the Inspector.
 
-- To change the roles of a user, click the role buttons in the **Roles** column.
-- To remove a user, click **Remove**. Then confirm. The user can no longer sign in, and the devices of the user stop.
+- To change the roles of a user, select the roles under **Roles** in the Inspector. Then click **Save**.
+- To remove a user, click **Remove** in the Inspector. Then type the email address of the user to confirm. HomeGAP removes the user after 30 seconds. Until then, you can undo the removal. After the removal, the user can no longer sign in, and the devices of the user stop.
 
-The server admin account that HomeGAP creates has the badge **server admin**. You cannot remove this user here.
+For the server admin account that HomeGAP creates, the Inspector shows **server admin**. You cannot change or remove this user here.
 
-The **Open invitations** panel shows the invitations that nobody has used yet, with their **Expires** time. To withdraw an invitation, click **Remove**.
+The **Open invitations** panel shows the invitations that nobody has used yet, with the time until each one expires. Each invitation has a ⋮ menu with these actions:
+
+- **New link** makes a new invite link, valid for 7 days. The old link stops.
+- **Revoke** withdraws the invitation. The page asks you to confirm.
 
 ## Devices
 
-The **Devices** panel shows "Pangolin apps and machine clients, and the node each one relays through". For each device, the table shows:
+The **Devices** panel shows "Pangolin apps and machine clients". Each device is a card that shows:
 
-- **Device**: the name of the device.
-- **Owner**: the email of the person, or **Machine client**.
-- **Status**: for example `online`, `offline`, `blocked` or `archived`.
-- **Node**: the node that the device relays through.
+- The name of the device.
+- The status: `online`, `offline`, `blocked` or `archived`.
+- The app, and the owner. The owner is the email of the person, or **Machine client**.
+- The node that the device relays through, for example `via na1`.
 
-You can do these actions on a device:
+Click a device to open it in the Inspector. The Inspector has these actions:
 
 - **Block** or **Unblock**. For **Block**, the page asks you to confirm.
 - **Archive** or **Restore**.
-- **Delete**. The page asks you to confirm.
+- **Delete**. The page asks you to type the name of the device to confirm.
 
 <img src="../img/access/04-devices.png" alt="The Devices panel with an online device and the node it relays through">
 
@@ -86,7 +91,8 @@ The page uses these API routes. See [HTTP API](../reference/api.md).
 | --- | --- |
 | `GET /api/access` | Returns the users, invitations, devices and roles. |
 | `POST /api/access/users` | Creates a user, or an invitation. |
-| `DELETE /api/access/users/{id}` | Removes a user. |
+| `DELETE /api/access/users/{id}` | Removes a user after 30 seconds. The answer has an undo id. |
 | `PUT /api/access/users/{id}/roles` | Sets the roles of a user. |
+| `POST /api/access/invitations/{id}/reissue` | Makes a new invite link for an open invitation. |
 | `DELETE /api/access/invitations/{id}` | Removes an invitation. |
 | `POST /api/access/devices/{id}/{action}` | Does an action on a device: `block`, `unblock`, `archive`, `unarchive` or `delete`. |

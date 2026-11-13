@@ -8,13 +8,13 @@ With `status_page.enabled: true`, anybody can open `https://status.<domain>/`. T
 
 - The node that the visitor came through. This is the node that DNS selects for the location of the visitor. The page also shows the round trip of the visitor to the homelab through this node.
 - The state of every node: online, degraded or offline.
-- The round trip of the visitor through each other online node.
+- The round trip of the visitor through each other node that is not offline.
 
 | State | Meaning |
 | --- | --- |
 | Online | The node works. |
-| Degraded | The node carries traffic, but a check fails. |
-| Offline | The node is down, paused or in removal, or its tunnel to the homelab is down. |
+| Degraded | The tunnel of the node is up, but a check fails or is down. |
+| Offline | The node is paused or in removal, or its tunnel to the homelab is down. A node is also offline while all changes are paused. |
 
 While the page is open, it refreshes every minute.
 
@@ -48,7 +48,7 @@ For the round trip through each other node, the browser sends one request to `st
 
 ## Enable the status page
 
-The status page needs a front door. The first activation needs a restart of the orchestrator.
+The status page needs a front door. The status page and the speed test share one listener, which starts only with the orchestrator. If neither was on at the start, the first activation needs a restart of the orchestrator.
 
 | Key | Default | Rules |
 | --- | --- | --- |

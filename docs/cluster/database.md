@@ -55,7 +55,7 @@ When the homelab comes back, it joins again as a replica. It rewinds the writes 
 
 ### Make a member the primary
 
-On the **Cluster database** panel, a caught-up replica has a **Make primary** button. This is a planned switchover. Writes stop for a second or two, and HomeGAP loses no data. If the new primary is not where the primary belongs, the switch-back returns it after the hold.
+On the **Cluster database** panel, a caught-up replica has a ⋮ menu with **Make primary…**. The dashboard asks you to confirm. This is a planned switchover. Writes stop for a second or two, and HomeGAP loses no data. If the new primary is not where the primary belongs, the switch-back returns it after the hold.
 
 The API call is `POST /api/cluster/switchover` with the body `{"to": "<member>"}`.
 
@@ -74,11 +74,12 @@ Each node has a `cluster-proxy` check. It shows where HAProxy sends PostgreSQL a
 
 | State | When |
 | --- | --- |
-| Red | A primary has no member that HAProxy can reach. |
-| Yellow | For 5 minutes after a loss that HomeGAP did not plan. |
-| Green | All other times. |
+| Rose | A primary has no member that HAProxy can reach. |
+| Amber | For 5 minutes after a loss that HomeGAP did not plan. |
+| Cyan | All other times. |
+| Dim | HomeGAP cannot read the statistics of HAProxy. The check shows "stats not available". |
 
-A switch that HomeGAP plans also leaves HAProxy without a primary for a moment. Examples are a switch-back, maintenance, a node update and a switch from the dashboard. The check shows "planned switch N min ago", but it stays green.
+A switch that HomeGAP plans also leaves HAProxy without a primary for a moment. Examples are a switch-back, maintenance, a node update and a switch from the dashboard. The check shows "planned switch N min ago", but it stays cyan.
 
 ## Settings, passwords and backups
 
@@ -132,7 +133,7 @@ The command prints the number of tables in the dump. A number above zero and no 
     A restore replaces the contents of the database `pangolin` with the contents of the dump. You lose each change after the time of the dump.
 
 1. On the dashboard, click **Pause**. HomeGAP then makes no changes.
-2. In the **Cluster database** panel, make sure that the primary is on the homelab. If it is not, click **Make primary** on the homelab member.
+2. In the **Cluster database** panel, make sure that the primary is on the homelab. If it is not, open the ⋮ menu of the homelab member and click **Make primary…**. In the "Changes are paused" dialog, click **Apply just this**.
 3. On each node, stop Pangolin:
     ```bash
     docker stop pangolin
@@ -185,45 +186,44 @@ After an upgrade of the homelab, the members on the nodes follow the image of th
 Each node does these steps:
 
 1. It pulls the image.
-2. It moves any primary that it holds to the homelab.
+2. It moves any primary that it holds to a different member. The database goes to the homelab if the homelab is a caught-up replica. If not, it goes to the replica with the smallest lag.
 3. It restarts its services one at a time. Each service must serve again before the next one restarts.
 
 The log tells you when and why the update of a node waits.
 
 ## The Cluster database panel
 
-The **Nodes** page has a **Cluster database** panel, with the subtitle "PostgreSQL (Patroni) and Valkey, shared by every node's Pangolin".
+The **Nodes** page has a **Cluster database** panel, with the title "PostgreSQL (Patroni) and Valkey".
 
-The panel shows the **PostgreSQL primary**, the **Valkey primary** and the state of the **Vote**. A banner tells you when a pending switch-back is due. For each member, the table shows:
+The panel shows the **PostgreSQL primary**, the **Valkey primary** and the state of the **Vote**. A note tells you when a pending switch-back is due. For each member, the list shows:
 
-- **Vote**: the etcd state of the member.
-- **Database**: the PostgreSQL role.
-- **Valkey**: the Valkey role.
-- **Replication lag**: how far the replica is behind the primary.
+- The id and the mesh address of the member.
+- The PostgreSQL role: `primary`, `replica`, `vote only` or `not running`.
+- The replication lag: how far the replica is behind the primary.
 
-<img src="../img/cluster/02-database-panel.png" alt="The Cluster database panel with the members and the Make primary button">
+<img src="../img/cluster/02-database-panel.png" alt="The Cluster database panel with the members and the Make primary menu">
 
 ### Alerts
 
 The panel shows an alert in these cases:
 
-- The vote has no majority, or there is no primary. With no majority, the **Vote** pill tells you "No primary can be elected until enough members are back".
+- The vote has no majority, or there is no primary. With no majority, **Vote** shows `no majority`. Its tooltip tells you "No primary can be elected until enough members are back".
 - A member is cut off from the others, by its mesh handshakes or by its vote.
 - A replica is more than 16 MiB behind the primary.
 - There are fewer than two nodes. Then the cluster cannot elect a primary without the homelab.
 - The state of the EE license.
 
-### Primary history
+### The last change of the primary
 
-The **Primary history** table shows each change of the primary and its cause:
+Below the members, the panel shows the last change of the primary: its time, the two members and its cause.
 
-| Cause | Description |
+| Cause | Meaning |
 | --- | --- |
-| `failover` | "Elected by the cluster when the primary was lost" |
-| `switch-back` | "Moved back by HomeGAP after the hold" |
-| `maintenance` | "Moved off the homelab before an upgrade" |
-| `manual` | "Switched from the dashboard" |
-| `first seen` | "The primary when HomeGAP started recording" |
+| `failover` | The cluster elected a new primary after the loss of the old one. |
+| `switch-back` | HomeGAP moved the primary back after the hold. |
+| `maintenance` | HomeGAP moved the primary before maintenance of the homelab or an update of a node member. |
+| `manual` | A person switched the primary from the dashboard. |
+| `first seen` | The primary at the time that HomeGAP started the record. |
 
 ## Failures
 
@@ -232,4 +232,4 @@ The **Primary history** table shows each change of the primary and its cause:
 | The node with the primary is down. | Sign-ins and changes stop for approximately 30 seconds, while the other members elect a new primary. DNS moves public traffic as for any node. | Automatic. The primary returns to the homelab after the hold. |
 | The homelab is up, but cut off from the nodes. | The homelab loses the vote and stops all writes. The nodes elect a primary and continue to serve. | Repair the link. The homelab joins again as a replica and rewinds the writes that it cannot keep. The primary moves back after the hold. |
 | The mesh link between two nodes is broken. | Nothing is visible while a majority of members still reach each other. The dashboard shows the isolated member. | Repair the network. WireGuard connects again by itself. |
-| Fewer than half of the members are reachable. | The cluster cannot elect a primary. Sign-in and changes fail. Connected apps and public traffic continue to work. | Bring the members back. The dashboard shows "no majority". |
+| Half or fewer of the members are reachable. | The cluster cannot elect a primary. Sign-in and changes fail. Connected apps and public traffic continue to work. | Bring the members back. The dashboard shows "no majority". |

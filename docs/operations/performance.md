@@ -14,7 +14,7 @@ Each request crosses two TCP legs (viewer to node, and node to homelab) and one 
 
 The file sets BBR congestion control, the `fq` qdisc, socket buffers up to 64 MiB, MTU probing and a higher tolerance for reordering. BBR keeps long paths with packet loss fast.
 
-Docker containers do not inherit the TCP settings of the host. Thus HomeGAP also applies the same settings in the network namespace of Gerbil and Traefik on the node. The **Nodes** page shows them as `edge tcp`.
+Docker containers do not inherit the TCP settings of the host. Thus HomeGAP also applies the same settings in the network namespace of Gerbil and Traefik on the node. The fact `edge_tcp` of the node in `GET /api/status` shows them. The Inspector of a node shows the settings of the host in the **TCP** row.
 
 The node fact `tcp_cc` shows the congestion control that the kernel really uses. Some VPS kernels refuse BBR.
 

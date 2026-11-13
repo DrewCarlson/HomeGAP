@@ -8,11 +8,11 @@ Each node runs the PostgreSQL build of the configured image. The tag `ee-<versio
 
 ## Reads and writes
 
-Pangolin sends writes to the current primary through `cluster-proxy`. It reads from the database member on its own node. A sign-in, and the use of the session at once, works through a node approximately 300 ms from the primary. The end-to-end tests check this with added latency on the mesh.
+Pangolin sends writes to the current primary through `cluster-proxy`. It reads from the database member on its own node. A sign-in, and the use of the session at once, works through a node approximately 300 ms from the primary. The end-to-end tests check a sign-in through every node.
 
 ## Sites and resources
 
-Each node is its own region. The homelab gets one site for each node, with the name `<site_name>-<node id>`, for example `homelab-na1`. HomeGAP creates each site through its node. Thus the connector of the site always uses the exit node of that node.
+Each node is its own region. The homelab gets one site for each node. Its identifier is `<site_name>-<node id>`, for example `homelab-na1`. Its name is `<site_name> via <node id>`, for example `homelab via na1`. HomeGAP creates each site through its node. Thus the connector of the site always uses the exit node of that node.
 
 Each service is one resource with a target on the site of every node. HomeGAP applies the resources one time in each pass, through the first node that is ready. A node routes only through its own target. Thus every node keeps its own tunnel to the homelab, and no node relays through another node.
 

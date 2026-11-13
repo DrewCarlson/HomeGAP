@@ -4,7 +4,7 @@ HomeGAP updates the stacks of the nodes one at a time, and it rolls back a faile
 
 ## Provisioning in the background
 
-Provisioning runs in the background. A slow node never delays the health checks, the tunnels or DNS for the other nodes. Examples of a slow node are a first install or a slow Docker download. During provisioning, the node shows `provisioning…` or `updating…` on the dashboard.
+Provisioning runs in the background. A slow node never delays the health checks, the tunnels or DNS for the other nodes. Examples of a slow node are a first install or a slow Docker download. During provisioning, the node shows the current phase on the dashboard, for example `writing the stack (4 of 7)`.
 
 ## A rolling update
 
@@ -42,7 +42,7 @@ Every `reconcile.node_check_interval` (default 5 minutes), HomeGAP checks each n
 
 ## Preview the stack of a node
 
-To see the stack that HomeGAP writes to a node, run this command. The output does not show the secrets.
+To see the stack that HomeGAP writes to a node, run this command. The output does not show the secrets. It reads only the config file, so it has no services from labels. In cluster mode, it does not show the cluster settings of the stack.
 
 ```bash
 docker compose exec orchestrator homegap render-node na1

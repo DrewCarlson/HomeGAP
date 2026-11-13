@@ -39,7 +39,7 @@ Every page goes through Jinja, through Zensical's own version of the `markdownex
 
 ## Versions
 
-`.github/workflows/docs.yml` builds both configs on every push and pull request that changes the docs. It publishes to GitHub Pages (the `gh-pages` branch) with the Zensical fork of mike, but only when the repository is public:
+`.github/workflows/docs.yml` builds both configs on each pull request, each push to `main` and each version tag that changes the docs. It publishes to GitHub Pages (the `gh-pages` branch) with the Zensical fork of mike, but only when the repository is public:
 
 | Event | Version |
 | --- | --- |
@@ -54,9 +54,10 @@ The dashboard serves this copy at `/docs/`, and links it as **Documentation** at
 
 ```bash
 zensical build -f mkdocs.embedded.yml
+python3 tools/localize-docs-assets.py site-embedded
 ```
 
-The output goes to `site-embedded/`.
+The output goes to `site-embedded/`. The script makes the theme load its optional files from the site, not from a CDN. The image build runs the same two commands.
 
 ## Writing rules
 
@@ -70,4 +71,4 @@ A screenshot that the maintainer must add is an HTML comment on its own line, in
 
 The images go in `docs/img/`.
 
-Do not use Mermaid diagrams. Mermaid loads from a CDN, and the copy on the dashboard must work without internet access.
+Do not use Mermaid diagrams. `mkdocs.yml` does not enable them.

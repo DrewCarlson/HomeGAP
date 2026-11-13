@@ -88,7 +88,7 @@ A service in a subfolder of the root gives the root its private path. An example
 
 The orchestrator must be able to reach the API of Traefik on the `traefik` network. With `api.insecure: true` in the static config of Traefik, the API answers on port 8080. You do not publish a port for it. To use a different URL, set `homegap.traefik_api`.
 
-Until the API answers for the first time, HomeGAP does not change the services. The error is `the Traefik API at ... has not answered; set homegap.traefik_api if it is elsewhere`. After the first answer, a failed read keeps the routers from the last good read.
+Until the API answers for the first time, HomeGAP does not change the services. The log has the warning `cannot read the Traefik API at ...`, with the text "services and private paths are left as they are until it answers". `homegap plan` shows the error `the Traefik API at ... has not answered; set homegap.traefik_api if it is elsewhere`. After the first answer, a failed read keeps the routers from the last good read.
 
 ### Refused names
 

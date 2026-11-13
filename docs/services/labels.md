@@ -35,6 +35,8 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 - `homegap.maintenance_page` needs `homegap.tls: terminate`. A passthrough service has no page, because the node holds no certificate for its name. If you set the label to `true` on a passthrough service, you get the error "...needs homegap.tls=terminate...".
 - If the front door has `homegap.tls: terminate` and `homegap.wildcard`, HomeGAP refuses `homegap.tls: passthrough` on another hostname one label under the domain. See [Certificates](../configuration/certificates.md#the-front-door-in-terminate-mode-with-a-wildcard).
 - Without `homegap.healthcheck`, Bunny still probes `/` through the front door. On raw services, the label applies only to the TCP ports.
+- An HTTP path in `homegap.healthcheck` gives an HTTP check only on a service that the node terminates. On a passthrough service or a raw TCP port, the check of the Pangolin target is a TCP check.
+- `homegap.maintenance_page: true` on a raw service gives the warning "... has no effect on raw ... services".
 
 ## Extension labels
 
@@ -49,20 +51,20 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 | `homegap.private_network` | None. | Names a Docker network that only `tunnels` and this service share. Pangolin clients reach the service at its address on that network. |
 | `homegap.private_hosts` | The hostname of the service, if `homegap.private_middleware` is not set. | Lists the names, separated by commas, that Pangolin clients reach through the private network. |
 | `homegap.private_middleware` | None. | Gives a private path to each name that this Traefik routes through this middleware, for example `private-only@file`. |
-| `homegap.traefik_api` | `http://<container name>:8080` | Sets the URL of the API of this Traefik, for `homegap.private_middleware`. The form is `http://<host>:<port>`, with no path. The host must be a container name or a private IPv4 address. For other values, HomeGAP gives a warning and uses the default. |
+| `homegap.traefik_api` | `http://<container name>:8080` | Sets the URL of the API of this Traefik, for `homegap.private_middleware`. The form is `http://<host>[:<port>]` or `https://<host>[:<port>]`, with no path. The host must be a container name or a private IPv4 address. For other values, HomeGAP gives a warning and uses the default. |
 
 ### Rules for the extension labels
 
 - `homegap.public_port` on an `http` or `https` service gives the warning "... only applies to tcp/udp".
 - A hostname that HomeGAP routes itself is an error. These are the management host of a node, the client address of the cluster, and the names of the status page and the speed test. The error is `hostname N is reserved for HomeGAP`.
-- With more than one port, `homegap.public_port` is an error. Write `public:port` in `homegap.port` instead.
+- With more than one port, or with an entry that has its own `public:` part, `homegap.public_port` is an error. Write `public:port` in `homegap.port` instead.
 - The node uses these ports itself: `22`, `80`, `443`, `2379`, `2380`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `5432`, `5433`, `6379`, `6380`, `8008`, `8080`, `8082`, `8090`, `21820`, `26379` and `51820`. A public raw service cannot use them as public ports. The error is `public port N is reserved on nodes; publish it on another port (public:port in homegap.port, or homegap.public_port)`. In cluster mode, `cluster.mesh.port`/udp is reserved too. HomeGAP does not check private services, because they publish nothing on the nodes.
 - HomeGAP removes `Admin` from the roles that it sends to Pangolin, because Pangolin refuses it there. The `Admin` role can reach everything.
 - The PIN must be a number from 100000 to 999999. If there is no PIN, or the PIN is not valid, HomeGAP writes an error to the log.
-- `homegap.proxy_protocol` works only on `https` services in `passthrough` mode and on raw services with TCP ports, and only on public services. On a raw service, it applies only to the TCP ports. See [Client addresses and private-only services](client-addresses.md).
-- `homegap.private_network` works only on public `http` and `https` services.
+- `homegap.proxy_protocol` works only on `https` services in `passthrough` mode and on raw services with TCP ports, and only on public services. On each other service, it is an error. On a raw service, it applies only to the TCP ports. See [Client addresses and private-only services](client-addresses.md).
+- `homegap.private_network` works only on public `http` and `https` services. On each other service, it is an error.
 - `homegap.private_hosts` and `homegap.private_middleware` need `homegap.private_network`.
-- A name in `homegap.private_hosts` can be relative to the hostname of the service (`jellyfin`, `*.home`) or a full name. You can use `*` and `?`.
+- A name in `homegap.private_hosts` can be relative to the hostname of the service (`jellyfin`, `*.home`). It can also be a full name, if that name is the hostname of the service or a name under it. HomeGAP reads each other name as a relative name. You can use `*` and `?`.
 - `homegap.private_middleware` compares the middleware without its `@provider` part. HomeGAP reads the routers from the Traefik API.
 
 ## Port lists
@@ -85,11 +87,11 @@ These rules apply:
 - A list with a protocol on an entry is a raw service, also without `homegap.protocol`. For example, `homegap.port: "7881/tcp, 7882/udp"` is enough.
 - `homegap.protocol` gives the protocol of the entries without their own protocol. With `tcp+udp`, each such port is on TCP and UDP. The protocol of an entry has priority.
 - Without `homegap.protocol`, each entry needs a protocol if one entry has one. Otherwise, you get the error `'<entry>' needs a protocol (/tcp, /udp or /tcp+udp), or set homegap.protocol`.
-- An `http` or `https` service takes only one port number. A list gives the error `must be one port number for http services`.
+- An `http` or `https` service takes only one port number. A list gives the error `must be one port number for http services`, or `for https services`.
 - An entry that is not a port from 1 to 65535 gives an error with examples of valid entries.
 - The same public port and protocol twice in one service gives the error `is listed twice`.
 
-The protocol of the service is the sum of its ports: `tcp`, `udp` or `tcp+udp`. The **Services** page shows the port list in the protocol column, for example `7881/tcp, 7882/udp`. See [Raw TCP and UDP](raw-ports.md).
+The protocol of the service is the sum of its ports: `tcp`, `udp` or `tcp+udp`. The **Services** page shows the port list in the **Published as** column, for example `7881/tcp, 7882/udp`. See [Raw TCP and UDP](raw-ports.md).
 
 ## Named services
 

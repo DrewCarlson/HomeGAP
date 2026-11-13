@@ -48,7 +48,7 @@ A file has no warnings from the compiler and no warnings from the inspections of
 ## Shared code
 
 - Do not copy a helper. If two files need the same helper, put it in a shared file and use it in both.
-- To catch the errors of a suspend block, use `runCatchingCancellable` from `homegap.platform`. Do not write `try`/`catch` with a check for `CancellationException` by hand.
+- To catch the errors of a suspend block, use `runCatchingCancellable`. It is in `homegap.platform` for the orchestrator, and in `homegap.presentation.core` for the dashboard. Do not write `try`/`catch` with a check for `CancellationException` by hand.
 - Use `orEmpty()`, not `?: ""` or `?: emptyList()`.
 - Use `check` and `require` for a condition that throws. Do not write `if (...) throw IllegalStateException(...)`.
 
@@ -65,6 +65,6 @@ A file has no warnings from the compiler and no warnings from the inspections of
 1. Run the inspections of the IDE on each file that you changed. The result must be empty.
 2. Run the tests:
     ```bash
-    ./gradlew macosArm64Test
+    ./gradlew macosArm64Test :presentation:jsNodeTest
     ```
 3. For a change in a reconciler, a template or a script, run the end-to-end harness. See [End-to-end tests](e2e.md). After the deploy, the first pass must show no changes, and the stack of each node must keep its hash.

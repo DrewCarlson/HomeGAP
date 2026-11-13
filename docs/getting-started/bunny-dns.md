@@ -30,9 +30,10 @@ HomeGAP sends the key in the `AccessKey` header to `https://api.bunny.net`. It f
 ## Records at the names that HomeGAP manages
 
 !!! danger "Warning"
-    On each pass that is not a dry run, HomeGAP deletes records that collide with its managed record sets. This occurs at each name that HomeGAP manages: the root, `*.<domain>`, the dedicated hostnames, the node management hosts and the other managed names.
+    On each DNS sync that is not a dry run and not paused, HomeGAP deletes records that collide with its managed record sets. This occurs at each name that HomeGAP manages: the root, `*.<domain>`, the dedicated hostnames, the node management hosts and the other managed names.
 
     - HomeGAP deletes an A or AAAA record that it did not create, if it has the same name and type as a managed record.
+    - With `acme.caa: true` (the default), HomeGAP deletes a CAA record at `<domain>` that it did not create.
     - HomeGAP deletes any CNAME record at a managed name.
     - HomeGAP adopts an unmanaged record that has exactly the desired value.
 
@@ -53,7 +54,9 @@ HomeGAP never touches records at other names. It marks its own records with the 
 | `speedtest-<node>.<domain>` | A record for each node. | With the speed test. |
 | `status.<domain>` | A geo record set. | With the status page. |
 | `status-<node>.<domain>` | A record for each node. | With the status page. |
+| `<domain>` | Two CAA records. | With `acme.caa: true` (the default). |
+| `_acme-challenge.<name>` | A TXT record. | During a certificate order. HomeGAP removes it after the order. |
 
-HomeGAP creates A records, and AAAA records for nodes with `public_ipv6`. The TTL comes from `bunny.ttl` (default `60`). The monitor comes from `bunny.monitor` (default `http`). Only geo records get a monitor.
+HomeGAP creates A records, and AAAA records for nodes with `public_ipv6`. The TTL of these records comes from `bunny.ttl` (default `60`). The monitor comes from `bunny.monitor` (default `http`). Only geo records get a monitor.
 
 For the routing and the monitors, see [DNS routing and health checks](../configuration/dns.md).

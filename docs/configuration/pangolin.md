@@ -50,7 +50,7 @@ Use the base blueprint for static configuration that does not come from labels, 
 !!! warning "Caution"
     Keys in the base blueprint must not start with `hg-`. HomeGAP reserves this prefix for the resources that it manages, and it can delete them.
 
-This example comes from `blueprints/base.example.yml`. Mount the file and set `pangolin.base_blueprint: /config/blueprints/base.yml`:
+This example is in `blueprints/base.example.yml`, as a comment. Remove the comment marks before you use the file. HomeGAP applies nothing from a file that has only comments. Mount the file and set `pangolin.base_blueprint: /config/blueprints/base.yml`:
 
 ```yaml
 public-policies:

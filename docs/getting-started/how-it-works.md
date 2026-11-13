@@ -65,7 +65,7 @@ Bunny removes the offline members from a record set. Viewers then resolve to the
 
 A real failover takes the health interval, plus the 60-second TTL, plus the time that resolvers cache the answer. This is approximately 1 to 5 minutes.
 
-When the homelab is down, the nodes show a "back shortly" page for passthrough sites. The page has HTTP status 503 and starts approximately 15 seconds after the nodes lose the homelab. Raw ports and resources that the node terminates fail.
+When the homelab is down, the nodes show a "back shortly" page for the names for which the node ends TLS. These are the `terminate` services and the shared names of the status page and the speed test. The page has HTTP status 503 and starts approximately 15 seconds after the nodes lose the homelab. For a passthrough name, the node closes the connection at once, because it holds no certificate for the name. Raw ports fail.
 
 For the monitors and the routing options, see [DNS routing and health checks](../configuration/dns.md).
 

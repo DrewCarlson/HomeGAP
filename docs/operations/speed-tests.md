@@ -16,9 +16,9 @@ With `speedtest.enabled: true`, the orchestrator serves a speed test origin on `
 | `speedtest.link_budget_gb` | `20` |
 | `speedtest.streams` | `4` |
 
-A change of `speedtest.enabled` or `speedtest.bind` needs a restart of the orchestrator.
+The speed test and the status page share one listener, which starts only with the orchestrator. If neither was on at the start, the first activation needs a restart of the orchestrator. A change of `speedtest.bind` also needs a restart.
 
-The front door already forwards `speedtest-<node>.<domain>` from the nodes. A node answers the shared name `speedtest.<domain>` itself, and sends its requests on to the homelab as `speedtest-<node>.<domain>`. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the `homegap-mesh` service, because it owns the networks of the orchestrator:
+The front door already forwards `speedtest-<node>.<domain>` from the nodes. A node answers the shared name `speedtest.<domain>` itself, and sends its requests on to the homelab as `speedtest-<node>.<domain>`. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the `orchestrator` service. The orchestrator is on three networks, so `traefik.docker.network` must name the network that Traefik shares with it:
 
 ```yaml
 labels:

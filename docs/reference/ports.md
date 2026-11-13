@@ -18,11 +18,27 @@ With `firewall: true` (the default), HomeGAP opens these ports in `ufw`:
 
 A firewall at the provider level must open the same ports.
 
+## Node: ports on the mesh
+
+In cluster mode, HomeGAP also opens these TCP ports in `ufw`, but only on the interfaces of the cluster:
+
+| Port | Interface | Use |
+| --- | --- | --- |
+| 2379 | `hg-mesh` | The etcd client port. |
+| 2380 | `hg-mesh` | The etcd peer port. |
+| 3004 | `hg-mesh` | The API of Gerbil. |
+| 5432 | `hg-mesh` and `hg-cluster` | PostgreSQL. |
+| 6379 | `hg-mesh` and `hg-cluster` | Valkey. |
+| 8008 | `hg-mesh` and `hg-cluster` | The API of Patroni. |
+| 26379 | `hg-mesh` | Valkey Sentinel. |
+
+`hg-cluster` is the bridge of the `homegap-cluster` Docker network on the node. A rule in the `DOCKER-USER` chain drops packets from a container to ports 2380 and 26379 of another member. See [Cluster mesh](../cluster/mesh.md#what-a-container-on-a-node-can-reach).
+
 ## Node: ports on loopback
 
 | Port | Use |
 | --- | --- |
-| 3000, 3002, 3003 | Pangolin. The orchestrator reaches them through SSH port forwarding. |
+| 3000, 3002, 3003 | Pangolin. The orchestrator reaches 3000 and 3003 through SSH port forwarding. |
 | `127.0.0.1:8404` | The stats page of HAProxy, in cluster mode. |
 
 ## Node: reserved ports

@@ -62,7 +62,7 @@ The stack is in `install_dir` (default `/opt/homegap`):
 | `config/traefik/traefik_config.yml` | The static config of Traefik. |
 | `config/traefik/dynamic/homegap-routes.yml` | The routes that HomeGAP writes. |
 | `config/traefik/dynamic/homegap-tls.yml` | The TLS config of Traefik. |
-| `config/traefik/certs/homegap.crt`, `homegap.key` | The certificate from `certificates`. |
+| `config/traefik/certs/homegap.crt`, `homegap.key` | The certificate that HomeGAP orders (`acme`), with mode 0600. |
 | `config/maintenance/` | The files of the "back shortly" page. |
 | `config/homegap-sysctl.conf` | The TCP tuning. HomeGAP installs it as `/etc/sysctl.d/99-homegap.conf`. |
 | `secrets/node.json` | The secrets of the node, with mode 0600. |
