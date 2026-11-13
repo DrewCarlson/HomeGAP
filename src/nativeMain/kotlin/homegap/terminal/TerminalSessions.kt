@@ -19,6 +19,8 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -36,6 +38,7 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
     private val lock = SynchronizedObject()
     private val sessions = LinkedHashMap<String, TerminalSession>()
     private val tickets = Tickets()
+    private val opening = Mutex()
 
     val enabled: Boolean get() = controller.config.dashboard.terminal
 
@@ -51,8 +54,8 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
     fun overview(): TerminalOverviewDto = TerminalOverviewDto(enabled, synchronized(lock) { sessions.values.map { it.dto() } })
 
     /** Starts a shell on [nodeId] in a terminal of [rows] by [columns]. */
-    suspend fun open(nodeId: String, rows: Int, columns: Int): TerminalSessionDto {
-        check(enabled) { "The terminal is off (dashboard.terminal)." }
+    suspend fun open(nodeId: String, rows: Int, columns: Int): TerminalSessionDto = opening.withLock {
+        check(enabled) { OFF }
         check(!controller.dryRun) { "A terminal needs remote access (dry run is on)." }
         val node = requireNotNull(controller.config.node(nodeId)) { "unknown node $nodeId" }
         synchronized(lock) {
@@ -64,19 +67,20 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
         val session = TerminalSession(Crypto.token(16), nodeId, pty, scope)
         synchronized(lock) { sessions[session.id] = session }
         controller.log.change(DOMAIN, "opened a terminal", nodeId)
-        return session.dto()
+        session.dto()
     }
 
     fun session(id: String): TerminalSession? = synchronized(lock) { sessions[id] }
 
     /** A key for one WebSocket connection to session [id]. */
     fun ticket(id: String): String {
+        check(enabled) { OFF }
         requireNotNull(session(id)) { "unknown terminal $id" }
         return tickets.issue(id)
     }
 
     /** The session that [ticket] is for. A ticket works one time. */
-    fun redeem(ticket: String?): TerminalSession? = tickets.redeem(ticket)?.let(::session)
+    fun redeem(ticket: String?): TerminalSession? = tickets.redeem(ticket)?.takeIf { enabled }?.let(::session)
 
     suspend fun close(id: String) {
         val session = synchronized(lock) { sessions.remove(id) } ?: return
@@ -85,12 +89,18 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
         controller.log.change(DOMAIN, "closed a terminal after $minutes min", session.nodeId)
     }
 
-    /** Closes each session that ended, that nobody used for [IDLE_MS], or that is older than [MAX_AGE_MS]. */
+    /**
+     * Closes each session that ended, that nobody used for [IDLE_MS], or that is older than
+     * [MAX_AGE_MS]. Closes each session of a node that left the config, and all sessions when the
+     * terminal is off.
+     */
     private suspend fun sweep() {
         val now = nowMillis()
+        val config = controller.config
         val done = synchronized(lock) {
             sessions.values.filter {
-                (it.exitCode != null && !it.attached) || (!it.attached && now - it.lastActivity > IDLE_MS) || now - it.startedAt > MAX_AGE_MS
+                !config.dashboard.terminal || config.node(it.nodeId) == null ||
+                    (it.exitCode != null && !it.attached) || (!it.attached && now - it.lastActivity > IDLE_MS) || now - it.startedAt > MAX_AGE_MS
             }.map { it.id }
         }
         done.forEach { close(it) }
@@ -117,6 +127,7 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
 
     companion object {
         const val DOMAIN = "terminal"
+        private const val OFF = "The terminal is off (dashboard.terminal)."
         const val MAX_PER_NODE = 2
         const val MAX_TOTAL = 6
         const val IDLE_MS = 15 * 60_000L

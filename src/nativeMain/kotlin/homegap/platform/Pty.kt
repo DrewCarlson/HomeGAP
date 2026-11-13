@@ -27,6 +27,7 @@ import platform.posix.SIGKILL
 import platform.posix.TIOCSCTTY
 import platform.posix.TIOCSWINSZ
 import platform.posix.WNOHANG
+import platform.posix._SC_OPEN_MAX
 import platform.posix._exit
 import platform.posix.dup2
 import platform.posix.errno
@@ -40,6 +41,7 @@ import platform.posix.posix_openpt
 import platform.posix.ptsname
 import platform.posix.setsid
 import platform.posix.strerror
+import platform.posix.sysconf
 import platform.posix.unlockpt
 import platform.posix.waitpid
 import platform.posix.winsize
@@ -129,6 +131,7 @@ class Pty private constructor(val pid: Int, private val master: Int) {
 
                 // Between fork and exec the child makes system calls only: other threads of this
                 // process do not exist there, and a lock that one of them held stays locked.
+                val descriptors = sysconf(_SC_OPEN_MAX).coerceIn(256, 65536).toInt()
                 val pid = fork()
                 check(pid >= 0) { "cannot start ${argv.first()}: ${error()}" }
                 if (pid == 0) {
@@ -140,7 +143,9 @@ class Pty private constructor(val pid: Int, private val master: Int) {
                     dup2(slave, 0)
                     dup2(slave, 1)
                     dup2(slave, 2)
-                    if (slave > 2) platform.posix.close(slave)
+                    // The command gets the terminal only, not the sockets of this process.
+                    var fd = 3
+                    while (fd < descriptors) platform.posix.close(fd++)
                     execvp(program, args)
                     _exit(127)
                 }
