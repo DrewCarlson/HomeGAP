@@ -77,15 +77,7 @@ class OverviewScreenPresenter(
         return OverviewScreenModel(
             head = head(status, now),
             gauges = remember(status) { gauges(status) },
-            attention = status.attention.map { item ->
-                AttentionRowModel(
-                    severity = Severity.of(item.severity),
-                    title = item.title,
-                    detail = item.detail,
-                    since = ago(item.since, now),
-                    location = item.location,
-                )
-            },
+            attention = attentionRows(status, now),
             network = NetworkModel(
                 view = view,
                 homelab = homelab(status),
@@ -296,6 +288,7 @@ class OverviewScreenPresenter(
                 samples = props.metrics[node.id],
                 now = now,
                 actions = nodeActions.forNode(node),
+                certificates = status.certificates,
             )
         }
         status.services.firstOrNull { it.hostname == selection }?.let { service ->
@@ -329,3 +322,23 @@ private fun ServiceStatusDto.rank(): Int = when {
 
 /** The node's last Pangolin API probe, in whole milliseconds. */
 internal fun NodeStatusDto.apiProbe(): Long? = checks.firstOrNull { it.name == "pangolin-api" }?.value?.toLong()
+
+/** The attention items, each item that follows from another folded under it. */
+internal fun attentionRows(status: StatusSnapshot, now: Long): List<AttentionRowModel> {
+    val ids = status.attention.map { it.id }.toSet()
+    fun row(item: homegap.api.AttentionItemDto, children: List<AttentionRowModel> = emptyList()) = AttentionRowModel(
+        severity = Severity.of(item.severity),
+        title = item.title,
+        detail = item.detail,
+        since = ago(item.since, now),
+        location = item.location,
+        children = children,
+    )
+    val byParent = status.attention.filter { it.parent in ids }.groupBy { it.parent }
+    return status.attention.filter { it.parent !in ids }.map { item ->
+        row(
+            item = item,
+            children = byParent[item.id].orEmpty().map { row(it) },
+        )
+    }
+}

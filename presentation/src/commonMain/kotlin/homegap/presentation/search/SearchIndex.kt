@@ -81,7 +81,20 @@ fun searchIndex(
             )
         )
     }
-    (Route.NAV + Route.Locations + Route.AddNode).forEach { route ->
+    snapshot.certificates?.let { certs ->
+        certs.names.forEach { name ->
+            add(
+                SearchHit(
+                    kind = SearchKind.Dns,
+                    title = name.name,
+                    subtitle = "on the node certificate · ${name.reason}",
+                    location = Location(Route.Certificates),
+                    keywords = "certificate tls",
+                )
+            )
+        }
+    }
+    (Route.NAV + Route.Certificates + Route.Locations + Route.AddNode).forEach { route ->
         add(
             SearchHit(
                 kind = SearchKind.Page,

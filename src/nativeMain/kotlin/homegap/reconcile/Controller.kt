@@ -146,7 +146,11 @@ class Controller(
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
     @Volatile private var meshStatus: homegap.api.MeshStatusDto? = null
-    private val nodeCert by lazy { NodeCertificate("${config.dataDir}/acme") }
+    private val nodeCert by lazy { NodeCertificate("${config.dataDir}/acme").also { it.onChange = { revision.value++ } } }
+    /** The last TLS probes of each node; a node that does not answer keeps its last ones. */
+    @Volatile private var certProbes: Map<String, homegap.acme.CertificateStatus.NodeProbes> = emptyMap()
+    /** The CAA records of the domain from the last zone read; null before one. */
+    @Volatile private var caaLive: List<String>? = null
     private val discoveryMemory by lazy { homegap.discovery.DiscoveryMemory("${config.dataDir}/discovery.json") }
     private val heldContainers = mutableSetOf<String>()
 
@@ -265,6 +269,8 @@ class Controller(
         val serviceProbes: Map<String, ServiceProbe> = emptyMap(),
         /** Traefik's request and response-byte counters, summed over entry points; null without metrics. */
         val traffic: Pair<Double, Double>? = null,
+        /** The TLS probe of each public name through this node, and its installed certificate. */
+        val certProbes: homegap.acme.CertificateStatus.NodeProbes? = null,
     )
 
     /** One request to a service through a node's proxy; [code] 0 when it got no answer. */
@@ -478,6 +484,9 @@ class Controller(
                 nodeCert.ensure(ctx, CertNames.of(cfg, effective), bunny, background)
             } ?: nodeCert.current()
 
+            val onCertificate = CertNames.of(cfg, effective)
+            val certProbeNames = onCertificate + CertNames.passthrough(effective).filter { it !in onCertificate }
+
             // 2-4. Node lifecycle, tunnels and resources, per node in parallel.
             val nodeRec = NodeReconciler(ctx, if (cfg.cluster != null) clusterRec else null)
             val tunnelRec = TunnelReconciler(ctx)
@@ -595,7 +604,7 @@ class Controller(
                         val probeHosts = effective.services
                             .filter { it.isHttpLike() && !it.paused && !it.hostname.startsWith("*") && it.servesNode(node.id) }
                             .map { it.hostname }
-                        val o = runDomain("observe", node.id) { observeNode(ctx, node, ready, site, probeHosts) }
+                        val o = runDomain("observe", node.id) { observeNode(ctx, node, ready, site, probeHosts, certProbeNames) }
                         synchronizedPut(obs, node.id, o ?: NodeObservation(false, emptyList(), null, false))
                         synchronizedPut(online, node.id, site?.online)
                         if (!clustered || ready == null || site == null) synchronizedPut(health, node.id, serviceHealthFor(effective, node.id, resources, site))
@@ -663,7 +672,9 @@ class Controller(
                 val waitingForNameservers = dnsObs.any { it.diff?.startsWith(DnsReconciler.NOT_ON_EVERY_NAMESERVER) == true }
                 val fresh = key == dnsKey && !waitingForNameservers && nowMillis() - dnsSyncedAt < cfg.reconcile.dnsCheck.inWholeMilliseconds
                 if (!fresh || trigger.contains("dashboard")) {
-                    val obs = runDomain("dns", null) { DnsReconciler(ctx, bunny, nameserverCheck).reconcile(records, pausedKeys) }
+                    val dnsRec = DnsReconciler(ctx, bunny, nameserverCheck)
+                    val obs = runDomain("dns", null) { dnsRec.reconcile(records, pausedKeys) }
+                    dnsRec.lastCaa?.let { caaLive = it }
                     if (obs != null) {
                         dnsObs = obs
                         if (bunny != null) { dnsKey = key; dnsSyncedAt = nowMillis() }
@@ -674,6 +685,8 @@ class Controller(
             }
 
             nodeObs = obs
+            certProbes = (certProbes + obs.mapNotNull { (id, o) -> o.certProbes?.let { id to it } })
+                .filterKeys { id -> cfg.nodes.any { it.id == id } }
             if (!dryRun) trackIsolation(cfg.nodes.filter { !state.node(it.id).pendingDecommission }.mapNotNull { obs[it.id]?.reachable }, nowMillis())
             siteOnline = online
             serviceHealth = health
@@ -780,6 +793,7 @@ class Controller(
         ready: ReadyNode?,
         site: PangolinSite?,
         probeHosts: List<String>,
+        certNames: List<String>,
     ): NodeObservation {
         if (ctx.dryRun) return NodeObservation(false, listOf(CheckDto("mode", Health.UNKNOWN, "dry-run: no remote access")), null, false)
         val checks = mutableListOf<CheckDto>()
@@ -795,7 +809,8 @@ class Controller(
             |echo "T root $(probe $${shQuote(root)})"
             |(ss -lun 2>/dev/null | grep -q ':51820 ') && echo "U ok" || echo "U missing"
         """.trimMargin() + (if (ctx.config.cluster == null) "" else "\necho \"P \$(${ClusterProxy.CSV_CMD} | base64 -w0)\"") +
-            serviceProbeScript(probeHosts) + "\n" + homegap.provision.NodeTemplates.TRAFFIC_CMD
+            serviceProbeScript(probeHosts) + "\n" + homegap.provision.NodeTemplates.TRAFFIC_CMD + "\n" +
+            homegap.acme.CertProbes.script(certNames, "${ctx.config.pangolin.installDir}/${homegap.provision.NodeTemplates.DYNAMIC_TLS}")
         val r = runCatching {
             ctx.ssh.session(node).runScript(script, 60)
         }.onFailure {
@@ -896,6 +911,13 @@ class Controller(
         }
         site?.newtVersion?.let { newtVersions[node.id] = it }
         checks += CheckDto("tunnel", when (site?.online) { true -> Health.OK; false -> Health.DOWN; null -> Health.UNKNOWN }, site?.let { "site ${it.niceId}${it.newtVersion?.let { v -> ", newt $v" }.orEmpty()}" } ?: "no site")
+        val certProbes = if (reachable) {
+            val lines = r.stdout.lines()
+            val installed = homegap.acme.CertProbes.installed(lines)
+            homegap.acme.CertificateStatus.NodeProbes(nowMillis(), installed?.first, installed?.second, homegap.acme.CertProbes.parse(lines))
+        } else {
+            null
+        }
         return NodeObservation(
             reachable = reachable,
             checks = checks,
@@ -903,6 +925,7 @@ class Controller(
             apiOk = apiOk,
             serviceProbes = serviceProbes,
             traffic = traffic,
+            certProbes = certProbes,
         )
     }
 
@@ -934,6 +957,8 @@ class Controller(
         val cfg = config
         val st = state.snapshot()
         val plan = desired
+        val certificates = certificateStatus(cfg, plan)
+        val waitingNodes = certificates.delivery.filter { it.state == "waiting" }.map { it.node }.toSet()
         val nodes = (cfg.nodes.map { it.id } + st.nodes.keys).distinct().map { id ->
             val n = cfg.node(id)
             val ns = st.nodes[id]
@@ -953,7 +978,12 @@ class Controller(
                 provider = n?.provider.orEmpty(),
                 host = n?.host.orEmpty(),
                 managementHost = n?.managementHost(cfg.domain).orEmpty(),
-                health = if (ns?.lastProvisionOk == false) Health.DOWN else worst,
+                health = when {
+                    ns?.lastProvisionOk == false -> Health.DOWN
+                    // A new node is not down while it waits for an order with its name.
+                    id in waitingNodes && o?.reachable == true && worst == Health.DOWN -> Health.DEGRADED
+                    else -> worst
+                },
                 reachable = o?.reachable ?: false,
                 checks = o?.checks ?: emptyList(),
                 certificate = o?.certificate,
@@ -988,6 +1018,7 @@ class Controller(
                     node.location?.let { homegap.api.PlaceDto(it.latitude, it.longitude, it.name) }
                         ?: node.effectiveLocation()?.let { homegap.api.PlaceDto(it.latitude, it.longitude, null, estimated = true) }
                 },
+                waitingForCertificate = id in waitingNodes,
             )
         }
         val services = plan?.services?.map { s ->
@@ -1076,9 +1107,70 @@ class Controller(
             homelabIsolation = isolation?.let { (start, end) -> homegap.api.IsolationDto(start, end) },
             speedRun = speedRun,
             homelabContainers = homelabContainers,
+            certificates = certificates,
         ).let { snapshot ->
             snapshot.copy(attention = attentionItems(snapshot, attentionSeen))
         }
+    }
+
+    private fun certificateStatus(cfg: AppConfig, plan: DesiredState?): homegap.api.CertificatesDto {
+        val meta = nodeCert.meta()
+        val now = nowMillis()
+        return homegap.acme.CertificateStatus.build(
+            homegap.acme.CertificateStatus.Inputs(
+                config = cfg,
+                desired = plan,
+                meta = meta,
+                info = nodeCert.info(),
+                currentHash = nodeCert.current()?.hash,
+                renewAt = meta?.let(nodeCert::renewAt),
+                order = nodeCert.orders.state(),
+                running = nodeCert.running,
+                due = plan?.let { nodeCert.due(meta, CertNames.of(cfg, it), cfg.acme.directoryUrl(), now / 1000) },
+                history = nodeCert.orders.history(),
+                contact = nodeCert.email(cfg),
+                probes = certProbes,
+                reachable = nodeObs.mapValues { it.value.reachable },
+                caaLive = caaLive,
+                nowMs = now,
+            ),
+        )
+    }
+
+    /** Orders the certificate in the next pass; with [replaceKey], a new key, and the old certificate is revoked. */
+    suspend fun orderCertificate(replaceKey: Boolean): String = onLoop { orderCertificateOnLoop(replaceKey) }
+
+    private fun orderCertificateOnLoop(replaceKey: Boolean): String {
+        check(!dryRun) { "Dry run: HomeGAP orders no certificate" }
+        check(!state.snapshot().pauses.global) { "Reconciliation is paused. Resume it to order a certificate." }
+        nodeCert.request(replaceKey)?.let { throw IllegalStateException(it) }
+        log.change("certificates", if (replaceKey) "a new key was asked for from the dashboard" else "an order was asked for from the dashboard")
+        trigger("certificate order")
+        return if (replaceKey) {
+            "A new key and certificate are ordered now. The old certificate is revoked once the new one is out."
+        } else {
+            "The certificate order starts now"
+        }
+    }
+
+    /** Sends the current certificate to [nodeId] again in the next pass. */
+    suspend fun resendCertificate(nodeId: String): String = onLoop { resendCertificateOnLoop(nodeId) }
+
+    private suspend fun resendCertificateOnLoop(nodeId: String): String {
+        requireNotNull(config.node(nodeId)) { "unknown node $nodeId" }
+        check(!dryRun) { "Dry run: HomeGAP sends nothing to the nodes" }
+        check(!state.snapshot().pauses.global && nodeId !in state.snapshot().pauses.nodes) { "$nodeId is paused. Resume it to send the certificate." }
+        checkNotNull(nodeCert.current()) { "There is no certificate to send" }
+        state.updateNode(nodeId) { it.copy(facts = it.facts - "routesHash" + (ResourceReconciler.CERT_RESEND to "1")) }
+        trigger("certificate resend:$nodeId")
+        return "The certificate goes to $nodeId in this pass"
+    }
+
+    /** Runs the TLS probes again: they run in each pass. */
+    fun checkCertificates(): String {
+        check(!dryRun) { "Dry run: HomeGAP does not reach the nodes" }
+        trigger("certificate check")
+        return "The TLS probes run again in this pass"
     }
 
     /**

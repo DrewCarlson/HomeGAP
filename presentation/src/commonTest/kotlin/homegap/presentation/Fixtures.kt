@@ -33,6 +33,7 @@ object FixedClock : Clock {
 object FakeTimeFormatter : TimeFormatter {
     override fun time(epochMillis: Long): String = "t$epochMillis"
     override fun dateTime(epochMillis: Long): String = "d$epochMillis"
+    override fun date(epochMillis: Long): String = "day$epochMillis"
 }
 
 class FakeTokenStore(
@@ -73,6 +74,9 @@ class FakeControllerApi(
     override suspend fun resync() = ok("resync")
     override suspend fun applyOnce() = ok("apply once")
     override suspend fun restartTunnel(node: String) = ok("restart tunnel $node")
+    override suspend fun orderCertificate(replaceKey: Boolean) = ok(if (replaceKey) "replace key" else "order certificate")
+    override suspend fun resendCertificate(node: String) = ok("resend certificate $node")
+    override suspend fun checkCertificates() = ok("check certificates")
     override suspend fun undo(id: String) = ok("undo $id")
     override suspend fun reissueInvitation(id: String) = CreateAccessUserResponse(true, "new link", "https://pangolin.x/invite?token=new").also { calls += "reissue $id" }
     override suspend fun provision(node: String) = ok("provision $node")

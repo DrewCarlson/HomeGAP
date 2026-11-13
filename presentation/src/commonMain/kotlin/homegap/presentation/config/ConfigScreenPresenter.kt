@@ -78,7 +78,11 @@ class ConfigScreenPresenter(private val api: ControllerApi) : Presenter<ConfigSc
             desiredState = loaded?.diff?.desiredState.orEmpty(),
             configPath = loaded?.config?.path,
             configYaml = loaded?.config?.yaml.orEmpty(),
+            acmeNote = ACME_NOTE.takeIf { loaded?.config?.yaml?.contains(Regex("^acme:", RegexOption.MULTILINE)) == true },
             onToggleOnlyChanges = remember { { onlyChanges = it } },
         )
     }
 }
+
+private const val ACME_NOTE = "The acme keys set the certificate of the nodes. A change of acme.staging or acme.directory starts a new order, " +
+    "and a change of acme.caa changes who can issue for the domain."

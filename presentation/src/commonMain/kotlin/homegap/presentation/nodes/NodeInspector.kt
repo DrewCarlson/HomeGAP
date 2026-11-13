@@ -1,5 +1,8 @@
 package homegap.presentation.nodes
 
+import homegap.presentation.routing.Location
+import homegap.presentation.routing.Route
+
 import homegap.api.CheckDto
 import homegap.api.Health
 import homegap.api.NodeStatusDto
@@ -23,6 +26,7 @@ fun nodeInspector(
     samples: Map<String, Samples>?,
     now: Long,
     actions: List<ActionModel>,
+    certificates: homegap.api.CertificatesDto? = null,
 ): InspectorModel {
     val nowSeconds = now / 1000
     val api = node.checks.firstOrNull { it.name == "pangolin-api" }
@@ -86,13 +90,21 @@ fun nodeInspector(
         kind = "Node",
         title = node.id,
         status = listOfNotNull(
-            node.health.label,
+            if (node.waitingForCertificate) "waiting for certificate" else node.health.label,
             node.location?.name,
             node.job?.let { job -> node.jobStep ?: "$job…" },
             "paused".takeIf { node.paused },
         ).joinToString(" · "),
         health = node.health,
         sections = buildList {
+            if (node.waitingForCertificate) {
+                add(
+                    InspectorSection.Note(
+                        text = "Not broken: ${node.id} waits for its certificate. Its tunnel connects once an order with ${node.managementHost} completes.",
+                        severity = Severity.Info,
+                    )
+                )
+            }
             node.lastProvisionError?.takeIf { node.lastProvisionOk == false }?.let {
                 add(InspectorSection.Note(text = "Provisioning failed: ${it.take(300)}", severity = Severity.Down))
             }
@@ -108,7 +120,20 @@ fun nodeInspector(
             add(
                 InspectorSection.Marks(
                     title = "Checks",
-                    rows = node.checks.map { it.toMark() },
+                    rows = node.checks.map { check ->
+                        val root = node.managementHost.substringAfter('.')
+                        val homelabRoot = certificates?.probes?.any { it.kind == "homelab" && it.name == root } == true
+                        check.toMark().let { mark ->
+                            if (check.name == "tls-mgmt" || check.name == "tls-root") {
+                                mark.copy(
+                                    tag = "held by the homelab".takeIf { check.name == "tls-root" && homelabRoot },
+                                    location = Location(Route.Certificates, "node:${node.id}"),
+                                )
+                            } else {
+                                mark
+                            }
+                        }
+                    },
                 )
             )
             if (node.drift.isNotEmpty()) {

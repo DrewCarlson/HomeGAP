@@ -21,7 +21,7 @@ fun AttentionItemDto.toMessage(): StatusMessage = StatusMessage(
 
 /** The items shown on [route]'s page (all of them on the Overview). */
 fun List<AttentionItemDto>.on(route: Route): List<AttentionItemDto> =
-    if (route == Route.Overview) this else filter { it.location.route == route.navSection }
+    if (route == Route.Overview) this else filter { it.location.route == route }
 
 /** A status line of [items], or null when nothing needs attention. */
 fun statusLineOf(items: List<AttentionItemDto>): StatusLineModel? =

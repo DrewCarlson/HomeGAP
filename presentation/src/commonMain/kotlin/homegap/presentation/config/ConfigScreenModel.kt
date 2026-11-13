@@ -14,6 +14,8 @@ data class ConfigScreenModel(
     val desiredState: String,
     val configPath: String?,
     val configYaml: String,
+    /** Shown when the config has `acme` keys: they set the certificate of the nodes. */
+    val acmeNote: String? = null,
     val onToggleOnlyChanges: (Boolean) -> Unit,
 ) : ScreenModel
 

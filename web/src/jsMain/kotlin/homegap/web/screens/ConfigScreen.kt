@@ -81,6 +81,14 @@ fun ConfigScreen(model: ConfigScreenModel) {
         }
     }
     Figure(caption = "Fig. 04 · Config file · ${model.configPath.orEmpty()}") {
+        model.acmeNote?.let { note ->
+            P({ classes("small", "muted") }) {
+                Text("$note ")
+                A(href = homegap.web.routing.HashRouter.href(homegap.presentation.routing.Route.Certificates), { classes("link") }) {
+                    Text("Certificates →")
+                }
+            }
+        }
         Pre({ classes("code-text") }) {
             ScrollHint()
             Text(model.configYaml)

@@ -271,6 +271,7 @@ class ResourceReconciler(
         val probes = MaintenancePage.probes(desired, ids)
         val hash = Crypto.fnv64(content + maintenance + probes + certificate?.hash)
         val st = ctx.state.node(ready.node.id)
+        val resend = st.facts[CERT_RESEND] != null && certificate != null
         val dueCheck = st.facts["routesHash"] != hash || st.drift.isNotEmpty() || (st.lastCheckAt ?: 0) > (st.facts["routesCheckedAt"]?.toLongOrNull() ?: 0)
         if (!dueCheck) return
         val ssh = ctx.ssh.session(ready.node)
@@ -285,14 +286,14 @@ class ResourceReconciler(
             |${SshSession.writeFileSnippet("${ctx.config.pangolin.installDir}/${MaintenancePage.ROUTES}", maintenance)}
             |${SshSession.writeFileSnippet("${ctx.config.pangolin.installDir}/${MaintenancePage.PROBES}", probes)}
             |hg_own ${shQuote("${ctx.config.pangolin.installDir}/${MaintenancePage.DIR}")}
-            |${certificateScript()}
+            |${certificateScript(resend)}
         """.trimMargin(), 60)
         if (out.contains("CERTIFICATE installed")) ctx.log.change(domain, "installed the certificate of the nodes (${certificate?.names?.size} names)", ready.node.id)
         if (out.contains("CERTIFICATE removed")) ctx.log.change(domain, "removed the certificate from the node: HomeGAP has none to give", ready.node.id)
         if (out.contains("ROUTES changed")) {
             ctx.log.change(domain, "updated Traefik routes (${desired.sniRoutes.size} SNI passthrough, health=${desired.healthResourceNiceId != null})", ready.node.id)
         }
-        ctx.state.updateNode(ready.node.id) { it.copy(facts = it.facts + ("routesHash" to hash) + ("routesCheckedAt" to (st.lastCheckAt ?: 0).toString())) }
+        ctx.state.updateNode(ready.node.id) { it.copy(facts = it.facts - CERT_RESEND + ("routesHash" to hash) + ("routesCheckedAt" to (st.lastCheckAt ?: 0).toString())) }
     }
 
     /**
@@ -300,13 +301,16 @@ class ResourceReconciler(
      * certificate, it removes all three, so a key from an earlier certificate does not stay on the
      * node.
      */
-    private fun certificateScript(): String {
+    private fun certificateScript(resend: Boolean): String {
         val dir = ctx.config.pangolin.installDir
         val cert = shQuote("$dir/${NodeTemplates.CERT}")
         val key = shQuote("$dir/${NodeTemplates.KEY}")
         val tls = shQuote("$dir/${NodeTemplates.DYNAMIC_TLS}")
         val c = certificate ?: return "if [ -e $cert ] || [ -e $key ] || [ -e $tls ]; then rm -f $tls $cert $key; echo 'CERTIFICATE removed'; fi"
+        // Send again: without the old files, the node writes each one anew and Traefik reloads them.
+        val resend = if (resend) "rm -f $tls $cert $key" else ""
         return """
+            |$resend
             |install -d -m 0700 "$(dirname $cert)"
             |umask 077
             |${SshSession.writeFileSnippet("$dir/${NodeTemplates.KEY}", c.keyPem, "0600")}
@@ -439,6 +443,9 @@ class ResourceReconciler(
         /** Diff and base-blueprint scope for the cluster's shared resources. */
         const val CLUSTER_SCOPE = "cluster"
         private const val BASE_KEY = "base"
+
+        /** A node fact: the dashboard asked to send the certificate to the node again. */
+        const val CERT_RESEND = "certResend"
 
         /**
          * Groups each node's resources by niceId: the resource (identical on every node that

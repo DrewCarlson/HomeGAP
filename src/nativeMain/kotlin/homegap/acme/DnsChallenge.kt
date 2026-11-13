@@ -14,6 +14,8 @@ class DnsChallenge(
     private val zoneId: Long,
     private val zone: String,
     names: List<String>,
+    private val onPresent: () -> Unit = {},
+    private val onCleanup: () -> Unit = {},
 ) {
     private val allowed = names.map { "$LABEL.${it.removePrefix("*.")}".lowercase() }.toSet()
     private val txt = BunnyRecord.typeCode("TXT")
@@ -28,11 +30,13 @@ class DnsChallenge(
     suspend fun present(fqdn: String, value: String) {
         require(VALUE.matches(value)) { "not a challenge value" }
         bunny.addRecord(zoneId, BunnyRecord(type = txt, ttl = TTL, value = value, name = relative(fqdn), comment = COMMENT))
+        onPresent()
     }
 
     suspend fun cleanup(fqdn: String, value: String) {
         val name = relative(fqdn)
         for (r in owned()) if (r.name.equals(name, ignoreCase = true) && r.value == value) bunny.deleteRecord(zoneId, r.id)
+        onCleanup()
     }
 
     /** Removes each challenge record that an earlier order left behind. */

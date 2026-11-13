@@ -28,6 +28,10 @@ class DnsReconciler(
     var lastObserved: List<Observed> = emptyList()
         private set
 
+    /** The CAA records at the zone's apex, as `flags tag "value"`, from the last zone read. */
+    var lastCaa: List<String>? = null
+        private set
+
     suspend fun reconcile(desired: List<DesiredDnsRecord>, pausedServiceKeys: Set<String>): List<Observed> {
         val cfg = ctx.config.bunny
         val bunny = this.bunny
@@ -48,6 +52,8 @@ class DnsReconciler(
             throw it
         }
         val actual = zone.records
+        val caaType = BunnyRecord.typeCode("CAA")
+        lastCaa = actual.filter { it.type == caaType && it.name.isEmpty() }.map { "${it.flags ?: 0} ${it.tag.orEmpty()} \"${it.value}\"" }.sorted()
         val claimed = mutableSetOf<Long>()
         val observed = mutableListOf<Observed>()
         val global = ctx.pauses().global

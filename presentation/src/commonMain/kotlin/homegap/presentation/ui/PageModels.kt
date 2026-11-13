@@ -15,6 +15,17 @@ data class PageHeadModel(
     val statusLine: StatusLineModel? = null,
     /** Buttons beside the headline (Add node). */
     val actions: List<ActionModel> = emptyList(),
+    /** The tabs of the section, when it has more than one page (DNS: Records, Certificates). */
+    val tabs: List<PageTabModel> = emptyList(),
+)
+
+/** A tab of a section. [attention] marks a page with something that needs attention. */
+@Immutable
+data class PageTabModel(
+    val label: String,
+    val location: Location,
+    val selected: Boolean,
+    val attention: Health? = null,
 )
 
 /** A status message: what it says, how bad it is, and where it leads. */

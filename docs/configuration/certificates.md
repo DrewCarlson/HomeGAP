@@ -98,14 +98,43 @@ The ACME account key, the certificate and its key are in `acme/` in the data dir
 
 On a node, the certificate is `config/traefik/certs/homegap.crt` and the key is `homegap.key`, with mode 0600.
 
+## The Certificates page
+
+The dashboard has a **Certificates** tab on the **DNS** page. It shows state only. It never shows a key, a certificate file, the ACME account key or a challenge value, and it has no control to upload or download a certificate.
+
+The page has these parts:
+
+- **The status line.** One sentence with the state: valid, an order that runs, a failed order, the renewal window, or no certificate.
+- **The node certificate.** The lifetime with the issue date, the renewal date and the expiry, the issuer and the ACME directory, and each name with the reason that puts it on the certificate. If the names in the config differ from the names on the certificate, the page shows the names to add and to remove. The Inspector shows the key type, the serial number and the SHA-256 fingerprint of the certificate.
+- **Delivery to the nodes.** For each node: the version of the certificate that it has, the time of the delivery, and what it serves on its management name.
+- **What a visitor gets.** A TLS probe of each public name through each node, each pass. A name in `passthrough` mode has the tag **Homelab**: the Traefik of the homelab holds its certificate, and HomeGAP does not renew it.
+- **Orders.** The last 20 orders and revocations, with the reason, the result and the duration.
+- **Who can issue.** The CAA records that HomeGAP publishes, and the CAA records that DNS has now.
+
+The page has four actions:
+
+| Action | What it does |
+| --- | --- |
+| **Order now** | Starts the order in the next pass, without the wait of one hour after a failure. HomeGAP refuses it after 5 failed orders in one hour. |
+| **Send again** | Writes the certificate files on the node again in the next pass. |
+| **Check now** | Runs the TLS probes again. |
+| **Replace the key** | Orders a new certificate with a new key for the same names, and revokes the old certificate. Use it when a node can be compromised. |
+
+When changes are paused, or in dry-run mode, the actions that change something are off.
+
+A new node waits for an order with its management name. Until then, it answers that name with the default certificate, and its tunnel cannot connect. The dashboard shows the node as "waiting for certificate", not as down.
+
 ## Expiry and failures
 
-The **Nodes** page on the dashboard shows the expiry of the certificate on each node.
+If an order fails, the nodes keep the certificate that they have. HomeGAP keeps the state of the order in the data directory, writes a short cause in the activity log, and tries again after one hour. The full error text of the ACME client is in the detail of the log entry. A node without a certificate answers its names with the default certificate of Traefik, and browsers show a warning.
 
-If an order fails, the nodes keep the certificate that they have. HomeGAP writes the error in the activity log and tries again after one hour. A node without a certificate answers its names with the default certificate of Traefik, and browsers show a warning.
+The **Certificates** page shows the cause of a failed order:
 
-These are possible causes of a failed order:
-
-- The Bunny API key is not set, or it cannot change the zone.
-- The homelab cannot reach Let's Encrypt.
-- A CAA record that HomeGAP does not manage, on a name above `domain`, refuses Let's Encrypt.
+| Cause | What to do |
+| --- | --- |
+| DNS did not show the challenge record in time. | Bunny DNS was slow. HomeGAP tries again after one hour. |
+| Let's Encrypt refused: too many orders. | Let's Encrypt allows 5 failed orders for each name in one hour. Wait. |
+| A CAA record forbids the order. | A CAA record that HomeGAP does not manage, on a name above `domain`, refuses Let's Encrypt. |
+| The Bunny key is missing or refused. | Set the Bunny API key, and make sure that it can change the zone. |
+| The ACME service did not answer. | The homelab cannot reach Let's Encrypt. |
+| More than 100 names. | One certificate holds at most 100 names. Use a front door in `terminate` mode with a wildcard. |

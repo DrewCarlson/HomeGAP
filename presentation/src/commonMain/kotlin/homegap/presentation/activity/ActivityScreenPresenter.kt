@@ -168,12 +168,18 @@ class ActivityScreenPresenter(
                     FactRow("Level", entry.level.name.lowercase()),
                     entry.pass?.let { FactRow("Pass", "#$it", mono = true) },
                     FactRow("Sequence", "#${entry.seq}", mono = true),
-                ) + entry.fields.map { (key, value) ->
+                ) + entry.fields.filterKeys { it != "detail" }.map { (key, value) ->
                     FactRow(key.replace('_', ' '), value, mono = true)
                 },
             ),
-        ),
+        ) + listOfNotNull(entry.fields["detail"]?.let { InspectorSection.Code(title = "Detail", text = it) }),
         actions = listOfNotNull(
+            entry.fields["order"]?.takeIf { entry.domain == "certificates" }?.let { order ->
+                ActionModel(
+                    label = "Open the order",
+                    location = homegap.presentation.routing.Location(homegap.presentation.routing.Route.Certificates, "order:$order"),
+                )
+            },
             entry.pass?.let {
                 ActionModel(
                     label = "Show pass #$it",

@@ -97,6 +97,18 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
             }
         }
     }
+    if (model.certificate.isNotEmpty()) {
+        Figure(caption = "Certificate · ${model.node.orEmpty()} · no file content") {
+            Dl({ classes("fact-list") }) {
+                model.certificate.forEach { fact ->
+                    Div {
+                        Dt({ classes("mono") }) { Text(fact.label) }
+                        Dd({ classes("mono") }) { Text(fact.value) }
+                    }
+                }
+            }
+        }
+    }
     if (model.report.isNotEmpty()) {
         Figure(
             caption = "Fig. 02 · Report · ${model.report.count { it.health == homegap.api.Health.DEGRADED }} to look at",

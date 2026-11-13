@@ -208,6 +208,10 @@ private fun Screen(
             model = screen,
             onOpen = onOpen,
         )
+        is homegap.presentation.certificates.CertificatesScreenModel -> CertificatesScreen(
+            model = screen,
+            onOpen = onOpen,
+        )
         is TunnelsScreenModel -> TunnelsScreen(
             model = screen,
             onOpen = onOpen,

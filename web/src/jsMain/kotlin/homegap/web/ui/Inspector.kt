@@ -7,6 +7,7 @@ import homegap.presentation.routing.Location
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.InspectorSection
 import homegap.presentation.ui.MarkRow
+import kotlinx.browser.window
 import org.jetbrains.compose.web.dom.*
 
 /**
@@ -80,7 +81,10 @@ private fun InspectorContent(
         ScrollHint()
         ScrollReset(inspector.kind to inspector.title)
         inspector.sections.forEach { section ->
-            Section(section)
+            Section(
+                section = section,
+                onOpen = onOpen,
+            )
         }
     }
     // Drawer and sheet: a zero-height line over the action bar; the toasts rise from it over the body's end.
@@ -105,7 +109,7 @@ private fun InspectorContent(
 }
 
 @Composable
-private fun Section(section: InspectorSection) {
+private fun Section(section: InspectorSection, onOpen: (Location) -> Unit) {
     when (section) {
         is InspectorSection.Charts -> Div({ classes("inspector-charts") }) {
             section.charts.forEach { Chart(it) }
@@ -121,8 +125,18 @@ private fun Section(section: InspectorSection) {
                             if (row.mono) {
                                 classes("mono")
                             }
+                            if (row.copy) {
+                                classes("copyable")
+                            }
                         }) {
-                            Text(row.value)
+                            Span { Text(row.value) }
+                            if (row.copy) {
+                                IconButton(
+                                    iconPath = Icons.COPY,
+                                    label = "Copy ${row.label}",
+                                    onClick = { window.navigator.asDynamic().clipboard?.writeText(row.value) },
+                                )
+                            }
                         }
                     }
                 }
@@ -132,7 +146,12 @@ private fun Section(section: InspectorSection) {
         is InspectorSection.Marks -> Div({ classes("inspector-section") }) {
             Div({ classes("caption") }) { Text(section.title) }
             Ul({ classes("marks") }) {
-                section.rows.forEach { Mark(it) }
+                section.rows.forEach {
+                    Mark(
+                        row = it,
+                        onOpen = onOpen,
+                    )
+                }
             }
         }
 
@@ -166,7 +185,7 @@ private fun Section(section: InspectorSection) {
 }
 
 @Composable
-private fun Mark(row: MarkRow) {
+private fun Mark(row: MarkRow, onOpen: (Location) -> Unit) {
     Li({ classes("mark-row") }) {
         Span({
             classes("mark", row.health.toneClass)
@@ -176,8 +195,20 @@ private fun Mark(row: MarkRow) {
         }
         Span({ classes("mark-name") }) {
             Text(row.name)
+            row.tag?.let { tag ->
+                Span({ classes("cert-tag", "homelab") }) { Text(tag) }
+            }
             if (row.detail.isNotEmpty()) {
                 Span({ classes("mark-detail") }) { Text(row.detail) }
+            }
+            row.location?.let { location ->
+                NavLink(
+                    href = homegap.web.routing.HashRouter.href(location),
+                    onNavigate = { onOpen(location) },
+                    classNames = listOf("mark-link", "small"),
+                ) {
+                    Text("Certificates →")
+                }
             }
         }
         if (row.value.isNotEmpty()) {

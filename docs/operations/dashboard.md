@@ -79,6 +79,12 @@ The records that HomeGAP manages, grouped into record sets. The page shows the s
 
 <img src="../img/dashboard/dns.png" alt="The DNS page with the record sets">
 
+The CAA record sets belong to certificate management. They are read-only, and they link to the **Certificates** tab.
+
+### Certificates
+
+A tab of the **DNS** page. It shows the certificate that the nodes share, which node has it, what a visitor gets on each name through each node, the orders, and who can issue for the domain. See [Certificates](../configuration/certificates.md#the-certificates-page).
+
 ### Tunnels
 
 One card for each Newt connector: its state, its process, its restarts and its throughput over the last hour. The Inspector shows the Newt version and the last times the connector stopped, with the reason. **Restart connector** stops Newt and starts it again. Traffic through that node pauses for a few seconds.

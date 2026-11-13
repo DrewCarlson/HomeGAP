@@ -74,7 +74,8 @@ class ReconcileLog(
 
     fun lastRecordChange(name: String): Long? = synchronized(lock) { recordChanges[name] }
     fun warn(domain: String, message: String, target: String? = null) = add(LogLevel.WARN, domain, message, target)
-    fun error(domain: String, message: String, target: String? = null) = add(LogLevel.ERROR, domain, message, target)
+    fun error(domain: String, message: String, target: String? = null, fields: Map<String, String> = emptyMap()) =
+        add(LogLevel.ERROR, domain, message, target, fields)
 
     private fun add(level: LogLevel, domain: String, message: String, target: String?, fields: Map<String, String> = emptyMap()) {
         val line = "[$domain]${target?.let { " [$it]" }.orEmpty()} $message"

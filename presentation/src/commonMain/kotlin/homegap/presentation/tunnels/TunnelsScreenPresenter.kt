@@ -57,7 +57,7 @@ class TunnelsScreenPresenter(
                     nodeId = tunnel.nodeId,
                     endpoint = tunnel.endpoint,
                     health = tunnel.health(),
-                    status = tunnel.statusText(),
+                    status = certificateCause(status, tunnel)?.let { "down · $it" } ?: tunnel.statusText(),
                     facts = tunnel.facts(),
                     chart = chartOf(
                         label = "In, homelab to edge",
@@ -73,6 +73,7 @@ class TunnelsScreenPresenter(
                     tunnel = tunnel,
                     samples = props.metrics[tunnel.nodeId],
                     nowSeconds = nowSeconds,
+                    cause = certificateCause(status, tunnel),
                 )
             },
             empty = if (status.tunnels.isEmpty()) {
@@ -91,13 +92,21 @@ class TunnelsScreenPresenter(
         )
     }
 
-    private fun inspector(tunnel: TunnelStatusDto, samples: Map<String, Samples>?, nowSeconds: Long): InspectorModel =
+    private fun inspector(tunnel: TunnelStatusDto, samples: Map<String, Samples>?, nowSeconds: Long, cause: String?): InspectorModel =
         InspectorModel(
             kind = "Tunnel",
             title = "${tunnel.nodeId} connector",
             status = tunnel.statusText(),
             health = tunnel.health(),
             sections = buildList {
+                cause?.let {
+                    add(
+                        InspectorSection.Note(
+                            text = "The cause: ${tunnel.nodeId} $it, so Newt cannot connect. It connects once the node has the certificate with its name.",
+                            severity = Severity.Warn,
+                        )
+                    )
+                }
                 tunnel.lastExit?.let { add(InspectorSection.Note(text = "Last exit: $it", severity = Severity.Warn)) }
                 add(
                     InspectorSection.Charts(
@@ -145,7 +154,13 @@ class TunnelsScreenPresenter(
                     )
                 }
             },
-            actions = listOf(
+            actions = listOfNotNull(
+                cause?.let {
+                    ActionModel(
+                        label = "Certificates",
+                        location = Location(Route.Certificates, "node:${tunnel.nodeId}"),
+                    )
+                },
                 ActionModel(
                     label = "Restart connector",
                     onClick = {
@@ -190,3 +205,14 @@ private fun TunnelStatusDto.facts(): List<String> = listOfNotNull(
     if (restarts > 0) plural(restarts, "restart") else null,
     bytesIn?.let { "${formatBytes(it)} in" },
 )
+
+/** Why [tunnel] is down when the cause is the certificate: its node answers its own name with the default one. */
+private fun certificateCause(status: homegap.api.StatusSnapshot, tunnel: TunnelStatusDto): String? {
+    if (tunnel.up) return null
+    val delivery = status.certificates?.delivery?.firstOrNull { it.node == tunnel.nodeId } ?: return null
+    return when (delivery.state) {
+        "waiting" -> "waits for its certificate: its management name serves the default certificate"
+        "default", "none" -> "serves the default certificate on its management name"
+        else -> null
+    }
+}

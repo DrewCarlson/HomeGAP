@@ -95,6 +95,7 @@ class NodesScreenPresenter(
                     samples = props.metrics[node.id],
                     now = now,
                     actions = nodeActions.forNode(node),
+                    certificates = status.certificates,
                 )
             },
             empty = if (status.nodes.isEmpty()) {
@@ -127,7 +128,7 @@ class NodesScreenPresenter(
             place = node.location?.name ?: node.region,
             meta = listOf(node.provider, node.region, node.host).filter { it.isNotBlank() }.joinToString(" · "),
             health = node.health,
-            status = node.health.label,
+            status = if (node.waitingForCertificate) "waiting for certificate" else node.health.label,
             passing = "$passing / ${node.checks.size}",
             checks = node.checks.map { it.health },
             chart = chartOf(
@@ -141,7 +142,7 @@ class NodesScreenPresenter(
                 node.tunnelUp -> "up"
                 else -> "down"
             },
-            certificate = node.certificate?.daysRemaining?.let { "$it days" } ?: "—",
+            certificate = if (node.waitingForCertificate) "waiting" else node.certificate?.daysRemaining?.let { "$it days" } ?: "—",
             stack = stackText(node),
             drift = if (node.drift.isEmpty()) "none" else plural(node.drift.size, "difference"),
             location = Location(Route.Nodes, node.id),

@@ -17,6 +17,7 @@ internal fun attentionItems(snapshot: StatusSnapshot, since: Map<String, Long>):
         detail: String,
         route: String,
         selection: String?,
+        parent: String? = null,
     ) {
         items += AttentionItemDto(
             id = id,
@@ -26,8 +27,12 @@ internal fun attentionItems(snapshot: StatusSnapshot, since: Map<String, Long>):
             since = since[id] ?: snapshot.generatedAt,
             route = route,
             selection = selection,
+            parent = parent,
         )
     }
+
+    // Certificate faults first: node and tunnel items that follow from one fold under it.
+    val certCause = certificateItems(snapshot, ::add)
 
     snapshot.homelabIsolation?.takeIf { it.endedAt == null }?.let {
         add(
@@ -45,7 +50,28 @@ internal fun attentionItems(snapshot: StatusSnapshot, since: Map<String, Long>):
             val measured = check.value?.let { value -> "${value.toLong()} ${check.unit.orEmpty()}".trim() }
             listOfNotNull(checkName(check.name), measured ?: check.detail.ifEmpty { null }).joinToString(" ")
         }
+        val deliveryState = snapshot.certificates?.delivery?.firstOrNull { it.node == node.id }?.state
         when {
+            node.waitingForCertificate && node.lastProvisionOk != false -> add(
+                id = "node:${node.id}:waiting",
+                severity = Health.DEGRADED,
+                title = "${node.id} waits for its certificate",
+                detail = "its tunnel connects after the order with ${node.managementHost}",
+                route = "certificates",
+                selection = "node:${node.id}",
+                parent = certCause,
+            )
+
+            deliveryState == "default" && node.lastProvisionOk != false -> add(
+                id = "node:${node.id}:default-certificate",
+                severity = Health.DOWN,
+                title = "${node.id} answers with the default certificate",
+                detail = firstProblem.orEmpty(),
+                route = "certificates",
+                selection = "node:${node.id}",
+                parent = certCause,
+            )
+
             node.lastProvisionOk == false -> add(
                 id = "node:${node.id}:provision",
                 severity = Health.DOWN,
@@ -83,7 +109,7 @@ internal fun attentionItems(snapshot: StatusSnapshot, since: Map<String, Long>):
                 selection = node.id,
             )
         }
-        node.certificate?.daysRemaining?.takeIf { it < 14 }?.let { days ->
+        node.certificate?.daysRemaining?.takeIf { it < 14 && snapshot.certificates == null }?.let { days ->
             add(
                 id = "node:${node.id}:certificate",
                 severity = if (days < 0) Health.DOWN else Health.DEGRADED,
@@ -152,13 +178,15 @@ internal fun attentionItems(snapshot: StatusSnapshot, since: Map<String, Long>):
     }
     for (tunnel in snapshot.tunnels) {
         if (tunnel.up) continue
+        val waiting = snapshot.nodes.any { it.id == tunnel.nodeId && it.waitingForCertificate }
         add(
             id = "tunnel:${tunnel.nodeId}",
-            severity = Health.DOWN,
+            severity = if (waiting) Health.DEGRADED else Health.DOWN,
             title = "Tunnel to ${tunnel.nodeId} is down",
-            detail = tunnel.lastExit.orEmpty(),
+            detail = if (waiting) "${tunnel.nodeId} serves the default certificate until its order completes" else tunnel.lastExit.orEmpty(),
             route = "tunnels",
             selection = tunnel.nodeId,
+            parent = if (waiting) certCause ?: "node:${tunnel.nodeId}:waiting" else null,
         )
     }
     snapshot.cluster?.alerts?.forEachIndexed { index, alert ->
@@ -173,6 +201,50 @@ internal fun attentionItems(snapshot: StatusSnapshot, since: Map<String, Long>):
         )
     }
     return items.sortedWith(compareBy<AttentionItemDto> { if (it.severity == Health.DOWN) 0 else 1 }.thenBy { it.since })
+}
+
+/**
+ * Adds the items of the certificate of the nodes and returns the id of the one that causes node
+ * faults (a failed order, or no certificate), if any.
+ */
+private fun certificateItems(
+    snapshot: StatusSnapshot,
+    add: (id: String, severity: Health, title: String, detail: String, route: String, selection: String?, parent: String?) -> Unit,
+): String? {
+    val certs = snapshot.certificates ?: return null
+    val nowSeconds = snapshot.generatedAt / 1000
+    val issued = certs.issued
+    val days = issued?.let { ((it.notAfter - nowSeconds) / 86_400).toInt() }
+    val nodeFaults = snapshot.nodes.any { it.waitingForCertificate } || certs.delivery.any { it.state == "default" }
+    var cause: String? = null
+    if (certs.names.size > certs.maxNames) {
+        cause = "certificates:names"
+        add(cause, Health.DOWN, "The certificate cannot be ordered: ${certs.names.size} names", "one certificate holds at most ${certs.maxNames} names", "certificates", null, null)
+    }
+    if (certs.order.state == "failed") {
+        cause = cause ?: "certificates:order"
+        val severe = issued == null || nodeFaults || (days != null && days < 7)
+        val keep = if (issued == null) "there is no certificate yet" else "the nodes keep the certificate they have"
+        add("certificates:order", if (severe) Health.DOWN else Health.DEGRADED, "The certificate order failed", "${certs.order.causeText.orEmpty()} · $keep", "certificates", null, null)
+    } else if (issued == null && certs.names.isNotEmpty() && certs.order.state != "running") {
+        cause = cause ?: "certificates:none"
+        add("certificates:none", Health.DOWN, "There is no certificate", "the nodes answer their names with a default certificate", "certificates", null, null)
+    }
+    if (days != null && days < 14) {
+        add("certificates:expiry", if (days < 7) Health.DOWN else Health.DEGRADED, if (days < 0) "The certificate expired" else "The certificate expires in $days days", "renewal does not work: see the last order", "certificates", "certificate", null)
+    }
+    if (certs.caa.enabled && certs.caa.known && (certs.caa.foreign.isNotEmpty() || certs.caa.missing.isNotEmpty())) {
+        val detail = certs.caa.foreign.firstOrNull()?.let { "a CAA record that HomeGAP did not write: $it" } ?: "HomeGAP's CAA record is not in DNS yet"
+        add("certificates:caa", Health.DEGRADED, "The CAA records differ", detail, "certificates", null, null)
+    }
+    if (certs.staging) {
+        add("certificates:staging", Health.DEGRADED, "The certificate is from the staging directory", "browsers do not trust it: acme.staging is on", "certificates", null, null)
+    }
+    for (row in certs.probes.filter { it.kind == "homelab" }) {
+        val soonest = row.cells.filter { !it.stale && (it.state == "soon" || it.state == "expiring") }.minByOrNull { it.daysRemaining ?: 0 } ?: continue
+        add("certificates:homelab:${row.name}", Health.DEGRADED, "${row.name}: the homelab's certificate expires in ${soonest.daysRemaining} days", "the homelab's Traefik renews it, not HomeGAP", "certificates", null, null)
+    }
+    return cause
 }
 
 /** [previous] first-seen times, kept for items still present, with [items]' new ones added. */

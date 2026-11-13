@@ -42,6 +42,14 @@ interface ControllerApi {
 
     /** Asks the tunnel supervisor to restart [node]'s connector. */
     suspend fun restartTunnel(node: String): ActionResponse
+
+    /** Orders the certificate of the nodes now; with [replaceKey], a new key, and the old certificate is revoked. */
+    suspend fun orderCertificate(replaceKey: Boolean): ActionResponse
+
+    suspend fun resendCertificate(node: String): ActionResponse
+
+    /** Runs the TLS probes of every name through every node again. */
+    suspend fun checkCertificates(): ActionResponse
     suspend fun provision(node: String): ActionResponse
     suspend fun retryUpdate(node: String): ActionResponse
     suspend fun skipUpdate(node: String): ActionResponse

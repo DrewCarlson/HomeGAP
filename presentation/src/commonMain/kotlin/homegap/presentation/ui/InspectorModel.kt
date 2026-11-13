@@ -65,6 +65,8 @@ data class FactRow(
     val label: String,
     val value: String,
     val mono: Boolean = false,
+    /** A copy button beside the value: only for public values, such as a fingerprint. */
+    val copy: Boolean = false,
 )
 
 /** [name] with a health mark, a [detail] and a right-aligned [value]. */
@@ -74,6 +76,10 @@ data class MarkRow(
     val name: String,
     val detail: String = "",
     val value: String = "",
+    /** A short label beside the name ("held by the homelab"). */
+    val tag: String? = null,
+    /** Where the row explains itself further (a TLS check on Certificates). */
+    val location: homegap.presentation.routing.Location? = null,
 )
 
 @Immutable

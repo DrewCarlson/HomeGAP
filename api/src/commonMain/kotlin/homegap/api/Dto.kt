@@ -40,6 +40,8 @@ data class StatusSnapshot(
     val speedRun: SpeedRunDto? = null,
     /** Running homelab containers with `homegap.expose`, from the last discovery. */
     val homelabContainers: Int? = null,
+    /** The certificate of the nodes and what visitors get; null before the first pass. */
+    val certificates: CertificatesDto? = null,
 )
 
 /** Homelab ↔ node speed tests of every node, one at a time, run by the orchestrator. */
@@ -71,6 +73,8 @@ data class AttentionItemDto(
     val since: Long,
     val route: String,
     val selection: String? = null,
+    /** The id of the item that causes this one; the dashboard folds this item under it. */
+    val parent: String? = null,
 )
 
 /** One measurement series of one edge, for graphs. */
@@ -196,6 +200,11 @@ data class NodeStatusDto(
     val jobStep: String? = null,
     /** The last provisioning and update runs, newest first. */
     val runs: List<NodeRunDto> = emptyList(),
+    /**
+     * The node is new and its management name is not on the certificate yet. Its tunnel connects
+     * once an order with that name completes, so it is not down.
+     */
+    val waitingForCertificate: Boolean = false,
 )
 
 /** One provisioning or update run of a node. */
@@ -702,3 +711,157 @@ data class SearchHitDto(
 
 @Serializable
 data class SearchResponse(val hits: List<SearchHitDto>)
+
+/**
+ * The certificate of the nodes, its orders, its delivery and what a visitor gets on each name.
+ * It never holds a key, a certificate file, the ACME account key or a challenge value.
+ */
+@Serializable
+data class CertificatesDto(
+    /** The names that the config and the service labels put on the certificate, with the reason. */
+    val names: List<CertNameDto> = emptyList(),
+    /** The certificate that the homelab holds now; null when there is none. */
+    val issued: IssuedCertificateDto? = null,
+    /** Names in the config that the certificate lacks, and names on it that left the config. */
+    val pendingAdd: List<String> = emptyList(),
+    val pendingRemove: List<String> = emptyList(),
+    val directory: String,
+    /** The directory is the Let's Encrypt staging one: browsers do not trust the certificate. */
+    val staging: Boolean = false,
+    val contact: String = "",
+    val order: CertOrderDto = CertOrderDto(),
+    /** Past orders and revocations, newest first, at most 20. */
+    val history: List<CertOrderRecordDto> = emptyList(),
+    val delivery: List<CertDeliveryDto> = emptyList(),
+    /** One row for each public name, a cell for each node. */
+    val probes: List<CertProbeRowDto> = emptyList(),
+    val caa: CaaStatusDto = CaaStatusDto(),
+    /** At most this many names fit on one certificate. */
+    val maxNames: Int = 100,
+)
+
+/**
+ * A name on the certificate. [reason] is `management`, `client`, `status`, `speedtest`, `service`
+ * or `frontdoor`; [subject] is the node id or the service key it belongs to.
+ */
+@Serializable
+data class CertNameDto(
+    val name: String,
+    val reason: String,
+    val subject: String? = null,
+)
+
+/** The public facts of the certificate. Times are epoch seconds. */
+@Serializable
+data class IssuedCertificateDto(
+    val names: List<String>,
+    val issuer: String,
+    val notBefore: Long,
+    val notAfter: Long,
+    /** When HomeGAP orders the next one: one third of the lifetime before [notAfter]. */
+    val renewAt: Long,
+    val keyType: String,
+    val serial: String,
+    /** The SHA-256 fingerprint of the certificate, never of its key. */
+    val fingerprint: String,
+    /** A short id of the certificate, to compare the homelab with a node. */
+    val version: String,
+)
+
+/**
+ * The order of the certificate. [state] is `idle`, `running` or `failed`. While it runs, [step] is
+ * `records`, `dns`, `validated` or `issued`. [due] says why an order is due, when one is.
+ */
+@Serializable
+data class CertOrderDto(
+    val state: String = "idle",
+    val step: String? = null,
+    val startedAt: Long? = null,
+    val reason: String? = null,
+    val names: Int = 0,
+    val cause: String? = null,
+    val causeText: String? = null,
+    val failedNames: List<String> = emptyList(),
+    val failedAt: Long? = null,
+    val retryAt: Long? = null,
+    /** Failed orders in the last hour. Let's Encrypt allows 5 for each name. */
+    val failuresLastHour: Int = 0,
+    val due: String? = null,
+)
+
+/** A past order (`order`) or revocation (`revoke`). Times are epoch ms. */
+@Serializable
+data class CertOrderRecordDto(
+    val id: String,
+    val kind: String,
+    val at: Long,
+    val reason: String,
+    val names: List<String> = emptyList(),
+    val ok: Boolean,
+    val durationMs: Long? = null,
+    val cause: String? = null,
+    val causeText: String? = null,
+    /** The version of the certificate the order made. */
+    val version: String? = null,
+)
+
+/**
+ * The certificate on one node. [state] is `ok`, `behind`, `none`, `default`, `waiting` (a new
+ * node whose name is not on the certificate yet) or `unknown` (the node did not answer).
+ */
+@Serializable
+data class CertDeliveryDto(
+    val node: String,
+    val state: String,
+    val installed: String? = null,
+    /** The issue time (epoch seconds) of the certificate the node has, when HomeGAP knows it. */
+    val installedIssuedAt: Long? = null,
+    val installedAt: Long? = null,
+    /** Names of the current certificate that the node's certificate lacks. */
+    val missing: List<String> = emptyList(),
+    /** What the node serves on its own management name. */
+    val management: CertProbeDto? = null,
+)
+
+/**
+ * A public name and the result of a TLS probe through each node. [kind] is `node` (the nodes end
+ * TLS) or `homelab` (passthrough). [group] is `management`, `shared`, `service` or `homelab`.
+ */
+@Serializable
+data class CertProbeRowDto(
+    val name: String,
+    val kind: String,
+    val group: String,
+    val cells: List<CertProbeDto> = emptyList(),
+)
+
+/**
+ * A TLS probe of a name through a node. [state] is `ok`, `soon` (fewer than 14 days), `expiring`
+ * (fewer than 7), `none` (no certificate served), `default` (the self-signed default), `mismatch`
+ * (does not cover the name) or `unknown` (no answer yet). [stale] marks a value from an earlier
+ * probe, kept while the node does not answer. Times are epoch seconds.
+ */
+@Serializable
+data class CertProbeDto(
+    val node: String,
+    val state: String,
+    val daysRemaining: Int? = null,
+    val subject: String? = null,
+    val issuer: String? = null,
+    val notAfter: Long? = null,
+    val probedAt: Long? = null,
+    val stale: Boolean = false,
+)
+
+/** The CAA records of the domain: what HomeGAP publishes, and what DNS has now. */
+@Serializable
+data class CaaStatusDto(
+    val enabled: Boolean = true,
+    val desired: List<String> = emptyList(),
+    val live: List<String> = emptyList(),
+    val missing: List<String> = emptyList(),
+    /** CAA records that HomeGAP did not write. */
+    val foreign: List<String> = emptyList(),
+    /** False until a DNS pass has read the zone. */
+    val known: Boolean = false,
+)

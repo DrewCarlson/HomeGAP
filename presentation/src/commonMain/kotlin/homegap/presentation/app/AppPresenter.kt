@@ -83,6 +83,7 @@ class AppPresenter(
     private val nodes: NodesScreenPresenter,
     private val services: ServicesScreenPresenter,
     private val dns: DnsScreenPresenter,
+    private val certificates: homegap.presentation.certificates.CertificatesScreenPresenter,
     private val tunnels: TunnelsScreenPresenter,
     private val speedTest: SpeedTestScreenPresenter,
     private val access: AccessScreenPresenter,
@@ -136,8 +137,8 @@ class AppPresenter(
                 screen(
                     // Add node and Locations open over their section's page.
                     props = props.copy(
-                        route = props.route.navSection,
-                        selection = props.selection.takeIf { props.route.inNav },
+                        route = if (props.route.isOverlay) props.route.navSection else props.route,
+                        selection = props.selection.takeIf { !props.route.isOverlay },
                     ),
                     status = it,
                     now = now,
@@ -201,6 +202,18 @@ class AppPresenter(
                     title = if (paused) "Resume changes" else "Pause all changes",
                     subtitle = if (paused) "Apply waiting changes" else "Observe only",
                     run = { actions.run(if (paused) "Resume" else "Pause") { api.pause(PauseScope.Global, null, !paused) } },
+                ),
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = "Order the certificate now",
+                    subtitle = "Start the certificate order without the hourly retry",
+                    location = Location(Route.Certificates),
+                ),
+                SearchHit(
+                    kind = SearchKind.Action,
+                    title = "Check certificates now",
+                    subtitle = "Run the TLS probes of every name through every node",
+                    run = { actions.run("Check now") { api.checkCertificates() } },
                 ),
                 SearchHit(
                     kind = SearchKind.Action,
@@ -316,6 +329,13 @@ class AppPresenter(
         )
         Route.Dns -> dns.model(
             DnsScreenProps(
+                status = status,
+                now = now,
+                selection = props.selection,
+            )
+        )
+        Route.Certificates -> certificates.model(
+            homegap.presentation.certificates.CertificatesScreenProps(
                 status = status,
                 now = now,
                 selection = props.selection,

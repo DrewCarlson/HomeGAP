@@ -55,6 +55,7 @@ fun serviceInspector(
                     rows = listOfNotNull(
                         FactRow("Kind", service.kind),
                         FactRow("Protocol", if (service.ports.isNotEmpty()) service.ports.joinToString(", ") else "${service.protocol} · ${service.tls}"),
+                        tlsLine(service.tls)?.let { FactRow("Certificate", it) },
                         FactRow("Access", service.access + if (service.auth != "none") " · ${service.auth}" else ""),
                         FactRow("Regions", service.regions.joinToString(", ")),
                         FactRow("Container", service.container + service.name?.let { " · $it" }.orEmpty(), mono = true),
@@ -62,6 +63,13 @@ fun serviceInspector(
                     ),
                 )
             )
+            if (tlsLine(service.tls) != null) {
+                add(
+                    InspectorSection.Note(
+                        "A change of homegap.tls starts a certificate order. A name that leaves the node certificate revokes the old certificate.",
+                    )
+                )
+            }
             if (service.labels.isNotEmpty()) {
                 add(
                     InspectorSection.Code(
@@ -84,4 +92,11 @@ fun ServiceNodeHealthDto.describe(): String {
         code != null -> "HTTP $code" + if (detail.isNotEmpty() && detail != "online") " · $detail" else ""
         else -> detail
     }
+}
+
+/** Who holds the certificate of a service in TLS mode [tls], or null when it has none. */
+fun tlsLine(tls: String): String? = when (tls) {
+    "passthrough" -> "Passthrough: the homelab holds the certificate"
+    "terminate" -> "Terminate: on the node certificate"
+    else -> null
 }

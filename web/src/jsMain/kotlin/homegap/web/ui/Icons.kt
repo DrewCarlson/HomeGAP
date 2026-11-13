@@ -35,6 +35,7 @@ object Icons {
     const val RESYNC = "M20 11a8 8 0 0 0-14.9-4M4 4v4h4M4 13a8 8 0 0 0 14.9 4M20 20v-4h-4"
     const val CLOSE = "M6 6l12 12M18 6L6 18"
     const val CHECK = "M5 12.5l4.5 4.5L19 7"
+    const val COPY = "M8 8h11v11H8zM5 16V5h11"
     const val ALERT = "M12 6.5v7M12 17.5v.01"
     /** ⋮ for a [KebabMenu]. */
     const val MORE = "M12 4a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM12 11a1 1 0 1 0 0 2a1 1 0 1 0 0-2zM12 18a1 1 0 1 0 0 2a1 1 0 1 0 0-2z"

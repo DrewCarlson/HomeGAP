@@ -86,6 +86,13 @@ class FetchControllerApi(
     override suspend fun resync(): ActionResponse = http.post("/api/resync").body()
     override suspend fun applyOnce(): ActionResponse = http.post("/api/resync") { parameter("apply", "once") }.body()
     override suspend fun restartTunnel(node: String): ActionResponse = http.post("/api/tunnels/$node/restart").body()
+
+    override suspend fun orderCertificate(replaceKey: Boolean): ActionResponse =
+        http.post(if (replaceKey) "/api/certificates/replace-key" else "/api/certificates/order").body()
+
+    override suspend fun resendCertificate(node: String): ActionResponse = http.post("/api/certificates/nodes/$node/resend").body()
+
+    override suspend fun checkCertificates(): ActionResponse = http.post("/api/certificates/check").body()
     override suspend fun undo(id: String): ActionResponse = http.post("/api/undo/$id").body()
     override suspend fun reissueInvitation(id: String): CreateAccessUserResponse =
         http.post("/api/access/invitations/$id/reissue").body()

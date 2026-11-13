@@ -122,6 +122,25 @@ private fun NeedsAttention(rows: List<AttentionRowModel>, onOpen: (Location) -> 
                 }
                 Span({ classes("attention-since") }) { Text(row.since) }
             }
+            if (row.children.isNotEmpty()) {
+                Ul({ classes("attention-children") }) {
+                    row.children.forEach { child ->
+                        Li {
+                            NavLink(
+                                href = HashRouter.href(child.location),
+                                onNavigate = { onOpen(child.location) },
+                                classNames = listOf("attention-child"),
+                            ) {
+                                Span({ classes(child.severity.className) }) { Text("● ") }
+                                Text(child.title)
+                                if (child.detail.isNotEmpty()) {
+                                    Span({ classes("muted") }) { Text(" · ${child.detail}") }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

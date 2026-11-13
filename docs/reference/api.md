@@ -54,6 +54,17 @@ These routes need no token:
 | `POST /api/cluster/maintenance/start?minutes=N` | Moves the cluster primaries off the homelab and holds them for up to N minutes (default 30). |
 | `POST /api/cluster/maintenance/end` | Ends the hold. |
 
+## Certificates
+
+The status snapshot has a `certificates` part. It holds only public facts: the names, the dates, the issuer, the serial number and the fingerprint. It never holds a key, a certificate file, the ACME account key or a challenge value.
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/certificates/order` | Starts the order of the certificate in the next pass. |
+| `POST /api/certificates/replace-key` | Orders a new certificate with a new key, and revokes the old certificate. |
+| `POST /api/certificates/check` | Runs the TLS probes of each public name through each node again. |
+| `POST /api/certificates/nodes/{id}/resend` | Sends the certificate to the node again in the next pass. |
+
 ## Nodes
 
 | Route | What it does |

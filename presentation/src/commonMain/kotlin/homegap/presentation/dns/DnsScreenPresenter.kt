@@ -20,6 +20,7 @@ import homegap.presentation.ui.InspectorSection
 import homegap.presentation.ui.MarkRow
 import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.ui.Severity
+import homegap.presentation.ui.location
 import homegap.presentation.ui.on
 import homegap.presentation.ui.statusLineOf
 
@@ -50,6 +51,7 @@ class DnsScreenPresenter(
                 caption = "DNS · records HomeGAP manages",
                 headline = "$inSync of ${sets.size} record sets in sync.",
                 statusLine = statusLineOf(status.attention.on(Route.Dns)),
+                tabs = dnsTabs(Route.Dns, status),
             ),
             sets = sets,
             steering = status.dns
@@ -112,12 +114,13 @@ class DnsScreenPresenter(
                 else -> Health.OK
             },
             summary = buildList {
+                if (type == "CAA") add("owned by certificate management · read-only")
                 add("${records.size} ${if (records.size == 1) "member" else "members"}")
                 if (withdrawn > 0) add("$withdrawn withdrawn")
                 if (outOfSync > 0) add("$outOfSync out of sync")
             }.joinToString(" · "),
             members = members,
-            location = Location(Route.Dns, name),
+            location = if (type == "CAA") Location(Route.Certificates) else Location(Route.Dns, name),
         )
     }
 
@@ -176,4 +179,19 @@ private fun DnsRecordStatusDto.health(): Health = when {
     monitorStatus == "offline" -> Health.DEGRADED
     !inSync -> Health.DEGRADED
     else -> Health.OK
+}
+
+/** The tabs of DNS: its records and its certificates, each marked when something on it needs attention. */
+fun dnsTabs(current: Route, status: StatusSnapshot): List<homegap.presentation.ui.PageTabModel> = Route.Dns.tabs.map { route ->
+    val items = status.attention.filter { it.location.route == route }
+    homegap.presentation.ui.PageTabModel(
+        label = if (route == Route.Dns) "Records" else route.title,
+        location = Location(route),
+        selected = route == current,
+        attention = when {
+            items.any { it.severity == Health.DOWN } -> Health.DOWN
+            items.isNotEmpty() -> Health.DEGRADED
+            else -> null
+        },
+    )
 }

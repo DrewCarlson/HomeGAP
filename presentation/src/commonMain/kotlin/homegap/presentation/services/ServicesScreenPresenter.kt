@@ -85,7 +85,7 @@ class ServicesScreenPresenter(
     private fun ServiceStatusDto.toRow(edges: List<String>): ServiceRowModel = ServiceRowModel(
         hostname = hostname,
         container = container + name?.let { " · $it" }.orEmpty(),
-        publishedAs = if (ports.isNotEmpty()) ports.joinToString(", ") else "$protocol · $tls",
+        publishedAs = if (ports.isNotEmpty()) ports.joinToString(", ") else listOfNotNull(protocol, tlsLine(tls) ?: tls).joinToString(" · "),
         access = access + if (auth != "none") " · $auth" else "",
         paused = paused,
         health = health(),

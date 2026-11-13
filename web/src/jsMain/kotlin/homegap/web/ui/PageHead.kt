@@ -3,6 +3,7 @@ package homegap.web.ui
 import androidx.compose.runtime.Composable
 import homegap.presentation.routing.Location
 import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.PageTabModel
 import homegap.presentation.ui.Severity
 import homegap.presentation.ui.StatusLineModel
 import homegap.presentation.ui.StatusMessage
@@ -18,6 +19,12 @@ fun PageHead(
     Header({ classes("page-head") }) {
         Div({ classes("page-head-text") }) {
             Div({ classes("caption") }) { Text(head.caption) }
+            if (head.tabs.isNotEmpty()) {
+                PageTabs(
+                    tabs = head.tabs,
+                    onOpen = onOpen,
+                )
+            }
             H1 { Text(head.headline) }
             head.statusLine?.let { line ->
                 StatusLine(
@@ -115,3 +122,36 @@ val Severity.className: String
         Severity.Warn -> "sev-warn"
         Severity.Down -> "sev-down"
     }
+
+/** The pages of a section, as links: the current one is marked for screen readers too. */
+@Composable
+private fun PageTabs(tabs: List<PageTabModel>, onOpen: (Location) -> Unit) {
+    Nav({
+        classes("page-tabs")
+        attr("aria-label", "Pages of this section")
+    }) {
+        tabs.forEach { tab ->
+            A(href = HashRouter.href(tab.location), {
+                classes("page-tab")
+                if (tab.selected) {
+                    classes("active")
+                    attr("aria-current", "page")
+                }
+                onClick { event ->
+                    if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
+                        event.preventDefault()
+                        onOpen(tab.location)
+                    }
+                }
+            }) {
+                Text(tab.label)
+                tab.attention?.let { health ->
+                    Span({
+                        classes("page-tab-dot", health.toneClass)
+                        attr("aria-label", "needs attention")
+                    })
+                }
+            }
+        }
+    }
+}

@@ -47,6 +47,8 @@ data class AttentionRowModel(
     val detail: String,
     val since: String,
     val location: Location,
+    /** Items that follow from this one: a node that waits for the certificate whose order failed. */
+    val children: List<AttentionRowModel> = emptyList(),
 )
 
 /** Which view the network figure shows; remembered per browser. */

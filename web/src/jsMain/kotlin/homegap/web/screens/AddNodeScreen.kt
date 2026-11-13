@@ -494,7 +494,7 @@ private fun JobPanel(job: JobModel, send: (WizardEvent) -> Unit) {
     val subtitle = remember(job) {
         when {
             job.running -> "Working…"
-            job.succeeded -> "Done. Provisioning starts on the next reconcile pass."
+            job.succeeded -> "Done. Provisioning starts on the next reconcile pass. The node serves visitors once the certificate order with its management name is complete, usually within a few minutes."
             else -> "Stopped. Nothing unsafe was left behind; fix the problem and retry."
         }
     }
@@ -503,6 +503,13 @@ private fun JobPanel(job: JobModel, send: (WizardEvent) -> Unit) {
         subtitle = subtitle,
         flush = false
     ) {
+        if (job.succeeded) {
+            P {
+                A(href = homegap.web.routing.HashRouter.href(homegap.presentation.routing.Route.Certificates), { classes("link") }) {
+                    Text("Follow the certificate order on Certificates →")
+                }
+            }
+        }
         Ol({ classes("job-steps") }) {
             job.steps.forEach { step ->
                 key(step.title) {

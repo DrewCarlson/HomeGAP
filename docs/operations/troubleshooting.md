@@ -60,6 +60,8 @@ With `HOMEGAP_DEBUG=1`, the orchestrator prints stack traces for fatal errors.
 | A node is not in the wildcard set. | The `ee-license` check. `terminate` on the front door needs an EE license on every node. |
 | `http://<node ip>/` returns 502. | The origin is down. |
 | `http://<node ip>/` times out. | The tunnel is down. Look at the **Tunnels** page. |
+| A browser shows a certificate warning, or a node serves the default certificate. | The **Certificates** tab of the **DNS** page. Read the cause of the last order. See [Certificates](../configuration/certificates.md#expiry-and-failures). |
+| The tunnel of a new node stays down. | The node waits for an order with its management name. The **Certificates** tab shows the order. |
 | Downloads over long paths are slow. | See [Performance](performance.md). |
 | `cluster-proxy` is yellow or red. | See [Cluster database](../cluster/database.md#the-cluster-proxy-check). |
 | A handshake is missing in the **Cluster mesh** panel. | The firewall of the provider must open `cluster.mesh.port`/udp. |

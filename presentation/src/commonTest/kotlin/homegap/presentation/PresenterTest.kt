@@ -81,6 +81,7 @@ class PresenterTest {
             nodes = nodes,
             services = ServicesScreenPresenter(serviceActions),
             dns = DnsScreenPresenter(api, actions),
+            certificates = homegap.presentation.certificates.CertificatesScreenPresenter(api, actions, confirmations, FakeTimeFormatter),
             tunnels = TunnelsScreenPresenter(api, actions, confirmations),
             speedTest = speedTest,
             access = access,
@@ -547,5 +548,44 @@ class PresenterTest {
         assertEquals("missing", loaded.secrets.single().present.text)
         loaded.onToggleOnlyChanges(false)
         assertEquals(2, models.first { !it.onlyChanges }.diff.size)
+    }
+
+    @Test
+    fun certificatesShowAFailedOrderAndANodeThatWaitsForItsName() = runTest {
+        val g = graph
+        val issuedAt = NOW / 1000 - 30 * 86_400
+        val certs = homegap.api.CertificatesDto(
+            names = listOf(homegap.api.CertNameDto("pangolin-a1.example.net", "management", "a1"), homegap.api.CertNameDto("pangolin-b1.example.net", "management", "b1")),
+            issued = homegap.api.IssuedCertificateDto(listOf("pangolin-a1.example.net"), "R11 · Let's Encrypt", issuedAt, issuedAt + 90 * 86_400, issuedAt + 60 * 86_400, "EC P-256", "04:A1", "3F:9A", "3f9a00"),
+            pendingAdd = listOf("pangolin-b1.example.net"),
+            directory = "https://acme-v02.api.letsencrypt.org/directory",
+            order = homegap.api.CertOrderDto(state = "failed", cause = "dns-timeout", causeText = "DNS did not show the challenge record in time", failedAt = NOW - 12 * 60_000, retryAt = NOW + 48 * 60_000, failuresLastHour = 1),
+            delivery = listOf(homegap.api.CertDeliveryDto("a1", "ok", installed = "3f9a00"), homegap.api.CertDeliveryDto("b1", "waiting")),
+        )
+        val status = snapshot(nodes = listOf(node("a1"), node("b1"))).copy(
+            certificates = certs,
+            attention = listOf(homegap.api.AttentionItemDto("certificates:order", Health.DOWN, "The certificate order failed", since = NOW, route = "certificates")),
+        )
+        val presenter = homegap.presentation.certificates.CertificatesScreenPresenter(g.api, g.actions, g.confirmations, FakeTimeFormatter)
+        val model = present(presenter, homegap.presentation.certificates.CertificatesScreenProps(status, NOW, selection = "certificate")).value
+        assertTrue(model.head.headline.startsWith("The last order failed 12m ago."), model.head.headline)
+        assertTrue("Next try in 48 min." in model.head.headline, model.head.headline)
+        assertEquals(listOf("Records", "Certificates"), model.head.tabs.map { it.label })
+        assertEquals(Health.DOWN, model.head.tabs.last().attention)
+        assertEquals("Order now", model.head.actions.single().label)
+        assertEquals("waiting for its name", model.delivery.first { it.node == "b1" }.state)
+        assertEquals(listOf("pangolin-b1.example.net"), model.certificate?.pending?.add?.map { it.name })
+        assertTrue(model.failure?.text.orEmpty().contains("b1 waits"), model.failure?.text)
+        val facts = (model.inspector?.sections?.first() as homegap.presentation.ui.InspectorSection.Facts).rows
+        assertTrue(facts.first { it.label == "SHA-256" }.copy, "a fingerprint can be copied")
+        assertFalse(facts.any { "KEY" in it.value.uppercase() && it.label != "key type" })
+    }
+
+    @Test
+    fun aNodeThatWaitsForItsCertificateIsNotShownDown() = runTest {
+        val g = graph
+        val status = snapshot(nodes = listOf(node("a1").copy(waitingForCertificate = true, health = Health.DEGRADED)))
+        val inspector = present(g.nodes, NodesScreenProps(status, NOW, selection = "a1")).value.inspector
+        assertTrue(inspector?.status.orEmpty().startsWith("waiting for certificate"), inspector?.status)
     }
 }
