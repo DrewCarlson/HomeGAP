@@ -26,21 +26,21 @@ data class StatusSnapshot(
     val tunnels: List<TunnelStatusDto> = emptyList(),
     val labelErrors: List<LabelErrorDto> = emptyList(),
     val pauses: PausesDto = PausesDto(),
-    /** The cluster mesh; null when the cluster is not configured. */
+    /** The cluster mesh. Null when the cluster is not configured. */
     val mesh: MeshStatusDto? = null,
-    /** The cluster's database layer; null when the cluster is not configured. */
+    /** The cluster's database layer. Null when the cluster is not configured. */
     val cluster: ClusterStatusDto? = null,
-    /** Where the homelab is (`homelab.location`); null when not set. */
+    /** Where the homelab is (`homelab.location`). Null when not set. */
     val homelab: PlaceDto? = null,
-    /** The last time the homelab could reach none of the nodes; null if it hasn't happened. */
+    /** The last time the homelab could reach none of the nodes. Null if it hasn't happened. */
     val homelabIsolation: IsolationDto? = null,
     /** What needs attention, worst first. */
     val attention: List<AttentionItemDto> = emptyList(),
-    /** The "test all nodes" run, while it runs and after it finished; null before the first. */
+    /** The "test all nodes" run, while it runs and after it finished. Null before the first. */
     val speedRun: SpeedRunDto? = null,
     /** Running homelab containers with `homegap.expose`, from the last discovery. */
     val homelabContainers: Int? = null,
-    /** The certificate of the nodes and what visitors get; null before the first pass. */
+    /** The certificate of the nodes and what visitors get. Null before the first pass. */
     val certificates: CertificatesDto? = null,
 )
 
@@ -49,7 +49,7 @@ data class StatusSnapshot(
 data class SpeedRunDto(
     val streams: Int,
     val nodes: List<String>,
-    /** The node being tested now; null once the run is over. */
+    /** The node under test now. Null after the run. */
     val current: String? = null,
     val done: List<String> = emptyList(),
     val failed: List<String> = emptyList(),
@@ -73,7 +73,7 @@ data class AttentionItemDto(
     val since: Long,
     val route: String,
     val selection: String? = null,
-    /** The id of the item that causes this one; the dashboard folds this item under it. */
+    /** The id of the item that causes this one. The dashboard folds this item under it. */
     val parent: String? = null,
 )
 
@@ -106,9 +106,17 @@ data class MetricPointDto(
 @Serializable
 data class IsolationDto(val startedAt: Long, val endedAt: Long? = null)
 
-/** A point on the map, with the name shown for it (`Dallas, Texas`); [estimated] when only a region code placed it. */
+/**
+ * A point on the map, with the name that the map shows for it (`Dallas, Texas`). [estimated] is
+ * true when only a region code placed it.
+ */
 @Serializable
-data class PlaceDto(val latitude: Double, val longitude: Double, val name: String? = null, val estimated: Boolean = false)
+data class PlaceDto(
+    val latitude: Double,
+    val longitude: Double,
+    val name: String? = null,
+    val estimated: Boolean = false,
+)
 
 /**
  * A known location (a data-center city): shipped with HomeGAP ([builtIn]) or added in the
@@ -285,7 +293,10 @@ data class DnsRecordStatusDto(
     val monitorStatus: String,
     val inSync: Boolean,
     val diff: String? = null,
-    /** When HomeGAP last created or changed this record (epoch ms); null when not since it started logging. */
+    /**
+     * The last time HomeGAP created or changed this record (epoch ms). Null when HomeGAP made no
+     * change after it started the log.
+     */
     val changedAt: Long? = null,
 )
 
@@ -333,7 +344,7 @@ data class LogEntryDto(
     val target: String? = null,
     /** Increasing sequence number (lets streaming clients resume after the last entry seen). */
     val seq: Long = 0,
-    /** The reconcile pass it was written in; null outside a pass. */
+    /** The reconcile pass it was written in. Null outside a pass. */
     val pass: Long? = null,
     /** Structured details, such as a pass's `duration_ms`, `changes` and `trigger`. */
     val fields: Map<String, String> = emptyMap(),
@@ -396,7 +407,7 @@ data class NodeConfigDto(
     /** Shown on maps, e.g. `Dallas, Texas`. */
     val locationName: String? = null,
     val managementHost: String? = null,
-    /** Sources allowed to reach SSH through the node firewall; empty allows any source. */
+    /** The sources that can reach SSH through the node firewall. Empty means each source. */
     val sshAllowFrom: List<String> = emptyList(),
 )
 
@@ -425,7 +436,7 @@ data class SpeedTestResultDto(
     val pingSamples: Int = 0,
     val error: String? = null,
     val client: String? = null,
-    /** Parallel TCP streams (tunnel tests); rates are the sum over all streams. */
+    /** Parallel TCP streams (tunnel tests). Rates are the sum over all streams. */
     val streams: Int? = null,
     /** Per-stream rates, in stream order. */
     val downStreamsMbps: List<Double> = emptyList(),
@@ -445,7 +456,13 @@ data class SpeedTestResultDto(
  * near 100 with a low [busyPct] shows a step that uses one core only.
  */
 @Serializable
-data class NodeCpuDto(val cores: Int, val busyPct: Double, val kernelPct: Double, val stealPct: Double, val maxCorePct: Double? = null)
+data class NodeCpuDto(
+    val cores: Int,
+    val busyPct: Double,
+    val kernelPct: Double,
+    val stealPct: Double,
+    val maxCorePct: Double? = null,
+)
 
 @Serializable
 data class SpeedTestOverview(
@@ -458,7 +475,7 @@ data class SpeedTestOverview(
 )
 
 /**
- * A homelab ↔ node test while it runs, as the speed test origin sees it: the pings arriving one
+ * A homelab ↔ node test while it runs, as the speed test origin sees it: the pings that arrive one
  * after another (each gap is about one round trip) and the bytes it sends and receives.
  */
 @Serializable
@@ -520,26 +537,26 @@ data class MeshPeerDto(
     val id: String,
     /** Where this member last heard the peer from (null before the first handshake). */
     val endpoint: String? = null,
-    /** Epoch milliseconds of the latest WireGuard handshake; null if there has been none. */
+    /** Epoch milliseconds of the latest WireGuard handshake. Null if there has been none. */
     val lastHandshakeAt: Long? = null,
     val rxBytes: Long = 0,
     val txBytes: Long = 0,
-    /** The member's continuous probe of this peer's mesh address from the host; null without one. */
+    /** The member's continuous probe of this peer's mesh address from the host. Null without one. */
     val probe: MeshProbeDto? = null,
     /**
      * The same probe from inside the member's Docker network (HAProxy's checks), the path Pangolin's
-     * database traffic takes; null without one.
+     * database traffic takes. Null without one.
      */
     val containerProbe: MeshProbeDto? = null,
 )
 
 /**
  * One member's view of a peer from its mesh probe (a ping every second over the mesh). Loss and
- * outages cover [windowMs]; an outage is three or more probes in a row without a reply.
+ * outages cover [windowMs]. An outage is three or more probes in a row without a reply.
  */
 @Serializable
 data class MeshProbeDto(
-    /** The latest reply's round trip, in milliseconds; null when the last probe was lost. */
+    /** The latest reply's round trip, in milliseconds. Null when the last probe was lost. */
     val rttMs: Double? = null,
     val lossPercent: Double = 0.0,
     val sent: Long = 0,
@@ -577,11 +594,11 @@ object NodeLogServices {
 /** The cluster's database layer: where the primaries are and each member's part. */
 @Serializable
 data class ClusterStatusDto(
-    /** The member holding the PostgreSQL primary (null while there is none). */
+    /** The member that holds the PostgreSQL primary. Null while there is none. */
     val primary: String? = null,
-    /** The member holding the Valkey primary. */
+    /** The member that holds the Valkey primary. */
     val valkeyPrimary: String? = null,
-    /** Where the primary belongs (`homelab`); null when the homelab only votes and holds no database. */
+    /** Where the primary belongs (`homelab`). Null when the homelab only votes and holds no database. */
     val preferred: String? = "homelab",
     /** What the switch-back is waiting for, when the primary is away from [preferred]. */
     val switchBack: String? = null,
@@ -628,7 +645,7 @@ data class ClusterMemberDto(
     /** Replication lag in bytes (replicas). */
     val lagBytes: Long? = null,
     val timeline: Int? = null,
-    /** Valkey: `master` or `slave` (replica); null when it does not answer. */
+    /** Valkey: `master` or `slave` (replica). Null when it does not answer. */
     val valkeyRole: String? = null,
     /** The member's etcd answers its health check (it is part of a working majority). */
     val etcdHealthy: Boolean? = null,
@@ -644,7 +661,7 @@ data class ClusterMemberDto(
 
 /**
  * The cluster's users and devices (one Pangolin across every node). [available] is false without
- * a cluster or while no node's Pangolin can be reached; [note] says why.
+ * a cluster or while HomeGAP can reach the Pangolin of no node. [note] says why.
  */
 @Serializable
 data class AccessOverviewDto(
@@ -679,7 +696,12 @@ data class AccessUserDto(
 )
 
 @Serializable
-data class AccessInvitationDto(val id: String, val email: String, val roles: List<String> = emptyList(), val expiresAt: Long? = null)
+data class AccessInvitationDto(
+    val id: String,
+    val email: String,
+    val roles: List<String> = emptyList(),
+    val expiresAt: Long? = null,
+)
 
 @Serializable
 data class AccessDeviceDto(
@@ -701,8 +723,8 @@ data class AccessDeviceDto(
 )
 
 /**
- * A new user. With [password] HomeGAP completes the invite and the user can sign in at once;
- * without it, the response's invite link is handed to the person, who picks their own.
+ * A new user. With [password] HomeGAP completes the invite and the user can sign in at once.
+ * Without it, the response has an invite link for the person, who sets their own password.
  */
 @Serializable
 data class CreateAccessUserRequest(val email: String, val roleIds: List<Int>, val password: String? = null)
@@ -735,7 +757,7 @@ data class SearchResponse(val hits: List<SearchHitDto>)
 data class CertificatesDto(
     /** The names that the config and the service labels put on the certificate, with the reason. */
     val names: List<CertNameDto> = emptyList(),
-    /** The certificate that the homelab holds now; null when there is none. */
+    /** The certificate that the homelab holds now. Null when there is none. */
     val issued: IssuedCertificateDto? = null,
     /** Names in the config that the certificate lacks, and names on it that left the config. */
     val pendingAdd: List<String> = emptyList(),
@@ -757,7 +779,7 @@ data class CertificatesDto(
 
 /**
  * A name on the certificate. [reason] is `management`, `client`, `status`, `speedtest`, `service`
- * or `frontdoor`; [subject] is the node id or the service key it belongs to.
+ * or `frontdoor`. [subject] is the node id or the service key it belongs to.
  */
 @Serializable
 data class CertNameDto(
@@ -799,7 +821,7 @@ data class CertOrderDto(
     val failedNames: List<String> = emptyList(),
     val failedAt: Long? = null,
     val retryAt: Long? = null,
-    /** Failed orders in the last hour. Let's Encrypt allows 5 for each name. */
+    /** Failed orders in the last hour. The limit of Let's Encrypt is 5 for each name. */
     val failuresLastHour: Int = 0,
     val due: String? = null,
 )

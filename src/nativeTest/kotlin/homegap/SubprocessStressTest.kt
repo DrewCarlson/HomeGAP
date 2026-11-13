@@ -11,22 +11,23 @@ import kotlin.test.assertEquals
 
 class SubprocessStressTest {
     /**
-     * Short children run one after another while the garbage collector runs alongside: freeing a
-     * finished process must never close a descriptor a later process is using (ksubprocess before
-     * 1.0 closed a child's pipe ends twice on macOS, and the second close could hit a live pipe).
+     * Short children run one after another while the garbage collector runs. When the runtime frees
+     * a finished process, it must never close a descriptor that a later process uses. Before version
+     * 1.0, ksubprocess closed the pipe ends of a child twice on macOS, and the second close could hit
+     * a live pipe.
      */
     @OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
     @Test
     fun collectingFinishedProcessesNeverTouchesLiveOnes() = runBlocking {
-        val gc = launch(Dispatchers.Default) { while (isActive) kotlin.native.runtime.GC.collect() }
+        val collector = launch(Dispatchers.Default) { while (isActive) kotlin.native.runtime.GC.collect() }
         try {
             repeat(300) { round ->
-                val r = Subprocess.run(listOf("sh", "-c", "printf %s $round; printf e >&2"), stdin = "x\n")
-                assertEquals("$round", r.stdout)
-                assertEquals("e", r.stderr)
+                val result = Subprocess.run(listOf("sh", "-c", "printf %s $round; printf e >&2"), stdin = "x\n")
+                assertEquals("$round", result.stdout)
+                assertEquals("e", result.stderr)
             }
         } finally {
-            gc.cancelAndJoin()
+            collector.cancelAndJoin()
         }
     }
 }

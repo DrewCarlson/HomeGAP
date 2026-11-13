@@ -12,7 +12,6 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
-import io.ktor.server.routing.post
 import io.ktor.server.testing.testApplication
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,7 +38,8 @@ class RoutingControllersTest {
     @Test
     fun withoutAConfiguredTokenOneIsGeneratedAndKept() {
         val dir = tmpPath("data")
-        val config = ConfigLoader.parse(TEST_CONFIG.replace("/tmp/homegap-test", dir))
+        val base = TEST_CONFIG.replace("/tmp/homegap-test", dir)
+        val config = ConfigLoader.parse(base)
         val first = DashboardAuth.resolve(config)
         assertEquals(DashboardAuth.tokenFile(config), first.generatedFile)
         assertEquals(40, first.token.length)
@@ -47,7 +47,7 @@ class RoutingControllersTest {
         assertEquals(first.token, DashboardAuth.resolve(config).token)
         assertEquals(first.token, DashboardAuth.current(config))
         // A token named in the config but not available does not open the API either.
-        val named = ConfigLoader.parse("${TEST_CONFIG.replace("/tmp/homegap-test", dir)}\ndashboard:\n  auth_token_file: $dir/missing\n")
+        val named = ConfigLoader.parse("$base\ndashboard:\n  auth_token_file: $dir/missing\n")
         assertEquals(first.token, DashboardAuth.resolve(named).token)
         Files.delete(DashboardAuth.tokenFile(config))
     }
@@ -57,7 +57,7 @@ class RoutingControllersTest {
         val tokenFile = tmpPath("token")
         Files.writeAtomic(tokenFile, "s3cret\n")
         val config = ConfigLoader.parse("$TEST_CONFIG\ndashboard:\n  auth_token_file: $tokenFile\n")
-        // A route with its own check stays reachable without the token; the others do not.
+        // A route with its own check stays reachable without the token. The others do not.
         val open = object : OpenRoutingController {
             override fun init(parent: Route, auth: DashboardAuth) {
                 parent.get("/api/open") { call.respondText(if (auth.matches("s3cret")) "own check" else "no token") }

@@ -31,8 +31,8 @@ class MeshTest {
     @Test
     fun rejectsUnsafeMeshSettings() {
         val config = ConfigLoader.parse(TEST_CONFIG)
-        fun errorFor(m: MeshConfig) = assertFailsWith<IllegalArgumentException> {
-            ConfigLoader.validate(config.copy(cluster = ClusterConfig(m)))
+        fun errorFor(candidate: MeshConfig) = assertFailsWith<IllegalArgumentException> {
+            ConfigLoader.validate(config.copy(cluster = ClusterConfig(candidate)))
         }.message!!
         assertTrue("100.64.0.0/10" in errorFor(MeshConfig(subnet = "100.89.0.0/24")))
         assertTrue("Gerbil" in errorFor(MeshConfig(port = 51820)))
@@ -42,38 +42,44 @@ class MeshTest {
 
     @Test
     fun nodeConfigPeersEveryoneAndLeavesTheKeyToTheNode() {
-        val conf = Mesh.nodeConfig(
-            mesh, "10.77.0.10",
+        val config = Mesh.nodeConfig(
+            mesh,
+            "10.77.0.10",
             listOf(
-                Mesh.Peer("homelab", "HOMELAB=", "10.77.0.1", null),
-                Mesh.Peer("eu1", "EU1=", "10.77.0.11", "203.0.113.20"),
+                Mesh.Peer("homelab", "HOMELAB=", "10.77.0.1", endpoint = null),
+                Mesh.Peer("eu1", "EU1=", "10.77.0.11", endpoint = "203.0.113.20"),
             ),
         )
-        assertTrue("Address = 10.77.0.10/24" in conf && "ListenPort = 51821" in conf)
-        assertTrue("PrivateKey = ${Mesh.KEY_PLACEHOLDER}" in conf, "the private key is filled in on the node")
-        assertTrue("Endpoint = 203.0.113.20:51821" in conf)
-        val homelab = conf.substringAfter("# homelab").substringBefore("# eu1")
+        assertTrue("Address = 10.77.0.10/24" in config && "ListenPort = 51821" in config)
+        assertTrue("PrivateKey = ${Mesh.KEY_PLACEHOLDER}" in config, "the private key is filled in on the node")
+        assertTrue("Endpoint = 203.0.113.20:51821" in config)
+        val homelab = config.substringAfter("# homelab").substringBefore("# eu1")
         assertFalse("Endpoint" in homelab, "the homelab dials out; nodes never need its address")
     }
 
     @Test
     fun homelabKeepsEveryPathAlive() {
-        val conf = Mesh.homelabConfig(mesh, "PRIV=", listOf(Mesh.Peer("na1", "NA1=", "10.77.0.10", "2001:db8::1")))
-        assertTrue("Endpoint = [2001:db8::1]:51821" in conf, "IPv6 endpoints are bracketed")
-        assertTrue("PersistentKeepalive = 25" in conf)
+        val peer = Mesh.Peer("na1", "NA1=", "10.77.0.10", endpoint = "2001:db8::1")
+        val config = Mesh.homelabConfig(mesh, "PRIV=", listOf(peer))
+        assertTrue("Endpoint = [2001:db8::1]:51821" in config, "IPv6 endpoints are bracketed")
+        assertTrue("PersistentKeepalive = 25" in config)
     }
 
     @Test
     fun nodeScriptAppliesInPlaceAndReportsItsKey() {
-        val script = Mesh.nodeScript(mesh, "10.77.0.10", Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()), openFirewall = true)
+        val config = Mesh.nodeConfig(mesh, "10.77.0.10", emptyList())
+        val script = Mesh.nodeScript(mesh, "10.77.0.10", config, openFirewall = true)
         assertTrue("wg syncconf" in script, "peer changes apply without tearing the interface down")
         assertTrue("wg genkey" in script && "PUBKEY=" in script)
-        assertTrue("allow 51821/udp" in script && "ufw \$spec comment homegap" in script)
+        assertTrue("allow 51821/udp" in script && $$"ufw $spec comment homegap" in script)
         // A container of the node has no path to the control ports of the other members.
         assertTrue("-I DOCKER-USER -o hg-mesh -p tcp -m multiport --dports 2380,26379 -j DROP" in script)
-        assertTrue("PostUp = iptables -N DOCKER-USER" in Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()), "the rule comes back at boot")
+        assertTrue(
+            "PostUp = iptables -N DOCKER-USER" in Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()),
+            "the rule comes back at boot",
+        )
         // A rule for the bridge that admits more does not stay.
-        assertTrue("ufw delete \$spec" in script)
+        assertTrue($$"ufw delete $spec" in script)
         assertFalse("ufw allow" in Mesh.nodeScript(mesh, "10.77.0.10", "", openFirewall = false))
     }
 

@@ -9,6 +9,7 @@ import homegap.api.StatusSnapshot
 import homegap.api.TunnelStatusDto
 import homegap.reconcile.Controller
 import homegap.reconcile.EdgeMetrics
+import homegap.reconcile.HomelabProbe
 import homegap.reconcile.attentionItems
 import homegap.reconcile.attentionSince
 import homegap.reconcile.parseServiceProbe
@@ -114,7 +115,7 @@ class EdgeDataTest {
 class HomelabProbeTest {
     @Test
     fun countsMissesAndOutages() {
-        val probe = homegap.reconcile.HomelabProbe()
+        val probe = HomelabProbe()
         probe.record(peer = "a1", at = 1_000, rttMs = 20.0)
         for (i in 1..3) probe.record(peer = "a1", at = 1_000L + i * 60_000, rttMs = null)
         val down = probe.view().getValue("a1")

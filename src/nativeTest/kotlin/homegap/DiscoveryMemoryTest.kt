@@ -18,7 +18,8 @@ class DiscoveryMemoryTest {
     @Test
     fun aContainerThatIsGoneStaysForTheGracePeriod() {
         val memory = DiscoveryMemory(tmpPath("discovery"))
-        assertEquals(listOf("traefik", "wiki"), memory.merge(listOf(TRAEFIK, wiki), 1000, grace)!!.containers.map { it.name })
+        val first = memory.merge(listOf(TRAEFIK, wiki), 1000, grace)!!
+        assertEquals(listOf("traefik", "wiki"), first.containers.map { it.name })
 
         // The homelab starts again, and the orchestrator sees no container yet.
         val empty = memory.merge(emptyList(), 2000, grace)!!
@@ -43,7 +44,8 @@ class DiscoveryMemoryTest {
         DiscoveryMemory(path).merge(listOf(TRAEFIK, wiki), 1000, grace)
         // A new process reads the file.
         val restarted = DiscoveryMemory(path)
-        assertEquals(setOf("traefik", "wiki"), restarted.merge(null, 999_999_000, grace)!!.containers.map { it.name }.toSet())
+        val remembered = restarted.merge(null, 999_999_000, grace)!!
+        assertEquals(setOf("traefik", "wiki"), remembered.containers.map { it.name }.toSet())
         Files.delete(path)
     }
 
@@ -67,6 +69,7 @@ class DiscoveryMemoryTest {
     @Test
     fun theGracePeriodIsADuration() {
         assertEquals(180, testConfig().reconcile.removalGraceDuration.inWholeSeconds)
-        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse("$TEST_CONFIG\nreconcile:\n  removal_grace: soon\n") }
+        val graceWithoutNumber = "$TEST_CONFIG\nreconcile:\n  removal_grace: soon\n"
+        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(graceWithoutNumber) }
     }
 }

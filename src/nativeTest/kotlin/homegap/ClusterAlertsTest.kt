@@ -15,18 +15,37 @@ class ClusterAlertsTest {
     private val now = 10_000_000L
     private val licensed = ClusterAlerts.License(configured = true, activated = true, rejected = false)
 
-    private fun member(id: String, role: String? = "replica", state: String? = "streaming", lag: Long? = 0, etcd: Boolean? = true) =
-        ClusterMemberDto(id, "10.77.0.x", "voter", role, state, lag, 3, "slave", etcd)
+    private fun member(id: String, role: String? = "replica", state: String? = "streaming", lag: Long? = 0) =
+        ClusterMemberDto(
+            id = id,
+            address = "10.77.0.x",
+            vote = "voter",
+            role = role,
+            state = state,
+            lagBytes = lag,
+            timeline = 3,
+            valkeyRole = "slave",
+            etcdHealthy = true,
+        )
 
     private val healthy = ClusterStatusDto(
-        primary = "homelab", valkeyPrimary = "homelab", quorum = true,
-        members = listOf(member("homelab", role = "leader", state = "running", lag = null), member("na1"), member("as1")),
+        primary = "homelab",
+        valkeyPrimary = "homelab",
+        quorum = true,
+        members = listOf(
+            member("homelab", role = "leader", state = "running", lag = null),
+            member("na1"),
+            member("as1"),
+        ),
     )
 
-    private fun mesh(vararg cut: String) = MeshStatusDto("10.77.0.0/24", listOf("homelab", "na1", "as1").map { id ->
-        val at = if (id in cut) now - 10 * 60_000 else now - 30_000
-        MeshMemberDto(id, "10.77.0.x", peers = listOf(MeshPeerDto("other", lastHandshakeAt = at)))
-    })
+    private fun mesh(vararg cut: String): MeshStatusDto {
+        val members = listOf("homelab", "na1", "as1").map { id ->
+            val lastHandshake = if (id in cut) now - 10 * 60_000 else now - 30_000
+            MeshMemberDto(id, "10.77.0.x", peers = listOf(MeshPeerDto("other", lastHandshakeAt = lastHandshake)))
+        }
+        return MeshStatusDto("10.77.0.0/24", members)
+    }
 
     @Test
     fun aHealthyClusterHasNoAlerts() {
@@ -35,7 +54,10 @@ class ClusterAlertsTest {
 
     @Test
     fun noMajorityComesFirstAndAnIsolatedMemberIsNamed() {
-        val split = healthy.copy(quorum = false, primary = null, members = healthy.members.map { if (it.id == "homelab") it.copy(role = "replica", etcdHealthy = false) else it.copy(etcdHealthy = false) })
+        val members = healthy.members.map {
+            if (it.id == "homelab") it.copy(role = "replica", etcdHealthy = false) else it.copy(etcdHealthy = false)
+        }
+        val split = healthy.copy(quorum = false, primary = null, members = members)
         val alerts = ClusterAlerts.evaluate(split, mesh("homelab"), licensed, now)
         assertEquals(Health.DOWN, alerts.first().health)
         assertTrue("no majority" in alerts.first().message)
@@ -47,10 +69,12 @@ class ClusterAlertsTest {
     @Test
     fun lagLicenseAndTooFewNodes() {
         val lagging = healthy.copy(members = listOf(healthy.members[0], member("na1", lag = 64L * 1024 * 1024)))
-        val alerts = ClusterAlerts.evaluate(lagging, mesh(), ClusterAlerts.License(configured = true, activated = false, rejected = true), now)
+        val rejected = ClusterAlerts.License(configured = true, activated = false, rejected = true)
+        val alerts = ClusterAlerts.evaluate(lagging, mesh(), rejected, now)
         assertTrue(alerts.any { it.message == "na1's database is 64 MiB behind the primary." })
         assertTrue(alerts.any { "one node" in it.message })
         assertTrue(alerts.any { "rejected" in it.message })
-        assertEquals(alerts.sortedBy { listOf(Health.DOWN, Health.DEGRADED, Health.UNKNOWN, Health.OK).indexOf(it.health) }, alerts)
+        val worstFirst = listOf(Health.DOWN, Health.DEGRADED, Health.UNKNOWN, Health.OK)
+        assertEquals(alerts.sortedBy { worstFirst.indexOf(it.health) }, alerts)
     }
 }

@@ -1,30 +1,50 @@
 package homegap
 
 import homegap.api.Health
+import homegap.config.MeshConfig
 import homegap.diagnostics.NodeDiagnostics
 import homegap.platform.Subprocess
 import homegap.provision.ClusterProxy
+import homegap.provision.ClusterSecrets
 import homegap.provision.ClusterTemplates
 import homegap.provision.MeshProbe
 import homegap.reconcile.ClusterReconciler
 import kotlinx.coroutines.runBlocking
 import kotlin.test.*
+import kotlin.time.Instant
 
 class DiagnosticsTest {
+    private val secrets = ClusterSecrets(
+        postgres = "pg",
+        replication = "repl",
+        valkey = "vk",
+        rest = "rest",
+        pangolin = "pangolin",
+        rewind = "rewind",
+        etcd = "etcd",
+        sentinel = "sentinel",
+    )
+
+    private val members = listOf(
+        ClusterTemplates.Member("homelab", "10.77.0.1"),
+        ClusterTemplates.Member("na1", "10.77.0.10"),
+        ClusterTemplates.Member("as1", "10.77.0.11"),
+    )
+
     private fun bashSyntax(script: String) = runBlocking {
-        val r = Subprocess.run(listOf("bash", "-n"), stdin = script)
-        assertEquals(0, r.exitCode, r.stderr)
+        val result = Subprocess.run(listOf("bash", "-n"), stdin = script)
+        assertEquals(0, result.exitCode, result.stderr)
     }
 
     @Test
     fun logsComeFromTheRightProjectAndRejectOddInput() {
-        val s = NodeDiagnostics.Scripts
-        assertTrue("cd '/opt/homegap/cluster'" in s.logs("/opt/homegap", "haproxy", "1h", 200))
-        assertTrue("cd '/opt/homegap/exit'" in s.logs("/opt/homegap", "newt", "15m", 200))
-        assertTrue("--since 30m --tail 300 pangolin" in s.logs("/opt/homegap", "pangolin", "30m", 300))
-        assertFailsWith<IllegalArgumentException> { s.logs("/opt/homegap", "pangolin; reboot", "30m", 10) }
-        assertFailsWith<IllegalArgumentException> { s.logs("/opt/homegap", "pangolin", "1h; reboot", 10) }
-        assertFailsWith<IllegalArgumentException> { s.logs("/opt/homegap", "pangolin", "1h", 0) }
+        val scripts = NodeDiagnostics.Scripts
+        assertTrue("cd '/opt/homegap/cluster'" in scripts.logs("/opt/homegap", "haproxy", "1h", 200))
+        assertTrue("cd '/opt/homegap/exit'" in scripts.logs("/opt/homegap", "newt", "15m", 200))
+        assertTrue("--since 30m --tail 300 pangolin" in scripts.logs("/opt/homegap", "pangolin", "30m", 300))
+        assertFailsWith<IllegalArgumentException> { scripts.logs("/opt/homegap", "pangolin; reboot", "30m", 10) }
+        assertFailsWith<IllegalArgumentException> { scripts.logs("/opt/homegap", "pangolin", "1h; reboot", 10) }
+        assertFailsWith<IllegalArgumentException> { scripts.logs("/opt/homegap", "pangolin", "1h", 0) }
     }
 
     @Test
@@ -45,6 +65,11 @@ class DiagnosticsTest {
         |valkey-primary,BACKEND,0,0,0,1,200,1,0,0,0,0,,0,0,0,0,DOWN,1,1,0,,3,3,30
         |""".trimMargin()
 
+    /** The same stats with a Valkey primary. */
+    private val healthyCsv = csv
+        .replace("DOWN,1,1,0,3,2,3,30", "UP,1,1,0,3,2,3,30")
+        .replace("DOWN,1,1,0,,3,3,30", "UP,1,1,0,,3,3,30")
+
     @Test
     fun theProxyCheckNamesWhereEachPrimaryGoesAndCountsLosses() {
         val proxies = ClusterProxy.parse(csv).associateBy { it.name }
@@ -57,83 +82,86 @@ class DiagnosticsTest {
         assertEquals(Health.DOWN, first.health, "Valkey has no primary")
         assertTrue("valkey → none" in first.detail, first.detail)
 
-        val healthy = csv.replace("DOWN,1,1,0,3,2,3,30", "UP,1,1,0,3,2,3,30").replace("DOWN,1,1,0,,3,3,30", "UP,1,1,0,,3,3,30")
-        assertEquals(Health.OK, ClusterProxy.check(healthy, mutableListOf(), 1_000_000).health)
-        // Later the backend's outage count went up: yellow while recent, saying when.
-        val more = healthy.replace("UP,1,1,0,,3,3,30", "UP,1,1,0,,5,3,30")
+        assertEquals(Health.OK, ClusterProxy.check(healthyCsv, mutableListOf(), 1_000_000).health)
+        // The outage count of the backend increases: yellow while the loss is recent, with its time.
+        val more = healthyCsv.replace("UP,1,1,0,,3,3,30", "UP,1,1,0,,5,3,30")
         val again = ClusterProxy.check(more, history, 1_060_000)
         assertEquals(Health.DEGRADED, again.health)
         assertTrue("lost the primary 2 times in the last 60 min, last just now" in again.detail, again.detail)
-        // Twenty minutes on, nothing new: green again, still telling what happened.
+        // Twenty minutes later, nothing is new: green again, and the detail still gives the last loss.
         val later = ClusterProxy.check(more, history, 1_060_000 + 20 * 60_000)
         assertEquals(Health.OK, later.health)
         assertTrue("last 20 min ago (recovered)" in later.detail, later.detail)
         // HAProxy restarted (its counters went back to 1): not a loss.
-        val restarted = ClusterProxy.check(more.replace("UP,1,1,0,,5,3,30", "UP,1,1,0,,1,3,30"), history, 1_060_000 + 21 * 60_000)
+        val countersReset = more.replace("UP,1,1,0,,5,3,30", "UP,1,1,0,,1,3,30")
+        val restarted = ClusterProxy.check(countersReset, history, 1_060_000 + 21 * 60_000)
         assertEquals(Health.OK, restarted.health)
         assertEquals(Health.UNKNOWN, ClusterProxy.check(null, history, 1_060_000).health)
     }
 
     @Test
     fun aPlannedSwitchDoesNotMakeTheProxyCheckYellow() {
-        val up = csv.replace("DOWN,1,1,0,3,2,3,30", "UP,1,1,0,3,2,3,30").replace("DOWN,1,1,0,,3,3,30", "UP,1,1,0,,3,3,30")
-        val lost = up.replace("UP,1,1,0,,3,3,30", "UP,1,1,0,,4,3,30")
+        val lost = healthyCsv.replace("UP,1,1,0,,3,3,30", "UP,1,1,0,,4,3,30")
         val history = mutableListOf<Pair<Long, Map<String, Long>>>()
-        ClusterProxy.check(up, history, 1_000_000)
+        ClusterProxy.check(healthyCsv, history, 1_000_000)
         // HomeGAP switched the primary back between the two readings.
         val planned = ClusterProxy.check(lost, history, 1_060_000, planned = listOf(1_020_000))
         assertEquals(Health.OK, planned.health, planned.detail)
         assertTrue("planned switch just now" in planned.detail, planned.detail)
         assertFalse("lost the primary" in planned.detail, planned.detail)
         // An unplanned loss still shows, then clears after five minutes.
-        val failover = ClusterProxy.check(lost.replace("UP,1,1,0,,4,3,30", "UP,1,1,0,,5,3,30"), history, 1_120_000, planned = listOf(1_020_000))
+        val lostAgain = lost.replace("UP,1,1,0,,4,3,30", "UP,1,1,0,,5,3,30")
+        val failover = ClusterProxy.check(lostAgain, history, 1_120_000, planned = listOf(1_020_000))
         assertEquals(Health.DEGRADED, failover.health, failover.detail)
-        val later = ClusterProxy.check(lost.replace("UP,1,1,0,,4,3,30", "UP,1,1,0,,5,3,30"), history, 1_120_000 + 6 * 60_000, planned = listOf(1_020_000))
+        val later = ClusterProxy.check(lostAgain, history, 1_120_000 + 6 * 60_000, planned = listOf(1_020_000))
         assertEquals(Health.OK, later.health, later.detail)
     }
 
     @Test
     fun theProxyPublishesStatsOnLoopbackOnly() {
-        val m = ClusterTemplates.Member("na1", "10.77.0.10")
-        assertTrue("stats uri /stats" in ClusterTemplates.haproxy(listOf(m), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind", "etcd", "sentinel")))
+        val member = ClusterTemplates.Member("na1", "10.77.0.10")
+        assertTrue("stats uri /stats" in ClusterTemplates.haproxy(listOf(member), secrets))
         assertTrue("\"127.0.0.1:8404:8404\"" in ClusterTemplates.nodeCompose("img", emptyMap()))
     }
 
     @Test
     fun theProbeScriptParsesAndItsReadingsBecomeLossAndOutages() {
         runBlocking {
-            val r = Subprocess.run(listOf("python3", "-c", "import ast,sys; ast.parse(sys.stdin.read())"), stdin = MeshProbe.SCRIPT)
-            assertEquals(0, r.exitCode, r.stderr)
+            val parseAsPython = listOf("python3", "-c", "import ast,sys; ast.parse(sys.stdin.read())")
+            val result = Subprocess.run(parseAsPython, stdin = MeshProbe.SCRIPT)
+            assertEquals(0, result.exitCode, result.stderr)
         }
-        val members = listOf(ClusterTemplates.Member("homelab", "10.77.0.1"), ClusterTemplates.Member("na1", "10.77.0.10"), ClusterTemplates.Member("as1", "10.77.0.11"))
         assertEquals("homelab 10.77.0.1\nas1 10.77.0.11\n", MeshProbe.targets("na1", members))
 
         val history = MeshProbe.History(windowMs = 3_600_000)
-        val t0 = 10_000_000L
-        history.record("na1", MeshProbe.parse("S homelab $t0 100 0 236000 0\n"), t0)
-        val view = history.record(
-            "na1",
-            MeshProbe.parse("S homelab ${t0 + 60_000} 160 10 -1 ${t0 + 50_000}\nO homelab ${t0 + 20_000} ${t0 + 35_000}\n"),
-            t0 + 60_000,
-        ).getValue("homelab")
+        val start = 10_000_000L
+        history.record("na1", MeshProbe.parse("S homelab $start 100 0 236000 0\n"), start)
+        val counters = "S homelab ${start + 60_000} 160 10 -1 ${start + 50_000}\n"
+        val outage = "O homelab ${start + 20_000} ${start + 35_000}\n"
+        val view = history.record("na1", MeshProbe.parse(counters + outage), start + 60_000).getValue("homelab")
         assertNull(view.rttMs, "the last probe was lost")
         assertEquals(60, view.sent)
         assertEquals(10 * 100.0 / 60, view.lossPercent)
-        assertEquals(listOf(null, t0 + 35_000), view.outages.map { it.endAt }, "the ongoing outage first, then the past one")
+        assertEquals(
+            listOf(null, start + 35_000),
+            view.outages.map { it.endAt },
+            "the ongoing outage first, then the past one",
+        )
 
-        // The probe restarted: its counters start again rather than going negative.
-        val restarted = history.record("na1", MeshProbe.parse("S homelab ${t0 + 70_000} 5 0 240000 0\n"), t0 + 70_000).getValue("homelab")
+        // The probe restarted: its counters start again and do not go negative.
+        val afterRestart = MeshProbe.parse("S homelab ${start + 70_000} 5 0 240000 0\n")
+        val restarted = history.record("na1", afterRestart, start + 70_000).getValue("homelab")
         assertEquals(5, restarted.sent)
         assertEquals(240.0, restarted.rttMs)
     }
 
     @Test
     fun onlySitesHomegapMadeAreTiedToANode() {
-        val d = ClusterReconciler.Departed
-        assertEquals("old1", d.siteOwner("homelab-old1", "homelab via old1", "homelab"))
-        assertEquals("old1", d.siteOwner("exit-old1", "exit via old1", "homelab"))
-        assertNull(d.siteOwner("homelab-old1", "my own site", "homelab"), "a site someone made by hand")
-        assertNull(d.siteOwner("office", "office", "homelab"))
+        val departed = ClusterReconciler.Departed
+        assertEquals("old1", departed.siteOwner("homelab-old1", "homelab via old1", "homelab"))
+        assertEquals("old1", departed.siteOwner("exit-old1", "exit via old1", "homelab"))
+        assertNull(departed.siteOwner("homelab-old1", "my own site", "homelab"), "a site someone made by hand")
+        assertNull(departed.siteOwner("office", "office", "homelab"))
     }
 
     @Test
@@ -141,15 +169,18 @@ class DiagnosticsTest {
         val sql = ClusterReconciler.Departed.exitNodeSql(setOf("na1", "as1", "bad'id"))
         assertTrue("region NOT IN ('na1','as1')" in sql, sql)
         assertTrue("type = 'gerbil'" in sql && "region IS NOT NULL" in sql)
-        assertEquals(listOf(7 to "old1"), ClusterReconciler.Departed.parseDeleted("7 old1\n\nDELETE 1\n"))
+        val expected = listOf(7 to "old1")
+        assertEquals(expected, ClusterReconciler.Departed.parseDeleted("7 old1\n\nDELETE 1\n"))
     }
 
     @Test
     fun theContainerProbeChecksEveryOtherMemberFromHaproxy() {
-        val members = listOf(ClusterTemplates.Member("homelab", "10.77.0.1"), ClusterTemplates.Member("na1", "10.77.0.10"), ClusterTemplates.Member("as1", "10.77.0.11"))
-        val cfg = ClusterTemplates.haproxy(members, homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind", "etcd", "sentinel"), self = "na1")
-        val probe = cfg.substringAfter("backend mesh-probe")
-        assertTrue("server homelab 10.77.0.1:2379 check" in probe && "server as1 10.77.0.11:2379 check" in probe, probe)
+        val haproxyConfig = ClusterTemplates.haproxy(members, secrets, self = "na1")
+        val probe = haproxyConfig.substringAfter("backend mesh-probe")
+        assertTrue(
+            "server homelab 10.77.0.1:2379 check" in probe && "server as1 10.77.0.11:2379 check" in probe,
+            probe,
+        )
         assertFalse("server na1" in probe, "not itself")
         assertTrue("inter 1s fall 3" in probe)
     }
@@ -165,40 +196,52 @@ class DiagnosticsTest {
             |L haproxy-1  | 2026-11-09T11:00:00.500000000Z [WARNING]  (8) : Server mesh-probe/homelab is DOWN, reason: Layer4 timeout
             |L haproxy-1  | 2026-11-09T11:00:15.000000000Z [WARNING]  (8) : Server mesh-probe/homelab is UP, reason: Layer4 check passed
             |""".trimMargin()
-        val out = MeshProbe.parseContainer(text, now)
-        val homelab = out.readings.getValue("homelab")
+        val output = MeshProbe.parseContainer(text, now)
+        val homelab = output.readings.getValue("homelab")
         assertEquals(237_000, homelab.rttMicros)
         assertEquals(19, homelab.lost, "failed checks plus seconds spent down")
         assertNull(homelab.ongoingSince)
-        val as1 = out.readings.getValue("as1")
+        val as1 = output.readings.getValue("as1")
         assertNull(as1.rttMicros)
         assertEquals(now - 20_000 - 3_000, as1.ongoingSince, "down since its first missed check")
-        val start = kotlin.time.Instant.parse("2026-11-09T11:00:00.500Z").toEpochMilliseconds() - 3_000
-        val end = kotlin.time.Instant.parse("2026-11-09T11:00:15Z").toEpochMilliseconds()
-        assertEquals(listOf(Triple("homelab", start, end)), out.outages)
+        val start = Instant.parse("2026-11-09T11:00:00.500Z").toEpochMilliseconds() - 3_000
+        val end = Instant.parse("2026-11-09T11:00:15Z").toEpochMilliseconds()
+        assertEquals(listOf(Triple("homelab", start, end)), output.outages)
 
         // Loss over the window comes from the counters' growth between passes.
         val history = MeshProbe.History()
-        history.record("na1", out, now)
-        val later = MeshProbe.parseContainer(text.replace("UP,4,1,600,15,237", "UP,10,1,660,15,240"), now + 60_000)
+        history.record("na1", output, now)
+        val laterText = text.replace("UP,4,1,600,15,237", "UP,10,1,660,15,240")
+        val later = MeshProbe.parseContainer(laterText, now + 60_000)
         assertEquals(10.0, history.record("na1", later, now + 60_000).getValue("homelab").lossPercent)
     }
 
     @Test
     fun patroniRunsWithoutJit() {
-        val yml = ClusterTemplates.patroni(ClusterTemplates.Member("na1", "10.77.0.10"), homegap.config.MeshConfig(), homegap.provision.ClusterSecrets("pg", "repl", "vk", "rest", "pangolin", "rewind", "etcd", "sentinel"))
-        assertTrue("  parameters:\n    jit: \"off\"" in yml, yml)
-        assertFalse("org.homegap.config" in ClusterTemplates.nodeCompose("img", mapOf("valkey" to "x")).substringAfter("  db:").substringBefore("  valkey:"),
-            "a settings change reloads Patroni instead of recreating the database")
+        val patroniYaml = ClusterTemplates.patroni(ClusterTemplates.Member("na1", "10.77.0.10"), MeshConfig(), secrets)
+        assertTrue("  parameters:\n    jit: \"off\"" in patroniYaml, patroniYaml)
+        val databaseService = ClusterTemplates.nodeCompose("img", mapOf("valkey" to "x"))
+            .substringAfter("  db:")
+            .substringBefore("  valkey:")
+        assertFalse(
+            "org.homegap.config" in databaseService,
+            "a settings change reloads Patroni instead of recreating the database",
+        )
         assertTrue("kill -HUP 1" in ClusterTemplates.PATRONI_RELOAD)
     }
 
     @Test
     fun readingTheProbesNeverFailsTheMeshScript() = runBlocking {
-        // No HAProxy and no cluster directory here: both reads find nothing, under the node scripts' settings.
-        val script = "set -euo pipefail\n${MeshProbe.containerReadCmd("/nonexistent")}\n${MeshProbe.READ_CMD}\necho DONE"
-        val r = Subprocess.run(listOf("bash", "-s"), stdin = script)
-        assertEquals(0, r.exitCode, r.stderr)
-        assertTrue("DONE" in r.stdout)
+        // There is no HAProxy and no cluster directory here. Both reads find nothing, with the settings
+        // of the node scripts.
+        val script = listOf(
+            "set -euo pipefail",
+            MeshProbe.containerReadCmd("/nonexistent"),
+            MeshProbe.READ_CMD,
+            "echo DONE",
+        ).joinToString("\n")
+        val result = Subprocess.run(listOf("bash", "-s"), stdin = script)
+        assertEquals(0, result.exitCode, result.stderr)
+        assertTrue("DONE" in result.stdout)
     }
 }

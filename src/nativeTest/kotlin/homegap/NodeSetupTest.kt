@@ -22,7 +22,10 @@ class NodeSetupTest {
         assertEquals("allow 2222/tcp", FirewallRules.specs(node).first())
         val limited = FirewallRules.specs(node.copy(sshAllowFrom = listOf("198.51.100.7", "10.0.0.0/8")))
         assertEquals(
-            listOf("allow from 198.51.100.7 to any port 2222 proto tcp", "allow from 10.0.0.0/8 to any port 2222 proto tcp"),
+            listOf(
+                "allow from 198.51.100.7 to any port 2222 proto tcp",
+                "allow from 10.0.0.0/8 to any port 2222 proto tcp",
+            ),
             limited.take(2),
         )
         assertTrue(limited.none { it == "allow 2222/tcp" }, "no open SSH rule once sources are listed")
@@ -32,7 +35,10 @@ class NodeSetupTest {
     @Test
     fun firewallScriptAddsBeforeItRemoves() {
         val script = FirewallRules.script(FirewallRules.specs(node))
-        assertTrue(script.indexOf("comment homegap") < script.indexOf("ufw delete"), "new rules exist before old ones go")
+        assertTrue(
+            script.indexOf("comment homegap") < script.indexOf("ufw delete"),
+            "new rules exist before old ones go",
+        )
         assertTrue("allow 2222/tcp" in script)
     }
 
@@ -40,24 +46,38 @@ class NodeSetupTest {
     fun rejectsInvalidSshSources() {
         val config = ConfigLoader.parse(TEST_CONFIG)
         val bad = config.copy(nodes = config.nodes.map { it.copy(sshAllowFrom = listOf("not-an-ip")) })
-        assertFailsWith<IllegalArgumentException> { ConfigLoader.validate(bad) }.also { assertTrue("ssh_allow_from" in it.message!!) }
+        val failure = assertFailsWith<IllegalArgumentException> { ConfigLoader.validate(bad) }
+        assertTrue("ssh_allow_from" in failure.message!!)
     }
 
     @Test
     fun explainsSshFailures() {
-        fun error(stderr: String) = SetupShell.connectionError(ProcessResult(255, "", stderr))
-        assertEquals("Login rejected: wrong user, password or key.", error("root@x: Permission denied (publickey,password)."))
+        fun error(stderr: String) =
+            SetupShell.connectionError(ProcessResult(exitCode = 255, stdout = "", stderr = stderr))
+        assertEquals(
+            "Login rejected: wrong user, password or key.",
+            error("root@x: Permission denied (publickey,password)."),
+        )
         assertEquals(SetupShell.HOST_KEY_CHANGED, error("@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@"))
         assertTrue("did not answer" in error("ssh: connect to host x port 22: Operation timed out")!!)
-        assertNull(SetupShell.connectionError(ProcessResult(1, "", "sudo: a password is required")), "remote command failures are not connection errors")
+        val commandFailure = ProcessResult(exitCode = 1, stdout = "", stderr = "sudo: a password is required")
+        assertNull(SetupShell.connectionError(commandFailure), "remote command failures are not connection errors")
         assertEquals(SetupShell.DROPPED, error(""), "a connection cut without a message is still explained")
         assertEquals(SetupShell.DROPPED, error("kex_exchange_identification: Connection closed by remote host"))
         assertTrue(SetupShell.isDropped(error("ssh: connect to host x port 22: Connection timed out")!!))
         assertTrue(!SetupShell.isDropped(SetupShell.LOGIN_REJECTED))
-        assertEquals(SetupShell.STALLED, error("Connection timed out during banner exchange\nConnection to 203.0.113.30 port 22 timed out"))
-        assertEquals(SetupShell.STALLED, error("\n[homegap] process timed out after 30s"), "a login killed by our timeout connected first")
+        assertEquals(
+            SetupShell.STALLED,
+            error("Connection timed out during banner exchange\nConnection to 203.0.113.30 port 22 timed out"),
+        )
+        assertEquals(
+            SetupShell.STALLED,
+            error("\n[homegap] process timed out after 30s"),
+            "a login killed by our timeout connected first",
+        )
         // ksubprocess reports a signal as 128 + signal: a SIGKILLed ssh still reads as our timeout.
-        assertEquals(SetupShell.STALLED, SetupShell.connectionError(ProcessResult(137, "", "\n[homegap] process timed out after 60s")))
+        val killed = ProcessResult(exitCode = 137, stdout = "", stderr = "\n[homegap] process timed out after 60s")
+        assertEquals(SetupShell.STALLED, SetupShell.connectionError(killed))
         assertTrue(SetupShell.isDropped(SetupShell.STALLED))
     }
 
@@ -69,7 +89,9 @@ class NodeSetupTest {
     @Test
     fun confirmFailsWhenARevertTimerAlreadyFired() {
         val script = SetupScripts.confirm(listOf("ufw", "ssh"))
-        assertTrue("[ -f /run/homegap-setup-ufw.armed ] ||" in script && "[ -f /run/homegap-setup-ssh.armed ] ||" in script)
+        assertTrue(
+            "[ -f /run/homegap-setup-ufw.armed ] ||" in script && "[ -f /run/homegap-setup-ssh.armed ] ||" in script,
+        )
         assertTrue(script.indexOf("exit 1") < script.indexOf("rm -f"), "every timer is checked before any is canceled")
     }
 
@@ -86,14 +108,31 @@ class NodeSetupTest {
 
     @Test
     fun hardeningVerifiesTheEffectiveSettingsAndArmsARevert() {
-        val script = SetupScripts.hardenSsh(disableRootLogin = true, disablePasswordLogin = true, listOf("root", "homegap"), "198.51.100.7")
+        val script = SetupScripts.hardenSsh(
+            disableRootLogin = true,
+            disablePasswordLogin = true,
+            users = listOf("root", "homegap"),
+            clientAddr = "198.51.100.7",
+        )
         assertTrue(SetupScripts.SSHD_DROP_IN in script)
         assertTrue("PermitRootLogin no" in script && "PasswordAuthentication no" in script)
         assertTrue("sshd -t" in script, "config is syntax-checked")
-        assertTrue("for who in root homegap" in script && "addr=198.51.100.7" in script, "effect confirmed per user, for the orchestrator's address")
-        assertTrue("addr=127.0.0.1" in SetupScripts.hardenSsh(true, true, listOf("root"), "not an ip"), "an unusable address is never put in the script")
+        assertTrue(
+            "for who in root homegap" in script && "addr=198.51.100.7" in script,
+            "effect confirmed per user, for the orchestrator's address",
+        )
+        val unusableAddress = SetupScripts.hardenSsh(
+            disableRootLogin = true,
+            disablePasswordLogin = true,
+            users = listOf("root"),
+            clientAddr = "not an ip",
+        )
+        assertTrue("addr=127.0.0.1" in unusableAddress, "an unusable address is never put in the script")
         assertTrue("sleep ${SetupScripts.REVERT_AFTER_SECONDS}" in script, "a revert timer is armed")
-        assertTrue(script.indexOf("sleep ${SetupScripts.REVERT_AFTER_SECONDS}") < script.lastIndexOf("reload"), "armed before the reload")
+        assertTrue(
+            script.indexOf("sleep ${SetupScripts.REVERT_AFTER_SECONDS}") < script.lastIndexOf("reload"),
+            "armed before the reload",
+        )
     }
 
     @Test
@@ -107,13 +146,25 @@ class NodeSetupTest {
         )
         assertTrue("DenyUsers ubuntu" in script && "PermitRootLogin no" in script)
         assertTrue("for want in 'denyusers ubuntu'; do" in script, "the lock of the login user is required")
-        assertTrue("for want in 'permitrootlogin no'; do" in script && "NOTE root login stays possible" in script, "root login only adds a note")
+        assertTrue(
+            "for want in 'permitrootlogin no'; do" in script && "NOTE root login stays possible" in script,
+            "root login only adds a note",
+        )
         assertTrue("NOTE root login was already off" in script)
         assertTrue("fail() { if false;" in script, "with a required change, a broken drop-in still fails")
 
-        val rootOnly = SetupScripts.hardenSsh(disableRootLogin = true, disablePasswordLogin = false, softRootLogin = true)
+        val rootOnly = SetupScripts.hardenSsh(
+            disableRootLogin = true,
+            disablePasswordLogin = false,
+            softRootLogin = true,
+        )
         assertTrue("fail() { if true;" in rootOnly, "with only root login, a broken drop-in is a note")
-        assertFalse("DenyUsers root" in SetupScripts.hardenSsh(true, false, denyUsers = listOf("root")), "root is never in DenyUsers")
+        val rootDenied = SetupScripts.hardenSsh(
+            disableRootLogin = true,
+            disablePasswordLogin = false,
+            denyUsers = listOf("root"),
+        )
+        assertFalse("DenyUsers root" in rootDenied, "root is never in DenyUsers")
     }
 
     @Test

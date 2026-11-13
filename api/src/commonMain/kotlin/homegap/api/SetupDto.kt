@@ -71,14 +71,17 @@ data class SshKeyDto(
     val fingerprint: String,
 )
 
-/** Everything the wizard collected; drives one setup job. */
+/** Everything the wizard collected. Drives one setup job. */
 @Serializable
 data class NodeSetupRequestDto(
     val node: NodeConfigDto,
     val login: SshLoginDto,
-    /** Key the node will be managed with afterwards (from the keys endpoint). */
+    /** The key that manages the node after the setup (from the keys endpoint). */
     val keyFile: String,
-    /** Create this user (sudo + docker groups, passwordless sudo, key login); null keeps [SshLoginDto.user]. */
+    /**
+     * The user to create (sudo and docker groups, sudo without a password, key login). Null keeps
+     * [SshLoginDto.user].
+     */
     val createUser: String? = null,
     val dockerGroup: Boolean = true,
     val disableRootLogin: Boolean = false,
@@ -89,7 +92,7 @@ data class NodeSetupRequestDto(
      */
     val disableLoginUser: Boolean = false,
     val configureFirewall: Boolean = true,
-    /** Allowed SSH sources (IPs/CIDRs); empty allows any source. */
+    /** The sources that can reach SSH (IPs/CIDRs). Empty means each source. */
     val sshAllowFrom: List<String> = emptyList(),
     /**
      * A failed job this one retries: steps whose result stayed on the server (the management

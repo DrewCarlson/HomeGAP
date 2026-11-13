@@ -218,7 +218,8 @@ class NodeSetupService(private val controller: Controller) {
         val target: String,
     ) {
         /** The initial login user whose SSH login ends, when the request asks and it is not the management user. */
-        val lockedUser: String? get() = request.login.user.takeIf { request.disableLoginUser && it != "root" && it != target }
+        val lockedUser: String?
+            get() = request.login.user.takeIf { request.disableLoginUser && it != "root" && it != target }
 
         val hardenSsh get() = request.disableRootLogin || request.disablePasswordLogin || lockedUser != null
 

@@ -7,7 +7,7 @@ import kotlinx.serialization.json.jsonObject
 
 /**
  * The JSON both ends of `/api` use. Every field is sent, defaults and nulls included, so scripts
- * that read the API see the whole shape; the dashboard would fill defaults in either way.
+ * that read the API see the whole shape. The dashboard would fill defaults in either way.
  */
 val ApiJson: Json = Json {
     encodeDefaults = true

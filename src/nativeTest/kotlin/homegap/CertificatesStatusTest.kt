@@ -25,9 +25,9 @@ import kotlin.test.assertTrue
 
 /** The `certificates` part of the status: its facts, its states, and what it never holds. */
 class CertificatesStatusTest {
-    private val cfg = testConfig().copy(cluster = ClusterConfig(image = "example/cluster:7"))
+    private val config = testConfig().copy(cluster = ClusterConfig(image = "example/cluster:7"))
     private val wiki = container("wiki", "homegap.expose" to "wiki.test.example.net", "homegap.port" to "80")
-    private val plan = Planner.plan(cfg, listOf(TRAEFIK, wiki))
+    private val plan = Planner.plan(config, listOf(TRAEFIK, wiki))
     private val now = X509.epochSeconds(2026, 12, 1, 0, 0, 0)
 
     @Test
@@ -36,31 +36,46 @@ class CertificatesStatusTest {
         assertEquals("R99 · Test Issuer", info.issuer)
         assertEquals("EC P-256", info.keyType)
         assertEquals("52:32:30:B5:B6:B5:C4:2E:D0:6C:7F:1C:EA:26:A2:E4:D2:80:C5:AD", info.serial)
-        assertEquals("11:E7:CC:7C:AE:35:B8:80:CA:ED:D2:B1:46:25:F0:94:A9:F1:BE:20:25:8D:5B:9D:EB:ED:24:82:04:2E:8B:93", info.fingerprint)
+        assertEquals(
+            "11:E7:CC:7C:AE:35:B8:80:CA:ED:D2:B1:46:25:F0:94:A9:F1:BE:20:25:8D:5B:9D:EB:ED:24:82:04:2E:8B:93",
+            info.fingerprint,
+        )
         assertEquals(X509.epochSeconds(2027, 2, 11, 4, 29, 46), info.validity.notAfter)
         assertEquals("11e7cc", NodeCertificate.versionOf(info.fingerprint))
     }
 
     @Test
     fun eachNameHasTheReasonThatPutsItOnTheCertificate() {
-        val entries = CertNames.entries(cfg, plan).associateBy { it.name }
+        val entries = CertNames.entries(config, plan).associateBy { it.name }
         assertEquals("management", entries.getValue("pangolin-na1.test.example.net").reason)
         assertEquals("na1", entries.getValue("pangolin-na1.test.example.net").subject)
-        assertEquals("client", entries.getValue(cfg.clientHost!!).reason)
+        assertEquals("client", entries.getValue(config.clientHost!!).reason)
         assertEquals("service", entries.getValue("wiki.test.example.net").reason)
-        assertEquals(CertNames.of(cfg, plan), CertNames.entries(cfg, plan).map { it.name })
-        assertTrue("test.example.net" in CertNames.passthrough(plan), "the passthrough front door: ${CertNames.passthrough(plan)}")
+        assertEquals(CertNames.of(config, plan), CertNames.entries(config, plan).map { it.name })
+        assertTrue(
+            "test.example.net" in CertNames.passthrough(plan),
+            "the passthrough front door: ${CertNames.passthrough(plan)}",
+        )
     }
 
     @Test
     fun aFailedOrderHasAShortCauseFromAFixedSet() {
-        assertEquals(OrderCause.DNS_TIMEOUT, OrderCause.of("lego exit 1: time limit exceeded: last error: NS ns1.bunny.net did not return the expected TXT record"))
-        assertEquals(OrderCause.RATE_LIMIT, OrderCause.of("urn:ietf:params:acme:error:rateLimited: too many failed authorizations recently"))
-        assertEquals(OrderCause.CAA, OrderCause.of("CAA record for test.example.net prevents issuance"))
-        assertEquals(OrderCause.BUNNY_KEY, OrderCause.of("the Bunny API key \$HOMEGAP_TEST_BUNNY is not set"))
-        assertEquals(OrderCause.ACME_UNREACHABLE, OrderCause.of("get directory at 'https://acme-v02.api.letsencrypt.org/directory': dial tcp: i/o timeout"))
-        assertEquals(OrderCause.TOO_MANY_NAMES, OrderCause.of("112 names do not fit on one certificate (the limit is 100)"))
-        assertEquals(OrderCause.OTHER, OrderCause.of("something else"))
+        assertCause(
+            OrderCause.DNS_TIMEOUT,
+            "lego exit 1: time limit exceeded: last error: NS ns1.bunny.net did not return the expected TXT record",
+        )
+        assertCause(
+            OrderCause.RATE_LIMIT,
+            "urn:ietf:params:acme:error:rateLimited: too many failed authorizations recently",
+        )
+        assertCause(OrderCause.CAA, "CAA record for test.example.net prevents issuance")
+        assertCause(OrderCause.BUNNY_KEY, $$"the Bunny API key $HOMEGAP_TEST_BUNNY is not set")
+        assertCause(
+            OrderCause.ACME_UNREACHABLE,
+            "get directory at 'https://acme-v02.api.letsencrypt.org/directory': dial tcp: i/o timeout",
+        )
+        assertCause(OrderCause.TOO_MANY_NAMES, "112 names do not fit on one certificate (the limit is 100)")
+        assertCause(OrderCause.OTHER, "something else")
         val redacted = OrderCause.redact("token Xh1pWm4RtvQ2s8bKzLaPoNcYdEfGhIjKlMnOpQrStU9 at https://acme/acct/12")
         assertFalse("Xh1pWm4RtvQ2s8bKzLaPoNcYdEfGhIjKlMnOpQrStU9" in redacted)
         assertTrue("https://acme/acct/12" in redacted)
@@ -68,37 +83,68 @@ class CertificatesStatusTest {
 
     @Test
     fun aProbeTellsTheDefaultCertificateAMismatchAndTheDaysLeft() {
-        val out = listOf(
-            "X a.example.net ${now + 40 * 86_400}|CN=a.example.net|C=US, O=Let's Encrypt, CN=R11|a.example.net,",
-            "X b.example.net ${now + 40 * 86_400}|CN=TRAEFIK DEFAULT CERT|CN=TRAEFIK DEFAULT CERT|",
+        val output = listOf(
+            "X a.example.net ${now + 40 * DAY_SECONDS}|CN=a.example.net|C=US, O=Let's Encrypt, CN=R11|a.example.net,",
+            "X b.example.net ${now + 40 * DAY_SECONDS}|CN=TRAEFIK DEFAULT CERT|CN=TRAEFIK DEFAULT CERT|",
             "X c.example.net none",
-            "X d.example.net ${now + 10 * 86_400}|CN=other.example.net|CN=R11|other.example.net,",
-            "X *.apps.example.net ${now + 5 * 86_400}|CN=x|CN=R11|*.apps.example.net,",
+            "X d.example.net ${now + 10 * DAY_SECONDS}|CN=other.example.net|CN=R11|other.example.net,",
+            "X *.apps.example.net ${now + 5 * DAY_SECONDS}|CN=x|CN=R11|*.apps.example.net,",
             "I 1a2b3c4d5e6f7a8b 1794500000",
         )
-        val results = CertProbes.parse(out)
+        val results = CertProbes.parse(output)
         assertEquals("ok", CertProbes.state("a.example.net", results.getValue("a.example.net"), now))
         assertEquals("default", CertProbes.state("b.example.net", results.getValue("b.example.net"), now))
         assertEquals("none", CertProbes.state("c.example.net", results.getValue("c.example.net"), now))
         assertEquals("mismatch", CertProbes.state("d.example.net", results.getValue("d.example.net"), now))
         assertEquals("expiring", CertProbes.state("*.apps.example.net", results.getValue("*.apps.example.net"), now))
-        assertEquals("1a2b3c4d5e6f7a8b" to 1794500000L, CertProbes.installed(out))
-        assertEquals(null to null, CertProbes.installed(listOf("I  0")))
-        assertTrue("homegap-probe.apps.example.net" in CertProbes.script(listOf("*.apps.example.net"), "/opt/x/tls.yml"))
+        assertEquals("1a2b3c4d5e6f7a8b" to 1794500000L, CertProbes.installed(output))
+        assertEquals(Pair(null, null), CertProbes.installed(listOf("I  0")))
+        val script = CertProbes.script(names = listOf("*.apps.example.net"), tlsFile = "/opt/x/tls.yml")
+        assertTrue("homegap-probe.apps.example.net" in script)
     }
 
     @Test
     fun deliveryTellsCurrentBehindAndANewNodeThatWaits() {
-        val names = CertNames.of(cfg, plan).filter { "na1" !in it }
+        val names = CertNames.of(config, plan).filter { "na1" !in it }
         val status = build(
-            meta = NodeCertificate.Meta(names, cfg.acme.directoryUrl(), "homegap-1", now - 10 * 86_400, now + 80 * 86_400),
+            meta = NodeCertificate.Meta(
+                names = names,
+                directory = config.acme.directoryUrl(),
+                certName = "homegap-1",
+                notBefore = now - 10 * DAY_SECONDS,
+                notAfter = now + 80 * DAY_SECONDS,
+            ),
             history = listOf(
-                CertOrderStore.Record("b", "order", 2, "the names changed", names, ok = true, version = "11e7cc", notBefore = now - 10 * 86_400, hash = "current"),
-                CertOrderStore.Record("a", "order", 1, "first", names - "wiki.test.example.net", ok = true, version = "0a0a0a", notBefore = now - 70 * 86_400, hash = "old"),
+                CertOrderStore.Record(
+                    id = "b",
+                    kind = "order",
+                    at = 2,
+                    reason = "the names changed",
+                    names = names,
+                    ok = true,
+                    version = "11e7cc",
+                    notBefore = now - 10 * DAY_SECONDS,
+                    hash = "current",
+                ),
+                CertOrderStore.Record(
+                    id = "a",
+                    kind = "order",
+                    at = 1,
+                    reason = "first",
+                    names = names - "wiki.test.example.net",
+                    ok = true,
+                    version = "0a0a0a",
+                    notBefore = now - 70 * DAY_SECONDS,
+                    hash = "old",
+                ),
             ),
             probes = mapOf(
-                "na1" to probes(installed = null, names = CertNames.of(cfg, plan), default = setOf("pangolin-na1.test.example.net")),
-                "as1" to probes(installed = "old", names = CertNames.of(cfg, plan)),
+                "na1" to probes(
+                    installed = null,
+                    names = CertNames.of(config, plan),
+                    default = setOf("pangolin-na1.test.example.net"),
+                ),
+                "as1" to probes(installed = "old", names = CertNames.of(config, plan)),
             ),
         )
         val na1 = status.delivery.first { it.node == "na1" }
@@ -116,9 +162,25 @@ class CertificatesStatusTest {
     @Test
     fun theStatusNeverHoldsKeyMaterialOrAChallengeValue() {
         val status = build(
-            meta = NodeCertificate.Meta(CertNames.of(cfg, plan), cfg.acme.directoryUrl(), "homegap-1", now - 86_400, now + 89 * 86_400),
-            history = listOf(CertOrderStore.Record("a", "order", 1, "first", CertNames.of(cfg, plan), ok = true, hash = "fnv-of-cert-and-key")),
-            probes = mapOf("na1" to probes(installed = "fnv-of-cert-and-key", names = CertNames.of(cfg, plan))),
+            meta = NodeCertificate.Meta(
+                names = CertNames.of(config, plan),
+                directory = config.acme.directoryUrl(),
+                certName = "homegap-1",
+                notBefore = now - DAY_SECONDS,
+                notAfter = now + 89 * DAY_SECONDS,
+            ),
+            history = listOf(
+                CertOrderStore.Record(
+                    id = "a",
+                    kind = "order",
+                    at = 1,
+                    reason = "first",
+                    names = CertNames.of(config, plan),
+                    ok = true,
+                    hash = "fnv-of-cert-and-key",
+                ),
+            ),
+            probes = mapOf("na1" to probes(installed = "fnv-of-cert-and-key", names = CertNames.of(config, plan))),
         )
         val json = Json.encodeToString(CertificatesDto.serializer(), status)
         for (secret in listOf("BEGIN", "PRIVATE", "fnv-of-cert-and-key", "MIIB", "_acme-challenge")) {
@@ -133,17 +195,40 @@ class CertificatesStatusTest {
             meta = null,
             history = emptyList(),
             probes = emptyMap(),
-            order = CertOrderStore.State(state = CertOrderStore.FAILED, cause = "dns-timeout", causeText = OrderCause.DNS_TIMEOUT.text, retryAt = 1),
+            order = CertOrderStore.State(
+                state = CertOrderStore.FAILED,
+                cause = "dns-timeout",
+                causeText = OrderCause.DNS_TIMEOUT.text,
+                retryAt = 1,
+            ),
+        )
+        val node = NodeStatusDto(
+            id = "na1",
+            region = "NA",
+            provider = "",
+            host = "",
+            managementHost = "pangolin-na1.test.example.net",
+            health = Health.DEGRADED,
+            reachable = true,
+            waitingForCertificate = true,
+        )
+        val tunnel = TunnelStatusDto(
+            nodeId = "na1",
+            siteNiceId = "s",
+            endpoint = "e",
+            up = false,
+            processRunning = false,
+            siteOnline = false,
         )
         val snapshot = StatusSnapshot(
             generatedAt = now * 1000,
             version = "t",
             dryRun = false,
             project = "p",
-            domain = cfg.domain,
+            domain = config.domain,
             paused = false,
-            nodes = listOf(NodeStatusDto("na1", "NA", "", "", "pangolin-na1.test.example.net", Health.DEGRADED, true, waitingForCertificate = true)),
-            tunnels = listOf(TunnelStatusDto(nodeId = "na1", siteNiceId = "s", endpoint = "e", up = false, processRunning = false, siteOnline = false)),
+            nodes = listOf(node),
+            tunnels = listOf(tunnel),
             certificates = certs,
         )
         val items = attentionItems(snapshot, emptyMap())
@@ -155,15 +240,31 @@ class CertificatesStatusTest {
         assertNull(items.firstOrNull { it.id == "node:na1:down" })
     }
 
-    private fun probes(installed: String?, names: List<String>, default: Set<String> = emptySet()) = CertificateStatus.NodeProbes(
+    private fun assertCause(expected: OrderCause, message: String) = assertEquals(expected, OrderCause.of(message))
+
+    private fun probes(
+        installed: String?,
+        names: List<String>,
+        default: Set<String> = emptySet(),
+    ) = CertificateStatus.NodeProbes(
         at = now * 1000,
         installed = installed,
-        installedAt = installed?.let { now - 86_400 },
+        installedAt = installed?.let { now - DAY_SECONDS },
         results = names.associateWith { name ->
             if (name in default) {
-                CertProbes.Result(served = true, notAfter = now + 365 * 86_400, subject = "CN=TRAEFIK DEFAULT CERT")
+                CertProbes.Result(
+                    served = true,
+                    notAfter = now + 365 * DAY_SECONDS,
+                    subject = "CN=TRAEFIK DEFAULT CERT",
+                )
             } else {
-                CertProbes.Result(served = true, notAfter = now + 80 * 86_400, subject = "CN=$name", issuer = "CN=R11", sans = listOf(name))
+                CertProbes.Result(
+                    served = true,
+                    notAfter = now + 80 * DAY_SECONDS,
+                    subject = "CN=$name",
+                    issuer = "CN=R11",
+                    sans = listOf(name),
+                )
             }
         },
     )
@@ -175,7 +276,7 @@ class CertificatesStatusTest {
         order: CertOrderStore.State = CertOrderStore.State(),
     ) = CertificateStatus.build(
         CertificateStatus.Inputs(
-            config = cfg,
+            config = config,
             desired = plan,
             meta = meta,
             info = meta?.let { X509.info(PEM) },
@@ -194,6 +295,8 @@ class CertificatesStatusTest {
     )
 
     companion object {
+        private const val DAY_SECONDS = 86_400
+
         private val PEM = """
             -----BEGIN CERTIFICATE-----
             MIIByzCCAXKgAwIBAgIUUjIwtba1xC7QbH8c6iai5NKAxa0wCgYIKoZIzj0EAwIw

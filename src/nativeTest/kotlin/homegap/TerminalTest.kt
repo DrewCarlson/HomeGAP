@@ -12,6 +12,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
 
 class TerminalTest {
     private fun bytes(text: String) = text.encodeToByteArray()
@@ -42,19 +44,24 @@ class TerminalTest {
 
     @Test
     fun theShellStartsInTheInstallDirectory() {
-        assertEquals("cd '/opt/home gap' 2>/dev/null; exec \"\${SHELL:-/bin/bash}\" -l", TerminalSessions.shellCommand("/opt/home gap"))
+        assertEquals(
+            $$"cd '/opt/home gap' 2>/dev/null; exec \"${SHELL:-/bin/bash}\" -l",
+            TerminalSessions.shellCommand("/opt/home gap"),
+        )
     }
 
     @Test
     fun aSessionKeepsItsOutputForTheNextConnection() = runBlocking {
         val pty = Pty.spawn(listOf("/bin/sh"), rows = 24, columns = 80, env = mapOf("PS1" to ""))
-        val session = TerminalSession("s1", "na1", pty, this)
-        suspend fun outputHas(text: String) = withTimeout(10_000) {
-            while (text !in session.output(0, 64 * 1024).second.decodeToString()) delay(20)
+        val session = TerminalSession(id = "s1", nodeId = "na1", pty = pty, scope = this)
+        suspend fun outputHas(text: String) = withTimeout(10.seconds) {
+            while (text !in session.output(0, 64 * 1024).second.decodeToString()) {
+                delay(20.milliseconds)
+            }
         }
         val first = Any()
         assertEquals(0, session.attach(first))
-        session.input(bytes("echo one-\$((1+1))\n"))
+        session.input(bytes("echo one-$((1+1))\n"))
         outputHas("one-2")
         session.detach(first)
         assertFalse(session.attached)
@@ -67,7 +74,11 @@ class TerminalTest {
         assertTrue("one-2" in session.output(0, 64 * 1024).second.decodeToString())
 
         session.input(bytes("exit 5\n"))
-        withTimeout(10_000) { while (session.exitCode == null) delay(20) }
+        withTimeout(10.seconds) {
+            while (session.exitCode == null) {
+                delay(20.milliseconds)
+            }
+        }
         assertEquals(5, session.exitCode)
         session.close()
     }

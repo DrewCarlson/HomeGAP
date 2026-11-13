@@ -14,12 +14,16 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 class NameserverCheckTest {
-    /** A response to [query] carrying [answers] (type, rdata), its name as a pointer to the question. */
+    /**
+     * A response to [query] with [answers] (type, rdata). The name of each answer is a pointer to
+     * the question.
+     */
     private fun response(query: ByteArray, rcode: Int = 0, vararg answers: Pair<Int, ByteArray>): ByteArray {
         val out = query.toMutableList()
         out[2] = 0x84.toByte() // response, authoritative
         out[3] = rcode.toByte()
-        out[6] = 0; out[7] = answers.size.toByte()
+        out[6] = 0
+        out[7] = answers.size.toByte()
         for ((type, data) in answers) {
             out += listOf(0xc0, 0x0c, 0, type, 0, 1, 0, 0, 0, 60, 0, data.size).map { it.toByte() }
             out += data.toList()
@@ -29,21 +33,27 @@ class NameserverCheckTest {
 
     @Test
     fun queriesAndAnswersRoundTrip() {
-        val q = DnsWire.encodeQuery(0x1234, "pangolin-na1.test.example.net", DnsWire.TYPE_A)
+        val query = DnsWire.encodeQuery(0x1234, "pangolin-na1.test.example.net", DnsWire.TYPE_A)
         // Header, then 3 + 12 + 4 + 7 + 3 label bytes and the root, type and class.
-        assertEquals(12 + "pangolin-na1.test.example.net".length + 2 + 4, q.size)
-        assertEquals(0, q[2].toInt(), "authoritative servers are asked without recursion")
+        assertEquals(12 + "pangolin-na1.test.example.net".length + 2 + 4, query.size)
+        assertEquals(0, query[2].toInt(), "authoritative servers are asked without recursion")
 
-        val a = response(q, 0, DnsWire.TYPE_A to byteArrayOf(203.toByte(), 0, 113, 10))
-        assertEquals(listOf("203.0.113.10"), DnsWire.parseAnswers(a, 0x1234, DnsWire.TYPE_A))
-        assertNull(DnsWire.parseAnswers(a, 0x4321, DnsWire.TYPE_A), "another query's answer")
-        assertNull(DnsWire.parseAnswers(q, 0x1234, DnsWire.TYPE_A), "the query itself is not an answer")
-        assertEquals(emptyList(), DnsWire.parseAnswers(response(q, 3), 0x1234, DnsWire.TYPE_A), "NXDOMAIN")
-        assertNull(DnsWire.parseAnswers(response(q, 2), 0x1234, DnsWire.TYPE_A), "SERVFAIL is no answer")
+        val answer = response(query, 0, DnsWire.TYPE_A to byteArrayOf(203.toByte(), 0, 113, 10))
+        assertEquals(listOf("203.0.113.10"), DnsWire.parseAnswers(answer, 0x1234, DnsWire.TYPE_A))
+        assertNull(DnsWire.parseAnswers(answer, 0x4321, DnsWire.TYPE_A), "another query's answer")
+        assertNull(DnsWire.parseAnswers(query, 0x1234, DnsWire.TYPE_A), "the query itself is not an answer")
+        assertEquals(emptyList(), DnsWire.parseAnswers(response(query, 3), 0x1234, DnsWire.TYPE_A), "NXDOMAIN")
+        assertNull(DnsWire.parseAnswers(response(query, 2), 0x1234, DnsWire.TYPE_A), "SERVFAIL is no answer")
 
-        val q6 = DnsWire.encodeQuery(7, "pangolin-as1.test.example.net", DnsWire.TYPE_AAAA)
-        val v6 = ByteArray(16).also { it[0] = 0x20; it[1] = 0x01; it[2] = 0x0d; it[3] = 0xb8.toByte(); it[15] = 0x20 }
-        assertEquals(listOf("2001:db8::20"), DnsWire.parseAnswers(response(q6, 0, DnsWire.TYPE_AAAA to v6), 7, DnsWire.TYPE_AAAA))
+        val query6 = DnsWire.encodeQuery(7, "pangolin-as1.test.example.net", DnsWire.TYPE_AAAA)
+        val address6 = ByteArray(16)
+        address6[0] = 0x20
+        address6[1] = 0x01
+        address6[2] = 0x0d
+        address6[3] = 0xb8.toByte()
+        address6[15] = 0x20
+        val answer6 = response(query6, 0, DnsWire.TYPE_AAAA to address6)
+        assertEquals(listOf("2001:db8::20"), DnsWire.parseAnswers(answer6, 7, DnsWire.TYPE_AAAA))
     }
 
     @Test
@@ -64,13 +74,26 @@ class NameserverCheckTest {
             asked += "$nameserver $name"
             if (type != DnsWire.TYPE_A) return emptyList()
             if (nameserver == "coco" && !cocoReachable) return null
-            if (nameserver == "coco" && !cocoHasNew && name != "pangolin-na1.test.example.net") return listOf("198.51.100.20")
+            val onWildcard = nameserver == "coco" && !cocoHasNew && name != "pangolin-na1.test.example.net"
+            if (onWildcard) return listOf("198.51.100.20")
             return listOfNotNull(known[name])
         }
     }
 
-    private fun record(name: String, value: String, geo: Boolean = false) =
-        DesiredDnsRecord(name.substringBefore(".example.net"), name, "A", value, "na1", geo, null, null, null, "none", 60, "management")
+    private fun record(name: String, value: String, geo: Boolean = false) = DesiredDnsRecord(
+        name = name.substringBefore(".example.net"),
+        fqdn = name,
+        type = "A",
+        value = value,
+        nodeId = "na1",
+        geo = geo,
+        latitude = null,
+        longitude = null,
+        latencyZone = null,
+        monitor = "none",
+        ttl = 60,
+        purpose = "management",
+    )
 
     @Test
     fun aNameserverStillOnTheWildcardIsReported() = runTest {
@@ -84,7 +107,7 @@ class NameserverCheckTest {
         assertEquals(mapOf(new to "coco still answers 198.51.100.20"), first.problems)
         assertEquals(setOf(new), first.changed)
 
-        // Still waiting: reported again, but not as news for the log.
+        // The record still waits: the check reports it again, but not as news for the log.
         val second = check.check(listOf("kiki", "coco"), listOf(old, new))
         assertEquals(setOf(new), second.problems.keys)
         assertTrue(second.changed.isEmpty())
@@ -105,26 +128,31 @@ class NameserverCheckTest {
         check.check(listOf("kiki", "coco"), listOf(old))
         assertTrue(zone.asked.isEmpty(), "a record that matched is not asked about again right away")
 
-        // An unreachable nameserver tells us nothing: not reported as out of sync.
+        // An unreachable nameserver gives no information: the check does not report it as out of sync.
         zone.known["pangolin-us1.test.example.net"] = "192.0.2.30"
         zone.cocoReachable = false
-        val unknown = NameserverCheck(zone, recheck = 0.seconds).check(listOf("kiki", "coco"), listOf(record("pangolin-us1.test.example.net", "192.0.2.30")))
+        val us1 = record("pangolin-us1.test.example.net", "192.0.2.30")
+        val unknown = NameserverCheck(zone, recheck = 0.seconds).check(listOf("kiki", "coco"), listOf(us1))
         assertTrue(unknown.problems.isEmpty())
 
-        // No nameserver has the record (the zone is not served by them, as in a test setup):
-        // nothing to compare, so nothing is reported.
+        // No nameserver has the record (they do not serve the zone, as in a test setup).
+        // There is nothing to compare, so the check reports nothing.
         zone.cocoReachable = true
-        val unserved = NameserverCheck(zone).check(listOf("kiki", "coco"), listOf(record("pangolin-zz1.test.example.net", "192.0.2.40")))
+        val zz1 = record("pangolin-zz1.test.example.net", "192.0.2.40")
+        val unserved = NameserverCheck(zone).check(listOf("kiki", "coco"), listOf(zz1))
         assertTrue(unserved.problems.isEmpty())
 
         // One has it and the other has no record at all yet: that is a nameserver behind too.
-        val empty = NameserverProbe { ns, _, _ -> if (ns == "kiki") listOf("192.0.2.30") else emptyList() }
-        val behind = NameserverCheck(empty).check(listOf("kiki", "coco"), listOf(record("pangolin-us1.test.example.net", "192.0.2.30")))
+        val empty = NameserverProbe { nameserver, _, _ ->
+            if (nameserver == "kiki") listOf("192.0.2.30") else emptyList()
+        }
+        val behind = NameserverCheck(empty).check(listOf("kiki", "coco"), listOf(us1))
         assertEquals(setOf("coco has no A record yet"), behind.problems.values.toSet())
 
-        // Geo-steered sets answer by location, so they are never compared.
+        // Geo-steered sets answer by location, so the check never compares them.
         zone.asked.clear()
-        NameserverCheck(zone).check(listOf("kiki", "coco"), listOf(record("test.example.net", "203.0.113.10", geo = true)))
+        val geoRoot = record("test.example.net", "203.0.113.10", geo = true)
+        NameserverCheck(zone).check(listOf("kiki", "coco"), listOf(geoRoot))
         assertTrue(zone.asked.isEmpty())
     }
 

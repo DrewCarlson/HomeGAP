@@ -34,8 +34,9 @@ class TunnelPinsTest {
     fun blockIsAddedReplacedAndRemovedWithoutTouchingOtherLines() {
         val docker = "127.0.0.1\tlocalhost\n::1\tlocalhost ip6-localhost\n172.30.0.5\tabc123\n"
         val first = HostsPins.render(docker, HostsPins.entries(listOf(spec("na1", "203.0.113.10"))))
+        val versionCheck = "127.0.0.1\tapi.fossorial.io\n${HostsPins.END}\n"
         assertEquals(
-            docker + "${HostsPins.BEGIN}\n203.0.113.10\tpangolin-na1.test.example.net\n127.0.0.1\tapi.fossorial.io\n${HostsPins.END}\n",
+            docker + "${HostsPins.BEGIN}\n203.0.113.10\tpangolin-na1.test.example.net\n" + versionCheck,
             first,
         )
         // The address changed and a node was added: the block is rewritten in place, once.
@@ -46,41 +47,50 @@ class TunnelPinsTest {
         assertEquals(
             docker + "${HostsPins.BEGIN}\n" +
                 "198.51.100.20\tpangolin-as1.test.example.net\n2001:db8::20\tpangolin-as1.test.example.net\n" +
-                "203.0.113.99\tpangolin-na1.test.example.net\n127.0.0.1\tapi.fossorial.io\n${HostsPins.END}\n",
+                "203.0.113.99\tpangolin-na1.test.example.net\n" + versionCheck,
             second,
         )
         assertEquals(1, second.lines().count { it == HostsPins.BEGIN })
         // Unchanged pins render the same text, so the file is not rewritten.
-        assertEquals(second, HostsPins.render(second, HostsPins.entries(listOf(spec("na1", "203.0.113.99"), spec("as1", "198.51.100.20", "2001:db8::20")))))
-        // Newt's version check goes nowhere, also before any node has a tunnel.
+        val sameSpecs = listOf(spec("na1", "203.0.113.99"), spec("as1", "198.51.100.20", "2001:db8::20"))
+        assertEquals(second, HostsPins.render(second, HostsPins.entries(sameSpecs)))
+        // The version check of Newt goes to the loopback address, also before a node has a tunnel.
         assertEquals(listOf("127.0.0.1" to "api.fossorial.io"), HostsPins.entries(emptyList()))
-        // No entries: back to the file as Docker wrote it.
+        // Without entries, the result is the file as Docker wrote it.
         assertEquals(docker, HostsPins.render(second, emptyList()))
     }
 
     @Test
     fun specsWithoutPinsStayCompatible() {
-        val old = """{"nodeId":"na1","endpoint":"https://pangolin-na1.test.example.net:443/","newtId":"i","newtSecret":"s","adminPort":47900}"""
+        val old = listOf(
+            """{"nodeId":"na1","endpoint":"https://pangolin-na1.test.example.net:443/",""",
+            """"newtId":"i","newtSecret":"s","adminPort":47900}""",
+        ).joinToString("")
         val spec = TunnelFiles.json.decodeFromString(TunnelSpec.serializer(), old)
         assertEquals(emptyList(), spec.addresses)
         assertEquals("pangolin-na1.test.example.net", spec.host)
         assertTrue(HostsPins.entries(listOf(spec)).none { it.second == spec.host })
-        // Adding pins to a running connector's spec is not a reason to restart it.
+        // New pins in the spec of a connector that runs are not a reason to restart it.
         assertEquals(spec.withoutPins(), spec.copy(addresses = listOf("203.0.113.10")).withoutPins())
     }
 
     @Test
     fun loginRejectionsCountUntilAConnection() {
-        val rejected = "ERROR: 2026/11/10 17:37:53 Failed to connect: failed to get token: failed to get token with status code: 404, body: 404 page not found\n. Retrying in 3s...\n"
+        val rejected = "ERROR: 2026/11/10 17:37:53 Failed to connect: failed to get token: " +
+            "failed to get token with status code: 404, body: 404 page not found\n. Retrying in 3s...\n"
         assertEquals(3, TunnelSupervisor.loginRejections(rejected.repeat(3), 0))
         assertEquals(5, TunnelSupervisor.loginRejections(rejected.repeat(2), 3))
-        // A node that is still starting refuses a few logins and then connects: no restart.
+        // A node that starts refuses a few logins and then connects. That is not a reason to restart.
         val recovered = rejected.repeat(2) + "INFO: 2026/11/10 17:42:47 Websocket connected\n"
         assertEquals(0, TunnelSupervisor.loginRejections(recovered, 2))
-        // Another service answering with something that is not Pangolin's JSON counts the same;
-        // Newt's separate "Failed to decode" line is not counted twice.
-        val notPangolin = "ERROR: 2026/11/10 18:16:18 Failed to decode token response.\n" +
-            "ERROR: 2026/11/10 18:16:18 Failed to connect: failed to get token: failed to decode token response: invalid character 'H' looking for beginning of value. Retrying in 3s...\n"
+        // An answer from a different service, which is not the JSON of Pangolin, counts the same.
+        // The count does not include the separate "Failed to decode" line of Newt.
+        val notPangolin = listOf(
+            "ERROR: 2026/11/10 18:16:18 Failed to decode token response.\n",
+            "ERROR: 2026/11/10 18:16:18 Failed to connect: failed to get token: ",
+            "failed to decode token response: invalid character 'H' looking for beginning of value. ",
+            "Retrying in 3s...\n",
+        ).joinToString("")
         assertEquals(2, TunnelSupervisor.loginRejections(notPangolin.repeat(2), 0))
         // Other errors (a wrong secret is a 401) are not this failure.
         assertEquals(0, TunnelSupervisor.loginRejections("failed to get token with status code: 401\n", 0))

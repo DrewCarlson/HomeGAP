@@ -5,10 +5,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlin.time.Duration.Companion.seconds
 
-/** Development hosts only: a plain periodic scan. */
+private val SCAN_INTERVAL = 3.seconds
+
+/** Development hosts only: a scan at a fixed interval. */
 actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): Flow<Unit> = flow {
     while (true) {
-        delay(3.seconds)
+        delay(SCAN_INTERVAL)
         emit(Unit)
     }
 }

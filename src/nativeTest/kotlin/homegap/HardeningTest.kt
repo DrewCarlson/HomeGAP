@@ -2,95 +2,146 @@ package homegap
 
 import homegap.config.ConfigLoader
 import homegap.config.NodeConfig
+import homegap.discovery.isLocalApiUrl
+import homegap.discovery.parseContainerLabels
+import homegap.discovery.traefikApiUrl
 import homegap.model.Planner
 import homegap.provision.FirewallRules
+import homegap.provision.NodeSecrets
+import homegap.provision.NodeTemplates
+import homegap.speedtest.RateLimiter
+import homegap.speedtest.SpeedTestTokens
+import homegap.speedtest.TunnelSpeedTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class HardeningTest {
-    private fun node(host: String = "203.0.113.30", user: String = "root", mgmt: String? = null) =
-        NodeConfig(id = "eu1", host = host, sshUser = user, sshKeyFile = "/k", managementHost = mgmt)
+    private fun node(host: String = "203.0.113.30", user: String = "root", managementHost: String? = null) =
+        NodeConfig(id = "eu1", host = host, sshUser = user, sshKeyFile = "/k", managementHost = managementHost)
+
+    private fun crowdsecFile(failClosed: Boolean): String {
+        val base = testConfig()
+        val config = base.copy(pangolin = base.pangolin.copy(crowdsec = true, crowdsecFailClosed = failClosed))
+        val desired = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
+        val secrets = NodeSecrets("t", "s", "a@b", "p", "k")
+        return NodeTemplates.staticFiles(config, desired.node, secrets, desired.rawPorts, slot = 0)
+            .single { it.path.endsWith("homegap-crowdsec.yml") }
+            .content
+    }
 
     @Test
     fun nodeFieldsThatGoIntoScriptsAreChecked() {
         assertTrue(ConfigLoader.nodeErrors(node()).isEmpty())
-        assertTrue(ConfigLoader.nodeErrors(node(host = "eu1.example.net", mgmt = "pangolin-eu1.example.net")).isEmpty())
+        val named = node(host = "eu1.example.net", managementHost = "pangolin-eu1.example.net")
+        assertTrue(ConfigLoader.nodeErrors(named).isEmpty())
         assertTrue(ConfigLoader.nodeErrors(node(host = "2001:db8::30")).isEmpty())
         assertEquals(1, ConfigLoader.nodeErrors(node(host = "a b")).size)
         assertEquals(1, ConfigLoader.nodeErrors(node(user = "root; reboot")).size)
-        assertEquals(1, ConfigLoader.nodeErrors(node(mgmt = "x`) || Host(`y")).size)
+        assertEquals(1, ConfigLoader.nodeErrors(node(managementHost = "x`) || Host(`y")).size)
     }
 
     @Test
     fun badIntervalsFailTheConfig() {
-        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse("$TEST_CONFIG\nreconcile:\n  resync_interval: 0s\n") }
-        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse("$TEST_CONFIG\nreconcile:\n  dns_check_interval: 5 mins\n") }
+        assertFailsWith<IllegalArgumentException> {
+            ConfigLoader.parse("$TEST_CONFIG\nreconcile:\n  resync_interval: 0s\n")
+        }
+        assertFailsWith<IllegalArgumentException> {
+            ConfigLoader.parse("$TEST_CONFIG\nreconcile:\n  dns_check_interval: 5 mins\n")
+        }
     }
 
     @Test
     fun aLabelCannotClaimAHostnameOfHomeGAP() {
-        val plan = Planner.plan(testConfig(), listOf(TRAEFIK, container("app", "homegap.expose" to "pangolin-na1.test.example.net")))
+        val app = container("app", "homegap.expose" to "pangolin-na1.test.example.net")
+        val plan = Planner.plan(testConfig(), listOf(TRAEFIK, app))
         assertTrue(plan.labelErrors.any { "reserved" in it.message })
         assertTrue(plan.services.none { it.hostname == "pangolin-na1.test.example.net" })
     }
 
     @Test
     fun sshSourcesAreWrittenAsUfwPrintsThem() {
-        val specs = FirewallRules.specs(node().copy(sshAllowFrom = listOf("198.51.100.7/32", "2001:DB8::7/128", "198.51.100.0/24")))
+        val sources = listOf("198.51.100.7/32", "2001:DB8::7/128", "198.51.100.0/24")
+        val specs = FirewallRules.specs(node().copy(sshAllowFrom = sources))
         assertTrue("allow from 198.51.100.7 to any port 22 proto tcp" in specs)
         assertTrue("allow from 2001:db8::7 to any port 22 proto tcp" in specs)
         assertTrue("allow from 198.51.100.0/24 to any port 22 proto tcp" in specs)
     }
 
+    // The plain HTTP addresses are the values under test.
+    @Suppress("HttpUrlsUsage")
     @Test
     fun theTraefikApiLabelNamesOnlyALocalHost() {
-        for (ok in listOf("http://traefik:8080", "https://homelab_traefik-1", "http://10.0.3.4:9000", "http://172.20.0.5", "http://192.168.1.9:8080")) {
-            assertTrue(homegap.discovery.isLocalApiUrl(ok), ok)
+        val local = listOf(
+            "http://traefik:8080",
+            "https://homelab_traefik-1",
+            "http://10.0.3.4:9000",
+            "http://172.20.0.5",
+            "http://192.168.1.9:8080",
+        )
+        for (ok in local) {
+            assertTrue(isLocalApiUrl(ok), ok)
         }
-        for (bad in listOf(
-            "http://example.net", "http://169.254.169.254", "http://127.0.0.1:8088", "http://8.8.8.8", "http://172.32.0.1",
-            "http://traefik:8080/api", "http://user@traefik", "http://traefik:99999", "ftp://traefik", "http://traefik?x=1",
-        )) {
-            assertTrue(!homegap.discovery.isLocalApiUrl(bad), bad)
+        val notLocal = listOf(
+            "http://example.net",
+            "http://169.254.169.254",
+            "http://127.0.0.1:8088",
+            "http://8.8.8.8",
+            "http://172.32.0.1",
+            "http://traefik:8080/api",
+            "http://user@traefik",
+            "http://traefik:99999",
+            "ftp://traefik",
+            "http://traefik?x=1",
+        )
+        for (bad in notLocal) {
+            assertTrue(!isLocalApiUrl(bad), bad)
         }
         val labels = mapOf("homegap.traefik_api" to "http://example.net/")
-        assertEquals("http://front:8080", homegap.discovery.traefikApiUrl("front", labels))
-        assertEquals("http://other:9000", homegap.discovery.traefikApiUrl("front", mapOf("homegap.traefik_api" to "http://other:9000/")))
-        val parsed = homegap.discovery.parseContainerLabels("id", "front", labels + ("homegap.expose" to "app.test.example.net"), "test.example.net")
+        assertEquals("http://front:8080", traefikApiUrl("front", labels))
+        assertEquals(
+            "http://other:9000",
+            traefikApiUrl("front", mapOf("homegap.traefik_api" to "http://other:9000/")),
+        )
+        val parsed = parseContainerLabels(
+            "id",
+            "front",
+            labels + ("homegap.expose" to "app.test.example.net"),
+            "test.example.net",
+        )
         assertTrue(parsed.warnings.any { "homegap.traefik_api must be" in it }, parsed.warnings.toString())
     }
 
     @Test
     fun aDeviceLinkHasACapOnStreamsBytesAndResults() {
-        val tokens = homegap.speedtest.SpeedTestTokens()
+        val tokens = SpeedTestTokens()
         val (link, _) = tokens.issue(60_000)
-        repeat(homegap.speedtest.SpeedTestTokens.STREAMS_PER_LINK) { assertTrue(tokens.acquire(link)) }
+        repeat(SpeedTestTokens.STREAMS_PER_LINK) { assertTrue(tokens.acquire(link)) }
         assertTrue(!tokens.acquire(link), "the link has no stream left")
         tokens.release(link)
         assertTrue(tokens.acquire(link))
         assertTrue(tokens.spend(link, 600, budget = 1000))
         assertTrue(!tokens.spend(link, 600, budget = 1000), "the budget is used")
-        repeat(homegap.speedtest.SpeedTestTokens.RESULTS_PER_LINK) { assertTrue(tokens.result(link)) }
+        repeat(SpeedTestTokens.RESULTS_PER_LINK) { assertTrue(tokens.result(link)) }
         assertTrue(!tokens.result(link))
-        assertTrue(!tokens.acquire("unknown") && !tokens.spend(null, 1, 10))
+        assertTrue(!tokens.acquire("unknown") && !tokens.spend(token = null, n = 1, budget = 10))
 
         // The other links share the streams of the listener.
         val others = List(4) { tokens.issue(60_000).first }
-        val taken = others.sumOf { t -> (1..homegap.speedtest.SpeedTestTokens.STREAMS_PER_LINK).count { tokens.acquire(t) } }
-        assertEquals(homegap.speedtest.SpeedTestTokens.STREAMS_TOTAL - homegap.speedtest.SpeedTestTokens.STREAMS_PER_LINK, taken)
+        val taken = others.sumOf { other -> (1..SpeedTestTokens.STREAMS_PER_LINK).count { tokens.acquire(other) } }
+        assertEquals(SpeedTestTokens.STREAMS_TOTAL - SpeedTestTokens.STREAMS_PER_LINK, taken)
 
         // A test from the homelab to a node has no cap.
         val (internal, _) = tokens.issue(60_000, limited = false)
-        repeat(homegap.speedtest.TunnelSpeedTest.MAX_STREAMS) { assertTrue(tokens.acquire(internal)) }
+        repeat(TunnelSpeedTest.MAX_STREAMS) { assertTrue(tokens.acquire(internal)) }
         assertTrue(tokens.spend(internal, 5000, budget = 1000))
     }
 
     @Test
     fun aKeyGetsItsLimitInEachWindow() {
         var now = 0L
-        val limiter = homegap.speedtest.RateLimiter(limit = 3, windowMillis = 1000, now = { now })
+        val limiter = RateLimiter(limit = 3, windowMillis = 1000, now = { now })
         repeat(3) { assertTrue(limiter.allow("a")) }
         assertTrue(!limiter.allow("a"), "the fourth request in the window")
         assertTrue(limiter.allow("b"), "another address has its own count")
@@ -100,32 +151,26 @@ class HardeningTest {
 
     @Test
     fun nodesSendHstsAndLimitTheStatusPage() {
-        val cfg = testConfig().copy(statusPage = testConfig().statusPage.copy(enabled = true))
-        val plan = Planner.plan(cfg, listOf(TRAEFIK))
-        val nd = plan.nodes.getValue("na1")
-        val secrets = homegap.provision.NodeSecrets("t", "s", "a@b", "p", "k")
-        val files = homegap.provision.NodeTemplates.staticFiles(cfg, nd.node, secrets, nd.rawPorts, 0).associateBy { it.path }
-        val headers = files.getValue(homegap.provision.NodeTemplates.DYNAMIC_HEADERS).content
+        val config = testConfig().copy(statusPage = testConfig().statusPage.copy(enabled = true))
+        val plan = Planner.plan(config, listOf(TRAEFIK))
+        val desired = plan.nodes.getValue("na1")
+        val secrets = NodeSecrets("t", "s", "a@b", "p", "k")
+        val files = NodeTemplates.staticFiles(config, desired.node, secrets, desired.rawPorts, slot = 0)
+            .associateBy { it.path }
+        val headers = files.getValue(NodeTemplates.DYNAMIC_HEADERS).content
         assertTrue("stsSeconds: 31536000" in headers, headers)
         assertTrue("includeSubdomains" !in headers.lowercase(), "a node sets no rule for other names")
         assertTrue("homegap-hsts@file" in files.getValue("config/traefik/traefik_config.yml").content)
-        val routes = homegap.provision.NodeTemplates.dynamicRoutes(nd, emptyMap())
+        val routes = NodeTemplates.dynamicRoutes(desired, emptyMap())
         assertTrue("homegap-status-rate" in routes && "rateLimit" in routes, routes)
         // Without the status page, there is no limit to define.
         val off = Planner.plan(testConfig(), listOf(TRAEFIK)).nodes.getValue("na1")
-        assertTrue("homegap-status-rate" !in homegap.provision.NodeTemplates.dynamicRoutes(off, emptyMap()))
+        assertTrue("homegap-status-rate" !in NodeTemplates.dynamicRoutes(off, emptyMap()))
     }
 
     @Test
     fun crowdsecCanRefuseRequestsWhenItsCheckIsDown() {
-        fun crowdsec(failClosed: Boolean): String {
-            val cfg = testConfig().let { it.copy(pangolin = it.pangolin.copy(crowdsec = true, crowdsecFailClosed = failClosed)) }
-            val nd = Planner.plan(cfg, listOf(TRAEFIK)).nodes.getValue("na1")
-            val secrets = homegap.provision.NodeSecrets("t", "s", "a@b", "p", "k")
-            return homegap.provision.NodeTemplates.staticFiles(cfg, nd.node, secrets, nd.rawPorts, 0)
-                .single { it.path.endsWith("homegap-crowdsec.yml") }.content
-        }
-        assertTrue("crowdsecAppsecUnreachableBlock: false" in crowdsec(false))
-        assertTrue("crowdsecAppsecUnreachableBlock: true" in crowdsec(true))
+        assertTrue("crowdsecAppsecUnreachableBlock: false" in crowdsecFile(failClosed = false))
+        assertTrue("crowdsecAppsecUnreachableBlock: true" in crowdsecFile(failClosed = true))
     }
 }

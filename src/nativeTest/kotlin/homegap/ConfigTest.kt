@@ -1,5 +1,6 @@
 package homegap
 
+import homegap.config.AcmeConfig
 import homegap.config.ConfigLoader
 import homegap.config.parseDuration
 import homegap.platform.Files
@@ -11,32 +12,34 @@ import kotlin.time.Duration.Companion.seconds
 class ConfigTest {
     @Test
     fun exampleConfigIsValid() {
-        // test binaries run from the project root
+        // The test binaries run from the project root.
         val path = listOf("config/config.example.yml", "../config/config.example.yml").first { Files.exists(it) }
-        val c = ConfigLoader.load(path)
-        assertEquals(2, c.nodes.size)
-        assertEquals(60.seconds, c.reconcile.resync)
-        assertTrue(c.acme.caa)
-        assertEquals(homegap.config.AcmeConfig.PRODUCTION, c.acme.directoryUrl())
+        val config = ConfigLoader.load(path)
+        assertEquals(2, config.nodes.size)
+        assertEquals(60.seconds, config.reconcile.resync)
+        assertTrue(config.acme.caa)
+        assertEquals(AcmeConfig.PRODUCTION, config.acme.directoryUrl())
     }
 
     @Test
     fun validationCatchesMistakes() {
         val bad = TEST_CONFIG.replace("zone: example.net", "zone: other.invalid")
-        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(bad) }.also { assertTrue("bunny.zone" in it.message!!) }
-        val dup = TEST_CONFIG + "\n  - id: na1\n    host: 192.0.2.1\n    region: EU\n    ssh_key_file: /dev/null\n"
-        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(dup) }.also { assertTrue("duplicate" in it.message!!) }
+        val wrongZone = assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(bad) }
+        assertTrue("bunny.zone" in wrongZone.message!!)
+        val duplicate = "$TEST_CONFIG\n  - id: na1\n    host: 192.0.2.1\n    region: EU\n    ssh_key_file: /dev/null\n"
+        val duplicateId = assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(duplicate) }
+        assertTrue("duplicate" in duplicateId.message!!)
         val noGeo = TEST_CONFIG.replace("region: AS", "region: XX")
         assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(noGeo) }
-        assertFailsWith<Exception> { ConfigLoader.parse(TEST_CONFIG + "\nunknown_key: 1\n") }
+        assertFailsWith<Exception> { ConfigLoader.parse("$TEST_CONFIG\nunknown_key: 1\n") }
     }
 
     @Test
     fun saveRoundTrips() {
-        val c = testConfig()
-        val p = tmpPath("cfg") + ".yml"
-        ConfigLoader.save(p, c)
-        assertEquals(c, ConfigLoader.load(p))
+        val config = testConfig()
+        val path = tmpPath("cfg") + ".yml"
+        ConfigLoader.save(path, config)
+        assertEquals(config, ConfigLoader.load(path))
     }
 
     @Test

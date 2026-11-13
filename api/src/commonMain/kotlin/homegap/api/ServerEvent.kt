@@ -6,7 +6,7 @@ import kotlinx.serialization.json.JsonObject
 
 /**
  * One event on `/api/events`. Each event's `data` is this type as JSON, with the kind in its
- * `type` field; the SSE `event` field carries the same name.
+ * `type` field. The SSE `event` field carries the same name.
  */
 @Serializable
 sealed interface ServerEvent {
@@ -40,7 +40,7 @@ sealed interface ServerEvent {
     @SerialName("job")
     data class Job(val job: SetupJobDto) : ServerEvent
 
-    /** The homelab ↔ node speed test running now, a few times a second; null once it ends. */
+    /** The homelab ↔ node speed test that runs now, a few times a second. Null after it ends. */
     @Serializable
     @SerialName("speedtest")
     data class SpeedTestLive(val live: SpeedTestLiveDto? = null) : ServerEvent

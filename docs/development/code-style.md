@@ -10,7 +10,8 @@ A cleanup must not change what the code does.
 
 - Keep each log message, error message, script, template, wire format and serialized name exactly as it is.
 - Change the structure of a function only if a test or the end-to-end harness covers it. If nothing covers it, make only the changes that cannot change the behavior: a new name, a line break, a constant.
-- Do not change the tests to make a cleanup pass.
+- Do not change what a test asserts to make a cleanup pass.
+- The tests and the build scripts follow these rules too. A cleanup of a test keeps its name, its calls and its expected values.
 
 ## Warnings
 

@@ -10,9 +10,9 @@ class PtyTest {
         val out = StringBuilder()
         val buffer = ByteArray(4096)
         while (text !in out) {
-            val n = read(buffer)
-            if (n < 0) break
-            out.append(buffer.decodeToString(0, n))
+            val count = read(buffer)
+            if (count < 0) break
+            out.append(buffer.decodeToString(0, count))
         }
         return out.toString()
     }
@@ -28,8 +28,13 @@ class PtyTest {
 
     @Test
     fun inputReachesTheChildAndAResizeChangesTheSize() {
-        val pty = Pty.spawn(listOf("/bin/sh"), rows = 24, columns = 80, env = mapOf("PS1" to "", "HG_TEST" to "from-env"))
-        pty.write("echo \$HG_TEST\n".encodeToByteArray())
+        val pty = Pty.spawn(
+            listOf("/bin/sh"),
+            rows = 24,
+            columns = 80,
+            env = mapOf("PS1" to "", "HG_TEST" to "from-env"),
+        )
+        pty.write($$"echo $HG_TEST\n".encodeToByteArray())
         assertTrue("from-env" in pty.readUntil("from-env\r\n"))
         pty.resize(rows = 40, columns = 120)
         pty.write("stty size\n".encodeToByteArray())
