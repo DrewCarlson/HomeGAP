@@ -39,14 +39,15 @@ import org.w3c.dom.HTMLElement
 
 /**
  * The page shell: the navigation (a side menu on desktops, an icon rail on tablets, a header with
- * an icon grid on phones; CSS picks the form), the page title and the active screen.
+ * a row of sections that scrolls sideways on phones; CSS picks the form), the page title and the
+ * active screen.
  */
 @Composable
 fun AppShell(model: AppModel) {
     val viewport = rememberViewport()
     val inspector = model.screen?.inspector
     SearchShortcut(model.search)
-    // Phones: once the page scrolls past this marker, the icon grid shrinks to one row (CSS).
+    // Phones: once the page scrolls past this marker, the header row folds away (CSS).
     Div({
         classes("nav-sentinel")
         attr("aria-hidden", "true")
@@ -71,6 +72,7 @@ fun AppShell(model: AppModel) {
             NavList(
                 items = model.nav,
                 onNavigate = model.onNavigate,
+                onSearch = model.search.onOpen,
             )
             model.header?.let { header ->
                 ReconcileBox(header)
@@ -284,11 +286,26 @@ private fun Brand() {
 
 /** The ten sections in two groups, each with the count of its items needing attention. */
 @Composable
-private fun NavList(items: List<NavItem>, onNavigate: (Route) -> Unit) {
+private fun NavList(items: List<NavItem>, onNavigate: (Route) -> Unit, onSearch: () -> Unit) {
     Nav({
         classes("nav-list")
         attr("aria-label", "Sections")
     }) {
+        // Phones scroll the sections sideways: the selected one stays in view.
+        val selected = items.firstOrNull { it.selected }?.route
+        DisposableEffect(selected) {
+            val active = scopeElement.querySelector(".nav-link.active")
+            active?.asDynamic()?.scrollIntoView(js("({ block: 'nearest', inline: 'center' })"))
+            onDispose {}
+        }
+        // Phones only: Search stays in reach after the header row folds away.
+        Div({ classes("nav-search") }) {
+            IconButton(
+                iconPath = Icons.SEARCH,
+                label = "Search everything",
+                onClick = onSearch,
+            )
+        }
         NavGroup.entries.forEach { group ->
             Div({ classes("nav-group") }) {
                 Div({ classes("nav-group-title") }) { Text(group.title) }
@@ -503,9 +520,9 @@ private fun SignInDialog(connection: ConnectionModel) {
 }
 
 /**
- * Marks the menu `compact` while the top of the page is scrolled out of view, so the phone's icon
- * grid becomes a single row; tapping the header brings the labels back. Only CSS reads the class.
- * It also keeps `--nav-space`, the full menu height the phone layout reserves above the page.
+ * Marks the menu `compact` while the top of the page is scrolled out of view, so the phone's header
+ * row folds away and only the row of sections stays. Only CSS reads the class. It also keeps
+ * `--nav-space`, the full menu height the phone layout reserves above the page.
  */
 @Composable
 private fun ElementScope<HTMLElement>.ShrinkOnScroll() {
@@ -520,17 +537,9 @@ private fun ElementScope<HTMLElement>.ShrinkOnScroll() {
         // menu uncovers content instead of moving it.
         val spacer = js("new ResizeObserver(function () { if (!menu.classList.contains('compact')) document.documentElement.style.setProperty('--nav-space', menu.offsetHeight + 'px'); })")
         spacer.observe(menu)
-        val expand: (org.w3c.dom.events.Event) -> Unit = { event ->
-            val target = event.target as? HTMLElement
-            if (target?.closest(".nav-head") != null && target.closest("button") == null) {
-                menu.classList.remove("compact")
-            }
-        }
-        menu.addEventListener("click", expand)
         onDispose {
             observer.disconnect()
             spacer.disconnect()
-            menu.removeEventListener("click", expand)
         }
     }
 }

@@ -129,6 +129,7 @@ p { margin: 0; }
 .nav-link svg { flex: none; }
 .nav-label { flex: 1; min-width: 0; }
 .nav-label-short { display: none; }
+.nav-search { display: none; }
 .nav-count { font: 500 11px/1 var(--mono); }
 .nav-count.warn { color: var(--amber); }
 .nav-count.down { color: var(--rose); }
@@ -1065,8 +1066,12 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .shell { flex-direction: column; padding-top: var(--nav-space, 0); }
   .nav {
     position: fixed; top: 0; left: 0; right: 0; z-index: 10; width: auto; height: auto; overflow: visible;
-    padding: 10px 12px; gap: 10px; border-right: 0; border-bottom: 1px solid var(--rule);
+    padding: 6px 12px 0; gap: 2px; border-right: 0; border-bottom: 1px solid var(--rule);
   }
+  .nav-head { min-height: var(--touch); padding: 0; }
+  /* Scrolled down: the header row folds away, and Search joins the row of sections. */
+  .nav.compact .nav-head { display: none; }
+  .nav.compact .nav-search { display: block; flex: none; position: sticky; left: 0; z-index: 1; padding-right: 4px; background: var(--ground); }
   .nav-head { justify-content: space-between; flex-direction: row; }
   .nav-head-actions { flex-direction: row; }
   .nav-head .phone-actions { display: flex; }
@@ -1120,11 +1125,13 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .path-names { white-space: normal; }
   .figure-head { flex-wrap: wrap; }
   .phone-actions { display: flex; gap: 8px; }
-  .nav-list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 2px; }
-  /* Scrolled down: one row of ten icons, still 44 px tall, labels for screen readers only. */
-  .nav.compact .nav-list { grid-template-columns: repeat(10, minmax(0, 1fr)); }
-  .nav.compact .nav-label-short { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .nav.compact .nav-link { padding: 0; }
+  /* One row of sections with their labels. It scrolls sideways, and a part of the next section shows at the edge. */
+  .nav-list {
+    display: flex; align-items: center; gap: 2px; margin: 0 -12px; padding: 0 12px 6px;
+    overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+  }
+  .nav-list::-webkit-scrollbar { display: none; }
+  .nav-link { flex: 0 0 64px; }
   .nav-group { display: contents; }
   .nav-group + .nav-group { border-top: 0; padding-top: 0; }
   .nav-link { padding: 6px 0; }
