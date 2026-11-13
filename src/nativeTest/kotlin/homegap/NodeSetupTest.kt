@@ -9,6 +9,7 @@ import homegap.setup.SetupScripts
 import homegap.setup.SetupShell
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -93,6 +94,26 @@ class NodeSetupTest {
         assertTrue("addr=127.0.0.1" in SetupScripts.hardenSsh(true, true, listOf("root"), "not an ip"), "an unusable address is never put in the script")
         assertTrue("sleep ${SetupScripts.REVERT_AFTER_SECONDS}" in script, "a revert timer is armed")
         assertTrue(script.indexOf("sleep ${SetupScripts.REVERT_AFTER_SECONDS}") < script.lastIndexOf("reload"), "armed before the reload")
+    }
+
+    @Test
+    fun withALoginOtherThanRootTheRootLoginIsANoteAndTheLoginUserCanBeLocked() {
+        val script = SetupScripts.hardenSsh(
+            disableRootLogin = true,
+            disablePasswordLogin = false,
+            users = listOf("ubuntu", "homegap", "root"),
+            denyUsers = listOf("ubuntu"),
+            softRootLogin = true,
+        )
+        assertTrue("DenyUsers ubuntu" in script && "PermitRootLogin no" in script)
+        assertTrue("for want in 'denyusers ubuntu'; do" in script, "the lock of the login user is required")
+        assertTrue("for want in 'permitrootlogin no'; do" in script && "NOTE root login stays possible" in script, "root login only adds a note")
+        assertTrue("NOTE root login was already off" in script)
+        assertTrue("fail() { if false;" in script, "with a required change, a broken drop-in still fails")
+
+        val rootOnly = SetupScripts.hardenSsh(disableRootLogin = true, disablePasswordLogin = false, softRootLogin = true)
+        assertTrue("fail() { if true;" in rootOnly, "with only root login, a broken drop-in is a note")
+        assertFalse("DenyUsers root" in SetupScripts.hardenSsh(true, false, denyUsers = listOf("root")), "root is never in DenyUsers")
     }
 
     @Test

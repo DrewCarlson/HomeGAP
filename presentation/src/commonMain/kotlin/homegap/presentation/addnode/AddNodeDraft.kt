@@ -1,8 +1,6 @@
 package homegap.presentation.addnode
 
-import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
-import dev.zacsweers.metro.SingleIn
 import homegap.api.ApiJson
 import homegap.api.ConnectionTestDto
 import homegap.api.SetupJobDto
@@ -56,6 +54,7 @@ enum class WizardToggle {
     DockerGroup,
     DisableRootLogin,
     DisablePasswordLogin,
+    DisableLoginUser,
     Firewall,
     RestrictSsh,
 }
@@ -103,22 +102,28 @@ data class AddNodeDraft(
 }
 
 /**
- * Holds the wizard's [AddNodeDraft], and keeps it on this device so it survives a reload. The
- * password and a pasted private key are never saved.
+ * Holds the [AddNodeDraft] of one wizard, and keeps it on this device while the wizard is open,
+ * so it survives a reload. Each wizard gets its own store; [close] ends it and drops the saved
+ * copy. The password and a pasted private key are never saved.
  */
-@SingleIn(AppScope::class)
 @Inject
 class AddNodeWizardStore(private val preferences: Preferences) {
     private val _draft = MutableStateFlow(restore())
     val draft: StateFlow<AddNodeDraft> = _draft.asStateFlow()
 
+    /** Work that finishes after the wizard closed (a connection test) saves nothing. */
+    private var closed = false
+
     fun update(block: (AddNodeDraft) -> AddNodeDraft) {
         _draft.update(block)
-        save(_draft.value)
+        if (!closed) {
+            save(_draft.value)
+        }
     }
 
-    fun reset() {
-        _draft.value = AddNodeDraft()
+    /** Ends this wizard: the next one starts empty. */
+    fun close() {
+        closed = true
         preferences.set(KEY, null)
     }
 

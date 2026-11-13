@@ -83,27 +83,46 @@ object SetupScripts {
      * connection from [clientAddr]. Thus it finds a `Match` block that overrides the settings for
      * those users or for this address. A password login that must fail is not a good check,
      * because a login blocker counts it against the address of the orchestrator.
+     *
+     * [denyUsers] can no longer log in over SSH. With [softRootLogin], root login is a wish, not a
+     * requirement: when it is off already, or another setting keeps it on, the script prints a
+     * `NOTE` line and goes on. If root login is the only change, a problem with the drop-in is a
+     * note too.
      */
     fun hardenSsh(
         disableRootLogin: Boolean,
         disablePasswordLogin: Boolean,
         users: List<String> = listOf("root"),
         clientAddr: String? = null,
+        denyUsers: List<String> = emptyList(),
+        softRootLogin: Boolean = false,
     ): String {
-        val settings = buildList {
-            if (disableRootLogin) add("PermitRootLogin no")
+        val denied = denyUsers.filter { ConfigLoader.UNIX_USER.matches(it) && it != "root" }.distinct()
+        val required = buildList {
+            if (disableRootLogin && !softRootLogin) add("PermitRootLogin no")
             if (disablePasswordLogin) {
                 add("PasswordAuthentication no")
                 add("KbdInteractiveAuthentication no")
             }
+            if (denied.isNotEmpty()) add("DenyUsers ${denied.joinToString(" ")}")
         }
-        val expected = settings.map { it.lowercase() }
+        val soft = if (disableRootLogin && softRootLogin) listOf("PermitRootLogin no") else emptyList()
+        val settings = required + soft
+        val expected = required.map { it.lowercase() }
+        val wished = soft.map { it.lowercase() }
         val address = clientAddr?.takeIf { IP_ADDRESS.matches(it) } ?: "127.0.0.1"
         val checkedUsers = users.filter { ConfigLoader.UNIX_USER.matches(it) }.distinct().ifEmpty { listOf("root") }
+        val rootOff = if (wished.isEmpty()) {
+            ""
+        } else {
+            $$"""sshd -T -C "user=root,host=$(hostname),addr=$$address" 2>/dev/null | tr 'A-Z' 'a-z' | grep -qxF 'permitrootlogin no' && echo "NOTE root login was already off""""
+        }
         return $$"""
             |CONF=$$SSHD_DROP_IN
-            |grep -Eiq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config || {
-            |  echo "sshd_config does not include sshd_config.d; harden it manually" >&2; exit 1; }
+            |# A problem that touches only the wished-for root login is a note, not a failure.
+            |fail() { if $${required.isEmpty()}; then echo "NOTE root login stays as it is: $1"; exit 0; fi; echo "$1" >&2; exit 1; }
+            |$$rootOff
+            |grep -Eiq '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config || fail "sshd_config does not include sshd_config.d; harden it manually"
             |rm -f "$CONF.homegap-prev"
             |[ -f "$CONF" ] && cp -p "$CONF" "$CONF.homegap-prev"
             |cat > "$CONF.tmp" <<'HOMEGAP_SSHD'
@@ -112,11 +131,14 @@ object SetupScripts {
             |HOMEGAP_SSHD
             |chmod 0644 "$CONF.tmp"
             |mv -f "$CONF.tmp" "$CONF"
-            |if ! sshd -t; then $$RESTORE_SSHD; echo "sshd rejected the new settings; restored" >&2; exit 1; fi
+            |if ! sshd -t; then $$RESTORE_SSHD; fail "sshd rejected the new settings; restored"; fi
             |for who in $${checkedUsers.joinToString(" ")}; do
             |  EFFECTIVE=$(sshd -T -C "user=$who,host=$(hostname),addr=$$address" 2>/dev/null | tr 'A-Z' 'a-z')
             |  for want in $${expected.joinToString(" ") { shQuote(it) }}; do
             |    printf '%s\n' "$EFFECTIVE" | grep -qxF "$want" || { $$RESTORE_SSHD; echo "another sshd setting overrides for $who: $want" >&2; exit 1; }
+            |  done
+            |  for want in $${wished.joinToString(" ") { shQuote(it) }}; do
+            |    printf '%s\n' "$EFFECTIVE" | grep -qxF "$want" || echo "NOTE root login stays possible: another sshd setting keeps it on for $who"
             |  done
             |done
             |$${arm("ssh", "$RESTORE_SSHD; $RELOAD_SSHD")}

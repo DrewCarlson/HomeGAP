@@ -217,7 +217,10 @@ class NodeSetupService(private val controller: Controller) {
         val initial: SetupLogin,
         val target: String,
     ) {
-        val hardenSsh get() = request.disableRootLogin || request.disablePasswordLogin
+        /** The initial login user whose SSH login ends, when the request asks and it is not the management user. */
+        val lockedUser: String? get() = request.login.user.takeIf { request.disableLoginUser && it != "root" && it != target }
+
+        val hardenSsh get() = request.disableRootLogin || request.disablePasswordLogin || lockedUser != null
 
         fun steps(): List<SetupStepDto> {
             val userTitle = if (request.createUser != null) "Create user $target" else "Authorize the key for $target"
@@ -553,12 +556,17 @@ class NodeSetupService(private val controller: Controller) {
                 disablePasswordLogin = plan.request.disablePasswordLogin,
                 users = listOf(plan.initial.user, plan.target, "root").distinct(),
                 clientAddr = clientIp,
+                denyUsers = listOfNotNull(plan.lockedUser),
+                // With a login other than root, root login is a bonus: a problem with it is noted only.
+                softRootLogin = plan.initial.user != "root",
             )
             val output = root(admin, "hardening SSH", script, HARDEN_TIMEOUT)
-            armed[SSH] = SetupScripts.REVERT_SSH
+            if (output.lines().any { it.startsWith("CHANGED ") }) {
+                armed[SSH] = SetupScripts.REVERT_SSH
+            }
             runCatchingCancellable { verifyInside(admin, "after hardening SSH, key login failed") }
                 .onFailure { e -> throw IllegalStateException("${e.message} (${revertArmed(admin)})") }
-            return output.changes()
+            return (listOf(output.changes()) + output.notes()).filter { it.isNotBlank() }.joinToString("; ")
         }
 
         /** Applies the firewall and enables it (armed). The last check from outside keeps or reverts it. */
@@ -671,6 +679,10 @@ private fun ProcessResult.facts(): Map<String, String> =
             line.indexOf('=').takeIf { it > 0 }?.let { line.substring(0, it) to line.substring(it + 1) }
         }
         .toMap()
+
+/** The `NOTE …` lines that a setup script printed: facts that are not failures. */
+private fun String.notes(): List<String> =
+    lines().filter { it.startsWith("NOTE ") }.map { it.removePrefix("NOTE ") }
 
 /** The `CHANGED …` lines that a setup script printed, in one text for the detail of a step. */
 private fun String.changes(): String =

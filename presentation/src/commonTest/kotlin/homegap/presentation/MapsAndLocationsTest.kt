@@ -63,6 +63,17 @@ class MapsAndLocationsTest {
     }
 
     @Test
+    fun aClosedWizardLeavesNothingForTheNextOneButAReloadKeepsTheDraft() {
+        val preferences = FakePreferences()
+        val first = AddNodeWizardStore(preferences)
+        first.update { it.copy(values = it.values + (WizardField.Host to "203.0.113.9")) }
+        assertEquals("203.0.113.9", AddNodeWizardStore(preferences).draft.value[WizardField.Host], "a reload of the open wizard keeps the draft")
+        first.close()
+        first.update { it.copy(values = it.values + (WizardField.NodeId to "late")) }
+        assertEquals(homegap.presentation.addnode.AddNodeDraft(), AddNodeWizardStore(preferences).draft.value, "the next wizard starts empty")
+    }
+
+    @Test
     fun pickingALocationFillsTheWizard() = runTest {
         val api = FakeControllerApi()
         val store = AddNodeWizardStore(FakePreferences())

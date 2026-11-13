@@ -14,6 +14,13 @@ internal object AddNodeValidation {
     fun targetUser(draft: AddNodeDraft): String =
         if (draft.has(WizardToggle.CreateUser)) draft[WizardField.NewUser].trim() else draft[WizardField.LoginUser].trim()
 
+    /**
+     * The initial login user whose SSH login setup can end: not root, and not the management
+     * user (a new user takes over). Null when that does not apply.
+     */
+    fun lockableLogin(draft: AddNodeDraft): String? =
+        draft[WizardField.LoginUser].trim().takeIf { it.isNotEmpty() && it != "root" && it != targetUser(draft) }
+
     fun sources(draft: AddNodeDraft): List<String> =
         draft[WizardField.AllowFrom].split(',', ' ', '\n').map { it.trim() }.filter { it.isNotEmpty() }
 

@@ -90,7 +90,7 @@ class PresenterTest {
             config = ConfigScreenPresenter(api),
             diagnostics = homegap.presentation.diagnostics.DiagnosticsScreenPresenter(api),
             locations = homegap.presentation.locations.LocationsScreenPresenter(api, actions, confirmations),
-            addNode = addNode,
+            addNode = { AddNodeScreenPresenter(api, session, AddNodeWizardStore(preferences), actions, scope) },
             nodeLocation = homegap.presentation.nodes.NodeLocationPresenter(relocation, api, actions),
             terminal = homegap.presentation.terminal.TerminalPresenter(terminals),
             terminals = terminals,
@@ -281,8 +281,7 @@ class PresenterTest {
         assertEquals("", done[WizardField.Password], "the password is dropped once setup succeeded")
 
         send(WizardEvent.Finish)
-        assertTrue(finished)
-        assertEquals(WizardStep.Server, models.first { it.job == null }.step, "finishing resets the wizard")
+        assertTrue(finished, "finishing leaves the wizard; the next one is a new instance")
     }
 
     @Test

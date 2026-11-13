@@ -19,6 +19,8 @@ data class AddNodeScreenModel(
     val keyBusy: Boolean,
     /** The management user the node will be run as. */
     val targetUser: String,
+    /** The initial login user whose SSH login setup can end; null when it is root or the management user. */
+    val lockableLogin: String? = null,
     /** `ufw` rules the firewall step will apply. */
     val firewallRules: List<String>,
     val notices: List<NoticeModel>,

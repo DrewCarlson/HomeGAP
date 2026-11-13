@@ -79,9 +79,10 @@ The **Management user** is "The account HomeGAP manages the node with."
 2. Optional: select **Add it to the docker group**.
 3. Under **SSH key**, select **Generate a new key**, **Paste a private key** or **Use a key file on the orchestrator**.
 4. Click **Generate key** or **Use this key**. The page shows "Key ready" and the fingerprint.
-5. Optional: under **SSH hardening**, select **Disable root login**. This option needs a management user other than root.
+5. Optional: under **SSH hardening**, select **Disable root login**. This option needs a management user other than root. If the initial login is not root, and root login is off already or the server keeps it on, setup writes a note in the step and continues.
 6. Optional: select **Disable password login**. Then SSH accepts keys only, for every user.
-7. Click **Continue**.
+7. Optional: if the initial login is not root and HomeGAP creates a management user, select **Disable SSH login for** the initial user. Then that user cannot log in over SSH. The console of your provider still works.
+8. Click **Continue**.
 
 A generated key is an ed25519 key. HomeGAP keeps it in `<data dir>/ssh/` on the orchestrator.
 

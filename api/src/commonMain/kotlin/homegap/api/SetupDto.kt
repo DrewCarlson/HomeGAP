@@ -83,6 +83,11 @@ data class NodeSetupRequestDto(
     val dockerGroup: Boolean = true,
     val disableRootLogin: Boolean = false,
     val disablePasswordLogin: Boolean = false,
+    /**
+     * Ends the SSH login of the initial login user ([SshLoginDto.user]), when it is not root and
+     * not the management user. The provider's console still works.
+     */
+    val disableLoginUser: Boolean = false,
     val configureFirewall: Boolean = true,
     /** Allowed SSH sources (IPs/CIDRs); empty allows any source. */
     val sshAllowFrom: List<String> = emptyList(),

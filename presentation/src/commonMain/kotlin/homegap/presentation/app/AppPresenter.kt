@@ -91,7 +91,8 @@ class AppPresenter(
     private val config: ConfigScreenPresenter,
     private val diagnostics: DiagnosticsScreenPresenter,
     private val locations: homegap.presentation.locations.LocationsScreenPresenter,
-    private val addNode: AddNodeScreenPresenter,
+    /** A new wizard each time it opens: its state never outlives it. */
+    private val addNode: dev.zacsweers.metro.Provider<AddNodeScreenPresenter>,
     private val nodeLocation: homegap.presentation.nodes.NodeLocationPresenter,
     private val terminal: homegap.presentation.terminal.TerminalPresenter,
     private val terminals: homegap.presentation.terminal.TerminalSessions,
@@ -393,12 +394,17 @@ class AppPresenter(
         Route.Locations -> locations.model(homegap.presentation.locations.LocationsScreenProps)
         Route.AddNode -> {
             val currentRouter by rememberUpdatedState(props.router)
-            addNode.model(
-                AddNodeScreenProps(
-                    existingNodeIds = remember(status.nodes) { status.nodes.map { it.id }.toSet() },
-                    onFinished = remember { { currentRouter.navigate(Route.Nodes) } },
+            var run by remember { mutableIntStateOf(0) }
+            key(run) {
+                val wizard = remember { addNode() }
+                wizard.model(
+                    AddNodeScreenProps(
+                        existingNodeIds = remember(status.nodes) { status.nodes.map { it.id }.toSet() },
+                        onStartOver = { run++ },
+                        onFinished = remember { { currentRouter.navigate(Route.Nodes) } },
+                    )
                 )
-            )
+            }
         }
 
         else -> null

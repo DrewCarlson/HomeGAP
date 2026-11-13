@@ -424,6 +424,14 @@ private fun AccessStep(model: AddNodeScreenModel) {
             title = "Disable password login",
             description = "SSH accepts keys only, for every user."
         )
+        model.lockableLogin?.let { login ->
+            Option(
+                model,
+                toggle = WizardToggle.DisableLoginUser,
+                title = "Disable SSH login for $login",
+                description = "$login was only for setup. ${model.targetUser} runs the node from now on; the provider's console still works.",
+            )
+        }
     }
 }
 

@@ -1,9 +1,7 @@
 package homegap.presentation.addnode
 
 import androidx.compose.runtime.*
-import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
-import dev.zacsweers.metro.SingleIn
 import homegap.api.*
 import homegap.presentation.common.Badge
 import homegap.presentation.core.Presenter
@@ -18,14 +16,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
 
-/** [existingNodeIds] guards against reusing an id; [onFinished] leaves the wizard (to the nodes list). */
-data class AddNodeScreenProps(val existingNodeIds: Set<String>, val onFinished: () -> Unit)
+/**
+ * [existingNodeIds] guards against reusing an id. [onFinished] leaves the wizard (to the nodes
+ * list), and [onStartOver] replaces it with a new, empty one.
+ */
+data class AddNodeScreenProps(
+    val existingNodeIds: Set<String>,
+    val onStartOver: () -> Unit = {},
+    val onFinished: () -> Unit,
+)
 
 /**
  * The add-node wizard: server, initial login (with a connection test), management access (user,
  * key, SSH hardening), firewall, then a setup job on the orchestrator whose progress is shown live.
+ *
+ * One instance serves one wizard, from open to close: the app makes a new one, with a new
+ * [store], each time the wizard opens, so nothing from an earlier run shows.
  */
-@SingleIn(AppScope::class)
 @Inject
 class AddNodeScreenPresenter(
     private val api: ControllerApi,
@@ -37,6 +44,9 @@ class AddNodeScreenPresenter(
     @Composable
     override fun model(props: AddNodeScreenProps): AddNodeScreenModel {
         val draft by store.draft.collectAsState()
+        DisposableEffect(store) {
+            onDispose { store.close() }
+        }
         var testing by remember { mutableStateOf(false) }
         var keyBusy by remember { mutableStateOf(false) }
         var starting by remember { mutableStateOf(false) }
@@ -146,12 +156,8 @@ class AddNodeScreenPresenter(
                     }
 
                     WizardEvent.EditAfterFailure -> store.update { it.copy(job = null) }
-                    WizardEvent.Finish -> {
-                        store.reset()
-                        latestProps.onFinished()
-                    }
-
-                    WizardEvent.Reset -> store.reset()
+                    WizardEvent.Finish -> latestProps.onFinished()
+                    WizardEvent.Reset -> latestProps.onStartOver()
                     is WizardEvent.SearchLocation -> locationQuery = event.query
                     is WizardEvent.PickLocation -> {
                         val l = latestCatalog.firstOrNull { it.id == event.id }
@@ -199,6 +205,7 @@ class AddNodeScreenPresenter(
             key = draft.key?.takeIf { draft.keyFor == draft[WizardField.NodeId].trim() },
             keyBusy = keyBusy,
             targetUser = target,
+            lockableLogin = AddNodeValidation.lockableLogin(draft),
             firewallRules = firewallRules(draft),
             notices = notices(draft),
             errors = errors,
@@ -324,6 +331,7 @@ class AddNodeScreenPresenter(
             dockerGroup = draft.has(WizardToggle.DockerGroup),
             disableRootLogin = draft.has(WizardToggle.DisableRootLogin),
             disablePasswordLogin = draft.has(WizardToggle.DisablePasswordLogin),
+            disableLoginUser = draft.has(WizardToggle.DisableLoginUser) && AddNodeValidation.lockableLogin(draft) != null,
             configureFirewall = draft.has(WizardToggle.Firewall),
             sshAllowFrom = if (restrict) AddNodeValidation.sources(draft) else emptyList(),
         )
@@ -381,6 +389,14 @@ class AddNodeScreenPresenter(
             }
 
             WizardStep.Access -> {
+                if (draft.has(WizardToggle.DisableRootLogin) && draft[WizardField.LoginUser].trim() != "root") {
+                    add(
+                        NoticeModel(
+                            false,
+                            "If root login is off already, or the server keeps it on, setup notes it and goes on.",
+                        )
+                    )
+                }
                 if (draft.has(WizardToggle.DisablePasswordLogin)) {
                     add(
                         NoticeModel(
@@ -451,6 +467,7 @@ class AddNodeScreenPresenter(
         val ssh = listOfNotNull(
             "no root login".takeIf { draft.has(WizardToggle.DisableRootLogin) },
             "no password login".takeIf { draft.has(WizardToggle.DisablePasswordLogin) },
+            AddNodeValidation.lockableLogin(draft)?.takeIf { draft.has(WizardToggle.DisableLoginUser) }?.let { "no SSH login for $it" },
         )
         add(ReviewLine("SSH", ssh.joinToString(", ").ifEmpty { "unchanged" }))
         add(
