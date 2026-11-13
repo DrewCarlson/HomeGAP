@@ -1682,6 +1682,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Terminal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#node-checks" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2587,6 +2598,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Terminal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#node-checks" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2721,6 +2743,21 @@
 </ul>
 <p><strong>Manage locations</strong> opens the Locations page over it. See <a href="../maps/">Maps and locations</a>.</p>
 <p><img src="../../img/dashboard/config.png" alt="The Config page with the diff and the secrets"></p>
+<h2 id="terminal">Terminal<a class="headerlink" href="#terminal" title="Permanent link">&para;</a></h2>
+<p>The dashboard can open a shell on a node. The <strong>Terminal</strong> action is in the menu of a node on the <strong>Nodes</strong> page and in the Inspector of the node. The terminal opens in a panel at the bottom of the dashboard, and the panel stays open when you go to a different page.</p>
+<p>The shell runs on the orchestrator, through the SSH connection that the orchestrator already has to the node. The browser gets no key and no password. You are the management user of the node, in the install directory of the stack.</p>
+<ul>
+<li>Each session has a tab. You can have 2 sessions for one node and 6 sessions in total.</li>
+<li>A session continues when you close or reload the page. When you open the dashboard again, the tab is there and shows the last output.</li>
+<li>If you open the same session in a second window, that window takes the session.</li>
+<li><strong>Commands</strong> types a common command for you, for example the list of containers or the log of a container.</li>
+<li>A session ends when the shell exits, or when you close its tab. HomeGAP also ends a session that had no browser for 15 minutes, and each session after 8 hours. A restart of the orchestrator ends all sessions.</li>
+</ul>
+<p>The activity log shows when a terminal opens and closes, with the node. It does not record what you type or what the shell prints.</p>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p>A terminal gives a shell with root access on the node to each person who has the dashboard token. To turn the terminal off, set <code>dashboard.terminal: false</code>.</p>
+</div>
 <h2 id="node-checks">Node checks<a class="headerlink" href="#node-checks" title="Permanent link">&para;</a></h2>
 <p>The Nodes page shows these checks:</p>
 <table>

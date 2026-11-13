@@ -1969,6 +1969,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Terminal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#node-setup-the-add-node-wizard" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2443,6 +2454,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#terminal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Terminal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#node-setup-the-add-node-wizard" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2729,6 +2751,76 @@
 </tr>
 </tbody>
 </table>
+<h2 id="terminal">Terminal<a class="headerlink" href="#terminal" title="Permanent link">&para;</a></h2>
+<p>These routes answer with an error when <code>dashboard.terminal</code> is off.</p>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/terminal</code></td>
+<td>Returns <code>enabled</code> and the open sessions.</td>
+</tr>
+<tr>
+<td><code>POST /api/nodes/{id}/terminal?rows=N&amp;columns=N</code></td>
+<td>Starts a shell on the node and returns its session.</td>
+</tr>
+<tr>
+<td><code>POST /api/terminal/{id}/ticket</code></td>
+<td>Returns a ticket for one WebSocket connection to the session. The ticket works one time, for 30 seconds.</td>
+</tr>
+<tr>
+<td><code>DELETE /api/terminal/{id}</code></td>
+<td>Ends the session.</td>
+</tr>
+<tr>
+<td><code>GET /api/terminal/ws?ticket=TICKET</code></td>
+<td>The WebSocket of the session. It needs no bearer token, because a browser cannot send one. The ticket is the check, and the <code>Origin</code> header must be the host of the dashboard.</td>
+</tr>
+</tbody>
+</table>
+<p>On the WebSocket, a binary frame has the bytes of the terminal: input from the browser, and output from the shell. A text frame has a JSON message with a <code>type</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>From</th>
+<th>Fields</th>
+<th>What it means</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hello</code></td>
+<td>Orchestrator</td>
+<td><code>offset</code></td>
+<td>The first message. <code>offset</code> is the position of the next output byte in the output of the session.</td>
+</tr>
+<tr>
+<td><code>exit</code></td>
+<td>Orchestrator</td>
+<td><code>code</code></td>
+<td>The shell ended.</td>
+</tr>
+<tr>
+<td><code>resize</code></td>
+<td>Browser</td>
+<td><code>rows</code>, <code>columns</code></td>
+<td>The new size of the terminal.</td>
+</tr>
+<tr>
+<td><code>ack</code></td>
+<td>Browser</td>
+<td><code>offset</code></td>
+<td>The browser has shown the output up to this position. The orchestrator stops the output while the browser is more than 128 KiB behind.</td>
+</tr>
+</tbody>
+</table>
+<p>A new connection first gets the last output of the session, at most 256 KiB.</p>
 <h2 id="node-setup-the-add-node-wizard">Node setup (the add-node wizard)<a class="headerlink" href="#node-setup-the-add-node-wizard" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

@@ -2477,6 +2477,7 @@
 <h2 id="access-to-the-nodes">Access to the nodes<a class="headerlink" href="#access-to-the-nodes" title="Permanent link">&para;</a></h2>
 <p>On each node, the Pangolin API key of the orchestrator is a root key, restricted to the actions that HomeGAP needs. HomeGAP retires its older keys by itself.</p>
 <p>The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. The orchestrator reaches them only through SSH port forwarding.</p>
+<p>The dashboard can open a shell on a node. See <a href="../../operations/dashboard/#terminal">Terminal</a>. The shell uses the SSH connection of the orchestrator, so the key stays on the homelab. A WebSocket carries the terminal. It accepts only a single-use ticket from the API, and only from the page of the dashboard. <code>dashboard.terminal: false</code> turns the feature off.</p>
 <p><code>ufw</code> on the node opens only the ports in <a href="../ports/">Ports and firewall</a>. HomeGAP adds new rules before it removes its old rules. It never touches rules that it did not add.</p>
 <h2 id="the-homelab">The homelab<a class="headerlink" href="#the-homelab" title="Permanent link">&para;</a></h2>
 <p>The orchestrator has no Docker socket. It reads Docker through the <code>docker-proxy</code> service, which accepts only <code>GET</code> requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries traffic.</p>
