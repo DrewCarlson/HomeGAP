@@ -39,7 +39,7 @@ The Dockerfile builds the map tiles and these docs (`mkdocs.embedded.yml`) itsel
 | Event | Tags |
 | --- | --- |
 | A push to `main` | `main`, `sha-<short>` |
-| A tag `vX.Y.Z` | `X.Y.Z`, `X.Y`, `latest` |
+| A tag `vX.Y.Z` | `X.Y.Z`, `X.Y`, `X`, `latest` |
 
 ## Repository layout
 

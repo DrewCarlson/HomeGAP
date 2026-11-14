@@ -87,11 +87,24 @@ Without a terminal, the answer to each question is no. The option `--yes` answer
 | `TRAEFIK_NETWORK` | `traefik` | The name of the Docker network of your Traefik. |
 | `COMPOSE_PROFILES` | Empty. | With `cluster`, Docker Compose also starts the cluster services of the homelab. Cluster mode needs it. |
 | `HOMEGAP_DATA_DIR` | `./data` | The folder of all that HomeGAP writes. |
-| `HOMEGAP_VERSION` | `latest` | The tag of the HomeGAP images. Set it to stay on one version. |
+| `HOMEGAP_VERSION` | `latest` | The tag of the HomeGAP images. See [The image tags](#the-image-tags). |
 | `HOMEGAP_DASHBOARD_PUBLISH` | `127.0.0.1:8088` | The address and the port of the host that publish the dashboard. |
 | `HOMEGAP_DRY_RUN` | Empty. | With `true`, the orchestrator runs in dry run. |
 
 The orchestrator gets each variable of `.env`. Thus a secret that the config refers to, for example with `license_key_env`, needs only a line in `.env`.
+
+### The image tags
+
+Each release has four tags. The tags have no `v` at the start.
+
+| Tag | What an upgrade gets |
+| --- | --- |
+| `latest` | The newest release. |
+| `0` | The newest release of major version 0. |
+| `0.1` | The newest patch release of version 0.1. |
+| `0.1.0` | Only this release. The upgrade script then changes nothing. |
+
+To stay on one line of releases, set `HOMEGAP_VERSION` in `.env`, for example `HOMEGAP_VERSION=0.1`.
 
 ### Other changes in `compose.override.yml`
 
