@@ -131,7 +131,7 @@ class TerminalSession(
     fun output(from: Long, max: Int = OUTPUT_BYTES): Pair<Long, ByteArray> =
         synchronized(lock) { buffer.read(from, max) }
 
-    fun ack(offset: Long) {
+    fun ack(offset: Long) = synchronized(lock) {
         if (offset > acked) {
             acked = offset
         }

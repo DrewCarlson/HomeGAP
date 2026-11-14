@@ -16,6 +16,7 @@ import homegap.clients.PangolinClientEntry
 import homegap.clients.PangolinUser
 import homegap.clients.PangolinUserRole
 import homegap.di.LocalHttp
+import homegap.platform.retrying
 import homegap.platform.runCatchingCancellable
 import homegap.reconcile.Controller
 import homegap.reconcile.ReadyNode
@@ -189,6 +190,7 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
 
     /**
      * Removes [userId] after [REMOVE_DELAY], so the dashboard can undo the removal until then.
+     * If Pangolin refuses, more attempts follow for some minutes.
      * Returns the message and the undo id.
      */
     suspend fun removeUser(userId: String): Pair<String, String> {
@@ -200,8 +202,21 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
         val name = user.email ?: user.username
         val removal = scope.launch {
             delay(REMOVE_DELAY)
-            runCatchingCancellable {
+            // Pangolin does not answer while the database moves to a different member.
+            var warned = false
+            retrying(
+                attempts = REMOVE_ATTEMPTS,
+                pause = REMOVE_RETRY_PAUSE,
+                onRetry = { failure ->
+                    if (!warned) {
+                        val reason = failure.message
+                        controller.log.warn(domain, "could not remove $name yet, a new attempt follows: $reason")
+                    }
+                    warned = true
+                },
+            ) {
                 pangolin().first.api.removeUser(org, userId)
+            }.onSuccess {
                 controller.log.change(domain, "removed user $name")
             }.onFailure {
                 controller.log.error(domain, "could not remove $name: ${it.message}")
@@ -294,6 +309,10 @@ class AccessService(private val controller: Controller, @LocalHttp private val h
 
         /** The time that the removal of a person waits, so the dashboard can undo it. */
         val REMOVE_DELAY = 30.seconds
+
+        /** A failover of the database ends in this time: 10 attempts in 5 minutes. */
+        const val REMOVE_ATTEMPTS = 10
+        val REMOVE_RETRY_PAUSE = 30.seconds
 
         /** A time in ms is not below this value. A lower value is in seconds. */
         const val FIRST_EPOCH_MS = 100_000_000_000L
