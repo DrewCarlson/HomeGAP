@@ -190,3 +190,30 @@ jobs:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-cluster
           DIGEST: ${{ steps.build-cluster.outputs.digest }}
         run: cosign sign --yes "${IMAGE,,}@${DIGEST}"
+
+  # The files of the homelab stack as one archive on the release, for a setup without `homegap init`.
+  # The image has the same files.
+  archive:
+    name: Release archive
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the archive
+        run: tools/stack-archive.sh "homegap-${GITHUB_REF_NAME#v}.tar.gz"
+      - name: Add the archive to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          archive="homegap-${GITHUB_REF_NAME#v}.tar.gz"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$archive" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$archive" --draft --title "$GITHUB_REF_NAME"
+          fi
