@@ -574,6 +574,8 @@
       
         
       
+        
+      
     
     
     
@@ -742,6 +744,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../../services/extra-domains/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extra domains
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../services/authentication/" class="md-nav__link">
         
   
@@ -810,10 +839,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_9" >
         
           
-          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_9" id="__nav_3_9_label" tabindex="0">
             
   
   
@@ -831,8 +860,8 @@
           </label>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
-            <label class="md-nav__title" for="__nav_3_8">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_9_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_9">
               <span class="md-nav__icon md-icon"></span>
               
   
@@ -1408,6 +1437,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         Ownership of records
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extra-domains" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Extra domains
       </span>
     </span>
   </a>
@@ -2395,6 +2435,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#extra-domains" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Extra domains
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#reads-of-the-zone" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2563,6 +2614,8 @@
 <p>Before you disable dry run, look for <code>delete</code> rows in the diff on the <strong>Config</strong> page.</p>
 </div>
 <p>HomeGAP keeps the records of paused nodes and paused services as they are.</p>
+<h2 id="extra-domains">Extra domains<a class="headerlink" href="#extra-domains" title="Permanent link">&para;</a></h2>
+<p>Each <a href="../../services/extra-domains/">extra domain</a> has its own zone, or shares a zone with a different domain. HomeGAP writes each record to the zone of its domain, with the same routing, monitor and TTL. If one zone fails, HomeGAP still syncs the other zones, and the activity log names the zone that failed.</p>
 <h2 id="reads-of-the-zone">Reads of the zone<a class="headerlink" href="#reads-of-the-zone" title="Permanent link">&para;</a></h2>
 <p>When the desired records do not change, HomeGAP reads the whole zone again every <code>reconcile.dns_check_interval</code> (default 5 minutes). Thus it finds edits from the Bunny console. A change to the desired records syncs at once.</p>
 <h2 id="the-dns-page">The DNS page<a class="headerlink" href="#the-dns-page" title="Permanent link">&para;</a></h2>

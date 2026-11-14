@@ -576,6 +576,8 @@
       
         
       
+        
+      
     
     
     
@@ -902,6 +904,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../extra-domains/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extra domains
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../authentication/" class="md-nav__link">
         
   
@@ -970,10 +999,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_9" >
         
           
-          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_9" id="__nav_3_9_label" tabindex="0">
             
   
   
@@ -991,8 +1020,8 @@
           </label>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
-            <label class="md-nav__title" for="__nav_3_8">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_9_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_9">
               <span class="md-nav__icon md-icon"></span>
               
   
@@ -2590,7 +2619,7 @@
 <h3 id="rules-for-the-core-labels">Rules for the core labels<a class="headerlink" href="#rules-for-the-core-labels" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>homegap.expose</code> must be a valid hostname. It must be inside <code>domain</code>, or you get the error "... is outside the managed domain ...".</li>
-<li><code>homegap.wildcard</code> is valid only when <code>homegap.expose</code> is the root domain. It is an error on raw services.</li>
+<li><code>homegap.wildcard</code> is valid only when <code>homegap.expose</code> is the root domain or the root of an <a href="../extra-domains/">extra domain</a>. It is an error on raw services.</li>
 <li>The node always terminates plain <code>http</code>. If you set <code>homegap.tls: passthrough</code> on an <code>http</code> service, you get the warning <code>plain-http services cannot be passed through; the node terminates TLS (tls=terminate)</code>.</li>
 <li>On raw services, <code>homegap.tls</code> has no effect. HomeGAP gives a warning.</li>
 <li>An unknown node id in <code>homegap.regions</code> gives the warning "regions reference unknown node(s): ...".</li>

@@ -574,6 +574,8 @@
       
         
       
+        
+      
     
     
     
@@ -742,6 +744,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../../services/extra-domains/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extra domains
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../services/authentication/" class="md-nav__link">
         
   
@@ -810,10 +839,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_9" >
         
           
-          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_9" id="__nav_3_9_label" tabindex="0">
             
   
   
@@ -831,8 +860,8 @@
           </label>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
-            <label class="md-nav__title" for="__nav_3_8">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_9_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_9">
               <span class="md-nav__icon md-icon"></span>
               
   
@@ -2254,8 +2283,10 @@
 <dd>A change on a node that HomeGAP did not make. The node check repairs it. See <a href="../../operations/node-updates/#drift">Node updates and rollback</a>.</dd>
 <dt><strong>Exit node</strong></dt>
 <dd>An exit to the internet for the Pangolin apps, through a node or through the homelab. See <a href="../../cluster/exit-nodes/">Exit nodes</a>.</dd>
+<dt><strong>Extra domain</strong></dt>
+<dd>A domain for services in addition to <code>domain</code>, from <code>extra_domains</code> in the config file. See <a href="../../services/extra-domains/">Extra domains</a>.</dd>
 <dt><strong>Front door</strong></dt>
-<dd>The homelab Traefik container with the root domain in <code>homegap.expose</code>. It claims the root and, with <code>homegap.wildcard</code>, <code>*.&lt;domain&gt;</code>. See <a href="../../services/">Services</a>.</dd>
+<dd>The homelab Traefik container with the root domain in <code>homegap.expose</code>. It claims the root and, with <code>homegap.wildcard</code>, <code>*.&lt;domain&gt;</code>. Each extra domain can have its own front door. See <a href="../../services/">Services</a>.</dd>
 <dt><strong>Geo record set</strong></dt>
 <dd>A set of DNS records for one name, one for each node, with geo routing and a health monitor. See <a href="../../configuration/dns/#the-records">DNS routing and health checks</a>.</dd>
 <dt><strong>Gerbil</strong></dt>

@@ -574,6 +574,8 @@
       
         
       
+        
+      
     
     
     
@@ -742,6 +744,33 @@
   
   
     <li class="md-nav__item">
+      <a href="../../services/extra-domains/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Extra domains
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../services/authentication/" class="md-nav__link">
         
   
@@ -810,10 +839,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_8" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3_9" >
         
           
-          <label class="md-nav__link" for="__nav_3_8" id="__nav_3_8_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3_9" id="__nav_3_9_label" tabindex="0">
             
   
   
@@ -831,8 +860,8 @@
           </label>
         
         
-          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_8_label" aria-expanded="false">
-            <label class="md-nav__title" for="__nav_3_8">
+          <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_3_9_label" aria-expanded="false">
+            <label class="md-nav__title" for="__nav_3_9">
               <span class="md-nav__icon md-icon"></span>
               
   
@@ -2609,7 +2638,7 @@
 <li>Let's Encrypt has a limit of approximately 50 new certificates for a domain in a week. HomeGAP uses one for each change of the list of names.</li>
 </ul>
 <h2 id="the-caa-records">The CAA records<a class="headerlink" href="#the-caa-records" title="Permanent link">&para;</a></h2>
-<p>HomeGAP publishes two CAA records for <code>domain</code>, with the tags <code>issue</code> and <code>issuewild</code>. Each has this value:</p>
+<p>HomeGAP publishes two CAA records for <code>domain</code> and for each <a href="../../services/extra-domains/">extra domain</a>, with the tags <code>issue</code> and <code>issuewild</code>. Each has this value:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>letsencrypt.org; validationmethods=dns-01
 </code></pre></div>
 <p>With these records, only Let's Encrypt can issue a certificate for the domain, and only with the DNS challenge. A node has no DNS key. Thus a compromised node cannot order a certificate for one of your names, although the traffic for that name goes through it.</p>
@@ -2670,7 +2699,7 @@
 <li><strong>Delivery to the nodes.</strong> For each node: the version of the certificate that it has, the time of the delivery, and what it serves on its management name.</li>
 <li><strong>What a visitor gets.</strong> A TLS probe of each public name through each node, each pass. A name in <code>passthrough</code> mode has the tag <strong>Homelab</strong>: the Traefik of the homelab holds its certificate, and HomeGAP does not renew it.</li>
 <li><strong>Orders.</strong> The last 20 orders and revocations, with the reason, the result and the duration.</li>
-<li><strong>Who can issue.</strong> The CAA records that HomeGAP publishes, and the CAA records that DNS has now.</li>
+<li><strong>Who can issue.</strong> The CAA records that HomeGAP publishes, and the CAA records that DNS has now. With <a href="../../services/extra-domains/">extra domains</a>, each record starts with its domain.</li>
 </ul>
 <p>The page has four actions:</p>
 <table>
