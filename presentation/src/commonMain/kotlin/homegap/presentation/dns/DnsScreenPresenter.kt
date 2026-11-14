@@ -48,7 +48,7 @@ class DnsScreenPresenter(
         val selected = props.selection?.let { name -> status.dns.filter { it.name == name } }?.takeIf { it.isNotEmpty() }
         return DnsScreenModel(
             head = PageHeadModel(
-                caption = "DNS · records HomeGAP manages",
+                caption = "DNS",
                 headline = "$inSync of ${sets.size} record sets in sync.",
                 statusLine = statusLineOf(status.attention.on(Route.Dns)),
                 tabs = dnsTabs(Route.Dns, status),
@@ -81,7 +81,7 @@ class DnsScreenPresenter(
             empty = if (status.dns.isEmpty()) {
                 EmptyStateModel(
                     title = "No DNS records yet",
-                    text = "HomeGAP writes records once an edge node is provisioned and a service is published. " +
+                    text = "HomeGAP writes records once a node is provisioned and a service is published. " +
                         "It needs a DNS provider in the config to do it.",
                 )
             } else {
@@ -98,9 +98,9 @@ class DnsScreenPresenter(
                 monitor = if (record.monitor == "none") "no monitor" else "${record.monitor} ${record.monitorStatus}",
                 health = record.health(),
                 state = when {
-                    record.monitorStatus == "offline" -> "withdrawn"
-                    !record.inSync -> record.diff ?: "differs"
-                    else -> "in sync"
+                    record.monitorStatus == "offline" -> "warning · withdrawn"
+                    !record.inSync -> "warning · ${record.diff ?: "differs"}"
+                    else -> "healthy"
                 },
             )
         }
@@ -131,7 +131,7 @@ class DnsScreenPresenter(
         return InspectorModel(
             kind = "DNS record set",
             title = first.name,
-            status = if (problems.isEmpty()) "in sync" else "${problems.size} of ${records.size} members need attention",
+            status = if (problems.isEmpty()) "healthy" else "${problems.size} of ${records.size} members need attention",
             health = if (problems.isEmpty()) Health.OK else Health.DEGRADED,
             sections = buildList {
                 problems.firstNotNullOfOrNull { it.diff }?.let {
@@ -158,7 +158,7 @@ class DnsScreenPresenter(
                         title = "Record set",
                         rows = listOfNotNull(
                             FactRow("Type", first.type),
-                            FactRow("Routing", if (records.any { it.geo != null }) "geo: nearest healthy edge" else "plain"),
+                            FactRow("Routing", if (records.any { it.geo != null }) "geo: nearest healthy node" else "plain"),
                             FactRow("Monitor", first.monitor),
                             records.mapNotNull { it.changedAt }.maxOrNull()?.let { FactRow("Last change", homegap.presentation.format.ago(it, now)) },
                         ),

@@ -18,6 +18,7 @@ import homegap.presentation.data.ControllerApi
 import homegap.presentation.data.ControllerSession
 import homegap.presentation.format.TimeFormatter
 import homegap.presentation.format.plural
+import homegap.presentation.format.shortDate
 import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.presentation.ui.ActionModel
@@ -70,7 +71,7 @@ class ActivityScreenPresenter(
         val selected = props.selection?.toLongOrNull()?.let { seq -> all.firstOrNull { it.seq == seq } }
         return ActivityScreenModel(
             head = PageHeadModel(
-                caption = "Activity · reconcile log",
+                caption = "Activity",
                 headline = "${plural(changes, "change")} in the last hour.",
                 statusLine = lastError?.let { entry ->
                     StatusLineModel(
@@ -92,8 +93,8 @@ class ActivityScreenPresenter(
             pass = pass,
             onClearPass = { pass = null },
             entries = when {
-                query.isBlank() && pass == null -> foldIdlePasses(shown).take(MAX_SHOWN).map { (entry, passes) -> entry.toRow(passes) }
-                else -> shown.take(MAX_SHOWN).map { it.toRow() }
+                query.isBlank() && pass == null -> foldIdlePasses(shown).take(MAX_SHOWN).map { (entry, passes) -> entry.toRow(props.now, passes) }
+                else -> shown.take(MAX_SHOWN).map { it.toRow(props.now) }
             },
             emptyText = if (all.isEmpty()) "Nothing logged yet." else "No entries match the filters.",
             canLoadOlder = !exhausted && all.isNotEmpty(),
@@ -142,9 +143,10 @@ class ActivityScreenPresenter(
     }
 
     /** The row of the entry. [passes] over 1 makes it stand for that many passes that changed nothing. */
-    private fun LogEntryDto.toRow(passes: Int = 1): LogRowModel = LogRowModel(
+    private fun LogEntryDto.toRow(now: Long, passes: Int = 1): LogRowModel = LogRowModel(
         seq = seq,
-        time = times.time(time),
+        // An entry of another day shows its day too.
+        time = (if (now - time > DAY_MS) "${shortDate(time)} " else "") + times.time(time),
         absolute = times.dateTime(time),
         level = level,
         severity = level.severity(),
@@ -202,6 +204,7 @@ class ActivityScreenPresenter(
         val DOMAINS = listOf(null, "discovery", "nodes", "tunnels", "resources", "dns", "certificates", "private", "observe", "cluster", "setup", "speedtest", "controller")
         const val PAGE = 200
         const val MAX_SHOWN = 1500
+        const val DAY_MS = 86_400_000L
     }
 }
 

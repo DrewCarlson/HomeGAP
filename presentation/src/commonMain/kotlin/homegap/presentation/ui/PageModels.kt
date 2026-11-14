@@ -5,8 +5,8 @@ import homegap.api.Health
 import homegap.presentation.routing.Location
 
 /**
- * The top of every screen: a mono [caption] ("Nodes · 6 edges"), a [headline] that states the
- * answer ("5 of 6 edges healthy."), and at most one [statusLine] under it.
+ * The top of every screen: a mono [caption] ("Nodes · 6 nodes"), a [headline] that states the
+ * answer ("5 of 6 nodes serve."), and at most one [statusLine] under it.
  */
 @Immutable
 data class PageHeadModel(

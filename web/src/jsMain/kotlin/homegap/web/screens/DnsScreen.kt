@@ -25,11 +25,11 @@ fun DnsScreen(
                     Text(if (edge.serving) "${edge.edge} ✓" else "${edge.edge} withdrawn" + edge.since?.let { " for $it" }.orEmpty())
                 }
             }
-            Span({ classes("muted", "small") }) { Text("Visitors go to the nearest edge that answers.") }
+            Span({ classes("muted", "small") }) { Text("Visitors go to the nearest node that answers.") }
         }
     }
     Figure(
-        caption = "Fig. 01 · Record sets · ${model.sets.size}",
+        title = "Record sets",
         flush = true,
     ) {
         model.sets.forEach { set ->

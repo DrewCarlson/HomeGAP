@@ -45,7 +45,7 @@ fun CertificatesScreen(
         )
     }
     Figure(
-        caption = "Fig. 02 · Delivery to the nodes",
+        title = "Delivery to the nodes",
         flush = true,
         actions = { Span({ classes("caption", "muted") }) { Text(model.deliverySummary) } },
     ) {
@@ -103,7 +103,7 @@ fun CertificatesScreen(
 @Composable
 private fun OrderProgress(progress: OrderProgressModel) {
     Figure(
-        caption = progress.caption,
+        title = progress.caption,
         flush = true,
         actions = { Span({ classes("caption", "muted") }) { Text(progress.started) } },
     ) {
@@ -168,7 +168,7 @@ private fun OrderFailure(failure: OrderFailureModel, onOpen: (Location) -> Unit)
 private fun CertificatePanel(panel: CertificatePanelModel, onOpen: (Location) -> Unit) {
     val life = panel.lifetime
     Figure(
-        caption = "Fig. 01 · Node certificate · one for every node",
+        title = "Node certificate",
         flush = true,
         actions = {
             NavLink(
@@ -275,7 +275,7 @@ private fun CertificatePanel(panel: CertificatePanelModel, onOpen: (Location) ->
 @Composable
 private fun VisitorMatrix(matrix: VisitorMatrixModel, onOpen: (Location) -> Unit) {
     Figure(
-        caption = "Fig. 03 · What a visitor gets · each name through each node",
+        title = "What a visitor gets",
         flush = true,
         actions = {
             Button({
@@ -372,7 +372,7 @@ private fun VisitorMatrix(matrix: VisitorMatrixModel, onOpen: (Location) -> Unit
 @Composable
 private fun Orders(rows: List<OrderRowModel>, onOpen: (Location) -> Unit) {
     Figure(
-        caption = "Fig. 04 · Orders",
+        title = "Orders",
         flush = true,
         actions = { Span({ classes("caption", "muted") }) { Text("last 20 kept") } },
     ) {
@@ -405,7 +405,7 @@ private fun Orders(rows: List<OrderRowModel>, onOpen: (Location) -> Unit) {
 @Composable
 private fun Policy(policy: PolicyModel) {
     Figure(
-        caption = "Fig. 05 · Who can issue",
+        title = "Who can issue",
         actions = { Span({ classes("caption", "muted") }) { Text(policy.caption) } },
     ) {
         Ul({ classes("cert-caa", "mono") }) {

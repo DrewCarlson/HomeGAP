@@ -369,7 +369,6 @@ private fun ReconcileBox(header: HeaderModel) {
             } else {
                 ActionButton(
                     text = "Resync",
-                    style = ButtonStyle.Primary,
                     enabled = !header.busy,
                     tooltip = "Run a reconcile pass now",
                     onClick = header.onResync,
@@ -383,14 +382,14 @@ private fun ReconcileBox(header: HeaderModel) {
 private fun PauseButton(header: HeaderModel) {
     if (header.paused) {
         ActionButton(
-            text = "Resume",
-            tooltip = "Resume reconciliation everywhere",
+            text = "Resume all",
+            tooltip = "Apply changes everywhere again",
             onClick = header.onTogglePause,
         )
     } else {
         ActionButton(
-            text = "Pause",
-            tooltip = "Stop all changes; observe only",
+            text = "Pause all",
+            tooltip = "Stop all changes and only observe",
             onClick = header.onTogglePause,
         )
     }

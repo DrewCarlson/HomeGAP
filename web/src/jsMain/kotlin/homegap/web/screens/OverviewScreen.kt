@@ -47,7 +47,7 @@ fun OverviewScreen(
             onOpen = onOpen,
         )
     }
-    Figure(caption = "Fig. 04 · System and recent changes") {
+    Figure(title = "System and recent changes") {
         Div({ classes("system-grid") }) {
             Dl({ classes("fact-list") }) {
                 model.system.forEach { row ->
@@ -148,7 +148,7 @@ private fun NeedsAttention(rows: List<AttentionRowModel>, onOpen: (Location) -> 
 @Composable
 private fun Network(network: NetworkModel, onOpen: (Location) -> Unit) {
     Figure(
-        caption = "Fig. 01 · Network · ${network.edges.size} edges",
+        title = "Network",
         flush = true,
         actions = {
             Div({
@@ -231,7 +231,7 @@ private fun TrafficPath(network: NetworkModel, onOpen: (Location) -> Unit) {
         }
     }
     P({ classes("figure-note") }) {
-        Text("Line: mesh round trip between the homelab and the edge. Box: the Pangolin API probe through the edge.")
+        Text("Line: mesh round trip to the homelab. Box: API probe through the node.")
     }
 }
 
@@ -259,7 +259,7 @@ private fun PathRow(edge: EdgeModel, onOpen: (Location) -> Unit) {
 @Composable
 private fun EdgeCards(cards: List<EdgeCardModel>, onOpen: (Location) -> Unit) {
     Figure(
-        caption = "Fig. 02 · Edges · last 60 min",
+        title = "Nodes, last hour",
         actions = {
             NavLink(
                 href = HashRouter.href(Route.Nodes),
@@ -310,7 +310,8 @@ private fun EdgeCards(cards: List<EdgeCardModel>, onOpen: (Location) -> Unit) {
 @Composable
 private fun Matrix(matrix: MatrixModel, onOpen: (Location) -> Unit) {
     Figure(
-        caption = "Fig. 03 · Services × edges · response time, ms",
+        title = "Services by node",
+        note = "Response time in ms.",
         flush = true,
         actions = {
             NavLink(

@@ -87,7 +87,7 @@ class AccessScreenPresenter(
             message = current.note ?: "Not available.",
             clientAddress = address,
             head = PageHeadModel(
-                caption = "Access · Pangolin users and devices",
+                caption = "Access",
                 headline = "Access isn't available right now.",
             ),
         )
@@ -126,7 +126,7 @@ class AccessScreenPresenter(
         val selection = props.selection
         return AccessScreenModel.Ready(
             head = PageHeadModel(
-                caption = "Access · Pangolin users and devices",
+                caption = "Access",
                 headline = "${plural(current.users.size, "user")}, ${plural(current.devices.size, "device")}, $online online.",
                 statusLine = expiring?.let { invite ->
                     StatusLineModel(

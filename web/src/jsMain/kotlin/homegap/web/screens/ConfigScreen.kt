@@ -12,8 +12,7 @@ import org.jetbrains.compose.web.dom.*
 @Composable
 fun ConfigScreen(model: ConfigScreenModel) {
     Figure(
-        caption = "Locations",
-        title = "Data-center cities offered when adding a node, and where the homelab is",
+        title = "Locations",
         actions = {
             A(
                 href = HashRouter.href(Route.Locations),
@@ -24,7 +23,7 @@ fun ConfigScreen(model: ConfigScreenModel) {
         },
     )
     Figure(
-        caption = "Fig. 01 · Desired vs. actual · from the last reconcile pass",
+        title = "Differences",
         flush = true,
         actions = {
             Label(attrs = { classes("check") }) {
@@ -54,7 +53,8 @@ fun ConfigScreen(model: ConfigScreenModel) {
         }
     }
     Figure(
-        caption = "Fig. 02 · Referenced secrets · names and sources only, values are never shown",
+        title = "Secrets",
+        note = "Names and sources only.",
         flush = true,
     ) {
         DataTable(
@@ -74,13 +74,13 @@ fun ConfigScreen(model: ConfigScreenModel) {
             }
         }
     }
-    Figure(caption = "Fig. 03 · Effective desired state") {
+    Figure(title = "Desired state") {
         Pre({ classes("code-text") }) {
             ScrollHint()
             Text(model.desiredState)
         }
     }
-    Figure(caption = "Fig. 04 · Config file · ${model.configPath.orEmpty()}") {
+    Figure(title = "Config file", note = model.configPath) {
         model.acmeNote?.let { note ->
             P({ classes("small", "muted") }) {
                 Text("$note ")

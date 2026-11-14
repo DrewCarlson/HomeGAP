@@ -41,7 +41,7 @@ class LocalStorageTokenStore : TokenStore {
 @Inject
 class BrowserTimeFormatter : TimeFormatter {
     override fun time(epochMillis: Long): String =
-        Date(epochMillis.toDouble()).toLocaleTimeString(options = dateLocaleOptions { hour = "2-digit"; minute = "2-digit" })
+        Date(epochMillis.toDouble()).toLocaleTimeString(options = dateLocaleOptions { hour = "2-digit"; minute = "2-digit"; second = "2-digit" })
     override fun dateTime(epochMillis: Long): String = Date(epochMillis.toDouble()).toLocaleString()
     override fun date(epochMillis: Long): String =
         Date(epochMillis.toDouble()).toLocaleDateString(options = dateLocaleOptions { day = "numeric"; month = "short"; year = "numeric" })

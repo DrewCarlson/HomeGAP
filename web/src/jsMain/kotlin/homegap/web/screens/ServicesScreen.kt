@@ -51,7 +51,8 @@ fun ServicesScreen(
         }
     }
     Figure(
-        caption = "Fig. 01 · Services × edges · response time, ms",
+        title = "Services by node",
+        note = "Response time in ms.",
         flush = true,
     ) {
         if (model.rows.isEmpty()) {
@@ -109,7 +110,7 @@ fun ServicesScreen(
             }
         }
         P({ classes("figure-note") }) {
-            Text("Cells: response time through each edge, ms. Amber is slow (over 1 s), rose is failing with its status code, — means the edge doesn't serve it.")
+            Text("Amber is slow (over 1 s). Rose is failing. A dash means the node does not serve it.")
         }
     }
 }

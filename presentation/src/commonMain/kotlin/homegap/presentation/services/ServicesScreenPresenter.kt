@@ -47,7 +47,7 @@ class ServicesScreenPresenter(
         val selected = status.services.firstOrNull { it.hostname == props.selection }
         return ServicesScreenModel(
             head = PageHeadModel(
-                caption = "Services · published containers",
+                caption = "Services",
                 headline = "${status.services.size} services published.",
                 statusLine = statusLineOf(status.attention.on(Route.Services)),
             ),
@@ -70,7 +70,7 @@ class ServicesScreenPresenter(
             empty = if (status.services.isEmpty()) {
                 EmptyStateModel(
                     title = "No services published yet",
-                    text = "Label a container on the homelab with homegap.expose and HomeGAP publishes it through every edge " +
+                    text = "Label a container on the homelab with homegap.expose and HomeGAP publishes it through every node " +
                         "on its next pass. A failing service shows up here with the reason.",
                     action = ActionModel(
                         label = "How to label a container",
@@ -95,7 +95,7 @@ class ServicesScreenPresenter(
             val code = through?.code
             val ms = through?.ms
             when {
-                through == null -> MatrixCellModel("—", Health.UNKNOWN, "$edge doesn't serve it")
+                through == null -> MatrixCellModel("—", Health.UNKNOWN, "$edge does not serve it")
                 code != null && code >= 500 -> MatrixCellModel(code.toString(), Health.DOWN, "HTTP $code")
                 through.health == Health.DOWN -> MatrixCellModel("✗", Health.DOWN, through.describe())
                 ms != null -> MatrixCellModel(ms.toLong().toString(), through.health, "${ms.toLong()} ms · ${through.describe()}")

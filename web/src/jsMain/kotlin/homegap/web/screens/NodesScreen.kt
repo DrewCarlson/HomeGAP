@@ -73,7 +73,7 @@ private fun Fleet(rows: List<FleetRowModel>, selected: Location?, onOpen: (Locat
         )
     }
     Figure(
-        caption = "Fig. 01 · Fleet · select a node",
+        title = "Nodes",
         flush = true,
     ) {
         Table({ classes("fleet") }) {
@@ -120,7 +120,7 @@ private fun Fleet(rows: List<FleetRowModel>, selected: Location?, onOpen: (Locat
                                     compact = true,
                                 )
                             }
-                            Td({ classes("fleet-wide", if (row.tunnel == "up") "tone-ok" else "tone-down") }) { Text(row.tunnel) }
+                            Td({ classes("fleet-wide", if (row.tunnel == "healthy") "tone-ok" else "tone-down") }) { Text(row.tunnel) }
                             Td({ classes("fleet-wide", "mono") }) { Text(row.certificate) }
                             Td({ attr("data-label", "Stack") }) { Text(row.stack) }
                             Td({
@@ -160,14 +160,13 @@ private fun Database(
     onSwitchPrimary: (String) -> Unit,
 ) {
     Figure(
-        caption = "Fig. 02 · Cluster database",
-        title = "PostgreSQL (Patroni) and Valkey",
+        title = "Database",
         flush = true,
     ) {
         Div({ classes("db-stats") }) {
             DbStat(label = "PostgreSQL primary", badge = database.primary)
-            DbStat(label = "Valkey primary", badge = database.valkeyPrimary)
-            DbStat(label = "Vote", badge = database.quorum)
+            DbStat(label = "Cache primary", badge = database.valkeyPrimary)
+            DbStat(label = "Cluster vote", badge = database.quorum)
         }
         database.switchBack?.let { note ->
             P({ classes("figure-note") }) { Text(note) }
@@ -224,7 +223,8 @@ private fun DbStat(label: String, badge: homegap.presentation.common.Badge) {
 @Composable
 private fun Mesh(mesh: MeshMatrixModel) {
     Figure(
-        caption = "Fig. 03 · Cluster mesh · ${mesh.links} · last hour",
+        title = "Mesh",
+        note = "${mesh.links}, last hour.",
         flush = true,
         actions = {
             Div({

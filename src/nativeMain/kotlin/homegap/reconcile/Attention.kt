@@ -269,7 +269,7 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
             node.health == Health.DOWN -> Finding(
                 id = "node:${node.id}:down",
                 severity = Health.DOWN,
-                title = "${node.id} is down",
+                title = "${node.id} is failing",
                 detail = firstProblem.orEmpty(),
                 route = "nodes",
                 selection = node.id,
@@ -278,7 +278,7 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
             node.health == Health.DEGRADED -> Finding(
                 id = "node:${node.id}:degraded",
                 severity = Health.DEGRADED,
-                title = "${node.id} is degraded",
+                title = "${node.id} has a warning",
                 detail = firstProblem.orEmpty(),
                 route = "nodes",
                 selection = node.id,

@@ -11,7 +11,10 @@ fun Double.oneDecimal(): String {
     return "$sign${abs / 10}.${abs % 10}"
 }
 
-/** "just now", "42s ago", "5m ago", "3h ago", "2d ago" for [epochMillis] as seen at [now]. */
+/**
+ * "just now", "42s ago", "5m ago", "3h ago" for [epochMillis] as seen at [now]. From 48 hours on it
+ * is the day, "Nov 12", in UTC: a count of days tells less than the date.
+ */
 fun ago(epochMillis: Long, now: Long): String {
     val seconds = (now - epochMillis) / 1000
     return when {
@@ -19,8 +22,23 @@ fun ago(epochMillis: Long, now: Long): String {
         seconds < 90 -> "${seconds}s ago"
         seconds < 90 * 60 -> "${seconds / 60}m ago"
         seconds < 48 * 3600 -> "${seconds / 3600}h ago"
-        else -> "${seconds / 86400}d ago"
+        else -> shortDate(epochMillis)
     }
+}
+
+private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+/** The UTC day of [epochMillis] as "Nov 12" (the civil-from-days algorithm). */
+internal fun shortDate(epochMillis: Long): String {
+    val days = epochMillis.floorDiv(86_400_000L) + 719_468
+    val era = days.floorDiv(146_097L)
+    val dayOfEra = days - era * 146_097
+    val yearOfEra = (dayOfEra - dayOfEra / 1460 + dayOfEra / 36_524 - dayOfEra / 146_096) / 365
+    val dayOfYear = dayOfEra - (365 * yearOfEra + yearOfEra / 4 - yearOfEra / 100)
+    val monthIndex = (5 * dayOfYear + 2) / 153
+    val day = dayOfYear - (153 * monthIndex + 2) / 5 + 1
+    val month = if (monthIndex < 10) monthIndex + 3 else monthIndex - 9
+    return "${MONTHS[(month - 1).toInt()]} $day"
 }
 
 fun formatBytes(n: Long): String {
@@ -58,8 +76,8 @@ fun shortClient(userAgent: String): String {
 val Health.label: String
     get() = when (this) {
         Health.OK -> "healthy"
-        Health.DEGRADED -> "degraded"
-        Health.DOWN -> "down"
+        Health.DEGRADED -> "warning"
+        Health.DOWN -> "failing"
         Health.UNKNOWN -> "unknown"
     }
 

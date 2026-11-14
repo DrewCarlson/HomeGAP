@@ -39,7 +39,7 @@ fun SpeedTestScreen(model: SpeedTestScreenModel) {
             DeviceTests(model.device)
             History(model.history)
             if (!model.map.isEmpty) {
-                Figure(caption = "Fig. 04 · Map · latest homelab ↔ edge results; select a node to test it") {
+                Figure(title = "Map", note = "Select a node to test it.") {
                     WorldMap(
                         model = model.map,
                         heightPx = 340,
@@ -58,7 +58,7 @@ fun SpeedTestScreen(model: SpeedTestScreenModel) {
 @Composable
 private fun TunnelTests(model: SpeedTestScreenModel.Ready) {
     Figure(
-        caption = "Fig. 01 · Homelab ↔ edge · over the tunnel",
+        title = "Homelab to node",
         flush = true,
         actions = {
             Span({ classes("muted", "small", "wide-only") }) { Text("Parallel streams") }
@@ -99,7 +99,7 @@ private fun TunnelTests(model: SpeedTestScreenModel.Ready) {
             }
         }
         P({ classes("figure-note") }) {
-            Text("Bars scale to 1 Gb/s. Path: $TUNNEL_PATH. Up is homelab → edge, the direction visitors download in.")
+            Text("Up is homelab to node, the direction of a download.")
         }
     }
 }
@@ -187,7 +187,7 @@ private fun LiveTest(live: LiveTestModel) {
 
 @Composable
 private fun DeviceTests(device: DeviceTestModel) {
-    Figure(caption = "Fig. 02 · Your device → edge → homelab · open a link on the device to test") {
+    Figure(title = "Your device", note = "Open the link on the device.") {
         P({ classes("muted") }) { Text(DEVICE_HELP) }
         ActionButton(
             text = device.buttonText,
@@ -202,7 +202,7 @@ private fun DeviceTests(device: DeviceTestModel) {
                             code = code,
                             label = "QR code for the automatic test link",
                         )
-                        P({ classes("muted") }) { Text("Scan from a phone to test it through the edge DNS picks for it.") }
+                        P({ classes("muted") }) { Text("Scan from a phone to test through the node that DNS picks for it.") }
                     }
                 }
             }
@@ -237,7 +237,7 @@ private fun LinkRow(link: TestLinkModel) {
 @Composable
 private fun History(rows: List<HistoryRowModel>) {
     Figure(
-        caption = "Fig. 03 · History",
+        title = "History",
         flush = true,
     ) {
         val headers = listOf("When", "Path", "Node", "Ping", "Jitter", "Down", "Up")

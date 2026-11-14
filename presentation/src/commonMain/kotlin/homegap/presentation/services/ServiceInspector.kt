@@ -30,15 +30,15 @@ fun serviceInspector(
         title = service.hostname,
         status = when {
             service.paused -> "paused"
-            failing > 0 -> "failing on ${plural(failing, "edge")}"
-            slow > 0 -> "slow on ${plural(slow, "edge")}"
-            else -> "healthy on ${plural(service.perNode.size, "edge")}"
+            failing > 0 -> "failing on ${plural(failing, "node")}"
+            slow > 0 -> "warning · slow on ${plural(slow, "node")}"
+            else -> "healthy on ${plural(service.perNode.size, "node")}"
         },
         health = health,
         sections = buildList {
             add(
                 InspectorSection.Marks(
-                    title = "Through each edge",
+                    title = "Through each node",
                     rows = service.perNode.map { edge ->
                         MarkRow(
                             health = edge.health,

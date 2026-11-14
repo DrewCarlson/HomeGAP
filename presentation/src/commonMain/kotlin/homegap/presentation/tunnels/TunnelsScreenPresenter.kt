@@ -48,7 +48,7 @@ class TunnelsScreenPresenter(
         val selected = status.tunnels.firstOrNull { it.nodeId == props.selection }
         return TunnelsScreenModel(
             head = PageHeadModel(
-                caption = "Tunnels · Newt connectors from the homelab",
+                caption = "Tunnels",
                 headline = "$up of ${status.tunnels.size} tunnels up.",
                 statusLine = statusLineOf(status.attention.on(Route.Tunnels)),
             ),
@@ -60,7 +60,7 @@ class TunnelsScreenPresenter(
                     status = certificateCause(status, tunnel)?.let { "down · $it" } ?: tunnel.statusText(),
                     facts = tunnel.facts(),
                     chart = chartOf(
-                        label = "In, homelab to edge",
+                        label = "In, homelab to node",
                         samples = props.metrics[tunnel.nodeId]?.get("in"),
                         nowSeconds = nowSeconds,
                         unit = "Mb/s",
@@ -80,8 +80,7 @@ class TunnelsScreenPresenter(
             empty = if (status.tunnels.isEmpty()) {
                 EmptyStateModel(
                     title = "No tunnels yet",
-                    text = "Each edge node gets a Newt connector from the homelab once it is provisioned. " +
-                        "Add a node and its tunnel shows up here.",
+                    text = "Each node gets a tunnel from the homelab once it is provisioned.",
                     action = ActionModel(
                         label = "+ Add node",
                         location = Location(Route.AddNode),
@@ -113,13 +112,13 @@ class TunnelsScreenPresenter(
                     InspectorSection.Charts(
                         listOf(
                             chartOf(
-                                label = "In, homelab to edge",
+                                label = "In, homelab to node",
                                 samples = samples?.get("in"),
                                 nowSeconds = nowSeconds,
                                 unit = "Mb/s",
                             ),
                             chartOf(
-                                label = "Out, edge to homelab",
+                                label = "Out, node to homelab",
                                 samples = samples?.get("out"),
                                 nowSeconds = nowSeconds,
                                 unit = "Mb/s",
@@ -168,8 +167,8 @@ class TunnelsScreenPresenter(
                         confirmations.ask(
                             homegap.presentation.ui.ConfirmModel(
                                 title = "Restart the ${tunnel.nodeId} connector?",
-                                text = "Newt stops and starts again. Traffic through ${tunnel.nodeId} pauses for a few seconds; " +
-                                    "visitors on other edges are not affected.",
+                                text = "The connector stops and starts again. Traffic through ${tunnel.nodeId} pauses for a few seconds; " +
+                                    "visitors on other nodes are not affected.",
                                 confirmLabel = "Restart",
                             )
                         ) {
@@ -178,7 +177,7 @@ class TunnelsScreenPresenter(
                     },
                 ),
                 ActionModel(
-                    label = "Edge node",
+                    label = "Node",
                     location = Location(Route.Nodes, tunnel.nodeId),
                 ),
                 ActionModel(
@@ -196,9 +195,9 @@ private fun TunnelStatusDto.health(): Health = when {
 }
 
 private fun TunnelStatusDto.statusText(): String = when {
-    up -> "up"
-    processRunning -> "connecting · site ${if (siteOnline == false) "offline" else "unknown"}"
-    else -> "down · process stopped"
+    up -> "healthy"
+    processRunning -> "warning · connecting"
+    else -> "failing · connector stopped"
 }
 
 private fun TunnelStatusDto.facts(): List<String> = listOfNotNull(

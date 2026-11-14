@@ -54,7 +54,7 @@ class ConfigScreenPresenter(private val api: ControllerApi) : Presenter<ConfigSc
         val missing = loaded?.secrets?.secrets?.filter { !it.present }.orEmpty()
         return ConfigScreenModel(
             head = PageHeadModel(
-                caption = "Config · desired vs. actual",
+                caption = "Config",
                 headline = when (pending) {
                     null -> "Loading the config…"
                     0 -> "Everything matches the config."

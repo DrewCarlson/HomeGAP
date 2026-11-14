@@ -60,7 +60,7 @@ class NodesScreenPresenter(
         val selected = status.nodes.firstOrNull { it.id == props.selection }
         return NodesScreenModel(
             head = PageHeadModel(
-                caption = "Nodes · ${plural(status.nodes.size, "edge server")}",
+                caption = "Nodes",
                 headline = edgesSentence(status.nodes),
                 statusLine = statusLineOf(status.attention.on(Route.Nodes)),
                 actions = listOf(
@@ -101,9 +101,9 @@ class NodesScreenPresenter(
             },
             empty = if (status.nodes.isEmpty()) {
                 EmptyStateModel(
-                    title = "No edge nodes yet",
+                    title = "No nodes yet",
                     text = "An edge node is a small VPS near your visitors. HomeGAP sets it up over SSH: " +
-                        "a user, a key, the firewall and the stack. Nothing changes until you run it.",
+                        "a user, a key, the firewall and the software. Nothing changes until you run it.",
                     action = ActionModel(
                         label = "+ Add node",
                         style = ActionStyle.Primary,
@@ -143,9 +143,9 @@ class NodesScreenPresenter(
                 threshold = api?.threshold,
             ),
             tunnel = when {
-                status.tunnels.firstOrNull { it.nodeId == node.id }?.up == true -> "up"
-                node.tunnelUp -> "up"
-                else -> "down"
+                status.tunnels.firstOrNull { it.nodeId == node.id }?.up == true -> "healthy"
+                node.tunnelUp -> "healthy"
+                else -> "failing"
             },
             certificate = if (node.waitingForCertificate) "waiting" else node.certificate?.daysRemaining?.let { "$it days" } ?: "—",
             stack = stackText(node),
@@ -192,7 +192,7 @@ class NodesScreenPresenter(
         val from = nodes.firstNotNullOfOrNull { node -> node.stack?.takeIf { node.targetStack != null } }
         val versions = if (target != null) " · ${from ?: "?"} → $target" else ""
         return RolloutStripModel(
-            title = (if (held) "Stack rollout · held" else "Stack rollout · one node at a time") + versions,
+            title = (if (held) "Update held" else "Update, one node at a time") + versions,
             progress = "${steps.count { it.health == Health.OK }} of ${steps.size} updated",
             steps = steps,
         )

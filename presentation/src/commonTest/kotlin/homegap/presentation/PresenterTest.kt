@@ -113,18 +113,18 @@ class PresenterTest {
         val g = graph
         val status = snapshot(nodes = listOf(node("a1"), node("b1", Health.DOWN)))
         val model = present(g.overview, OverviewScreenProps(status, NOW)).value
-        val nodes = model.gauges.first { it.label == "Edges ok" }
+        val nodes = model.gauges.first { it.label == "Nodes healthy" }
         assertEquals("1 / 2", nodes.value)
         assertEquals(Health.DEGRADED, nodes.health)
         assertEquals(Health.UNKNOWN, model.gauges.first { it.label == "DNS in sync" }.health, "nothing to count")
         assertEquals(listOf("a1", "b1"), model.edges.map { it.id })
-        assertEquals("1 of 2 edges serves.", model.head.headline)
+        assertEquals("1 of 2 nodes serves.", model.head.headline)
     }
 
     @Test
     fun aWarningOnAnEdgeIsNotAnOutageInTheHeadline() {
         val nodes = listOf(node("a1", Health.DEGRADED), node("b1", Health.DEGRADED))
-        assertEquals("2 of 2 edges serve, 2 with a warning.", edgesSentence(nodes))
+        assertEquals("2 of 2 nodes serve, 2 with a warning.", edgesSentence(nodes))
     }
 
     @Test

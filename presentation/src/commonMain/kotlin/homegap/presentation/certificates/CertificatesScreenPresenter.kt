@@ -63,7 +63,7 @@ class CertificatesScreenPresenter(
         if (certs == null || status.nodes.isEmpty()) {
             return CertificatesScreenModel(
                 head = PageHeadModel(
-                    caption = "DNS · certificates",
+                    caption = "Certificates",
                     headline = "No nodes yet.",
                     tabs = tabs,
                 ),
@@ -83,7 +83,7 @@ class CertificatesScreenPresenter(
         val view = CertificatesView(certs, status, props.now, props.selection, timeFormatter)
         return CertificatesScreenModel(
             head = PageHeadModel(
-                caption = "DNS · certificates · ${plural(certs.names.size, "name")}",
+                caption = "Certificates · ${plural(certs.names.size, "name")}",
                 headline = view.headline(),
                 statusLine = statusLineOf(status.attention.on(Route.Certificates)),
                 actions = listOfNotNull(orderNow(certs, blocked)),
@@ -582,8 +582,8 @@ internal class CertificatesView(
         status.nodes.firstOrNull { it.id == node }?.let { it.location?.name ?: it.region }.orEmpty()
 
     private fun installedText(row: CertDeliveryDto): String = when (row.state) {
-        "ok" -> "Current · ${row.installed.orEmpty()}"
-        "behind" -> row.installedIssuedAt?.let { "Behind · ${date(it)}" } ?: "Behind"
+        "ok" -> "healthy · ${row.installed.orEmpty()}"
+        "behind" -> row.installedIssuedAt?.let { "warning · behind, from ${date(it)}" } ?: "warning · behind"
         "none", "default", "waiting" -> "None"
         else -> row.installed ?: "—"
     }
@@ -684,7 +684,7 @@ internal class CertificatesView(
         )
 
         private val STATES = mapOf(
-            "ok" to "OK",
+            "ok" to "healthy",
             "behind" to "behind",
             "none" to "none",
             "default" to "default served",

@@ -73,7 +73,7 @@ class NodeActions(
         )
         add(
             ActionModel(
-                label = if (node.paused) "Resume" else "Pause",
+                label = if (node.paused) "Resume ${node.id}" else "Pause ${node.id}",
                 tooltip = if (node.paused) "Apply changes to this node again" else "Leave this node as it is; observe only",
                 onClick = { togglePause(node.id, node.paused) },
             )
@@ -150,7 +150,7 @@ class NodeActions(
         confirmations.ask(
             ConfirmModel(
                 title = "Skip the update on $id?",
-                text = "$id stays on its current stack and the other nodes are updated.",
+                text = "$id stays on its current version and the other nodes are updated.",
                 confirmLabel = "Skip update",
             )
         ) {
@@ -179,7 +179,7 @@ class NodeActions(
         confirmations.ask(
             ConfirmModel(
                 title = "Remove $id from HomeGAP?",
-                text = "$id is taken out of DNS first, so visitors move to other edges. Its stack keeps running until you confirm decommission.",
+                text = "$id is taken out of DNS first, so visitors move to other nodes. Its software keeps running until you decommission it.",
                 confirmLabel = "Remove $id",
                 consequences = listOf(
                     "DNS drains now: $id leaves every record set",

@@ -69,7 +69,7 @@ fun nodeInspector(
         samples?.get("in")?.let {
             add(
                 chartOf(
-                    label = "Tunnel in, homelab to edge",
+                    label = "Tunnel in, homelab to node",
                     samples = it,
                     nowSeconds = nowSeconds,
                 )
@@ -78,7 +78,7 @@ fun nodeInspector(
         samples?.get("out")?.let {
             add(
                 chartOf(
-                    label = "Tunnel out, edge to homelab",
+                    label = "Tunnel out, node to homelab",
                     samples = it,
                     nowSeconds = nowSeconds,
                 )
@@ -109,8 +109,8 @@ fun nodeInspector(
                 add(InspectorSection.Note(text = "Provisioning failed: ${it.take(300)}", severity = Severity.Down))
             }
             if (update?.status == "failed") {
-                val outcome = if (update.rolledBack) "It was rolled back and runs its previous stack." else "The rollback failed."
-                add(InspectorSection.Note(text = "The stack update failed. $outcome", severity = Severity.Down))
+                val outcome = if (update.rolledBack) "It was rolled back and runs its previous version." else "The rollback failed."
+                add(InspectorSection.Note(text = "The software update failed. $outcome", severity = Severity.Down))
                 update.error?.let { add(InspectorSection.Code(title = "Update error", text = it.take(800))) }
             }
             node.updateWaiting?.takeIf { node.job == null }?.let {
@@ -138,7 +138,7 @@ fun nodeInspector(
             if (node.drift.isNotEmpty()) {
                 add(
                     InspectorSection.Marks(
-                        title = "Drift from the config",
+                        title = "Differences from config",
                         rows = node.drift.map { MarkRow(health = Health.DEGRADED, name = it) },
                     )
                 )
@@ -161,7 +161,7 @@ fun nodeInspector(
                             FactRow("Certificate", cert.daysRemaining?.let { "$it days left" } ?: cert.subject)
                         },
                         FactRow("Provisioned", node.lastProvisionAt?.let { ago(it, now) } ?: "never"),
-                        node.stack?.let { stack -> FactRow("Stack", stack + node.targetStack?.let { " → $it pending" }.orEmpty(), mono = true) },
+                        node.stack?.let { stack -> FactRow("Software version", stack + node.targetStack?.let { " → $it pending" }.orEmpty(), mono = true) },
                     ),
                 )
             )
@@ -218,7 +218,7 @@ fun checkTitle(name: String): String = when (name) {
     "ssh" -> "SSH"
     "docker" -> "Docker"
     "tunnel" -> "Tunnel"
-    "gerbil-udp" -> "Gerbil UDP"
+    "gerbil-udp" -> "WireGuard port"
     "tls-mgmt" -> "Management certificate"
     "tls-root" -> "Root name TLS"
     "cluster-proxy" -> "Cluster proxy"

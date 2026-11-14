@@ -109,7 +109,7 @@ class SpeedTestScreenPresenter(
         val slowest = latest.filter { it.upMbps != null }.minByOrNull { it.upMbps ?: 0.0 }
         return SpeedTestScreenModel.Ready(
             head = PageHeadModel(
-                caption = "Speed test · homelab and device throughput",
+                caption = "Speed test",
                 headline = fastest?.let { "Fastest upload: ${it.nodeId}, ${formatMbps(it.upMbps)}." } ?: "No speed tests yet.",
                 statusLine = slowest?.takeIf { it != fastest && (it.upMbps ?: 0.0) < (fastest?.upMbps ?: 0.0) / 2 }?.let { slow ->
                     StatusLineModel(

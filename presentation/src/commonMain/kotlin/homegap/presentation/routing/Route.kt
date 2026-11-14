@@ -3,11 +3,11 @@ package homegap.presentation.routing
 /** Dashboard destinations. [path] is the URL fragment (`#nodes`). */
 enum class Route(val path: String, val title: String, val subtitle: String) {
     Overview("overview", "Overview", "Health of nodes, tunnels, services and DNS at a glance"),
-    Nodes("nodes", "Nodes", "Regional edge nodes provisioned over SSH"),
+    Nodes("nodes", "Nodes", "The nodes that serve your visitors"),
     Services("services", "Services", "Containers published through homegap.* labels"),
     Dns("dns", "DNS", "Bunny DNS records managed by HomeGAP"),
     Certificates("certificates", "Certificates", "The certificate of the nodes, who has it, and what visitors get"),
-    Tunnels("tunnels", "Tunnels", "Newt connectors from the homelab to each node"),
+    Tunnels("tunnels", "Tunnels", "The tunnels from the homelab to each node"),
     Access("access", "Access", "Who can sign in to the Pangolin apps, and their devices"),
     SpeedTest("speedtest", "Speed test", "Latency and throughput through the real traffic path"),
     Activity("log", "Activity", "Reconcile log, newest first"),

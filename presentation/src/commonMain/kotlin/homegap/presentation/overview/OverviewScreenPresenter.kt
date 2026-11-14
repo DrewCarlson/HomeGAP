@@ -92,8 +92,8 @@ class OverviewScreenPresenter(
             inspector = inspector(status, props, now),
             empty = if (status.nodes.isEmpty()) {
                 EmptyStateModel(
-                    title = "No edge nodes yet",
-                    text = "Add an edge node: a small VPS near your visitors. Then label a container on the homelab " +
+                    title = "No nodes yet",
+                    text = "Add a node: a small VPS near your visitors. Then label a container on the homelab " +
                         "with homegap.expose and check it's reachable from the Services page.",
                     action = ActionModel(
                         label = "+ Add node",
@@ -117,13 +117,13 @@ class OverviewScreenPresenter(
             else -> "$reachable of $services services reachable. $edges"
         }
         return PageHeadModel(
-            caption = "Overview · whole system · updated ${ago(status.generatedAt, now)}",
+            caption = "Overview · updated ${ago(status.generatedAt, now)}",
             headline = headline,
         )
     }
 
     private fun gauges(status: StatusSnapshot): List<GaugeModel> = buildList {
-        add(ratio("Edges ok", status.nodes.count { it.health == Health.OK }, status.nodes.size))
+        add(ratio("Nodes healthy", status.nodes.count { it.health == Health.OK }, status.nodes.size))
         add(ratio("Tunnels up", status.tunnels.count { it.up }, status.tunnels.size))
         add(ratio("Services up", status.services.count { it.reachable() }, status.services.size))
         add(ratio("DNS in sync", status.dns.count { it.inSync }, status.dns.size))
@@ -235,7 +235,7 @@ class OverviewScreenPresenter(
                         val code = through?.code
                         val ms = through?.ms
                         when {
-                            through == null -> MatrixCellModel("—", Health.UNKNOWN, "$edge doesn't serve it")
+                            through == null -> MatrixCellModel("—", Health.UNKNOWN, "$edge does not serve it")
                             code != null && code >= 500 -> MatrixCellModel(code.toString(), Health.DOWN, "HTTP $code")
                             through.health == Health.DOWN -> MatrixCellModel("✗", Health.DOWN, through.detail)
                             ms != null -> MatrixCellModel(ms.toLong().toString(), through.health, "${ms.toLong()} ms")
@@ -255,8 +255,8 @@ class OverviewScreenPresenter(
     private fun system(status: StatusSnapshot, now: Long): List<FactRow> = buildList {
         status.cluster?.let { cluster ->
             add(FactRow("Database", "primary ${cluster.primary ?: "none"} · ${plural(cluster.members.count { it.role == "replica" }, "replica")}"))
-            cluster.valkeyPrimary?.let { add(FactRow("Valkey", "primary $it")) }
-            cluster.quorum?.let { add(FactRow("Vote", if (it) "quorum" else "no quorum")) }
+            cluster.valkeyPrimary?.let { add(FactRow("Cache", "primary $it")) }
+            cluster.quorum?.let { add(FactRow("Cluster vote", if (it) "majority" else "no majority")) }
         }
         status.lastReconcile?.let { pass ->
             add(FactRow("Reconcile", "last pass ${ago(pass.finishedAt, now)} · ${plural(pass.changes, "change")}"))
@@ -321,7 +321,7 @@ internal fun edgesSentence(nodes: List<NodeStatusDto>): String {
     val warned = nodes.count { it.health == Health.DEGRADED }
     val serve = if (serving == 1) "serves" else "serve"
     val warning = if (warned == 0) "" else ", $warned with a warning"
-    return "$serving of ${plural(nodes.size, "edge")} $serve$warning."
+    return "$serving of ${plural(nodes.size, "node")} $serve$warning."
 }
 
 /** Reachable on every edge that serves it. */

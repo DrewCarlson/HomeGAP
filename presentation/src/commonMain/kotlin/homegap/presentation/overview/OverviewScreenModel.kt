@@ -30,7 +30,7 @@ data class OverviewScreenModel(
     override val empty: EmptyStateModel? = null,
 ) : ScreenModel
 
-/** A counter with a bar: "Edges healthy 5 / 6". */
+/** A counter with a bar: "Nodes healthy 5 / 6". */
 @Immutable
 data class GaugeModel(
     val label: String,

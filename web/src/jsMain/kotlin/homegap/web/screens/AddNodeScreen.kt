@@ -38,7 +38,7 @@ fun AddNodeWizard(
         Div({ classes("overlay-panel", "wizard") }) {
             Aside({ classes("wizard-aside") }) {
                 H2({ id("add-node-title") }) { Text("Add a node") }
-                P({ classes("muted") }) { Text("Sets up a new server as an edge node. Nothing changes until you run it.") }
+                P({ classes("muted") }) { Text("Nothing changes on the server until you run it.") }
                 Stepper(model)
                 P({ classes("wizard-draft", "muted") }) { Text("Closing the wizard discards this draft.") }
             }

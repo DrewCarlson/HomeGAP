@@ -82,7 +82,7 @@ fun AccessScreen(
 
 @Composable
 private fun ClientAddress(address: String, via: String?, qr: QrCode?) {
-    Figure(caption = "Pangolin app address" + via?.let { " · $it" }.orEmpty()) {
+    Figure(title = "Pangolin app address", note = via) {
         Div({ classes("app-address") }) {
             qr?.let { code ->
                 QrImage(
@@ -108,7 +108,7 @@ private fun ClientAddress(address: String, via: String?, qr: QrCode?) {
 @Composable
 private fun People(model: AccessScreenModel.Ready, onOpen: (Location) -> Unit) {
     Figure(
-        caption = "Fig. 01 · People · ${model.users.size}",
+        title = "People",
         flush = true,
         actions = { Span({ classes("caption", "muted") }) { Text("Everyone who can sign in, on every node") } },
     ) {
@@ -173,7 +173,7 @@ private fun Invitations(
     onRemove: (String) -> Unit,
 ) {
     Figure(
-        caption = "Fig. 02 · Open invitations · ${rows.size}",
+        title = "Open invitations",
         flush = true,
     ) {
         Ul({ classes("people") }) {
@@ -209,7 +209,7 @@ private fun Invitations(
 @Composable
 private fun Devices(rows: List<DeviceRowModel>, onOpen: (Location) -> Unit) {
     Figure(
-        caption = "Fig. 03 · Devices · ${rows.size}",
+        title = "Devices",
         flush = true,
         actions = { Span({ classes("caption", "muted") }) { Text("Pangolin apps and machine clients") } },
     ) {

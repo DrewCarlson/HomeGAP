@@ -7,14 +7,14 @@ import org.jetbrains.compose.web.dom.Section
 import org.jetbrains.compose.web.dom.Text
 
 /**
- * A blueprint panel: a mono [caption] ("Fig. 01 · Network"), an optional [title], [actions] on
- * the right, and a [flush] (edge to edge, for tables) or padded body. Without [content] the
- * figure is its head alone.
+ * A panel: a short [title], an optional [note] of one short sentence under it, [actions] on the
+ * right, and a [flush] (edge to edge, for tables) or padded body. Without [content] the panel is
+ * its head alone.
  */
 @Composable
 fun Figure(
-    caption: String,
-    title: String? = null,
+    title: String,
+    note: String? = null,
     flush: Boolean = false,
     actions: @Composable () -> Unit = {},
     content: (@Composable () -> Unit)? = null,
@@ -22,8 +22,8 @@ fun Figure(
     Section({ classes("figure") }) {
         Div({ classes("figure-head") }) {
             Div({ classes("figure-titles") }) {
-                Div({ classes("caption") }) { Text(caption) }
-                title?.let { H2 { Text(it) } }
+                H2 { Text(title) }
+                note?.let { Div({ classes("figure-sub") }) { Text(it) } }
             }
             Div({ classes("figure-actions") }) { actions() }
         }

@@ -32,7 +32,7 @@ class ServiceActions(
         }
         add(
             ActionModel(
-                label = if (service.paused) "Resume" else "Pause",
+                label = if (service.paused) "Resume service" else "Pause service",
                 onClick = { togglePause(service) },
             )
         )

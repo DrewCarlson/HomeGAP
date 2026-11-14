@@ -81,7 +81,7 @@ fun StatusSnapshot.overviewMap(now: Long): MapModel {
         val failing = n.checks.filter { it.health != Health.OK && it.health != Health.UNKNOWN }
         val rows = buildList {
             add(MapInfoRow("Health", n.health.name.lowercase(), n.health))
-            add(MapInfoRow("Tunnel", if (n.tunnelUp) "up" else "down", if (n.tunnelUp) Health.OK else Health.DOWN))
+            add(MapInfoRow("Tunnel", if (n.tunnelUp) "healthy" else "failing", if (n.tunnelUp) Health.OK else Health.DOWN))
             meshRtt[n.id]?.let { add(MapInfoRow("To homelab", homegap.presentation.format.formatMillis(it))) }
             if (n.provider.isNotBlank()) add(MapInfoRow("Provider", n.provider))
             failing.take(4).forEach { add(MapInfoRow(it.name, it.detail.ifBlank { it.health.name.lowercase() }.take(48), it.health)) }

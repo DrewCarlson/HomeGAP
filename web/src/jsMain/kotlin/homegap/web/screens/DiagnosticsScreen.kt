@@ -26,7 +26,7 @@ import org.jetbrains.compose.web.dom.Text
 @Composable
 fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
     Figure(
-        caption = "Fig. 01 · Node · read-only, nothing on the node changes",
+        title = "Node",
         flush = true,
     ) {
         Div({ classes("figure-body") }) {
@@ -99,7 +99,8 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
     }
     if (model.report.isNotEmpty()) {
         Figure(
-            caption = "Fig. 02 · Report · ${model.report.count { it.health == homegap.api.Health.DEGRADED }} to look at",
+            title = "Report",
+            note = "${model.report.count { it.health == homegap.api.Health.DEGRADED }} to look at.",
             flush = true,
         ) {
             Div({ classes("report-grid") }) {
@@ -136,7 +137,7 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
     }
     // The certificate facts come last, so a result shows right under the button that asked for it.
     if (model.certificate.isNotEmpty()) {
-        Figure(caption = "Certificate · ${model.node.orEmpty()} · no file content") {
+        Figure(title = "Certificate on ${model.node.orEmpty()}") {
             Dl({ classes("fact-list", "names") }) {
                 model.certificate.forEach { fact ->
                     Div {

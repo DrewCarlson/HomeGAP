@@ -228,7 +228,7 @@ class AppPresenter(
                 SearchHit(
                     kind = SearchKind.Action,
                     title = "Test all nodes",
-                    subtitle = "Speed test each edge, one at a time",
+                    subtitle = "Speed test each node, one at a time",
                     location = Location(Route.SpeedTest),
                 ),
                 SearchHit(
@@ -429,8 +429,7 @@ class AppPresenter(
         confirmations.ask(
             ConfirmModel(
                 title = "Pause all changes?",
-                text = "HomeGAP only observes: health and drift keep updating, but it applies nothing to the nodes, " +
-                    "DNS or the tunnels until you resume.",
+                text = "HomeGAP only observes. It applies nothing to the nodes, DNS or the tunnels until you resume.",
                 confirmLabel = "Pause changes",
             )
         ) {
@@ -551,7 +550,7 @@ class AppPresenter(
         val summary = buildString {
             append("Update rollout held. ")
             failed.forEach { (id, update) ->
-                val outcome = if (update.rolledBack) "and was rolled back; it is running its previous stack." else "and the rollback failed."
+                val outcome = if (update.rolledBack) "and was rolled back; it is running its previous version." else "and the rollback failed."
                 append("$id: the update failed ${ago(update.at, now)} $outcome ")
             }
             append(if (waiting.isEmpty()) "No other node is waiting." else "Waiting: ${waiting.joinToString()}.")
@@ -566,7 +565,7 @@ class AppPresenter(
                     confirmations.ask(
                         ConfirmModel(
                             title = "Skip the update on $id?",
-                            text = "$id stays on its current stack and the other nodes are updated.",
+                            text = "$id stays on its current version and the other nodes are updated.",
                             confirmLabel = "Skip $id",
                         )
                     ) {
@@ -631,8 +630,7 @@ internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
         add(
             BannerModel(
                 kind = BannerKind.Warn,
-                text = "Changes are paused. HomeGAP is only observing: health and drift keep updating, but nothing is applied " +
-                    "to nodes, Pangolin or DNS, and manual changes there are left alone.",
+                text = "Changes are paused. HomeGAP only observes and applies nothing.",
                 resume = true,
             )
         )

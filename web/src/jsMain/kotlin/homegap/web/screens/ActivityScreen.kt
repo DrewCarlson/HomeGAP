@@ -74,7 +74,7 @@ fun ActivityScreen(
         }
     }
     Figure(
-        caption = "Fig. 01 · Log · newest first",
+        title = "Log",
         flush = true,
     ) {
         Ol({ classes("log-list") }) {

@@ -15,7 +15,7 @@ fun TunnelsScreen(
     onOpen: (Location) -> Unit,
 ) {
     Figure(
-        caption = "Fig. 01 · Connectors · last 60 min",
+        title = "Tunnels, last hour",
         flush = true,
     ) {
         Div({

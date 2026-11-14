@@ -101,8 +101,8 @@ fun searchIndex(
         add(
             SearchHit(
                 kind = SearchKind.Tunnel,
-                title = "${tunnel.nodeId} connector",
-                subtitle = if (tunnel.up) "up" else "down",
+                title = "Tunnel to ${tunnel.nodeId}",
+                subtitle = if (tunnel.up) "healthy" else "failing",
                 location = Location(Route.Tunnels, tunnel.nodeId),
             )
         )
@@ -240,7 +240,7 @@ private const val LOG_ENTRIES_SEARCHED = 300
 
 /** Words for the things on a page that have no result of their own. */
 private val PAGE_WORDS = mapOf(
-    Route.Nodes to "edges fleet mesh cluster database primary replica homelab",
+    Route.Nodes to "edge fleet mesh cluster database primary replica homelab",
     Route.Tunnels to "newt connector site",
     Route.Certificates to "tls acme caa renew",
     Route.Access to "users people roles devices invite",
