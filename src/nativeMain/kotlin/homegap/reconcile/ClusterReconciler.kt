@@ -131,6 +131,9 @@ class ClusterReconciler(
     ) {
         /** Each member votes. */
         val members = listOf(homelab) + nodeMembers.map { it.member }
+
+        /** The image build times that [checkNodes] read on each node whose member needs no change. */
+        var inSyncImages: Map<String, List<String>> = emptyMap()
     }
 
     /** What a pass reads from the cluster before it changes a member. A null list means no answer. */
@@ -180,13 +183,13 @@ class ClusterReconciler(
         )
         // Each member votes. The database and Valkey are on [data], without the homelab when it only votes.
         val data = data(pass.members)
-        writeHomelab(pass)
+        ctx.times.measure("cluster.homelab") { writeHomelab(pass) }
 
         val etcd = etcdClient(pass.homelab, secrets)
         val patroni = PatroniClient(http, ClusterTemplates.REST_USER, secrets.rest)
-        val etcdMembers = runCatchingCancellable { etcd.members() }.getOrNull()
+        val etcdMembers = ctx.times.measure("cluster.etcd") { runCatchingCancellable { etcd.members() }.getOrNull() }
         report(ctx, "etcd", if (etcdMembers == null) "the homelab's etcd is not reachable yet" else null)
-        val database = databaseView(patroni, data)
+        val database = ctx.times.measure("cluster.database") { databaseView(patroni, data) }
         if (database != null) {
             ready = database
                 .filter { (it.role == LEADER && it.state == "running") || it.state == STREAMING }
@@ -198,21 +201,27 @@ class ClusterReconciler(
         }
         val snapshot = Snapshot(etcdMembers, database, initialized = markInitialized(database))
 
-        syncNodes(pass, etcd, snapshot, imageWaitAtStart = imageUpdateWait(snapshot, pass.members, data))
+        val imageWait = imageUpdateWait(snapshot, pass.members, data)
+        ctx.times.measure("cluster.nodes") { syncNodes(pass, etcd, snapshot, imageWaitAtStart = imageWait) }
 
         if (snapshot.initialized) {
-            forgetDeparted(ctx, ValkeyCli(secrets.valkey, secrets.sentinel), pass.members)
+            ctx.times.measure("cluster.departed") {
+                forgetDeparted(ctx, ValkeyCli(secrets.valkey, secrets.sentinel), pass.members)
+            }
         }
         if (database != null) {
             recordPrimary(database)
         }
         // Without a database at home there is no member to switch back to. The primary stays where
         // the cluster elects it.
-        val switchBack = if (voteOnly) null else switchBack(pass, patroni, database)
+        val switchBack = when {
+            voteOnly -> null
+            else -> ctx.times.measure("cluster.switchBack") { switchBack(pass, patroni, database) }
+        }
         if (voteOnly && snapshot.initialized) {
             backupHome(pass)
         }
-        return status(pass, snapshot, switchBack)
+        return ctx.times.measure("cluster.status") { status(pass, snapshot, switchBack) }
     }
 
     /**
@@ -274,6 +283,7 @@ class ClusterReconciler(
         }
         var imageWait = imageWaitAtStart
         var joining = etcdMembers.any { it.learner }
+        pass.inSyncImages = checkNodes(pass, etcdMembers, snapshot)
         val synced = mutableSetOf<String>()
         for (nodeMember in pass.nodeMembers) {
             val (node, member) = nodeMember
@@ -306,10 +316,9 @@ class ClusterReconciler(
                     }
                     else -> {
                         val etcdPeers = etcdInitial(etcdMembers, pass.members)
-                        // The homelab creates the database when it holds one. If it does not, the nodes
-                        // create it: Patroni lets exactly one of them do so, and the others follow it.
-                        val services = if (snapshot.initialized || voteOnly) ALL_SERVICES else ETCD_ONLY
-                        syncNode(pass, nodeMember, MemberSetup(etcdPeers, services, nodeImage(pass, node)))
+                        if (node.id !in pass.inSyncImages) {
+                            syncNode(pass, nodeMember, voterSetup(pass, node, etcdPeers, snapshot))
+                        }
                         val canUpdate = pass.image != null && snapshot.initialized
                         if (canUpdate && updateNodeImage(pass, nodeMember, etcdPeers, imageWait)) {
                             imageWait = "another node is being updated"
@@ -391,7 +400,7 @@ class ClusterReconciler(
         preferredCaughtUpSince = null
         try {
             return movePrimariesForMaintenance(start, holdMs)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             // The start failed, so there is no hold. The switch-back must not wait for it.
             Files.delete(maintenanceFile)
             throw e
@@ -519,7 +528,7 @@ class ClusterReconciler(
         val image = pass.image ?: return false
         val (node, member) = nodeMember
         val ssh = ctx.ssh.session(node)
-        val running = runningImages(ssh, memberDir(ctx))
+        val running = pass.inSyncImages[node.id] ?: runningImages(ssh, memberDir(ctx))
         if (running.isEmpty() || running.all { it == image.created }) {
             imageWaitNoted.remove(node.id)
             return false
@@ -777,6 +786,56 @@ class ClusterReconciler(
         name == member.id || ClusterTemplates.peerUrl(member) in peerUrls
 
     /** Runs the member script on the node and logs each change that the script reports. */
+    /** How a node that votes runs its member. */
+    private fun voterSetup(pass: Pass, node: NodeConfig, etcdPeers: List<Member>, snapshot: Snapshot): MemberSetup {
+        // The homelab creates the database when it holds one. If it does not, the nodes create it:
+        // Patroni lets exactly one of them do so, and the others follow it.
+        val services = if (snapshot.initialized || voteOnly) ALL_SERVICES else ETCD_ONLY
+        return MemberSetup(etcdPeers, services, nodeImage(pass, node))
+    }
+
+    /**
+     * Reads, on all voting nodes at the same time, whether the member of each node needs a change.
+     * The read changes no service. Returns the image build times of each node that needs no change.
+     * A node that is not in the result gets the full sync, one node after the other.
+     */
+    private suspend fun checkNodes(
+        pass: Pass,
+        etcdMembers: List<EtcdClient.Member>,
+        snapshot: Snapshot,
+    ): Map<String, List<String>> {
+        val ctx = pass.ctx
+        val etcdPeers = etcdInitial(etcdMembers, pass.members)
+        val voters = pass.nodeMembers.filter { (node, member) ->
+            !ctx.nodePaused(node.id) && etcdMembers.firstOrNull { it.belongsTo(member) }?.learner == false
+        }
+        return coroutineScope {
+            voters
+                .map { nodeMember ->
+                    async {
+                        val setup = voterSetup(pass, nodeMember.node, etcdPeers, snapshot)
+                        val images = runCatchingCancellable { checkNode(pass, nodeMember, setup) }.getOrNull()
+                        images?.let { nodeMember.node.id to it }
+                    }
+                }
+                .awaitAll()
+                .filterNotNull()
+                .toMap()
+        }
+    }
+
+    /** The image build times of the member of the node, or null if the member needs a change. */
+    private suspend fun checkNode(pass: Pass, nodeMember: NodeMember, setup: MemberSetup): List<String>? {
+        val (node, member) = nodeMember
+        val script = "$NEEDS_SYNC_FLAG=no\n" + memberScript(pass, member, setup, checkOnly = true)
+        val output = pass.ctx.ssh.session(node).runScriptOrThrow("cluster-check", script, IMAGE_READ_TIMEOUT_SECONDS)
+        if (NEEDS_SYNC in output || IMAGES_END !in output) return null
+        return output.substringAfter(IMAGES_BEGIN).substringBefore(IMAGES_END)
+            .lines()
+            .map { it.trim().trim('"') }
+            .filter { it.isNotEmpty() }
+    }
+
     private suspend fun syncNode(pass: Pass, nodeMember: NodeMember, setup: MemberSetup) {
         val (node, member) = nodeMember
         val script = memberScript(pass, member, setup)
@@ -787,8 +846,17 @@ class ClusterReconciler(
             .forEach { pass.ctx.log.change(DOMAIN, it.removePrefix(CHANGED), node.id) }
     }
 
-    /** The script that writes the config files of [member] and starts or restarts its services. */
-    private fun memberScript(pass: Pass, member: Member, setup: MemberSetup): String {
+    /**
+     * The script that writes the config files of [member] and starts or restarts its services. With
+     * [checkOnly], the script changes no file and no service. It prints [NEEDS_SYNC] if the full
+     * script has work to do, or the build times of the images that the member runs.
+     */
+    private fun memberScript(pass: Pass, member: Member, setup: MemberSetup, checkOnly: Boolean = false): String {
+        fun file(path: String, content: String, writeOnce: Boolean = false, onChange: String = FILE_CHANGED): String =
+            when {
+                checkOnly -> checkStep(path, content, writeOnce)
+                else -> fileStep(path, content, writeOnce = writeOnce).replace(FILE_CHANGED, onChange)
+            }
         val members = pass.members
         val secrets = pass.secrets
         // Where Valkey starts when no Sentinel knows a primary yet: the homelab, or the first node
@@ -817,33 +885,39 @@ class ClusterReconciler(
         val base = memberDir(pass.ctx)
         val config = "$base/config"
         val etcdEnv = ClusterTemplates.etcdEnv(member, setup.etcdPeers, "existing")
+        val composeStep = fileStep("$base/compose.yml", compose, mode = "0644")
         val wanted = setup.services.joinToString(" ")
         return buildString {
             // Docker comes with the provisioning of the node.
-            appendLine("type -P docker >/dev/null 2>&1 || { echo WAITING-FOR-DOCKER; exit 0; }")
+            val withoutDocker = if (checkOnly) NEEDS_SYNC else "WAITING-FOR-DOCKER"
+            appendLine("type -P docker >/dev/null 2>&1 || { echo $withoutDocker; exit 0; }")
             appendLine("set -e")
             appendLine("B=${shQuote(base)}")
             appendLine($$"install -d -m 0755 \"$B\" \"$B/etcd\" \"$B/pgdata\" \"$B/valkey\" \"$B/sentinel\"")
             appendLine($$"install -d -m 0700 \"$B/config\"")
-            appendLine(fileStep("$config/mesh.env", ClusterTemplates.meshEnv(member)))
-            appendLine(fileStep("$config/etcd.env", etcdEnv, writeOnce = true))
+            appendLine(file("$config/mesh.env", ClusterTemplates.meshEnv(member)))
+            appendLine(file("$config/etcd.env", etcdEnv, writeOnce = true))
             // Patroni reads its settings again. A change is never a reason to restart the database.
             appendLine("PATRONI=no")
-            appendLine(fileStep("$config/roles.sql", ClusterTemplates.rolesSql(secrets)).replace(FILE_CHANGED, ":"))
-            appendLine(fileStep("$config/patroni.yml", patroniYml).replace(FILE_CHANGED, "$FILE_CHANGED; PATRONI=yes"))
-            appendLine(fileStep("$config/valkey.env", valkeyEnv))
-            appendLine(fileStep("$config/sentinel.conf", sentinelConf))
+            appendLine(file("$config/roles.sql", ClusterTemplates.rolesSql(secrets), onChange = ":"))
+            appendLine(file("$config/patroni.yml", patroniYml, onChange = "$FILE_CHANGED; PATRONI=yes"))
+            appendLine(file("$config/valkey.env", valkeyEnv))
+            appendLine(file("$config/sentinel.conf", sentinelConf))
             // HAProxy reloads its config in place, with no refused connections. It never restarts for it.
             appendLine("HAPROXY=no")
-            appendLine(fileStep("$config/haproxy.cfg", haproxyCfg).replace(FILE_CHANGED, "HAPROXY=yes"))
-            appendLine(fileStep("$config/probe.py", MeshProbe.SCRIPT))
+            appendLine(file("$config/haproxy.cfg", haproxyCfg, onChange = "HAPROXY=yes"))
+            appendLine(file("$config/probe.py", MeshProbe.SCRIPT))
             appendLine($$"rm -f \"$B/config/probe.sh\"")
-            appendLine(fileStep("$config/probe.targets", probeTargets))
-            appendLine(fileStep("$base/compose.yml", compose, mode = "0644"))
+            appendLine(file("$config/probe.targets", probeTargets))
+            appendLine(if (checkOnly) checkStep("$base/compose.yml", compose) else composeStep)
             appendLine(SshSession.ownInstallDir(pass.ctx.config.pangolin.installDir))
             appendLine($$"cd \"$B\"")
             appendLine("RUNNING=$(docker compose ps --services --status running 2>/dev/null | sort | tr '\\n' ' ')")
             appendLine($$"WANT=$(printf '%s\\n' $$wanted | sort | tr '\\n' ' ')")
+            if (checkOnly) {
+                appendLine(checkResultStep())
+                return@buildString
+            }
             if (setup.rolling) {
                 // One service at a time. Each service serves again before the next one restarts.
                 appendLine(ROLL_FUNCTION)
@@ -856,6 +930,45 @@ class ClusterReconciler(
             appendLine(reloadProxyStep())
             appendLine(reloadPatroniStep())
         }
+    }
+
+    /**
+     * The end of the check script. If a file differs or different services run, it prints
+     * [NEEDS_SYNC]. If not, it prints the build times of the images that the member runs.
+     */
+    private fun checkResultStep(): String {
+        val needsSync = $$"[ \"$$$NEEDS_SYNC_FLAG\" = yes ] || [ \"$RUNNING\" != \"$WANT\" ]"
+        val images = listOf(
+            "docker compose ps -q",
+            "xargs -r docker inspect -f '{{.Image}}'",
+            "sort -u",
+            IMAGE_CREATED,
+            "sort -u",
+        ).joinToString(" | ")
+        return listOf(
+            "if $needsSync; then echo $NEEDS_SYNC; exit 0; fi",
+            "echo $IMAGES_BEGIN",
+            images,
+            "echo $IMAGES_END",
+        ).joinToString("\n")
+    }
+
+    /**
+     * The shell step that compares [content] with the file at [path] and changes nothing. It sets
+     * the flag of the check if [fileStep] has a change to make.
+     */
+    private fun checkStep(path: String, content: String, writeOnce: Boolean = false): String {
+        val file = shQuote(path)
+        val differs = "$NEEDS_SYNC_FLAG=yes"
+        if (writeOnce) {
+            return "[ -s $file ] || $differs"
+        }
+        val encoded = Base64.encode(content.encodeToByteArray())
+        return listOf(
+            "(umask 077; printf '%s' '$encoded' | base64 -d > $file.check)",
+            "cmp -s $file.check $file || $differs",
+            "rm -f $file.check",
+        ).joinToString("; ")
     }
 
     /** Starts the wanted services if a file changed, or if different services run. */
@@ -990,7 +1103,12 @@ class ClusterReconciler(
      */
     private suspend fun forgetDeparted(ctx: ReconcileContext, valkey: ValkeyCli, members: List<Member>) {
         if (nowMillis() - sentinelResetAt < DepartedSentinels.SPACING_MS) return
-        val views = members.associateWith { valkey.sentinelView(it.meshIp, ClusterTemplates.SCOPE) }
+        val views = coroutineScope {
+            members
+                .map { member -> async { member to valkey.sentinelView(member.meshIp, ClusterTemplates.SCOPE) } }
+                .awaitAll()
+                .toMap()
+        }
         if (views.values.any { it != null && "failover_in_progress" in it.flags }) return
         val (member, departed) = DepartedSentinels.stale(members, views.mapKeys { it.key.id }) ?: return
         if (valkey.sentinelReset(member.meshIp, ClusterTemplates.SCOPE)) {
@@ -1172,8 +1290,9 @@ class ClusterReconciler(
             members
                 .map { member ->
                     async {
-                        val etcdHealthy = EtcdClient(http, etcdUrl(member.meshIp)).healthy()
-                        member.id to MemberProbe(etcdHealthy, valkey.replication(member.meshIp)?.get("role"))
+                        val etcdHealthy = async { EtcdClient(http, etcdUrl(member.meshIp)).healthy() }
+                        val valkeyRole = valkey.replication(member.meshIp)?.get("role")
+                        member.id to MemberProbe(etcdHealthy.await(), valkeyRole)
                     }
                 }
                 .awaitAll()
@@ -1343,6 +1462,12 @@ class ClusterReconciler(
         // Markers in the member script and in its output.
         const val CHANGED = "CHANGED "
         const val FILE_CHANGED = "CHANGED=yes"
+
+        // The check script: its shell flag and the lines in its output.
+        const val NEEDS_SYNC_FLAG = "NEEDS"
+        const val NEEDS_SYNC = "NEEDS-SYNC"
+        const val IMAGES_BEGIN = "IMAGES-BEGIN"
+        const val IMAGES_END = "IMAGES-END"
         const val DOCKER_OK = "DOCKER-OK"
 
         /** Reads the build time (`Created`) of each image id on its input. */

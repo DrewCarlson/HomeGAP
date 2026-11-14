@@ -7,6 +7,9 @@ import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.*
 import kotlin.io.encoding.Base64
 import kotlin.time.Duration.Companion.seconds
@@ -265,9 +268,14 @@ class ValkeyCli(private val password: String, private val sentinelPassword: Stri
      * other Sentinels it knows (it never forgets one by itself). Null when there is no answer.
      */
     suspend fun sentinelView(host: String, name: String): SentinelView? {
-        val master = sentinel(host, "MASTER", name)?.let(::fields)?.firstOrNull() ?: return null
-        val replicas = sentinel(host, "REPLICAS", name)?.let(::fields) ?: return null
-        val sentinels = sentinel(host, "SENTINELS", name)?.let(::fields) ?: return null
+        // The three reads are independent, so they run at the same time.
+        val (masters, replicas, sentinels) = coroutineScope {
+            listOf("MASTER", "REPLICAS", "SENTINELS")
+                .map { command -> async { sentinel(host, command, name)?.let(::fields) } }
+                .awaitAll()
+        }
+        val master = masters?.firstOrNull() ?: return null
+        if (replicas == null || sentinels == null) return null
         return SentinelView(
             flags = master["flags"].orEmpty().split(',').filter { it.isNotEmpty() }.toSet(),
             known = (replicas + sentinels).mapNotNull { it["ip"] }.toSet(),

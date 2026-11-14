@@ -101,6 +101,7 @@ class Controller(
     @Volatile var config: AppConfig = initialConfig
         private set
     private val passMutex = Mutex()
+    private val passTimes = PassTimes()
 
     /**
      * The event loop that owns the state of the controller. The maps and lists below are plain,
@@ -468,6 +469,7 @@ class Controller(
         val started = nowMillis()
         log.pass = log.nextPass()
         log.drainCounters()
+        passTimes.drain()
         try {
             reloadConfig()
             val cfg = config
@@ -482,6 +484,7 @@ class Controller(
                 dryRun = dryRun,
                 diff = diff,
                 applyOnce = applyOnce,
+                times = passTimes,
             )
             val pauses = ctx.pauses()
             if (pauses.global) log.info("controller", "global pause active: observing only")
@@ -496,7 +499,9 @@ class Controller(
             // never delete everything.
             val listed: List<DockerContainerSummary>? = runCatchingCancellable {
                 // Docker has no filter for a label prefix, and a container can have only named services.
-                docker.listContainers(mapOf("status" to listOf("running"))).filter { declaresService(it.labels) }
+                passTimes.measure("discovery") {
+                    docker.listContainers(mapOf("status" to listOf("running"))).filter { declaresService(it.labels) }
+                }
             }.onFailure {
                 log.error("discovery", "cannot list containers: ${it.message}")
             }.getOrNull()
@@ -525,7 +530,7 @@ class Controller(
             heldContainers.retainAll(remembered?.held?.keys.orEmpty())
             val known = remembered?.containers
             val containers = known.takeIf { listed != null }
-            val routers = containers?.let { traefikRouters(it) }
+            val routers = containers?.let { passTimes.measure("discovery") { traefikRouters(it) } }
             val plan = Planner.plan(cfg, known.orEmpty(), pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
@@ -593,6 +598,7 @@ class Controller(
             }
             coroutineScope {
                 cfg.nodes.map { node ->
+                    val nodeStarted = nowMillis()
                     async {
                         val slot = state.node(node.id).tunnelSlot ?: slots.getValue(node.id)
                         val nodePlan = effective.nodes.getValue(node.id)
@@ -733,6 +739,8 @@ class Controller(
                         if (!clustered || ready == null || site == null) {
                             synchronizedPut(health, node.id, serviceHealthFor(effective, node.id, resources, site))
                         }
+                    }.also { work ->
+                        work.invokeOnCompletion { passTimes.add("node:${node.id}", nowMillis() - nodeStarted) }
                     }
                 }.awaitAll()
             }
@@ -877,7 +885,7 @@ class Controller(
                     "changes" to changes.toString(),
                     "errors" to errors.toString(),
                     "trigger" to trigger,
-                ),
+                ) + passTimes.drain(),
             )
             log.pass = null
             log.save()
@@ -1007,7 +1015,7 @@ class Controller(
     }
 
     private suspend fun <T> runDomain(domain: String, target: String?, block: suspend () -> T): T? =
-        runCatchingCancellable { block() }
+        runCatchingCancellable { passTimes.measure(listOfNotNull(domain, target).joinToString(":")) { block() } }
             .onFailure { log.error(domain, it.message ?: it.toString(), target) }
             .getOrNull()
 

@@ -86,14 +86,14 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             homelabKey = homelabKey.getOrNull(),
         )
 
-        val nodeStates = configureNodes(ctx, layout)
+        val nodeStates = ctx.times.measure("mesh.nodes") { configureNodes(ctx, layout) }
         val homelabState = when (val failure = homelabKey.exceptionOrNull()) {
-            null -> configureHomelab(ctx, layout)
+            null -> ctx.times.measure("mesh.homelab") { configureHomelab(ctx, layout) }
             else -> homelabState(layout, peers = null, error = "homelab mesh key: ${failure.message}")
         }
         report(ctx, Mesh.HOMELAB, homelabState.error)
         if (homelabState.peers != null) {
-            probeFromHomelab(ctx, layout)
+            ctx.times.measure("mesh.probe") { probeFromHomelab(ctx, layout) }
         }
 
         nodeProbes.retain(layout.memberIds + Mesh.HOMELAB)

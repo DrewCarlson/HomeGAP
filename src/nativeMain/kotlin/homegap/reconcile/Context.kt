@@ -24,6 +24,8 @@ class ReconcileContext(
     val diff: DiffCollector,
     /** This one pass applies changes even under a global pause ("apply just this change"). */
     val applyOnce: Boolean = false,
+    /** The time that each part of this pass takes. */
+    val times: PassTimes = PassTimes(),
 ) {
     val tunnelsDir: String get() = config.tunnelsDir
 

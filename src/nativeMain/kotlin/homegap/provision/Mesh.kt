@@ -203,7 +203,8 @@ object Mesh {
 
     /**
      * Opens the mesh in an active ufw, and removes each HomeGAP rule for the mesh interface or the
-     * cluster bridge that is not wanted, so a rule that admits more does not stay.
+     * cluster bridge that is not wanted, so a rule that admits more does not stay. Each `ufw` call
+     * takes a moment, so the step adds only a rule that ufw does not have.
      */
     private fun firewallStep(port: Int): String {
         val wanted = FirewallRules.meshSpecs(port)
@@ -214,8 +215,11 @@ object Mesh {
             |$${wanted.joinToString("\n")}
             |HOMEGAP_MESH_RULES
             |)
-            |  printf '%s\n' "$WANTED" | while IFS= read -r spec; do ufw $spec comment homegap >/dev/null; done
-            |  ufw show added 2>/dev/null | sed -n "s/^ufw \(.*\) comment 'homegap'$/\1/p" | { grep -E ' on ($${INTERFACE}|$${ClusterTemplates.BRIDGE})( |$)' || true; } | while IFS= read -r spec; do
+            |  ADDED=$(ufw show added 2>/dev/null | sed -n "s/^ufw \(.*\) comment 'homegap'$/\1/p")
+            |  printf '%s\n' "$WANTED" | while IFS= read -r spec; do
+            |    printf '%s\n' "$ADDED" | grep -qxF "$spec" || ufw $spec comment homegap >/dev/null
+            |  done
+            |  printf '%s\n' "$ADDED" | { grep -E ' on ($${INTERFACE}|$${ClusterTemplates.BRIDGE})( |$)' || true; } | while IFS= read -r spec; do
             |    printf '%s\n' "$WANTED" | grep -qxF "$spec" || { ufw delete $spec >/dev/null && echo "CHANGED ufw removed $spec"; }
             |  done
             |fi
