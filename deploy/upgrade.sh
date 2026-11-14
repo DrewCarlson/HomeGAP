@@ -30,6 +30,10 @@
 #
 # Service names can be overridden for merged compose projects: HG_ORCHESTRATOR, HG_MESH_AGENT,
 # HG_TUNNELS and HG_CLUSTER (space-separated service:role pairs, in restart order).
+#
+# Over SSH, run the script in screen or tmux. A connection that drops stops the script before it
+# ends, and the upgrade can restart the tunnel that carries the connection. Without screen or
+# tmux, the script stops and tells you. HG_ALLOW_SSH=1 runs it anyway.
 set -euo pipefail
 
 FORCE_TUNNELS=no
@@ -39,7 +43,7 @@ for a in "$@"; do
   case "$a" in
     --tunnels) FORCE_TUNNELS=yes ;;
     --no-pull) PULL=no ;;
-    -h|--help) sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) ARGS+=("$a") ;;
   esac
 done
@@ -56,6 +60,47 @@ dx() { dc exec -T "$@" </dev/null; }
 say() { printf '\033[1m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 die() { printf '\033[31merror:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# True if a process above this shell has a name that matches the extended regular expression $1.
+# `sudo` removes SSH_CONNECTION, STY and TMUX from the environment, so the names of the parent
+# processes are the second source.
+has_ancestor() {
+  local pid=$$ name
+  while [ "${pid:-0}" -gt 1 ]; do
+    name=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
+    # The tmux server has the name "tmux: server", and a login shell can start with a dash.
+    name=${name##*/}
+    [[ ${name// /} =~ $1 ]] && return 0
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+  done
+  return 1
+}
+over_ssh() { [ -n "${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}" ] || has_ancestor '^sshd'; }
+in_screen_or_tmux() { [ -n "${STY:-}${TMUX:-}" ] || has_ancestor '^(screen|tmux)'; }
+
+# On the homelab itself the script just runs. Over SSH it needs screen or tmux: the session then
+# continues when the connection drops.
+if over_ssh; then
+  if in_screen_or_tmux; then
+    echo "SSH session in screen or tmux: the upgrade continues if the connection drops."
+  elif [ "${HG_ALLOW_SSH:-}" = 1 ]; then
+    warn "SSH session without screen or tmux (HG_ALLOW_SSH=1): if the connection drops, the upgrade stops before it ends"
+  else
+    again=$(printf '%q ' "$0" "$@")
+    printf '\033[31merror:\033[0m this is an SSH session without screen or tmux.\n' >&2
+    cat >&2 <<EOF
+If the connection drops, the upgrade stops before it ends. The upgrade can also restart
+the tunnel connectors, which ends an SSH connection that goes through HomeGAP.
+Run the upgrade in screen or tmux:
+
+  screen -S homegap-upgrade ${again% }
+  tmux new -s homegap-upgrade '${again% }'
+
+To run it in this session anyway, set HG_ALLOW_SSH=1.
+EOF
+    exit 1
+  fi
+fi
 
 services=$(dc config --services)
 has() { printf '%s\n' "$services" | grep -qx "$1"; }

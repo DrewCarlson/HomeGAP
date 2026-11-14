@@ -22,6 +22,30 @@ The script gives its arguments to every `docker compose` call. If your compose f
 | `--no-pull` | Uses the images that are already on the host. |
 | `-h`, `--help` | Shows the help. |
 
+## Run it over SSH
+
+Over SSH, run the script in `screen` or `tmux`. If the connection drops, a script in a plain SSH session stops before it ends. The upgrade can also restart the tunnel connectors, and that ends an SSH connection that goes through HomeGAP. In `screen` or `tmux`, the upgrade continues, and you can connect again to see the result.
+
+The script finds out how you run it:
+
+| How you run it | What the script does |
+| --- | --- |
+| On the homelab itself | It runs. |
+| Over SSH, in `screen` or `tmux` | It shows one line and runs. |
+| Over SSH, without `screen` or `tmux` | It stops before it changes anything, and shows the command for `screen` and for `tmux`. |
+
+For example:
+
+```bash
+screen -S homegap-upgrade ./upgrade.sh
+```
+
+To run the script in a plain SSH session anyway, for example from an automation tool, set `HG_ALLOW_SSH=1`:
+
+```bash
+HG_ALLOW_SSH=1 ./upgrade.sh
+```
+
 ## Check the image signatures
 
 The release build signs the `homegap` image and the `homegap-cluster` image with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/). A signature shows that the build workflow of the HomeGAP repository made the image. The check is optional, and HomeGAP does not do it for you.
