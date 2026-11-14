@@ -187,7 +187,7 @@ class OverviewScreenPresenter(
                 "API ${node.apiProbe() ?: "—"} ms",
                 samples?.get("rps")?.latest?.let { "${formatMeasure(it, "r/s")} r/s" },
             ).joinToString(" · "),
-            mesh = samples?.get("mesh")?.latest?.let { "mesh ${it.toLong()} ms" },
+            mesh = samples?.get("mesh")?.latest?.let { "mesh ${wholeMillis(it)} ms" },
             names = when {
                 names.isEmpty() -> "no services"
                 names.size <= 3 -> names.joinToString(", ")
@@ -213,7 +213,7 @@ class OverviewScreenPresenter(
             facts = listOfNotNull(
                 samples?.get("rps")?.latest?.let { "${formatMeasure(it, "r/s")} r/s" },
                 samples?.get("egress")?.latest?.let { "egress ${formatMeasure(it, "Mb/s")} Mb/s" },
-                samples?.get("mesh")?.latest?.let { "mesh ${it.toLong()} ms" },
+                samples?.get("mesh")?.latest?.let { "mesh ${wholeMillis(it)} ms" },
                 samples?.get("in")?.latest?.let { "in ${formatMeasure(it, "Mb/s")} Mb/s" },
                 samples?.get("out")?.latest?.let { "out ${formatMeasure(it, "Mb/s")} Mb/s" },
             ),
@@ -314,6 +314,9 @@ class OverviewScreenPresenter(
         const val LAG_FULL_SCALE = 1024L * 1024L
     }
 }
+
+/** Whole milliseconds, and "<1" for a time that rounds to nothing. */
+private fun wholeMillis(value: Double): String = if (value < 1) "<1" else value.toLong().toString()
 
 /** How many edges serve, and how many of them with a warning: a warning is not an outage. */
 internal fun edgesSentence(nodes: List<NodeStatusDto>): String {

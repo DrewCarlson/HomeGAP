@@ -90,11 +90,6 @@ data class ActionModel(
     val onClick: (() -> Unit)? = null,
 )
 
-/**
- * A confirmation that replaces the browser's confirm(): what will happen ([consequences]), the
- * button that does it, and for irreversible actions the name to type first ([typeToConfirm]).
- * Destructive buttons are never the default.
- */
 /** What a text field holds, so a phone shows a fitting keyboard and leaves the text as typed. */
 enum class FieldKind {
     Text,
@@ -109,6 +104,11 @@ enum class FieldKind {
     Host,
 }
 
+/**
+ * A confirmation that replaces the browser's confirm(): what will happen ([consequences]), the
+ * button that does it, and for irreversible actions the name to type first ([typeToConfirm]).
+ * Destructive buttons are never the default.
+ */
 @Immutable
 data class ConfirmModel(
     val title: String,

@@ -208,7 +208,7 @@ private fun ViewButton(label: String, active: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Homelab on the left, a row per edge: tunnel, edge with its probe, the names it serves. */
+/** The homelab in one line, then a row for each node: tunnel, node with its probe, the names it serves. */
 @Composable
 private fun TrafficPath(network: NetworkModel, onOpen: (Location) -> Unit) {
     Div({ classes("path") }) {
@@ -230,9 +230,6 @@ private fun TrafficPath(network: NetworkModel, onOpen: (Location) -> Unit) {
             }
         }
     }
-    P({ classes("figure-note") }) {
-        Text("Line: mesh round trip to the homelab. Box: API probe through the node.")
-    }
 }
 
 @Composable
@@ -252,7 +249,13 @@ private fun PathRow(edge: EdgeModel, onOpen: (Location) -> Unit) {
             }
             Span({ classes("mono") }) { Text(edge.api) }
         }
-        Div({ classes("path-names", "mono") }) { Text(edge.names) }
+        NavLink(
+            href = HashRouter.href(Route.Services),
+            onNavigate = { onOpen(Location(Route.Services)) },
+            classNames = listOf("path-names", "mono"),
+        ) {
+            Text(edge.names)
+        }
     }
 }
 

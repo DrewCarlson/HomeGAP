@@ -7,6 +7,8 @@ import androidx.compose.runtime.rememberUpdatedState
 import homegap.api.Health
 import homegap.presentation.data.Toast
 import homegap.presentation.routing.Location
+import homegap.presentation.ui.ActionModel
+import homegap.presentation.ui.ActionStyle
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.InspectorSection
 import homegap.presentation.ui.MarkRow
@@ -125,15 +127,59 @@ private fun InspectorContent(
     }
     if (inspector.actions.isNotEmpty()) {
         Div({ classes("inspector-actions") }) {
-            inspector.actions.forEach { action ->
-                Action(
-                    action = action,
-                    onOpen = onOpen,
-                )
-            }
+            InspectorActions(
+                actions = inspector.actions,
+                onOpen = onOpen,
+            )
         }
     }
 }
+
+/**
+ * Up to three actions show as buttons. With more, the first primary action (or the first action)
+ * is the button, and the others are in the "More" menu, with the dangerous ones last and apart.
+ */
+@Composable
+private fun InspectorActions(actions: List<ActionModel>, onOpen: (Location) -> Unit) {
+    if (actions.size <= MAX_ACTION_BUTTONS) {
+        actions.forEach { action ->
+            Action(
+                action = action,
+                onOpen = onOpen,
+            )
+        }
+        return
+    }
+    val safe = actions.filter { it.style != ActionStyle.Danger }
+    val main = safe.firstOrNull { it.style == ActionStyle.Primary } ?: safe.firstOrNull()
+    val others = (safe - setOfNotNull(main)) + actions.filter { it.style == ActionStyle.Danger }
+    main?.let {
+        Action(
+            action = it,
+            onOpen = onOpen,
+        )
+    }
+    KebabMenu(
+        label = "More actions",
+        text = "More",
+        items = others.mapIndexed { index, action ->
+            val danger = action.style == ActionStyle.Danger
+            MenuItem(
+                label = action.label,
+                danger = danger,
+                enabled = action.enabled,
+                separated = danger && others.getOrNull(index - 1)?.style != ActionStyle.Danger,
+                onClick = {
+                    action.onClick?.invoke()
+                    action.location?.let(onOpen)
+                    action.href?.let { window.open(it, "_blank", "noopener") }
+                },
+            )
+        },
+    )
+}
+
+private const val MAX_ACTION_BUTTONS = 3
 
 @Composable
 private fun Section(section: InspectorSection, onOpen: (Location) -> Unit) {

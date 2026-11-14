@@ -38,6 +38,8 @@ class ServicesScreenPresenter(
         val status = props.status
         var query by remember { mutableStateOf("") }
         val edges = status.nodes.map { it.id }
+        // Hostnames that more than one service has: each of those rows needs its own Inspector.
+        val shared = status.services.groupingBy { it.hostname }.eachCount().filterValues { it > 1 }.keys
         val filter = rememberProblemsFilter(
             total = status.services.size,
             problems = status.services.count { it.health() != Health.OK },
@@ -46,8 +48,9 @@ class ServicesScreenPresenter(
             .filter { !filter.problemsOnly || it.health() != Health.OK }
             .filter { query.isBlank() || query.trim().lowercase().let { q -> q in it.hostname.lowercase() || q in it.container.lowercase() } }
             .sortedWith(compareBy<ServiceStatusDto> { it.health().rank() }.thenBy { it.hostname })
-            .map { it.toRow(edges) }
-        val selected = status.services.firstOrNull { it.hostname == props.selection }
+            .map { it.toRow(edges, shared) }
+        val selected = status.services.firstOrNull { it.key == props.selection }
+            ?: status.services.firstOrNull { it.hostname == props.selection }
         return ServicesScreenModel(
             head = PageHeadModel(
                 caption = "Services",
@@ -59,7 +62,7 @@ class ServicesScreenPresenter(
             edges = edges,
             rows = rows,
             onQuery = { query = it },
-            selected = selected?.let { Location(Route.Services, it.hostname) },
+            selected = selected?.let { Location(Route.Services, it.selection(shared)) },
             inspector = selected?.let { service ->
                 serviceInspector(
                     service = service,
@@ -83,7 +86,10 @@ class ServicesScreenPresenter(
         )
     }
 
-    private fun ServiceStatusDto.toRow(edges: List<String>): ServiceRowModel = ServiceRowModel(
+    /** The hostname selects a service, or its key when another service has the same hostname. */
+    private fun ServiceStatusDto.selection(shared: Set<String>): String = if (hostname in shared) key else hostname
+
+    private fun ServiceStatusDto.toRow(edges: List<String>, shared: Set<String>): ServiceRowModel = ServiceRowModel(
         hostname = hostname,
         container = container + name?.let { " · $it" }.orEmpty(),
         publishedAs = if (ports.isNotEmpty()) ports.joinToString(", ") else listOfNotNull(protocol, tlsLine(tls) ?: tls).joinToString(" · "),
@@ -103,7 +109,7 @@ class ServicesScreenPresenter(
                 else -> MatrixCellModel("▲", through.health, through.describe())
             }
         },
-        location = Location(Route.Services, hostname),
+        location = Location(Route.Services, selection(shared)),
     )
 }
 

@@ -1,6 +1,10 @@
 package homegap.presentation.dns
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -10,18 +14,19 @@ import homegap.api.StatusSnapshot
 import homegap.presentation.core.Presenter
 import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.ControllerApi
-import homegap.presentation.ui.ActionModel
 import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
+import homegap.presentation.ui.ActionModel
 import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.FactRow
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.InspectorSection
-import homegap.presentation.ui.MarkRow
-import homegap.presentation.ui.PageHeadModel
-import homegap.presentation.ui.Severity
 import homegap.presentation.ui.location
+import homegap.presentation.ui.MarkRow
 import homegap.presentation.ui.on
+import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.rememberProblemsFilter
+import homegap.presentation.ui.Severity
 import homegap.presentation.ui.statusLineOf
 
 data class DnsScreenProps(
@@ -40,20 +45,35 @@ class DnsScreenPresenter(
     @Composable
     override fun model(props: DnsScreenProps): DnsScreenModel {
         val status = props.status
-        val sets = status.dns
+        var query by remember { mutableStateOf("") }
+        val all = status.dns
             .groupBy { it.name to it.type }
             .map { (key, records) -> recordSet(key.first, key.second, records) }
             .sortedWith(compareBy<RecordSetModel> { if (it.health == Health.OK) 1 else 0 }.thenBy { it.name })
-        val inSync = sets.count { it.health == Health.OK }
-        val selected = props.selection?.let { name -> status.dns.filter { it.name == name } }?.takeIf { it.isNotEmpty() }
+        val inSync = all.count { it.health == Health.OK }
+        val filter = rememberProblemsFilter(
+            total = all.size,
+            problems = all.size - inSync,
+        )
+        val needle = query.trim().lowercase()
+        val sets = all
+            .filter { !filter.problemsOnly || it.health != Health.OK }
+            .filter { set -> needle.isEmpty() || needle in set.name.lowercase() || set.members.any { needle in it.value.lowercase() } }
+        // The CAA records of a name belong to Certificates, so the Inspector of the name leaves them out.
+        val selected = props.selection
+            ?.let { name -> status.dns.filter { it.name == name && it.type != "CAA" } }
+            ?.takeIf { it.isNotEmpty() }
         return DnsScreenModel(
             head = PageHeadModel(
                 caption = "DNS",
-                headline = "$inSync of ${sets.size} record sets in sync.",
+                headline = "$inSync of ${all.size} record sets healthy.",
                 statusLine = statusLineOf(status.attention.on(Route.Dns)),
                 tabs = dnsTabs(Route.Dns, status),
             ),
             sets = sets,
+            query = query,
+            onQuery = { query = it },
+            filter = filter,
             steering = status.dns
                 .filter { it.geo?.startsWith("geo") == true && it.nodeId != null }
                 .groupBy { it.name to it.type }

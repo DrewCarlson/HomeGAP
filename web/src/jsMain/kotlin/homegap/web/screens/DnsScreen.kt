@@ -6,6 +6,7 @@ import homegap.presentation.dns.DnsScreenModel
 import homegap.presentation.routing.Location
 import homegap.web.routing.HashRouter
 import homegap.web.ui.*
+import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.dom.*
 
 /** The records HomeGAP manages, one block per record set. */
@@ -28,10 +29,25 @@ fun DnsScreen(
             Span({ classes("muted", "small") }) { Text("Visitors go to the nearest node that answers.") }
         }
     }
+    Div({ classes("filters") }) {
+        Label(attrs = { classes("filter-field") }) {
+            Icon(Icons.SEARCH, size = 14)
+            Input(InputType.Search) {
+                value(model.query)
+                attr("placeholder", "Filter by name or value")
+                attr("aria-label", "Filter record sets")
+                onInput { model.onQuery(it.value) }
+            }
+        }
+        ProblemsFilter(model.filter)
+    }
     Figure(
         title = "Record sets",
         flush = true,
     ) {
+        if (model.sets.isEmpty()) {
+            P({ classes("figure-note") }) { Text("Nothing matches the filter.") }
+        }
         model.sets.forEach { set ->
             key("${set.name} ${set.type}") {
                 Div({
@@ -50,7 +66,7 @@ fun DnsScreen(
                         Span({ classes("mono", "muted") }) { Text("${set.type} · ${set.routing}") }
                         Span({ classes("muted", "record-summary") }) { Text(set.summary) }
                     }
-                    Ul({ classes("record-members") }) {
+                    if (set.expanded) Ul({ classes("record-members") }) {
                         set.members.forEach { member ->
                             Li {
                                 Span({ classes("mono") }) { Text(member.node) }

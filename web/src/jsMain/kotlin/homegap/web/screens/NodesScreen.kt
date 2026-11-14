@@ -67,11 +67,9 @@ private fun Fleet(rows: List<FleetRowModel>, filter: ProblemsFilterModel, select
         listOf(
             "Node",
             "Health",
-            "Pangolin API probe · 60 min",
+            "API probe, last hour",
             "Tunnel",
             "Certificate",
-            "Stack",
-            "Drift",
         )
     }
     Figure(
@@ -112,11 +110,8 @@ private fun Fleet(rows: List<FleetRowModel>, filter: ProblemsFilterModel, select
                             }
                             Td({ classes("fleet-health") }) {
                                 Div({ classes(row.health.toneClass) }) { Text("${row.status} · ${row.passing}") }
-                                Div({
-                                    classes("check-dots")
-                                    attr("aria-hidden", "true")
-                                }) {
-                                    row.checks.forEach { health -> Span({ classes("check-dot", health.toneClass) }) }
+                                row.note?.let { note ->
+                                    Div({ classes("small", row.noteHealth.toneClass) }) { Text(note) }
                                 }
                             }
                             Td({ classes("fleet-chart") }) {
@@ -126,14 +121,7 @@ private fun Fleet(rows: List<FleetRowModel>, filter: ProblemsFilterModel, select
                                 )
                             }
                             Td({ classes("fleet-wide", if (row.tunnel == "healthy") "tone-ok" else "tone-down") }) { Text(row.tunnel) }
-                            Td({ classes("fleet-wide", "mono") }) { Text(row.certificate) }
-                            Td({ attr("data-label", "Stack") }) { Text(row.stack) }
-                            Td({
-                                classes(if (row.drift == "none") "muted" else "tone-warn")
-                                attr("data-label", "Drift")
-                            }) {
-                                Text(row.drift)
-                            }
+                            Td({ classes("fleet-wide", "mono", row.certificateHealth.toneClass) }) { Text(row.certificate) }
                             if (row.menu.isNotEmpty()) {
                                 Td({
                                     classes("fleet-menu")
@@ -169,8 +157,13 @@ private fun Database(
         flush = true,
     ) {
         Div({ classes("db-stats") }) {
-            DbStat(label = "PostgreSQL primary", badge = database.primary)
-            DbStat(label = "Cache primary", badge = database.valkeyPrimary)
+            // One primary for the database and the cache is said once.
+            if (database.primary.text == database.valkeyPrimary.text) {
+                DbStat(label = "Primary", badge = database.primary)
+            } else {
+                DbStat(label = "Database primary", badge = database.primary)
+                DbStat(label = "Cache primary", badge = database.valkeyPrimary)
+            }
             DbStat(label = "Cluster vote", badge = database.quorum)
         }
         database.switchBack?.let { note ->

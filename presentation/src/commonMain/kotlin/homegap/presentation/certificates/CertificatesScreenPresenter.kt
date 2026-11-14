@@ -106,6 +106,7 @@ class CertificatesScreenPresenter(
             inspector = view.inspector(
                 resend = { node -> resend(node, blocked) },
                 check = check(status),
+                replaceKey = replaceKey(certs, blocked),
             ),
         )
     }
@@ -290,8 +291,6 @@ internal class CertificatesView(
             ),
             facts = listOf(
                 FactRow("Issuer", cert.issuer, mono = true),
-                FactRow("Issued", date(cert.notBefore), mono = true),
-                FactRow("Expires", date(cert.notAfter), mono = true),
                 FactRow("Directory", directoryName(), mono = true),
             ),
             names = certs.names.filter { it.name in cert.names }.map(::nameModel),
@@ -435,10 +434,10 @@ internal class CertificatesView(
         )
     }
 
-    fun inspector(resend: (String) -> ActionModel, check: ActionModel): InspectorModel? {
+    fun inspector(resend: (String) -> ActionModel, check: ActionModel, replaceKey: ActionModel): InspectorModel? {
         val key = selection ?: return null
         return when {
-            key == CERTIFICATE -> certificateInspector()
+            key == CERTIFICATE -> certificateInspector(replaceKey)
             key.startsWith(NODE) -> certs.delivery.firstOrNull { it.node == key.removePrefix(NODE) }?.let { nodeInspector(it, resend(it.node)) }
             key.startsWith(ORDER) -> certs.history.firstOrNull { it.id == key.removePrefix(ORDER) }?.let(::orderInspector)
             key.startsWith(PROBE) -> {
@@ -451,9 +450,10 @@ internal class CertificatesView(
         }
     }
 
-    private fun certificateInspector(): InspectorModel? {
+    private fun certificateInspector(replaceKey: ActionModel): InspectorModel? {
         val cert = issued ?: return null
         return InspectorModel(
+            actions = listOf(replaceKey),
             kind = "Certificate",
             title = "Node certificate",
             status = "${daysLeft?.let { plural(it, "day") + " left" } ?: ""} · ${plural(cert.names.size, "name")}",

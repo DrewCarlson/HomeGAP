@@ -221,7 +221,6 @@ private fun CertificatePanel(panel: CertificatePanelModel, onOpen: (Location) ->
         }
         Div({ classes("cert-names-head") }) {
             Span({ classes("caption") }) { Text("Names on the certificate · ${panel.names.size}") }
-            Span({ classes("muted", "small") }) { Text("from the config and the service labels") }
         }
         Ul({ classes("cert-names") }) {
             panel.names.forEach { name ->
@@ -258,16 +257,6 @@ private fun CertificatePanel(panel: CertificatePanelModel, onOpen: (Location) ->
                 }
                 Div({ classes("small", "muted") }) { Text(pending.note) }
             }
-        }
-        Div({ classes("cert-danger") }) {
-            P({ classes("small") }) {
-                B({ classes("tone-down") }) { Text("Danger. ") }
-                Text("A node may be compromised? A new key and certificate for the same names, and the old certificate is revoked.")
-            }
-            Action(
-                action = panel.replaceKey,
-                onOpen = onOpen,
-            )
         }
     }
 }
@@ -351,10 +340,7 @@ private fun VisitorMatrix(matrix: VisitorMatrixModel, onOpen: (Location) -> Unit
             }
         }
         P({ classes("figure-note") }) {
-            Text(
-                "Cyan: valid for 14 days or more. Amber: fewer than 14 days, a name the certificate does not cover, or a node " +
-                    "that did not answer (the last value stays, marked ?). Rose: no certificate, the default certificate, or fewer than 7 days."
-            )
+            Text("Amber: expires soon, wrong name or no answer. Rose: no valid certificate.")
         }
     }
 }

@@ -63,7 +63,8 @@ fun ServicesScreen(
                                         onNavigate = { onOpen(row.location) },
                                         tabStop = false,
                                     ) {
-                                        Span({ classes(row.health.toneClass) }) { Text(row.hostname) }
+                                        Span({ classes("status-dot", row.health.name) })
+                                        Text(" ${row.hostname}")
                                     }
                                     Div({ classes("muted", "mono", "small") }) {
                                         Text(row.container)

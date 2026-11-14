@@ -5,17 +5,21 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import kotlinx.browser.document
 import kotlinx.browser.window
+import org.jetbrains.compose.web.attributes.disabled
 import org.jetbrains.compose.web.dom.Button
 import org.jetbrains.compose.web.dom.Div
 import org.jetbrains.compose.web.dom.Text
-import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
 import org.w3c.dom.events.KeyboardEvent
+import org.w3c.dom.HTMLElement
 
 /** One choice in a [KebabMenu]. */
 data class MenuItem(
     val label: String,
     val danger: Boolean = false,
+    val enabled: Boolean = true,
+    /** A rule over the item sets it apart from the items before it. */
+    val separated: Boolean = false,
     val onClick: () -> Unit,
 )
 
@@ -104,6 +108,12 @@ fun KebabMenu(
                 classes("menu-item")
                 if (item.danger) {
                     classes("danger")
+                }
+                if (item.separated) {
+                    classes("separated")
+                }
+                if (!item.enabled) {
+                    disabled()
                 }
                 attr("type", "button")
                 attr("role", "menuitem")

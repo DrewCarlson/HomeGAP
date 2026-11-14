@@ -7,12 +7,16 @@ import homegap.presentation.routing.Location
 import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.ProblemsFilterModel
 
 /** The DNS records HomeGAP manages, grouped into record sets (one name and type, several members). */
 @Immutable
 data class DnsScreenModel(
     override val head: PageHeadModel,
     val sets: List<RecordSetModel>,
+    val query: String,
+    val onQuery: (String) -> Unit,
+    val filter: ProblemsFilterModel,
     /** Geo steering: which edges visitors are sent to now, from the largest geo-routed record set. */
     val steering: List<SteeringModel>,
     /** The row that the Inspector shows, so the list can mark it. */
@@ -31,7 +35,10 @@ data class RecordSetModel(
     val summary: String,
     val members: List<RecordMemberModel>,
     val location: Location,
-)
+) {
+    /** A set with a problem shows its members in the list. A healthy set shows them in the Inspector. */
+    val expanded: Boolean get() = health != Health.OK
+}
 
 @Immutable
 data class RecordMemberModel(

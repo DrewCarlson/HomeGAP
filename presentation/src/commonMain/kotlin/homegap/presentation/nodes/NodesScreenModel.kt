@@ -43,10 +43,13 @@ data class FleetRowModel(
     val status: String,
     /** "6 / 7" checks passing. */
     val passing: String,
-    val checks: List<Health>,
+    /** What to know about the node now: the step of its job, the check that fails, or its differences from the config. */
+    val note: String? = null,
+    val noteHealth: Health = Health.UNKNOWN,
     val chart: ChartModel,
     val tunnel: String,
     val certificate: String,
+    val certificateHealth: Health = Health.UNKNOWN,
     val stack: String,
     val drift: String,
     val location: Location,

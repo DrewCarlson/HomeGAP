@@ -61,7 +61,8 @@ fun chartOf(
     val pairs = samples?.times.orEmpty().zip(samples?.values.orEmpty()).filter { it.first >= start }
     val values = pairs.mapNotNull { it.second }
     val current = pairs.lastOrNull()?.second
-    val top = niceCeiling(maxOf(values.maxOrNull() ?: 0.0, threshold ?: 0.0) * 1.1)
+    // The scale follows the values. A threshold far over them would press the line flat.
+    val top = niceCeiling((values.maxOrNull() ?: threshold ?: 0.0) * 1.2)
     val over = threshold != null && current != null && current > threshold
     return ChartModel(
         label = label,
@@ -78,7 +79,7 @@ fun chartOf(
             unit = unit,
             nowSeconds = nowSeconds,
         ),
-        threshold = threshold?.let { it / top },
+        threshold = threshold?.takeIf { it <= top }?.let { it / top },
         empty = when {
             pairs.isEmpty() -> "No samples yet. The graph fills as measurements arrive."
             values.isEmpty() -> "Every measurement in this range failed."

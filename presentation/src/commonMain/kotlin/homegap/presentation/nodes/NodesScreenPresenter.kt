@@ -133,6 +133,7 @@ class NodesScreenPresenter(
     ): FleetRowModel {
         val passing = node.checks.count { it.health == Health.OK }
         val api = node.checks.firstOrNull { it.name == "pangolin-api" }
+        val problem = node.checks.firstOrNull { it.health == Health.DOWN } ?: node.checks.firstOrNull { it.health == Health.DEGRADED }
         return FleetRowModel(
             id = node.id,
             place = node.location?.name ?: node.region,
@@ -144,7 +145,13 @@ class NodesScreenPresenter(
                 else -> node.health.label
             },
             passing = "$passing / ${node.checks.size}",
-            checks = node.checks.map { it.health },
+            note = node.jobStep ?: problem?.let { listOf(checkTitle(it.name), it.detail).filter(String::isNotBlank).joinToString(": ") }
+                ?: node.drift.takeIf { it.isNotEmpty() }?.let { "${plural(it.size, "difference")} from config" },
+            noteHealth = when {
+                node.jobStep != null -> Health.UNKNOWN
+                problem != null -> problem.health
+                else -> Health.DEGRADED
+            },
             chart = chartOf(
                 label = "Pangolin API probe",
                 samples = samples?.get("api"),
@@ -157,6 +164,7 @@ class NodesScreenPresenter(
                 else -> "failing"
             },
             certificate = if (node.waitingForCertificate) "waiting" else node.certificate?.daysRemaining?.let { "$it days" } ?: "—",
+            certificateHealth = node.checks.firstOrNull { it.name == "tls-mgmt" }?.health ?: Health.UNKNOWN,
             stack = stackText(node),
             drift = if (node.drift.isEmpty()) "none" else plural(node.drift.size, "difference"),
             location = Location(Route.Nodes, node.id),
