@@ -18,21 +18,22 @@ With `speedtest.enabled: true`, the orchestrator serves a speed test origin on `
 
 The speed test and the status page share one listener, which starts only with the orchestrator. If neither was on at the start, the first activation needs a restart of the orchestrator. A change of `speedtest.bind` also needs a restart.
 
-The front door already forwards `speedtest-<node>.<domain>` from the nodes. A node answers the shared name `speedtest.<domain>` itself, and sends its requests on to the homelab as `speedtest-<node>.<domain>`. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the `orchestrator` service. The orchestrator is on three networks, so `traefik.docker.network` must name the network that Traefik shares with it:
+### Routing
 
-```yaml
-labels:
-  traefik.enable: "true"
-  traefik.docker.network: traefik
-  traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"
-  traefik.http.routers.homegap-speedtest.entrypoints: websecure
-  traefik.http.routers.homegap-speedtest.tls: "true"
-  traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
-```
+The front door already forwards `speedtest-<node>.<domain>` from the nodes. A node answers the shared name `speedtest.<domain>` itself, and sends its requests on to the homelab as `speedtest-<node>.<domain>`.
 
-The orchestrator is on more than one Docker network. `traefik.docker.network` tells Traefik which network to use. Without it, Traefik can choose a network that it is not on, and each request ends with a 504 after 30 seconds. Use the full name of your Traefik network, as `docker network ls` shows it.
+On the homelab, your Traefik must send these names to the orchestrator on the port of `speedtest.bind` (8089). HomeGAP gives Traefik that route. You add no labels.
 
-If you also enable the status page, use one rule for both. See [Status page](status-page.md#routing).
+The route comes through the HTTP provider that you added to Traefik in the installation. See [Install the homelab](../getting-started/install.md). When `speedtest.enabled` is `true`, the provider has the route `homegap-pages` with these names:
+
+- `speedtest.<domain>`.
+- `speedtest-<node>.<domain>` for each node.
+
+When you add or remove a node, HomeGAP changes the route. When you set `speedtest.enabled` to `false`, HomeGAP removes the names. Traefik reads the provider every `pollInterval` (30 seconds in the installation guide).
+
+The route has no entry point, so it is on each entry point of your Traefik. It has TLS on, and your Traefik gives the certificate from its own TLS settings.
+
+If a name gives a 404, see [The speed test or the status page gives a 404](#the-speed-test-or-the-status-page-gives-a-404).
 
 ## The two tests
 
@@ -93,3 +94,20 @@ HomeGAP keeps the results in `<data_dir>/speedtests.json`. The **History** panel
 | `POST /api/speedtest/nodes/{id}` | Runs a test between the homelab and a node. The call returns when the test ends. |
 | `GET /api/speedtest/live` | Returns the running homelab ↔ node test as far as it has got, or 204 when none runs. |
 | `POST /api/speedtest/link` | Creates a test link for a device. |
+
+## The speed test or the status page gives a 404
+
+Your Traefik does not have the route `homegap-pages`. Do these checks:
+
+1. Make sure that the static configuration of Traefik has the HTTP provider with the address `http://orchestrator:8088/api/traefik/homelab`.
+2. Make sure that `dashboard.bind` is `0.0.0.0:8088`, so that Traefik can reach the orchestrator on their shared network.
+3. Open the Traefik dashboard and find the router `homegap-pages@http`. Its service must show the orchestrator as up.
+4. Read the address directly, with the dashboard token:
+
+    ```bash
+    curl -H "Authorization: Bearer $HOMEGAP_DASHBOARD_TOKEN" http://orchestrator:8088/api/traefik/homelab
+    ```
+
+    The answer must have the router `homegap-pages` with the names of the speed test and the status page.
+
+The service of the route uses the host name from the address of the provider and the port of `speedtest.bind`. Thus Traefik must reach the orchestrator by that host name on both ports.

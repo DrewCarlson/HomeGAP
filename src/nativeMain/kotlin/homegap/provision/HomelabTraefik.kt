@@ -1,10 +1,14 @@
 package homegap.provision
 
+import homegap.config.AppConfig
 import homegap.discovery.TraefikRouter
 import homegap.model.DesiredState
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 
 /**
@@ -18,7 +22,13 @@ import kotlinx.serialization.json.putJsonObject
  */
 object HomelabTraefik {
     const val MISDIRECTED_ROUTER = "homegap-misdirected"
+
+    /** The router and the service of the speed test and the status page. */
+    const val PAGES = "homegap-pages"
     private const val PRIORITY = 100000
+
+    /** Above a catch-all route of the homelab, and below the route that answers 421. */
+    private const val PAGES_PRIORITY = 50000
 
     /**
      * The names that only the nodes serve: each management host, the client host, and the shared
@@ -66,24 +76,77 @@ object HomelabTraefik {
 
     private val HOST = Regex("""\bHost\(([^)]*)\)""")
 
+    /**
+     * The names of the speed test and the status page that the homelab Traefik sends to the
+     * orchestrator: the name of each node, and the shared name of the speed test. The config
+     * enables each page.
+     */
+    fun pageHosts(config: AppConfig): List<String> = buildList {
+        if (config.speedtest.enabled) {
+            add(config.speedtest.autoHost(config.domain))
+            config.nodes.forEach { add(config.speedtest.nodeHost(config.domain, it.id)) }
+        }
+        if (config.statusPage.enabled) {
+            config.nodes.forEach { add(config.statusPage.nodeHost(config.domain, it.id)) }
+        }
+    }
+
     /** The configuration for [names]. It is empty if there are no names. */
-    fun misdirectedConfig(names: List<String>): JsonObject = buildJsonObject {
-        if (names.isEmpty()) return@buildJsonObject
-        putJsonObject("http") {
-            putJsonObject("routers") {
-                putJsonObject(MISDIRECTED_ROUTER) {
-                    put("rule", names.joinToString(" || ") { "Host(`$it`)" })
-                    // Above the catch-all routes, which answer these names if this route does not.
-                    put("priority", PRIORITY)
-                    put("service", "noop@internal")
-                    putJsonObject("tls") { put("options", NodeTemplates.ELSEWHERE_TLS_OPTIONS) }
+    fun misdirectedConfig(names: List<String>): JsonObject =
+        dynamicConfig(names, pageHosts = emptyList(), origin = "")
+
+    /**
+     * The full configuration: the route that answers 421 for [misdirected], and the route that
+     * sends [pageHosts] to the listener of the speed test and the status page at [origin]. Each
+     * route is there only if it has a name.
+     */
+    fun dynamicConfig(misdirected: List<String>, pageHosts: List<String>, origin: String): JsonObject {
+        if (misdirected.isEmpty() && pageHosts.isEmpty()) return JsonObject(emptyMap())
+        return buildJsonObject {
+            putRoutes(misdirected, pageHosts, origin)
+            if (misdirected.isNotEmpty()) {
+                putJsonObject("tls") {
+                    putJsonObject("options") {
+                        putJsonObject(NodeTemplates.ELSEWHERE_TLS_OPTIONS) { put("minVersion", "VersionTLS12") }
+                    }
                 }
             }
         }
-        putJsonObject("tls") {
-            putJsonObject("options") {
-                putJsonObject(NodeTemplates.ELSEWHERE_TLS_OPTIONS) { put("minVersion", "VersionTLS12") }
+    }
+
+    private fun JsonObjectBuilder.putRoutes(misdirected: List<String>, pageHosts: List<String>, origin: String) {
+        putJsonObject("http") {
+            putJsonObject("routers") {
+                if (misdirected.isNotEmpty()) {
+                    putJsonObject(MISDIRECTED_ROUTER) {
+                        put("rule", hostRule(misdirected))
+                        // Above the catch-all routes, which answer these names if this route does not.
+                        put("priority", PRIORITY)
+                        put("service", "noop@internal")
+                        putJsonObject("tls") { put("options", NodeTemplates.ELSEWHERE_TLS_OPTIONS) }
+                    }
+                }
+                if (pageHosts.isNotEmpty()) {
+                    putJsonObject(PAGES) {
+                        put("rule", hostRule(pageHosts))
+                        put("priority", PAGES_PRIORITY)
+                        put("service", PAGES)
+                        // The certificate comes from the TLS settings of the homelab Traefik.
+                        putJsonObject("tls") {}
+                    }
+                }
+            }
+            if (pageHosts.isNotEmpty()) {
+                putJsonObject("services") {
+                    putJsonObject(PAGES) {
+                        putJsonObject("loadBalancer") {
+                            putJsonArray("servers") { addJsonObject { put("url", origin) } }
+                        }
+                    }
+                }
             }
         }
     }
+
+    private fun hostRule(names: List<String>): String = names.joinToString(" || ") { "Host(`$it`)" }
 }

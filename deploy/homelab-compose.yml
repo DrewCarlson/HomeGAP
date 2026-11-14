@@ -90,17 +90,9 @@ services:
       traefik: {}
       homegap-docker: {}
       homegap-cluster: {}
-    # Speed tests and the status page (speedtest.enabled, status_page.enabled): route their names
-    # here on port 8089.
-    # The orchestrator is on three networks: name the one that Traefik shares with it, or Traefik
-    # can choose a different one and answer 504.
-    # labels:
-    #   traefik.enable: "true"
-    #   traefik.docker.network: traefik
-    #   traefik.http.routers.homegap-speedtest.rule: "Host(`speedtest.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.example\\.net$`)"
-    #   traefik.http.routers.homegap-speedtest.entrypoints: websecure
-    #   traefik.http.routers.homegap-speedtest.tls: "true"
-    #   traefik.http.services.homegap-speedtest.loadbalancer.server.port: "8089"
+    # Speed tests and the status page (speedtest.enabled, status_page.enabled) need no labels here.
+    # Traefik gets their route to port 8089 from the HTTP provider of the orchestrator
+    # (providers.http.endpoint: http://orchestrator:8088/api/traefik/homelab).
     # Only what it needs: NET_ADMIN for its route to the mesh, and DAC_OVERRIDE to read the
     # mounted keys and config whoever owns them.
     cap_drop: [ALL]

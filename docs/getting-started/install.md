@@ -116,7 +116,7 @@ For `tunnels.native: true`, the service needs `cap_add: [NET_ADMIN]` and `device
       homegap.tls: "passthrough"
     ```
     If the HTTPS entrypoint of Traefik does not listen on 443 inside its container, also add `homegap.port: "<that port>"`.
-14. Add the HTTP provider of HomeGAP to the static configuration of your homelab Traefik. With it, Traefik answers 421 for the names that only the nodes serve. See [When a browser uses one connection for two names](../services/traffic-paths.md#when-a-browser-uses-one-connection-for-two-names).
+14. Add the HTTP provider of HomeGAP to the static configuration of your homelab Traefik. HomeGAP uses it to give Traefik two routes. The first route is for the speed test and the status page, when you enable them. It sends their names to the orchestrator. See [Speed tests](../operations/speed-tests.md#routing). With the second route, Traefik answers 421 for the names that only the nodes serve. See [When a browser uses one connection for two names](../services/traffic-paths.md#when-a-browser-uses-one-connection-for-two-names).
     ```yaml
     providers:
       http:

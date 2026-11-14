@@ -11,6 +11,7 @@ import homegap.reconcile.Controller
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.request.host
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.Route
@@ -30,6 +31,8 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
         parent.get(PATH) { homelab(auth) }
     }
 
+    // The listener of the pages is plain HTTP on the network that Traefik shares with the orchestrator.
+    @Suppress("HttpUrlsUsage")
     private suspend fun RoutingContext.homelab(auth: DashboardAuth) {
         val request = call.request
         val headers = request.headers
@@ -46,10 +49,17 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
         }
         // Before the first plan, an empty configuration (Traefik keeps polling).
         val plan = controller.desired
-        val names = plan
-            ?.let { HomelabTraefik.nodeOnlyNames(it, controller.config.clientHost, controller.homelabRouters) }
+        val config = controller.config
+        val pageHosts = HomelabTraefik.pageHosts(config)
+        // A name that this configuration sends to the orchestrator is not a name of the nodes only.
+        val misdirected = plan
+            ?.let { HomelabTraefik.nodeOnlyNames(it, config.clientHost, controller.homelabRouters) }
             .orEmpty()
-        call.respondText(HomelabTraefik.misdirectedConfig(names).toString(), ContentType.Application.Json)
+            .filter { it !in pageHosts }
+        // Traefik reads this configuration from the orchestrator, so the same host has the pages.
+        val origin = "http://${request.host()}:${config.speedtest.port}"
+        val answer = HomelabTraefik.dynamicConfig(misdirected, pageHosts, origin)
+        call.respondText(answer.toString(), ContentType.Application.Json)
     }
 
     companion object {

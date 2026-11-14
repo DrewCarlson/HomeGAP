@@ -1,6 +1,7 @@
 package homegap
 
 import homegap.config.ClusterConfig
+import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
 import homegap.discovery.TraefikRouter
 import homegap.model.Planner
@@ -114,6 +115,45 @@ class MisdirectedTest {
         assertEquals(NodeTemplates.ELSEWHERE_TLS_OPTIONS, router["tls"]!!.jsonObject["options"]!!.jsonPrimitive.content)
         assertTrue(NodeTemplates.ELSEWHERE_TLS_OPTIONS in misdirected["tls"]!!.jsonObject["options"]!!.jsonObject)
         assertTrue(HomelabTraefik.misdirectedConfig(emptyList()).isEmpty())
+    }
+
+    @Test
+    fun theConfigSendsThePagesToTheOrchestrator() {
+        val both = ConfigLoader.parse("$TEST_CONFIG\nspeedtest:\n  enabled: true\nstatus_page:\n  enabled: true\n")
+        val pageHosts = HomelabTraefik.pageHosts(both)
+        val expected = listOf(
+            "speedtest.test.example.net",
+            "speedtest-na1.test.example.net",
+            "speedtest-as1.test.example.net",
+            "status-na1.test.example.net",
+            "status-as1.test.example.net",
+        )
+        assertEquals(expected, pageHosts)
+
+        val answer = HomelabTraefik.dynamicConfig(emptyList(), pageHosts, origin = "http://orchestrator:8089")
+        val http = answer["http"]!!.jsonObject
+        val router = http["routers"]!!.jsonObject[HomelabTraefik.PAGES]!!.jsonObject
+        assertEquals(expected.joinToString(" || ") { "Host(`$it`)" }, router["rule"]!!.jsonPrimitive.content)
+        assertEquals(HomelabTraefik.PAGES, router["service"]!!.jsonPrimitive.content)
+        assertTrue(router["tls"]!!.jsonObject.isEmpty(), "the homelab Traefik gives the certificate")
+        val service = http["services"]!!.jsonObject[HomelabTraefik.PAGES]!!.jsonObject
+        val servers = service["loadBalancer"]!!.jsonObject["servers"]
+        assertEquals("""[{"url":"http://orchestrator:8089"}]""", servers.toString())
+        assertNull(http["routers"]!!.jsonObject[HomelabTraefik.MISDIRECTED_ROUTER], "no name of the nodes only")
+        assertNull(answer["tls"])
+    }
+
+    @Test
+    fun aPageThatIsOffHasNoRoute() {
+        assertTrue(HomelabTraefik.pageHosts(testConfig()).isEmpty(), "the two pages are off by default")
+        val statusOnly = ConfigLoader.parse("$TEST_CONFIG\nstatus_page:\n  enabled: true\n")
+        assertEquals(
+            listOf("status-na1.test.example.net", "status-as1.test.example.net"),
+            HomelabTraefik.pageHosts(statusOnly),
+        )
+        val misdirectedOnly = HomelabTraefik.misdirectedConfig(listOf("pangolin.test.example.net"))
+        assertNull(misdirectedOnly["http"]!!.jsonObject["services"])
+        assertNull(misdirectedOnly["http"]!!.jsonObject["routers"]!!.jsonObject[HomelabTraefik.PAGES])
     }
 
     @Test

@@ -6,13 +6,8 @@ tls:
         keyFile: /certs/origin.key
 http:
   routers:
-    # Speed test and status page hostnames go to the orchestrator's public origin.
-    homegap-speedtest:
-      rule: "Host(`speedtest.test.example.net`) || HostRegexp(`^(speedtest|status)-[a-z0-9-]+\\.test\\.example\\.net$`)"
-      entryPoints: [websecure]
-      service: homegap-speedtest
-      priority: 1000
-      tls: {}
+    # The speed test and status page names have no route here: the orchestrator gives Traefik
+    # that route through the HTTP provider (see homelab-traefik.yml).
     # Pangolin clients only: their traffic arrives over the private network.
     private-only:
       rule: "Host(`private.test.example.net`)"
@@ -37,10 +32,6 @@ http:
       ipAllowList:
         sourceRange: ["172.29.0.0/24"]
   services:
-    homegap-speedtest:
-      loadBalancer:
-        servers:
-          - url: "http://orchestrator:8089"
     whoami:
       loadBalancer:
         servers:

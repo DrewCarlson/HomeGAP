@@ -60,7 +60,7 @@ The homelab has no inbound ports from the internet.
 | Port | Use |
 | --- | --- |
 | `dashboard.bind` (8088) | The dashboard. Reach it only privately. |
-| `speedtest.bind` (8089) | The public origin of the speed test and the status page. Your Traefik routes to it. |
+| `speedtest.bind` (8089) | The public origin of the speed test and the status page. Your Traefik routes to it, with the route that HomeGAP gives it through the HTTP provider. |
 | 8080 on your Traefik | The Traefik API, with `api.insecure: true`, for `homegap.private_middleware`. Do not publish it. |
 
 ## Addresses
