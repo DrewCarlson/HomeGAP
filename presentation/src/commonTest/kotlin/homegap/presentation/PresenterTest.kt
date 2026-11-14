@@ -391,7 +391,7 @@ class PresenterTest {
 
         send(WizardEvent.Edit(WizardField.Host, "203.0.113.30"))
         send(WizardEvent.ChooseAuth(AuthMethod.Key))
-        send(WizardEvent.Edit(WizardField.LoginKeyFile, "/secrets/ssh/provider"))
+        send(WizardEvent.Edit(WizardField.LoginKeyFile, "/data/ssh/provider"))
         send(WizardEvent.TestConnection)
         assertTrue(models.first { it.connection != null }.connection?.ok == true)
     }

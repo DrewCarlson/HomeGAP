@@ -113,6 +113,20 @@ object Files {
         chmod(path, mode.convert())
     }
 
+    fun isExecutable(path: String): Boolean = access(path, X_OK) == 0
+
+    /** The user id and the group id of the owner of [path], or null if the path is missing. */
+    fun owner(path: String): Pair<UInt, UInt>? = memScoped {
+        val status = alloc<stat>()
+        if (stat(path, status.ptr) != 0) null else status.st_uid to status.st_gid
+    }
+
+    fun chownPath(path: String, owner: Pair<UInt, UInt>) {
+        chown(path, owner.first, owner.second)
+    }
+
+    fun isRoot(): Boolean = geteuid() == 0u
+
     /** [length] bytes of [path] from [offset] (fewer at the end of the file), read in place. */
     fun readRange(path: String, offset: Long, length: Int): ByteArray {
         val fd = open(path, O_RDONLY)

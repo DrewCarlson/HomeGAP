@@ -19,6 +19,9 @@ import homegap.platform.Files
 import homegap.platform.env
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
+import homegap.stack.FileOutcome
+import homegap.stack.FileResult
+import homegap.stack.StackFiles
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
 import io.ktor.client.HttpClient
@@ -31,7 +34,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import platform.posix.STDIN_FILENO
 import platform.posix.fprintf
+import platform.posix.isatty
 import platform.posix.stderr
 import kotlin.system.exitProcess
 
@@ -43,6 +48,12 @@ private const val DEFAULT_CONFIG = "/config/config.yml"
 private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
 private const val DEFAULT_MAINTENANCE_MINUTES = 30
+private const val DEFAULT_STACK_FILES = "/usr/share/homegap/deploy"
+private const val DEFAULT_STACK_FOLDER = "/work"
+private const val INSTALL_PAGE = "https://drewcarlson.github.io/HomeGAP/latest/getting-started/install/"
+
+/** The answers that replace a file that the user changed. */
+private val YES_ANSWERS = setOf("y", "yes")
 
 /**
  * The orchestrator waits up to 10 minutes for a node that updates its own member, and then it
@@ -68,10 +79,11 @@ Usage:
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
   homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
+  homegap init [--dir PATH] [--yes] [--refresh]        Write the files of the homelab stack to a folder (default /work)
   homegap version
 
 Environment: HOMEGAP_CONFIG (default /config/config.yml), HOMEGAP_DRY_RUN, DOCKER_SOCKET, DOCKER_HOST,
-HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR, HOMEGAP_MESH_DIR, HOMEGAP_MESH_HOST."""
+HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR, HOMEGAP_MESH_DIR, HOMEGAP_MESH_HOST, HOMEGAP_STACK_FILES."""
 
 /** The command and the arguments after it. With no command, the command is `run`. */
 private class CommandLine(args: Array<String>) {
@@ -101,13 +113,14 @@ fun main(args: Array<String>) {
                 val minutes = line.option("--minutes")?.toIntOrNull() ?: DEFAULT_MAINTENANCE_MINUTES
                 maintenance(configPath, action, minutes)
             }
+            "init" -> initStack(line)
             "mesh" -> {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
-                runMesh(sharedDir(dir, volume = "homegap-mesh", other = "orchestrator"))
+                runMesh(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
             }
             "tunnels" -> {
                 val dir = line.option("--dir") ?: SharedDirs.tunnels(DEFAULT_DATA_DIR)
-                val shared = sharedDir(dir, volume = "homegap-tunnels", other = "orchestrator")
+                val shared = sharedDir(dir, folder = "data/tunnels", other = "orchestrator")
                 runTunnels(shared, newt = line.option("--newt") ?: env("HOMEGAP_NEWT") ?: DEFAULT_NEWT)
             }
             "run" -> {
@@ -195,6 +208,62 @@ private fun renderNode(configPath: String, line: CommandLine) {
     println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
 }
 
+/**
+ * Writes the files of the homelab stack to the folder of `--dir`. With `--refresh`, it brings only
+ * the shipped files to this version, as `upgrade.sh` does.
+ */
+private fun initStack(line: CommandLine) {
+    val folder = line.option("--dir") ?: DEFAULT_STACK_FOLDER
+    if (!Files.isDirectory(folder)) {
+        error(
+            "there is no folder $folder. Mount your folder there, for example: " +
+                $$"docker run --rm -it -v \"$PWD:/work\" ghcr.io/drewcarlson/homegap init",
+        )
+    }
+    val files = StackFiles(
+        source = env("HOMEGAP_STACK_FILES") ?: DEFAULT_STACK_FILES,
+        target = folder,
+        confirm = { path -> line.flag("--yes") || confirmOnTerminal(path) },
+    )
+    val refreshOnly = line.flag("--refresh")
+    val outcomes = if (refreshOnly) files.refresh() else files.init()
+    outcomes.forEach { println(outcomeLine(it)) }
+    if (outcomes.any { it.result == FileResult.KEPT } && !isTerminal()) {
+        println("There is no terminal for the question, so each file with your changes stays.")
+        println("Compare it with its ${StackFiles.NEW_SUFFIX} file.")
+    }
+    if (!refreshOnly) println(NEXT_STEPS)
+}
+
+private val NEXT_STEPS = """
+Next:
+  1. Put your Bunny API key in .env.
+  2. Set domain, bunny.zone and pangolin.acme_email in config/config.yml.
+  3. Put your own changes to the stack in compose.override.yml (see compose.override.example.yml).
+  4. Start the stack: docker compose up -d
+All steps: $INSTALL_PAGE""".trimEnd()
+
+private fun isTerminal() = isatty(STDIN_FILENO) == 1
+
+/** Asks on the terminal if the new version can replace [path]. Without a terminal, the answer is no. */
+private fun confirmOnTerminal(path: String): Boolean {
+    if (!isTerminal()) return false
+    val previous = path + StackFiles.PREVIOUS_SUFFIX
+    print("$path has changes that are not from HomeGAP. Replace it? Your file moves to $previous. [y/N] ")
+    return readlnOrNull()?.trim()?.lowercase() in YES_ANSWERS
+}
+
+private fun outcomeLine(outcome: FileOutcome): String {
+    val path = outcome.path
+    return when (outcome.result) {
+        FileResult.CREATED -> "created    $path"
+        FileResult.UPDATED -> "updated    $path"
+        FileResult.UNCHANGED -> "unchanged  $path"
+        FileResult.REPLACED -> "replaced   $path (your file is ${path + StackFiles.PREVIOUS_SUFFIX})"
+        FileResult.KEPT -> "kept       $path (the file of this version is ${path + StackFiles.NEW_SUFFIX})"
+    }
+}
+
 private fun placeholderSecrets(config: AppConfig) = NodeSecrets(
     setupToken = "<setup-token>",
     serverSecret = "<server-secret>",
@@ -268,10 +337,10 @@ private fun maintenance(configPath: String, action: String, minutes: Int) = runB
     }
 }
 
-/** Returns [path], and says so on stderr if it is not a volume that the [other] container can see. */
-private fun sharedDir(path: String, volume: String, other: String): String {
+/** Returns [path], and says so on stderr if it is not a mount that the [other] container can see. */
+private fun sharedDir(path: String, folder: String, other: String): String {
     if (SharedDirs.notAVolume(path)) {
-        eprintln("warning: " + SharedDirs.notAVolumeHint(path, volume, other))
+        eprintln("warning: " + SharedDirs.notAVolumeHint(path, folder, other))
     }
     return path
 }

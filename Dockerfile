@@ -72,6 +72,9 @@ COPY --from=lego /usr/local/bin/lego /usr/local/bin/lego
 COPY --from=map /src/map/world.pmtiles /usr/share/homegap/map/world.pmtiles
 COPY --from=tunnels-version /tunnels-version /usr/share/homegap/tunnels-version
 COPY --from=docs /site /usr/share/homegap/docs
+# The files of the homelab stack, which `homegap init` and upgrade.sh write to the folder of the user.
+COPY deploy/compose.yml deploy/upgrade.sh deploy/.env.example deploy/compose.override.example.yml /usr/share/homegap/deploy/
+COPY config/config.example.yml /usr/share/homegap/deploy/config/config.example.yml
 COPY build/bin/linuxX64/releaseExecutable/homegap.kexe /tmp/homegap-amd64
 COPY build/bin/linuxArm64/releaseExecutable/homegap.kexe /tmp/homegap-arm64
 RUN if [ "${TARGETARCH:-$(dpkg --print-architecture)}" = "amd64" ]; then mv /tmp/homegap-amd64 /usr/local/bin/homegap; else mv /tmp/homegap-arm64 /usr/local/bin/homegap; fi \

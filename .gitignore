@@ -12,6 +12,7 @@ e2e/work/
 # local secrets
 .env
 .env.*
+!.env.example
 
 # Built by tools/build-map.sh tiles (shipped in the Docker image, not in git)
 /map/

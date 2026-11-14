@@ -11,7 +11,7 @@ networks:
           # Containers without a fixed address get theirs from the upper half, so one of them
           # never takes a node's fixed address before that node starts.
           ip_range: 172.30.0.128/25
-  # Only the orchestrator and the Docker socket proxy, as in deploy/homelab-compose.yml.
+  # Only the orchestrator and the Docker socket proxy, as in deploy/compose.yml.
   e2e-docker:
     internal: true
   # Only the tunnels and the homelab Traefik: Pangolin clients' traffic arrives from here, so the
@@ -200,7 +200,7 @@ services:
     networks: [e2e]
 
   # Holds the cluster's own network namespace (the mesh interface and the homelab's cluster
-  # member), as in deploy/homelab-compose.yml. The orchestrator is not in it.
+  # member), as in deploy/compose.yml. The orchestrator is not in it.
   mesh:
     # A fixed image, never the HomeGAP one: recreating this container replaces the namespace
     # (and drops the mesh), so it must not change with HomeGAP updates. Everything sharing the
@@ -214,7 +214,7 @@ services:
     # (WireGuard) as well as its link to the orchestrator.
     networks: [e2e]
 
-  # The homelab's mesh agent, as in deploy/homelab-compose.yml.
+  # The homelab's mesh agent, as in deploy/compose.yml.
   mesh-agent:
     image: homegap:e2e
     command: ["mesh"]
@@ -227,7 +227,7 @@ services:
     volumes: ["mesh-state:/mesh"]
 
   # The homelab's cluster member (etcd, PostgreSQL with Patroni, Valkey, Sentinel) in the mesh
-  # namespace, reading the config the orchestrator writes for it. As in deploy/homelab-compose.yml,
+  # namespace, reading the config the orchestrator writes for it. As in deploy/compose.yml,
   # these containers mount that config only, never the orchestrator's data directory.
   cluster-etcd:
     image: homegap-cluster:e2e
@@ -285,7 +285,7 @@ services:
     networks:
       e2e: {}
       e2e-docker: {}
-    # The same privileges as deploy/homelab-compose.yml, so the harness proves they are enough.
+    # The same privileges as deploy/compose.yml, so the harness proves they are enough.
     cap_drop: [ALL]
     cap_add: [NET_ADMIN, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]

@@ -49,11 +49,10 @@ class HomelabMesh(
 
     private fun notReportedMessage(): String {
         if (SharedDirs.notAVolume(dir)) {
-            val hint = SharedDirs.notAVolumeHint(dir, "homegap-mesh", "homegap-mesh-agent")
+            val hint = SharedDirs.notAVolumeHint(dir, "data/mesh", "homegap-mesh-agent")
             return "the mesh agent has not reported. $hint"
         }
-        val setup = "the homegap-mesh-agent container shares the homegap-mesh namespace and the mesh volume"
-        return "the mesh agent has not reported in $dir ($setup)"
+        return "the mesh agent has not reported in $dir. $CLUSTER_SERVICES_HINT"
     }
 
     /** Hands the agent the mesh ([address], [peers]) and routes the mesh subnet through its namespace. */
@@ -89,7 +88,7 @@ class HomelabMesh(
         val resolved = run("getent", "ahostsv4", gateway).stdout.lineSequence()
             .map { it.substringBefore(' ').trim() }
             .firstOrNull { it.isNotEmpty() }
-            ?: error("the mesh namespace ($gateway) is not on a network the orchestrator shares (HOMEGAP_MESH_HOST)")
+            ?: error("the mesh namespace ($gateway) is not on a network of the orchestrator. $CLUSTER_SERVICES_HINT")
         val wanted = "$subnet via $resolved"
         if (routed == wanted && run("ip", "-4", "route", "show", subnet).stdout.contains("via $resolved ")) return
         val result = run("ip", "-4", "route", "replace", subnet, "via", resolved)
@@ -115,6 +114,10 @@ class HomelabMesh(
         /** The agent reports every few seconds. If the report is older than this, the agent does not run. */
         const val MAX_AGE_MS = 45_000L
         const val COMMAND_NOT_FOUND = 127
+        /** The cluster services of the shipped compose file run only with the profile `cluster`. */
+        const val CLUSTER_SERVICES_HINT =
+            "If the cluster services of the stack do not run, add COMPOSE_PROFILES=cluster to .env " +
+                "and run `docker compose up -d`."
         const val NEEDS_NET_ADMIN = "the orchestrator needs NET_ADMIN to route the mesh subnet (cap_add: [NET_ADMIN])"
         val COMMAND_TIMEOUT = 15.seconds
         val json = Json { ignoreUnknownKeys = true }

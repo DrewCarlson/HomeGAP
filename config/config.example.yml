@@ -50,7 +50,7 @@ acme:
 
 # Optional: clustered Pangolin's private WireGuard mesh and its shared database (PostgreSQL and
 # Valkey on the homelab and every node). The orchestrator needs NET_ADMIN; see
-# deploy/homelab-compose.yml.
+# compose.yml of the stack.
 # cluster:
 #   mesh:
 #     subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
@@ -79,7 +79,7 @@ nodes:
     host: 203.0.113.10
     os: ubuntu-24.04
     ssh_user: deploy
-    ssh_key_file: /secrets/ssh/na1
+    ssh_key_file: /data/ssh/na1
     license_key_env: PANGOLIN_LICENSE_KEY_NA1
     # Optional: allow SSH through the firewall only from these sources. Locks the orchestrator
     # out if its public IP leaves the list; see
@@ -92,7 +92,7 @@ nodes:
     host: 198.51.100.20
     os: ubuntu-22.04
     ssh_user: deploy
-    ssh_key_file: /secrets/ssh/na2
+    ssh_key_file: /data/ssh/na2
     license_key_env: PANGOLIN_LICENSE_KEY_NA2
     location: { latitude: 47.61, longitude: -122.33, name: Seattle }
 

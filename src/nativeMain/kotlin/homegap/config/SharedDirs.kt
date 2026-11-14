@@ -5,7 +5,7 @@ import homegap.platform.env
 
 /**
  * The directories that the orchestrator shares with other containers. Each has a fixed path in
- * the HomeGAP image, so a compose file only mounts a volume there. Each is a volume of its own,
+ * the HomeGAP image, so a compose file only mounts a folder there. Each is a folder of its own,
  * so the other container never sees the state cache, the SSH keys or the dashboard token.
  *
  * Outside the image the fixed path is not there, and the directory is inside the data directory.
@@ -45,9 +45,9 @@ object SharedDirs {
             .maxByOrNull { it.length }
 
     /** What to tell the operator when the shared directory [path] is not a volume. */
-    fun notAVolumeHint(path: String, volume: String, other: String): String {
-        val problem = "$path is not a volume, so the $other container cannot see it."
-        val remedy = "Mount the $volume volume at $path in both containers."
+    fun notAVolumeHint(path: String, folder: String, other: String): String {
+        val problem = "$path is not a mount, so the $other container cannot see it."
+        val remedy = "Mount the folder $folder of the stack at $path in both containers."
         return "$problem $remedy"
     }
 }
@@ -60,17 +60,17 @@ val AppConfig.tunnelsDir: String get() = tunnels.stateDir ?: SharedDirs.tunnels(
 
 /** One line for each shared directory of this config that is not a volume. */
 fun AppConfig.sharedDirProblems(): List<String> = buildList {
-    fun check(path: String, volume: String, other: String) {
+    fun check(path: String, folder: String, other: String) {
         if (SharedDirs.notAVolume(path)) {
-            add(SharedDirs.notAVolumeHint(path, volume = volume, other = other))
+            add(SharedDirs.notAVolumeHint(path, folder = folder, other = other))
         }
     }
 
     if (nodes.isNotEmpty()) {
-        check(tunnelsDir, volume = "homegap-tunnels", other = "tunnels")
+        check(tunnelsDir, folder = "data/tunnels", other = "tunnels")
     }
     if (cluster != null) {
-        check(meshDir, volume = "homegap-mesh", other = "homegap-mesh-agent")
-        check(clusterConfigDir, volume = "homegap-cluster-config", other = "cluster")
+        check(meshDir, folder = "data/mesh", other = "homegap-mesh-agent")
+        check(clusterConfigDir, folder = "data/cluster/config", other = "cluster")
     }
 }

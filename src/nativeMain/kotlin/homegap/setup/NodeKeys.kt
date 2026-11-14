@@ -8,7 +8,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * The SSH keys that the orchestrator uses for the nodes. The keys that it makes or imports are in
- * [dir] (the data volume, mode 0700). The private half never leaves the orchestrator.
+ * [dir] (in the data folder, mode 0700). The private half never leaves the orchestrator.
  */
 class NodeKeys(private val dir: String) {
     /** Makes a new ed25519 key for [nodeId]. It replaces an earlier key for that id. */
@@ -39,7 +39,7 @@ class NodeKeys(private val dir: String) {
         }
     }
 
-    /** Uses a private key that is on the orchestrator already (for example under /secrets/ssh). */
+    /** Uses a private key that is on the orchestrator already (for example in /data/ssh). */
     suspend fun existing(path: String): SshKeyDto {
         require(Files.exists(path)) { "No file at $path on the orchestrator." }
         return describe(path)
