@@ -1,6 +1,7 @@
 package homegap
 
 import homegap.platform.Pty
+import platform.posix.usleep
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -17,13 +18,23 @@ class PtyTest {
         return out.toString()
     }
 
+    /** Waits until the child ends by itself. A close before that ends the child with a signal. */
+    private fun Pty.awaitExit(): Int? {
+        repeat(EXIT_POLLS) {
+            exitCode()?.let { return it }
+            usleep(EXIT_POLL_MICROS)
+        }
+        return exitCode()
+    }
+
     @Test
     fun theChildIsOnATerminalOfTheGivenSize() {
         val pty = Pty.spawn(listOf("/bin/sh", "-c", "stty size; echo done"), rows = 31, columns = 97)
         val out = pty.readUntil("done")
+        val exitCode = pty.awaitExit()
         pty.close()
         assertTrue("31 97" in out, out)
-        assertEquals(0, pty.exitCode())
+        assertEquals(0, exitCode)
     }
 
     @Test
@@ -50,5 +61,11 @@ class PtyTest {
         while (pty.read(buffer) >= 0) { /* the child prints nothing */ }
         pty.close()
         assertEquals(3, pty.exitCode())
+    }
+
+    private companion object {
+        /** The child gets 5 seconds to end. */
+        const val EXIT_POLLS = 100
+        const val EXIT_POLL_MICROS = 50_000u
     }
 }
