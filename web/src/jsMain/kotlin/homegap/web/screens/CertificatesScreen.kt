@@ -278,17 +278,7 @@ private fun VisitorMatrix(matrix: VisitorMatrixModel, onOpen: (Location) -> Unit
         title = "What a visitor gets",
         flush = true,
         actions = {
-            Button({
-                classes("chip")
-                if (matrix.faultsOnly) {
-                    classes("active")
-                }
-                attr("type", "button")
-                attr("aria-pressed", matrix.faultsOnly.toString())
-                onClick { matrix.onFaultsOnly(!matrix.faultsOnly) }
-            }) {
-                Text("Faults only ${matrix.faultRows}")
-            }
+            ProblemsFilter(matrix.filter)
             Action(
                 action = matrix.check,
                 onOpen = onOpen,
@@ -313,7 +303,7 @@ private fun VisitorMatrix(matrix: VisitorMatrixModel, onOpen: (Location) -> Unit
                                 colspan(matrix.nodes.size + 1)
                                 classes("muted")
                             }) {
-                                Text(if (matrix.faultsOnly) "No faults: every name answers with a valid certificate." else "No public names yet.")
+                                Text(if (matrix.filter.problemsOnly) "No problems. Every name answers with a valid certificate." else "No public names yet.")
                             }
                         }
                     }

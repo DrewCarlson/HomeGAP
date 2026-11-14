@@ -8,6 +8,7 @@ import homegap.presentation.ui.ChartModel
 import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.ProblemsFilterModel
 
 /** The Newt connectors from the homelab to each edge. */
 @Immutable
@@ -16,6 +17,7 @@ data class TunnelsScreenModel(
     val tunnels: List<TunnelCardModel>,
     /** The row that the Inspector shows, so the list can mark it. */
     val selected: Location? = null,
+    val filter: ProblemsFilterModel,
     override val inspector: InspectorModel? = null,
     override val empty: EmptyStateModel? = null,
 ) : ScreenModel

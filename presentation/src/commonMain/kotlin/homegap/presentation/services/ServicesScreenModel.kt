@@ -8,19 +8,17 @@ import homegap.presentation.routing.Location
 import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.ProblemsFilterModel
 
 /** Every published service, with how each edge serves it; filters for problems and by text. */
 @Immutable
 data class ServicesScreenModel(
     override val head: PageHeadModel,
     val query: String,
-    val problemsOnly: Boolean,
-    val total: Int,
-    val problems: Int,
+    val filter: ProblemsFilterModel,
     val edges: List<String>,
     val rows: List<ServiceRowModel>,
     val onQuery: (String) -> Unit,
-    val onProblemsOnly: (Boolean) -> Unit,
     /** The row that the Inspector shows, so the list can mark it. */
     val selected: Location? = null,
     override val inspector: InspectorModel? = null,

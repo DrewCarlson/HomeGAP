@@ -26,12 +26,7 @@ fun ConfigScreen(model: ConfigScreenModel) {
         title = "Differences",
         flush = true,
         actions = {
-            Label(attrs = { classes("check") }) {
-                CheckboxInput(model.onlyChanges) {
-                    onChange { model.onToggleOnlyChanges(it.value) }
-                }
-                Text("Only differences")
-            }
+            ProblemsFilter(model.filter)
         }
     ) {
         val emptyText = if (model.loading) "Loading…" else "Everything matches the desired state."

@@ -17,8 +17,9 @@ import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.presentation.ui.ActionModel
 import homegap.presentation.ui.EmptyStateModel
-import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.ui.on
+import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.rememberProblemsFilter
 import homegap.presentation.ui.statusLineOf
 
 data class ServicesScreenProps(
@@ -36,11 +37,13 @@ class ServicesScreenPresenter(
     override fun model(props: ServicesScreenProps): ServicesScreenModel {
         val status = props.status
         var query by remember { mutableStateOf("") }
-        var problemsOnly by remember { mutableStateOf(false) }
         val edges = status.nodes.map { it.id }
-        val problems = status.services.count { it.health() != Health.OK }
+        val filter = rememberProblemsFilter(
+            total = status.services.size,
+            problems = status.services.count { it.health() != Health.OK },
+        )
         val rows = status.services
-            .filter { !problemsOnly || it.health() != Health.OK }
+            .filter { !filter.problemsOnly || it.health() != Health.OK }
             .filter { query.isBlank() || query.trim().lowercase().let { q -> q in it.hostname.lowercase() || q in it.container.lowercase() } }
             .sortedWith(compareBy<ServiceStatusDto> { it.health().rank() }.thenBy { it.hostname })
             .map { it.toRow(edges) }
@@ -52,13 +55,10 @@ class ServicesScreenPresenter(
                 statusLine = statusLineOf(status.attention.on(Route.Services)),
             ),
             query = query,
-            problemsOnly = problemsOnly,
-            total = status.services.size,
-            problems = problems,
+            filter = filter,
             edges = edges,
             rows = rows,
             onQuery = { query = it },
-            onProblemsOnly = { problemsOnly = it },
             selected = selected?.let { Location(Route.Services, it.hostname) },
             inspector = selected?.let { service ->
                 serviceInspector(

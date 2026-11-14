@@ -9,11 +9,11 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.CertDeliveryDto
+import homegap.api.CertificatesDto
 import homegap.api.CertNameDto
 import homegap.api.CertOrderRecordDto
 import homegap.api.CertProbeDto
 import homegap.api.CertProbeRowDto
-import homegap.api.CertificatesDto
 import homegap.api.Health
 import homegap.api.IssuedCertificateDto
 import homegap.api.StatusSnapshot
@@ -22,9 +22,9 @@ import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.Confirmations
 import homegap.presentation.data.ControllerApi
 import homegap.presentation.dns.dnsTabs
-import homegap.presentation.format.TimeFormatter
 import homegap.presentation.format.ago
 import homegap.presentation.format.plural
+import homegap.presentation.format.TimeFormatter
 import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.presentation.ui.ActionModel
@@ -34,9 +34,10 @@ import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.FactRow
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.InspectorSection
-import homegap.presentation.ui.PageHeadModel
-import homegap.presentation.ui.Severity
 import homegap.presentation.ui.on
+import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.ProblemsFilterModel
+import homegap.presentation.ui.Severity
 import homegap.presentation.ui.statusLineOf
 
 data class CertificatesScreenProps(
@@ -360,10 +361,13 @@ internal class CertificatesView(
                     )
                 }
             },
-            faultsOnly = faultsOnly,
-            faultRows = faulty.size,
+            filter = ProblemsFilterModel(
+                total = rows.size,
+                problems = faulty.size,
+                problemsOnly = faultsOnly,
+                onChange = onFaultsOnly,
+            ),
             probed = newest?.let { "probed ${ago(it * 1000, now)}" } ?: "not probed yet",
-            onFaultsOnly = onFaultsOnly,
             check = check,
         )
     }

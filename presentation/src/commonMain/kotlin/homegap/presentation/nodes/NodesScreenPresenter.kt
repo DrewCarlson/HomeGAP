@@ -11,21 +11,22 @@ import dev.zacsweers.metro.SingleIn
 import homegap.api.Health
 import homegap.api.NodeStatusDto
 import homegap.api.StatusSnapshot
-import homegap.presentation.overview.edgesSentence
 import homegap.presentation.common.Badge
 import homegap.presentation.core.Presenter
 import homegap.presentation.data.Preferences
 import homegap.presentation.data.Samples
 import homegap.presentation.format.label
 import homegap.presentation.format.plural
+import homegap.presentation.overview.edgesSentence
 import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.presentation.ui.ActionModel
 import homegap.presentation.ui.ActionStyle
-import homegap.presentation.ui.EmptyStateModel
-import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.ui.chartOf
+import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.on
+import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.rememberProblemsFilter
 import homegap.presentation.ui.statusLineOf
 
 data class NodesScreenProps(
@@ -58,6 +59,10 @@ class NodesScreenPresenter(
             }
         }
         val selected = status.nodes.firstOrNull { it.id == props.selection }
+        val filter = rememberProblemsFilter(
+            total = status.nodes.size,
+            problems = status.nodes.count { it.health != Health.OK },
+        )
         return NodesScreenModel(
             head = PageHeadModel(
                 caption = "Nodes",
@@ -72,7 +77,11 @@ class NodesScreenPresenter(
                 ),
             ),
             rollout = rollout(status.nodes),
-            fleet = status.nodes.sortedWith(compareBy<NodeStatusDto> { it.health.rank() }.thenBy { it.id }).map { node ->
+            filter = filter,
+            fleet = status.nodes
+                .filter { !filter.problemsOnly || it.health != Health.OK }
+                .sortedWith(compareBy<NodeStatusDto> { it.health.rank() }.thenBy { it.id })
+                .map { node ->
                 fleetRow(
                     node = node,
                     samples = props.metrics[node.id],
@@ -151,7 +160,8 @@ class NodesScreenPresenter(
             stack = stackText(node),
             drift = if (node.drift.isEmpty()) "none" else plural(node.drift.size, "difference"),
             location = Location(Route.Nodes, node.id),
-            menu = nodeActions.rowMenu(node.id),
+            // A menu with one item only repeats an action of the Inspector, so the row shows none.
+            menu = nodeActions.rowMenu(node.id).takeIf { it.size > 1 }.orEmpty(),
         )
     }
 

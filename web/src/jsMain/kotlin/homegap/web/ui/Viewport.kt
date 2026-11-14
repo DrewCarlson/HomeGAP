@@ -20,7 +20,7 @@ enum class Viewport {
     /** 600 to 1199 px. */
     Tablet,
 
-    /** 1200 to 1365 px: the side navigation, with the Inspector as a drawer. */
+    /** 1200 to 1365 px: the side navigation. */
     NarrowDesktop,
 
     /** 1366 px and wider. */

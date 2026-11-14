@@ -17,9 +17,9 @@ import org.w3c.dom.HTMLElement
 import org.w3c.dom.events.Event
 
 /**
- * The selected item. On wide desktops it is a column beside the page; on narrower ones and
- * tablets a drawer, and on phones a bottom sheet, over the page. Esc, ×, the dimmed page or the
- * back button close it.
+ * The selected item. On desktops it is a drawer over the right of the page that does not block the
+ * page, so another row can be selected. On tablets it is a modal drawer, and on phones a bottom
+ * sheet. Esc, ×, the dimmed page or the back button close it.
  */
 @Composable
 fun InspectorHost(
@@ -29,7 +29,7 @@ fun InspectorHost(
     onClose: () -> Unit,
     onOpen: (Location) -> Unit,
 ) {
-    if (viewport == Viewport.Desktop) {
+    if (viewport == Viewport.Desktop || viewport == Viewport.NarrowDesktop) {
         Aside({
             classes("inspector", "inspector-column")
             attr("aria-label", "Inspector")
@@ -43,7 +43,6 @@ fun InspectorHost(
             )
             ToastStack(
                 toasts = toasts,
-                placement = ToastPlacement.BesideInspector,
             )
         }
     } else {

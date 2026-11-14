@@ -10,13 +10,14 @@ import homegap.api.Health
 import homegap.api.SecretsResponse
 import homegap.presentation.common.Badge
 import homegap.presentation.core.Presenter
+import homegap.presentation.core.runCatchingCancellable
+import homegap.presentation.data.ControllerApi
 import homegap.presentation.format.plural
 import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.ProblemsFilterModel
 import homegap.presentation.ui.Severity
 import homegap.presentation.ui.StatusLineModel
 import homegap.presentation.ui.StatusMessage
-import homegap.presentation.core.runCatchingCancellable
-import homegap.presentation.data.ControllerApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
@@ -73,6 +74,13 @@ class ConfigScreenPresenter(private val api: ControllerApi) : Presenter<ConfigSc
             ),
             loading = loaded == null,
             onlyChanges = onlyChanges,
+            filter = ProblemsFilterModel(
+                total = loaded?.diff?.items.orEmpty().size,
+                problems = pending ?: 0,
+                problemsOnly = onlyChanges,
+                onChange = { onlyChanges = it },
+                label = "Differences",
+            ),
             diff = diff,
             secrets = secrets,
             desiredState = loaded?.diff?.desiredState.orEmpty(),

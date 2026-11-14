@@ -8,6 +8,7 @@ import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.FactRow
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.ProblemsFilterModel
 
 /**
  * The Certificates tab of DNS: the certificate the nodes share, which node has it, what a visitor
@@ -128,10 +129,8 @@ data class DeliveryRowModel(
 data class VisitorMatrixModel(
     val nodes: List<String>,
     val groups: List<VisitorGroupModel>,
-    val faultsOnly: Boolean,
-    val faultRows: Int,
+    val filter: ProblemsFilterModel,
     val probed: String,
-    val onFaultsOnly: (Boolean) -> Unit,
     val check: ActionModel,
 )
 

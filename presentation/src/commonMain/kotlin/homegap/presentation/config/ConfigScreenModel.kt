@@ -3,12 +3,15 @@ package homegap.presentation.config
 import androidx.compose.runtime.Immutable
 import homegap.presentation.common.Badge
 import homegap.presentation.core.ScreenModel
+import homegap.presentation.ui.ProblemsFilterModel
 
 @Immutable
 data class ConfigScreenModel(
     override val head: homegap.presentation.ui.PageHeadModel,
     val loading: Boolean,
     val onlyChanges: Boolean,
+    /** All rows or only the rows that differ. */
+    val filter: ProblemsFilterModel,
     val diff: List<DiffRowModel>,
     val secrets: List<SecretRowModel>,
     val desiredState: String,

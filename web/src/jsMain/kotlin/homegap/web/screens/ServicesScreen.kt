@@ -25,30 +25,7 @@ fun ServicesScreen(
                 onInput { model.onQuery(it.value) }
             }
         }
-        Div({
-            classes("segmented")
-            attr("role", "group")
-            attr("aria-label", "Show")
-        }) {
-            Button({
-                if (!model.problemsOnly) {
-                    classes("active")
-                }
-                attr("aria-pressed", (!model.problemsOnly).toString())
-                onClick { model.onProblemsOnly(false) }
-            }) {
-                Text("All ${model.total}")
-            }
-            Button({
-                if (model.problemsOnly) {
-                    classes("active")
-                }
-                attr("aria-pressed", model.problemsOnly.toString())
-                onClick { model.onProblemsOnly(true) }
-            }) {
-                Text("Problems ${model.problems}")
-            }
-        }
+        ProblemsFilter(model.filter)
     }
     Figure(
         title = "Services by node",
@@ -78,11 +55,13 @@ fun ServicesScreen(
                                     classes("selected")
                                 }
                                 onClick { onOpen(row.location) }
+                                opensOnEnter { onOpen(row.location) }
                             }) {
                                 Td({ classes("matrix-host") }) {
                                     NavLink(
                                         href = HashRouter.href(row.location),
                                         onNavigate = { onOpen(row.location) },
+                                        tabStop = false,
                                     ) {
                                         Span({ classes(row.health.toneClass) }) { Text(row.hostname) }
                                     }

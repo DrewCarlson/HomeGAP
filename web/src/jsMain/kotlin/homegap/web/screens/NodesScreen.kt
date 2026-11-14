@@ -10,6 +10,7 @@ import homegap.presentation.nodes.MeshMode
 import homegap.presentation.nodes.NodesScreenModel
 import homegap.presentation.nodes.RolloutStripModel
 import homegap.presentation.routing.Location
+import homegap.presentation.ui.ProblemsFilterModel
 import homegap.web.routing.HashRouter
 import homegap.web.ui.*
 import org.jetbrains.compose.web.dom.*
@@ -23,6 +24,7 @@ fun NodesScreen(
     model.rollout?.let { RolloutStrip(it) }
     Fleet(
         rows = model.fleet,
+        filter = model.filter,
         selected = model.selected,
         onOpen = onOpen,
     )
@@ -60,7 +62,7 @@ private fun RolloutStrip(rollout: RolloutStripModel) {
 }
 
 @Composable
-private fun Fleet(rows: List<FleetRowModel>, selected: Location?, onOpen: (Location) -> Unit) {
+private fun Fleet(rows: List<FleetRowModel>, filter: ProblemsFilterModel, selected: Location?, onOpen: (Location) -> Unit) {
     val headers = remember {
         listOf(
             "Node",
@@ -74,6 +76,7 @@ private fun Fleet(rows: List<FleetRowModel>, selected: Location?, onOpen: (Locat
     }
     Figure(
         title = "Nodes",
+        actions = { ProblemsFilter(filter) },
         flush = true,
     ) {
         Table({ classes("fleet") }) {
@@ -94,11 +97,13 @@ private fun Fleet(rows: List<FleetRowModel>, selected: Location?, onOpen: (Locat
                                 classes("selected")
                             }
                             onClick { onOpen(row.location) }
+                            opensOnEnter { onOpen(row.location) }
                         }) {
                             Td({ classes("fleet-node") }) {
                                 NavLink(
                                     href = HashRouter.href(row.location),
                                     onNavigate = { onOpen(row.location) },
+                                    tabStop = false,
                                 ) {
                                     B { Text(row.id) }
                                     Span({ classes("muted") }) { Text(" ${row.place}") }

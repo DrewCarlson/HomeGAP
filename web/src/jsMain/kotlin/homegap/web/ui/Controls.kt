@@ -2,11 +2,14 @@ package homegap.web.ui
 
 import androidx.compose.runtime.Composable
 import homegap.presentation.ui.FieldKind
-import org.jetbrains.compose.web.attributes.InputType
+import homegap.presentation.ui.ProblemsFilterModel
+import org.jetbrains.compose.web.attributes.AttrsScope
 import org.jetbrains.compose.web.attributes.disabled
+import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.placeholder
 import org.jetbrains.compose.web.attributes.rows
 import org.jetbrains.compose.web.dom.*
+import org.w3c.dom.HTMLTableRowElement
 
 enum class ButtonStyle(val className: String?) { Default(null), Primary("primary"), Danger("danger") }
 
@@ -66,6 +69,44 @@ fun TextField(
     }
 }
 
+/**
+ * Makes a table row a stop for the Tab key. Enter on the row runs [onOpen], as a click does. The
+ * link in the row then needs no stop of its own.
+ */
+fun AttrsScope<HTMLTableRowElement>.opensOnEnter(onOpen: () -> Unit) {
+    tabIndex(0)
+    onKeyDown { event ->
+        if (event.key == "Enter" && event.target == event.nativeEvent.currentTarget) {
+            onOpen()
+        }
+    }
+}
+
+/** The "All / Problems" switch of a list. */
+@Composable
+fun ProblemsFilter(filter: ProblemsFilterModel) {
+    Div({
+        classes("segmented")
+        attr("role", "group")
+        attr("aria-label", "Show")
+    }) {
+        Button({
+            if (!filter.problemsOnly) classes("active")
+            attr("aria-pressed", (!filter.problemsOnly).toString())
+            onClick { filter.onChange(false) }
+        }) {
+            Text("All ${filter.total}")
+        }
+        Button({
+            if (filter.problemsOnly) classes("active")
+            attr("aria-pressed", filter.problemsOnly.toString())
+            onClick { filter.onChange(true) }
+        }) {
+            Text("${filter.label} ${filter.problems}")
+        }
+    }
+}
+
 /** Pill buttons with one active option. */
 @Composable
 fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, enabled: Boolean = true, onSelect: (T) -> Unit) {
@@ -82,9 +123,17 @@ fun <T> Segmented(options: List<T>, selected: T, label: (T) -> String, enabled: 
 
 /** In-app link: keeps a real href (new tab, copy link) but navigates through the presenter. */
 @Composable
-fun NavLink(href: String, onNavigate: () -> Unit, classNames: List<String> = emptyList(), content: @Composable () -> Unit) {
+fun NavLink(
+    href: String,
+    onNavigate: () -> Unit,
+    classNames: List<String> = emptyList(),
+    /** False for a link in a row that is itself a stop for the Tab key. */
+    tabStop: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     A(href = href, {
         if (classNames.isNotEmpty()) classes(classNames)
+        if (!tabStop) tabIndex(-1)
         onClick { event ->
             if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
                 event.preventDefault()

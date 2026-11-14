@@ -101,7 +101,7 @@ fun AppShell(model: AppModel) {
             }
             model.terminal?.let { terminal ->
                 // A drawer or a sheet is a modal dialog: it would cover the terminal that its action opened.
-                val covered = inspector != null && viewport != Viewport.Desktop
+                val covered = inspector != null && (viewport == Viewport.Tablet || viewport == Viewport.Phone)
                 LaunchedEffect(terminal.focusRequests) {
                     if (terminal.focusRequests > 0 && covered) {
                         model.onOpen(Location(model.route))

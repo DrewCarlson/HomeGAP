@@ -14,15 +14,16 @@ import homegap.presentation.format.plural
 import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.presentation.ui.ActionModel
+import homegap.presentation.ui.chartOf
 import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.FactRow
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.InspectorSection
 import homegap.presentation.ui.MarkRow
-import homegap.presentation.ui.PageHeadModel
-import homegap.presentation.ui.Severity
-import homegap.presentation.ui.chartOf
 import homegap.presentation.ui.on
+import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.rememberProblemsFilter
+import homegap.presentation.ui.Severity
 import homegap.presentation.ui.statusLineOf
 
 data class TunnelsScreenProps(
@@ -46,18 +47,23 @@ class TunnelsScreenPresenter(
         val nowSeconds = props.now / 1000
         val up = status.tunnels.count { it.up }
         val selected = status.tunnels.firstOrNull { it.nodeId == props.selection }
+        val filter = rememberProblemsFilter(
+            total = status.tunnels.size,
+            problems = status.tunnels.size - up,
+        )
         return TunnelsScreenModel(
             head = PageHeadModel(
                 caption = "Tunnels",
-                headline = "$up of ${status.tunnels.size} tunnels up.",
+                headline = "$up of ${status.tunnels.size} tunnels healthy.",
                 statusLine = statusLineOf(status.attention.on(Route.Tunnels)),
             ),
-            tunnels = status.tunnels.map { tunnel ->
+            filter = filter,
+            tunnels = status.tunnels.filter { !filter.problemsOnly || !it.up }.map { tunnel ->
                 TunnelCardModel(
                     nodeId = tunnel.nodeId,
                     endpoint = tunnel.endpoint,
                     health = tunnel.health(),
-                    status = certificateCause(status, tunnel)?.let { "down · $it" } ?: tunnel.statusText(),
+                    status = certificateCause(status, tunnel)?.let { "failing · $it" } ?: tunnel.statusText(),
                     facts = tunnel.facts(),
                     chart = chartOf(
                         label = "In, homelab to node",

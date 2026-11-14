@@ -417,7 +417,8 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .ansi-italic { font-style: italic; }
 .ansi-underline { text-decoration: underline; }
 
-.toasts { position: fixed; bottom: 20px; right: 20px; z-index: 20; width: min(420px, calc(100vw - 40px)); display: grid; gap: 8px; }
+/* Bottom left, above the state of the last pass in the menu. The Inspector and the page actions are on the right. */
+.toasts { position: fixed; bottom: 190px; left: 12px; z-index: var(--z-toast); width: min(380px, calc(100vw - 24px)); display: grid; gap: 8px; }
 .toast {
   position: relative; overflow: hidden; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
   padding: 10px 8px 10px 12px; min-height: 52px; box-sizing: border-box;
@@ -453,7 +454,6 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 @keyframes toast-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 /* With the Inspector's column open the stack sits just left of it. */
-.toasts.beside-inspector { right: calc(var(--inspector-width) + 20px); width: min(400px, calc(100vw - var(--inspector-width) - 40px)); }
 /* In the drawer and the sheet the stack rises from just above the action bar. */
 .inspector-toasts { position: relative; height: 0; z-index: 4; }
 .inspector-toasts .toasts { position: absolute; left: 12px; right: 12px; bottom: 10px; width: auto; }
@@ -543,6 +543,7 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .cert-warning { margin: 0 0 10px; padding: 8px 10px; border: 1px solid #5C4A1E; border-radius: var(--radius); background: #1C1810; color: var(--amber); font-size: 12.5px; line-height: 1.5; }
 table.data tr.selected td { background: #1A1650; }
 /* The row that the Inspector shows. */
+.fleet-row:focus-visible, .matrix-row:focus-visible { outline-offset: -2px; }
 .fleet-row.selected td, .matrix-row.selected td, .matrix-row.selected td.matrix-host { background: #1A1650; }
 .record-set.selected, .log-entry.selected { background: #1A1650; }
 .edge-card.selected { border-color: var(--violet); }
@@ -712,7 +713,6 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .nav { height: 100%; overscroll-behavior: contain; }
   /* The rows keep their height: an auto row with a clipped item would shrink to nothing in a page that scrolls. */
   .page { height: 100%; overflow-y: auto; overscroll-behavior: contain; grid-auto-rows: max-content; }
-  .inspector-column { position: static; height: 100%; }
 }
 
 /* ---------------------------------------------------------------- terminal */
@@ -795,9 +795,10 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 
 /* ---------------------------------------------------------------- inspector */
 .inspector { display: flex; flex-direction: column; min-height: 0; }
+/* Desktops: a drawer over the right of the page. It has no backdrop, so the list stays in use. */
 .inspector-column {
-  width: var(--inspector-width); flex: none; position: sticky; top: 0; height: 100vh;
-  border-left: 1px solid var(--rule); background: var(--ground);
+  width: var(--inspector-width); position: fixed; top: 0; right: 0; bottom: 0; z-index: var(--z-inspector);
+  border-left: 1px solid var(--rule); background: var(--ground); box-shadow: -18px 0 40px rgba(0, 0, 0, .45);
 }
 .overlay-drawer .inspector { height: 100%; max-height: inherit; }
 .overlay-sheet .inspector { overflow: hidden; }
@@ -1060,6 +1061,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .nav-label { display: none; }
   .nav-label-short { display: block; }
   .nav-count { position: absolute; top: 6px; right: 10px; }
+  .toasts { bottom: 150px; left: 8px; }
   /* The rail keeps the state of the last pass: a dot over a short text. */
   .reconcile .pass-status { flex-direction: column; gap: 4px; padding: 8px 2px; font-size: 10px; line-height: 1.3; text-align: center; }
   /* The monitor column is hidden here, so the state takes the last column. */
@@ -1115,6 +1117,7 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   /* Scrolled down: the header row folds away, and Search joins the row of sections. */
   .nav.compact .nav-head { display: none; }
   .nav.compact .nav-search { display: block; flex: none; position: sticky; left: 0; z-index: 1; padding-right: 4px; background: var(--ground); }
+  .toasts { bottom: 12px; left: 12px; right: 12px; width: auto; }
   .nav-head { justify-content: space-between; flex-direction: row; }
   .nav-head-actions { flex-direction: row; }
   .nav-head .phone-actions { display: flex; }

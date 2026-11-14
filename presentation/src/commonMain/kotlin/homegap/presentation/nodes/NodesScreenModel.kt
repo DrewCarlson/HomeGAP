@@ -9,6 +9,7 @@ import homegap.presentation.ui.ChartModel
 import homegap.presentation.ui.EmptyStateModel
 import homegap.presentation.ui.InspectorModel
 import homegap.presentation.ui.PageHeadModel
+import homegap.presentation.ui.ProblemsFilterModel
 
 /**
  * The fleet of edges and the cluster they share: the rollout strip (only while an update runs or
@@ -20,6 +21,7 @@ data class NodesScreenModel(
     override val head: PageHeadModel,
     val rollout: RolloutStripModel?,
     val fleet: List<FleetRowModel>,
+    val filter: ProblemsFilterModel,
     /** The cluster's database layer; null when the cluster is not configured. */
     val database: DatabasePanelModel?,
     val onSwitchPrimary: (memberId: String) -> Unit,

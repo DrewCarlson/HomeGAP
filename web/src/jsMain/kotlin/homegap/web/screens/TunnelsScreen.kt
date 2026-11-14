@@ -16,6 +16,7 @@ fun TunnelsScreen(
 ) {
     Figure(
         title = "Tunnels, last hour",
+        actions = { ProblemsFilter(model.filter) },
         flush = true,
     ) {
         Div({

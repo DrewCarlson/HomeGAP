@@ -338,11 +338,13 @@ private fun Matrix(matrix: MatrixModel, onOpen: (Location) -> Unit) {
                             Tr({
                                 classes("matrix-row")
                                 onClick { onOpen(row.location) }
+                                opensOnEnter { onOpen(row.location) }
                             }) {
                                 Td({ classes("matrix-host") }) {
                                     NavLink(
                                         href = HashRouter.href(row.location),
                                         onNavigate = { onOpen(row.location) },
+                                        tabStop = false,
                                     ) {
                                         Text(row.label)
                                     }
