@@ -2449,8 +2449,8 @@
 <p>With <code>status_page.enabled: true</code>, anybody can open <code>https://status.&lt;domain&gt;/</code>. The page shows:</p>
 <ul>
 <li>The node that the visitor came through. This is the node that DNS selects for the location of the visitor. The page also shows the round trip of the visitor to the homelab through this node.</li>
-<li>The state of every node: online, degraded or offline.</li>
-<li>The round trip of the visitor through each other node that is not offline.</li>
+<li>The state of every node: <strong>Healthy</strong>, <strong>Warning</strong> or <strong>Not serving</strong>.</li>
+<li>The round trip of the visitor through each other node that serves.</li>
 </ul>
 <table>
 <thead>
@@ -2461,16 +2461,16 @@
 </thead>
 <tbody>
 <tr>
-<td>Online</td>
-<td>The node works.</td>
+<td>Healthy</td>
+<td>The node works. In the API of the page, the state is <code>online</code>.</td>
 </tr>
 <tr>
-<td>Degraded</td>
-<td>The tunnel of the node is up, but a check fails or is down.</td>
+<td>Warning</td>
+<td>The tunnel of the node is up, but a check has a warning or fails. In the API, the state is <code>degraded</code>.</td>
 </tr>
 <tr>
-<td>Offline</td>
-<td>The node is paused or in removal, or its tunnel to the homelab is down. A node is also offline while all changes are paused.</td>
+<td>Not serving</td>
+<td>The node is paused or in removal, or its tunnel to the homelab is down. A node also does not serve while all changes are paused. In the API, the state is <code>offline</code>.</td>
 </tr>
 </tbody>
 </table>
