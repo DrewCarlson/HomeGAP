@@ -349,7 +349,7 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
     private fun addServiceEdges(service: ServiceStatusDto, health: Health, edges: List<ServiceNodeHealthDto>) {
         val state = if (health == Health.DOWN) "failing" else "slow"
         val where = when {
-            edges.size > 1 && edges.size == service.perNode.size -> "every edge"
+            edges.size > 1 && edges.size == service.perNode.size -> "every node"
             else -> edges.joinToString(", ") { it.nodeId }
         }
         val first = edges.first()

@@ -32,13 +32,13 @@ The box at the bottom of the menu shows the last pass, and two controls:
 - **Resync** queues a pass now.
 - **Pause** stops all changes everywhere. The dashboard asks you to confirm first. HomeGAP then only observes, and every page shows a banner with **Resume**. While changes are paused, the box offers **Run one pass**: one pass that applies changes, after which HomeGAP is paused again. A re-provision or a switch of the primary while paused asks if you want to apply just that change or resume everything.
 
-Each page starts with a headline that states the answer, for example "5 of 6 edges serve.". An edge with a warning still serves, and the headline gives the count of such edges. Under the headline, a status line shows the most important message. When there are more, **+N more** opens the other messages.
+Each page starts with a headline that states the answer, for example "5 of 6 nodes serve.". A node with a warning still serves, and the headline gives the count of such nodes. Under the headline, a status line shows the most important message. When there are more, **+N more** opens the other messages.
 
-Select a node, a service or another item to open it in the **Inspector**. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.
+Select a node, a service or another item to open it in the **Inspector**. On a desktop the Inspector is a drawer on the right that does not block the page, so you can select a different row. On a tablet it is a drawer over the page, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. When an item has more than three actions, one is a button and the others are in **More**. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.
 
 Press ⌘K, Ctrl+K or `/` to search everything: nodes, services, DNS records, tunnels, pages, actions such as **Resync now**, and on the orchestrator the log, the config keys and the secrets. The search shows the names of config keys and secrets, never their values.
 
-Actions that are risky ask first. To remove a node or a person, you type its name. After you remove a node or a person, a message with **Undo** shows for 30 seconds. A later message does not replace it. **Dismiss** removes it. A removed person stays until then, and **Undo** keeps them. **Undo** on a removed node adds it back with its config.
+Actions that are risky ask first. An action that you cannot undo, such as **Decommission**, also asks you to type the name. After you remove a node or a person, a message with **Undo** shows for 30 seconds. A later message does not replace it. **Dismiss** removes it. A removed person stays until then, and **Undo** keeps them. **Undo** on a removed node adds it back with its config.
 
 ## The pages
 
@@ -46,36 +46,36 @@ Actions that are risky ask first. To remove a node or a person, you type its nam
 
 The whole system at a glance:
 
-- The gauges: edges, tunnels, services, DNS, and in cluster mode the mesh links and the replica lag.
+- The gauges: nodes, tunnels, services, DNS, and in cluster mode the mesh links and the replica lag.
 - **Needs attention**: what is wrong now, worst first. Select an item to inspect it.
-- The network: the traffic path (homelab, tunnels, edges, names) or the map. The page remembers your choice. See [Maps and locations](maps.md).
-- Each edge's Pangolin API probe over the last hour.
-- Each service through each edge, in milliseconds.
+- The network: the traffic path (the homelab, then one row for each node with its tunnel and its names) or the map. The names in a row open the **Services** page. The page remembers your choice. See [Maps and locations](maps.md).
+- The Pangolin API probe of each node over the last hour.
+- Each service through each node, in milliseconds.
 - The system and the recent changes.
 
 <img src="../img/dashboard/overview.png" alt="The Overview page with the gauges, Needs attention and the traffic path">
 
 ### Nodes
 
-The fleet table shows each node's health, its checks, its Pangolin API probe over the last hour, its tunnel, its certificate, its stack and its drift. While a stack update runs or is held, a strip above the table shows each node's part in the rollout.
+The table shows the health of each node, its Pangolin API probe over the last hour, its tunnel and its certificate. Under the health, the table names the check that fails, the step of a job that runs (for example "writing the stack (4 of 7)") or the count of differences from the config. **All** and **Problems** filter the table. During an update, a strip above the table shows the part of each node in the rollout.
 
-Select a node to open it in the Inspector. The Inspector shows its checks, with the checks that fail at the top. Then it shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its system facts, its stack and its last 10 provisioning runs. While a job runs, the stack column shows its step, for example "writing the stack (4 of 7)". The actions on a node are **Re-provision**, **Pause** or **Resume**, **Diagnostics**, **Speed test**, **Change location** and **Remove**. **Change location** moves the node to a known city or a point on the map. Geo DNS and the maps use the new place from the next pass. After a removal, the action is **Decommission**. During a held rollout, the node also has **Retry update** and **Skip update**. See [Manage nodes](nodes.md) and [Node updates and rollback](node-updates.md).
+Select a node to open it in the Inspector. The Inspector shows its checks, with the checks that fail at the top. Then it shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its system facts, its software version, its differences from the config and its last 10 provisioning runs. The actions on a node are **Re-provision**, **Pause** or **Resume**, **Diagnostics**, **Speed test**, **Change location** and **Remove**. **Change location** moves the node to a known city or a point on the map. Geo DNS and the maps use the new place from the next pass. After a removal, the action is **Decommission**. During a held rollout, the node also has **Retry update** and **Skip update**. See [Manage nodes](nodes.md) and [Node updates and rollback](node-updates.md).
 
-**+ Add node** opens the wizard over the page. When a run fails, **Retry** runs each step again and keeps the user that the failed run made. If something blocked the new SSH connections of the orchestrator, the button shows a time, for example "Retry in 2:59". A retry before that time fails for the same reason. See [Add a node](../getting-started/add-node.md). In cluster mode, the page also has the **Cluster database** and **Cluster mesh** panels. See [Cluster mesh](../cluster/mesh.md) and [Cluster database](../cluster/database.md).
+**+ Add node** opens the wizard over the page. When a run fails, **Retry** runs each step again and keeps the user that the failed run made. If something blocked the new SSH connections of the orchestrator, the button shows a time, for example "Retry in 2:59". A retry before that time fails for the same reason. See [Add a node](../getting-started/add-node.md). In cluster mode, the page also has the **Database** and **Mesh** panels. See [Cluster mesh](../cluster/mesh.md) and [Cluster database](../cluster/database.md).
 
 <img src="../img/dashboard/nodes.png" alt="The Nodes page with the fleet table and a node in the Inspector">
 
 ### Services
 
-Each service, with its response time through each edge. Amber is slow (over 1 s). Rose is failing, with the status code. A dash means that the edge does not serve it. The orchestrator measures this on each pass with one request through each edge's proxy.
+Each service, with its response time through each node. Amber is slow (over 1 s). Rose is failing, with the status code. A dash means that the node does not serve it. The orchestrator measures this on each pass with one request through the proxy of each node.
 
-Filter by text, or show only the problems. Select a service to see how each edge serves it, how it is published and its source labels. Each service has **Pause** or **Resume**, and **Logs**, which opens the **Diagnostics** page. An `http` or `https` service also has **Open**.
+Filter by text, or show only the problems. Select a service to see how each node serves it, how it is published and its source labels. Each service has **Pause** or **Resume**, and **Logs**, which opens the **Diagnostics** page. An `http` or `https` service also has **Open**.
 
-<img src="../img/dashboard/services.png" alt="The Services page with the response time through each edge">
+<img src="../img/dashboard/services.png" alt="The Services page with the response time through each node">
 
 ### DNS
 
-The records that HomeGAP manages, grouped into record sets. The page shows the state of each member, its monitor, and if it matches the desired state. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them. The geo steering strip shows which edges answer now and which are withdrawn, and for how long. The Inspector shows when HomeGAP last changed the record set.
+The records that HomeGAP manages, grouped into record sets. A healthy record set shows as one line. A record set with a problem also shows each member, with its monitor and its state. Filter by text, or show only the problems. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them. The geo steering strip shows which nodes answer now and which are withdrawn, and for how long. The Inspector shows when HomeGAP last changed the record set.
 
 <img src="../img/dashboard/dns.png" alt="The DNS page with the record sets">
 
@@ -87,23 +87,23 @@ A tab of the **DNS** page. It shows the certificate that the nodes share, which 
 
 ### Tunnels
 
-One card for each Newt connector: its state, its process, its restarts and its throughput over the last hour. The Inspector shows the Newt version and the last times the connector stopped, with the reason. **Restart connector** stops Newt and starts it again. Traffic through that node pauses for a few seconds.
+One card for each tunnel: its state, its connector, its restarts and its throughput over the last hour. The Inspector shows the Newt version and the last times the connector stopped, with the reason. **Restart connector** stops Newt and starts it again. Traffic through that node pauses for a few seconds.
 
 <img src="../img/dashboard/tunnels.png" alt="The Tunnels page with one connector for each node and a connector in the Inspector">
 
 ### Access
 
-Who can sign in to the Pangolin apps, their invitations and their devices. The app address has a QR code for phones. Select a person to change their roles, then **Save**. An open invitation has **New link**, which makes a new invite link and stops the old one, and **Revoke**. Select a device to see when it was last seen. This page is available only in cluster mode. See [Users and devices](../cluster/access.md).
+Who can sign in to the Pangolin apps, their invitations and their devices. The address of the Pangolin app is at the end of the page. **Show QR** opens a QR code of the address for phones. Select a person to change their roles, then **Save**. An open invitation has **New link**, which makes a new invite link and stops the old one, and **Revoke**. Select a device to see when it was last seen. This page is available only in cluster mode. See [Users and devices](../cluster/access.md).
 
 ### Speed test
 
-Latency and throughput through the real traffic path. **Test all nodes** tests each node in turn on the orchestrator, so the run continues when you close the page. The gauge is white for ping, cyan for download and violet for upload. See [Speed tests](speed-tests.md).
+Latency and throughput through the real traffic path. **Test all nodes** tests each node in turn on the orchestrator, so the run continues when you close the page. The gauge is white for ping, cyan for download and violet for upload. The bars of a node scale to the next whole Gb/s over its faster direction: a node at 200 Mb/s has a scale of 1 Gb/s, and a node at 1.2 Gb/s has a scale of 2 Gb/s. See [Speed tests](speed-tests.md).
 
 <img src="../img/dashboard/speedtest.png" alt="The Speed test page with the live gauge and the results">
 
 ### Activity
 
-The reconcile log, newest first. Filter by level, domain or text. Each entry belongs to a numbered pass. Select an entry to see its details, and **Show pass #N** to see only that pass. **Load older** gets older entries. The orchestrator keeps the last 10,000 entries in its data directory, so the log continues after a restart.
+The reconcile log, newest first. Passes that change nothing show as one row with their count. Filter by level, domain or text. Each entry belongs to a numbered pass. Select an entry to see its details, and **Show pass #N** to see only that pass. **Load older** gets older entries. The orchestrator keeps the last 10,000 entries in its data directory, so the log continues after a restart.
 
 <img src="../img/dashboard/activity.png" alt="The Activity page with the reconcile log">
 
@@ -117,12 +117,11 @@ Container logs and a read-only snapshot of each node. The diagnostics bundle als
 
 The page shows:
 
-- The diff between the desired state and the actual state.
+- The differences between the desired state and the actual state.
 - Each referenced secret, as present or missing. The page never shows the values.
-- The effective desired state.
-- The config file.
+- The desired state and the config file. Each opens when you select it, and each has **Copy**.
 
-**Manage locations** opens the Locations page over it. See [Maps and locations](maps.md).
+**Locations** in the head of the page opens the Locations page over it. See [Maps and locations](maps.md).
 
 <img src="../img/dashboard/config.png" alt="The Config page with the diff and the secrets">
 
@@ -152,10 +151,10 @@ The Nodes page shows these checks:
 | --- | --- |
 | `ssh` | If the orchestrator can reach the node over SSH. |
 | `docker` | If Docker is on the node. |
-| `pangolin`, `gerbil` and `traefik` | One check for each of these containers: `running`, with its Docker health in parentheses. `starting` is degraded, and `unhealthy` is down. |
-| `tls-mgmt` and `tls-root` | The certificate that the node serves for its management host and for the root name, with the days that remain. No certificate is down. Fewer than 14 days is degraded. |
-| `gerbil-udp` | If a process listens on 51820/udp. |
-| `pangolin-api` | The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. The limit is the fastest probe of the node since the start of the orchestrator, plus 300 ms. A probe over the limit is degraded. |
+| `pangolin`, `gerbil` and `traefik` | One check for each of these containers: `running`, with its Docker health in parentheses. `starting` is a warning, and `unhealthy` is failing. |
+| `tls-mgmt` and `tls-root` | The certificate that the node serves for its management host and for the root name, with the days that remain. No certificate is failing. The certificate that HomeGAP renews is a warning when its renewal is late. A different certificate is a warning with fewer than 14 days. |
+| `gerbil-udp` | If a process listens on 51820/udp. The dashboard names it **WireGuard port**. |
+| `pangolin-api` | The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. The limit is the fastest probe of the node since the start of the orchestrator, plus 300 ms. A probe over the limit is a warning. |
 | `tunnel` | If the homelab site on the node is online, with the Newt version. |
 | `mode` | In dry run, it shows that HomeGAP does no remote access. |
 | `cluster-proxy` | In cluster mode, where HAProxy sends PostgreSQL and Valkey. See [Cluster database](../cluster/database.md#the-cluster-proxy-check). |

@@ -12,7 +12,6 @@ import org.jetbrains.compose.web.attributes.ATarget
 import org.jetbrains.compose.web.attributes.target
 import org.jetbrains.compose.web.dom.*
 
-private const val TUNNEL_PATH = "curl on the node → its own :443 → WireGuard tunnel → homelab proxy"
 
 private val DISABLED = BannerModel(
     BannerKind.Info,
@@ -20,9 +19,7 @@ private val DISABLED = BannerModel(
             "orchestrator's speed test port in your homelab proxy, and restart the orchestrator.",
 )
 
-private const val DEVICE_HELP = "The auto link lets DNS pick the node for the device's location; that node " +
-        "answers it and tells the page which node it is, so the result is attributed to it. Anyone holding a link " +
-        "can run tests until it expires."
+private const val DEVICE_HELP = "DNS picks the node for the device. Anyone with the link can test until it expires."
 
 @Composable
 fun SpeedTestScreen(model: SpeedTestScreenModel) {

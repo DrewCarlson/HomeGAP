@@ -1,6 +1,6 @@
 # Cluster database
 
-The cluster database holds the data of the clustered Pangolin. This page tells you how the members elect a primary, how failover and switch-back work, and how to read the **Cluster database** panel.
+The cluster database holds the data of the clustered Pangolin. This page tells you how the members elect a primary, how failover and switch-back work, and how to read the **Database** panel.
 
 ## The members
 
@@ -55,7 +55,7 @@ When the homelab comes back, it joins again as a replica. It rewinds the writes 
 
 ### Make a member the primary
 
-On the **Cluster database** panel, a caught-up replica has a ⋮ menu with **Make primary…**. The dashboard asks you to confirm. This is a planned switchover. Writes stop for a second or two, and HomeGAP loses no data. If the new primary is not where the primary belongs, the switch-back returns it after the hold.
+On the **Database** panel, a caught-up replica has a ⋮ menu with **Make primary…**. The dashboard asks you to confirm. This is a planned switchover. Writes stop for a second or two, and HomeGAP loses no data. If the new primary is not where the primary belongs, the switch-back returns it after the hold.
 
 The API call is `POST /api/cluster/switchover` with the body `{"to": "<member>"}`.
 
@@ -133,7 +133,7 @@ The command prints the number of tables in the dump. A number above zero and no 
     A restore replaces the contents of the database `pangolin` with the contents of the dump. You lose each change after the time of the dump.
 
 1. On the dashboard, click **Pause**. HomeGAP then makes no changes.
-2. In the **Cluster database** panel, make sure that the primary is on the homelab. If it is not, open the ⋮ menu of the homelab member and click **Make primary…**. In the "Changes are paused" dialog, click **Apply just this**.
+2. In the **Database** panel, make sure that the primary is on the homelab. If it is not, open the ⋮ menu of the homelab member and click **Make primary…**. In the "Changes are paused" dialog, click **Apply just this**.
 3. On each node, stop Pangolin:
     ```bash
     docker stop pangolin
@@ -193,15 +193,15 @@ The log tells you when and why the update of a node waits.
 
 ## The Cluster database panel
 
-The **Nodes** page has a **Cluster database** panel, with the title "PostgreSQL (Patroni) and Valkey".
+The **Nodes** page has a **Database** panel.
 
-The panel shows the **PostgreSQL primary**, the **Valkey primary** and the state of the **Vote**. A note tells you when a pending switch-back is due. For each member, the list shows:
+The panel shows the **Primary** and the state of the **Cluster vote**. If the database and the cache have different primaries, the panel shows the **Database primary** and the **Cache primary**. A note tells you when a pending switch-back is due. For each member, the list shows:
 
 - The id and the mesh address of the member.
 - The PostgreSQL role: `primary`, `replica`, `vote only` or `not running`.
 - The replication lag: how far the replica is behind the primary.
 
-<img src="../img/cluster/02-database-panel.png" alt="The Cluster database panel with the members and the Make primary menu">
+<img src="../img/cluster/02-database-panel.png" alt="The Database panel with the members and the Make primary menu">
 
 ### Alerts
 

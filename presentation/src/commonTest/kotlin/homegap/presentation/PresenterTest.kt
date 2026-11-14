@@ -116,7 +116,7 @@ class PresenterTest {
         val nodes = model.gauges.first { it.label == "Nodes healthy" }
         assertEquals("1 / 2", nodes.value)
         assertEquals(Health.DEGRADED, nodes.health)
-        assertEquals(Health.UNKNOWN, model.gauges.first { it.label == "DNS in sync" }.health, "nothing to count")
+        assertEquals(Health.UNKNOWN, model.gauges.first { it.label == "DNS healthy" }.health, "nothing to count")
         assertEquals(listOf("a1", "b1"), model.edges.map { it.id })
         assertEquals("1 of 2 nodes serves.", model.head.headline)
     }

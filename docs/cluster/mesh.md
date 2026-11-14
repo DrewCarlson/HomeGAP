@@ -1,6 +1,6 @@
 # Cluster mesh
 
-The cluster mesh is the private network of the cluster. This page tells you how the mesh works and how to read the **Cluster mesh** panel.
+The cluster mesh is the private network of the cluster. This page tells you how the mesh works and how to read the **Mesh** panel.
 
 ## What the mesh is
 
@@ -60,7 +60,7 @@ Every node sends probes to the homelab. The homelab has no probe container. In e
 
 ## The Cluster mesh panel
 
-The **Nodes** page has a **Cluster mesh** panel. It is a matrix: each row is a member, and each column is a peer of that member. The caption shows how many links are up. Three buttons select what the cells show: **Host probe**, **Container probe** or **Handshake**.
+The **Nodes** page has a **Mesh** panel. It is a matrix: each row is a member, and each column is a peer of that member. The note under the title shows how many links are up. Three buttons select what the cells show: **Host probe**, **Container probe** or **Handshake**.
 
 With **Host probe** or **Container probe**, a cell shows:
 

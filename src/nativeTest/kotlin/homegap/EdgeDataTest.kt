@@ -96,7 +96,7 @@ class EdgeDataTest {
         val down = ServiceNodeHealthDto(nodeId = "a1", health = Health.DOWN, detail = "no answer", code = 0)
         val everywhere = snapshot(1_000).copy(services = listOf(service(down, down.copy(nodeId = "b1"))))
         val item = attentionItems(everywhere, emptyMap()).single()
-        assertEquals("git.example.net failing on every edge", item.title)
+        assertEquals("git.example.net failing on every node", item.title)
         assertEquals("no answer", item.detail)
 
         val oneEdge = snapshot(1_000).copy(services = listOf(service(down, ServiceNodeHealthDto("b1", Health.OK))))

@@ -124,9 +124,9 @@ class OverviewScreenPresenter(
 
     private fun gauges(status: StatusSnapshot): List<GaugeModel> = buildList {
         add(ratio("Nodes healthy", status.nodes.count { it.health == Health.OK }, status.nodes.size))
-        add(ratio("Tunnels up", status.tunnels.count { it.up }, status.tunnels.size))
-        add(ratio("Services up", status.services.count { it.reachable() }, status.services.size))
-        add(ratio("DNS in sync", status.dns.count { it.inSync }, status.dns.size))
+        add(ratio("Tunnels healthy", status.tunnels.count { it.up }, status.tunnels.size))
+        add(ratio("Services healthy", status.services.count { it.reachable() }, status.services.size))
+        add(ratio("DNS healthy", status.dns.count { it.inSync }, status.dns.size))
         status.mesh?.let { mesh ->
             val links = mesh.members.flatMap { it.peers }
             val up = links.count { peer -> peer.probe?.let { it.rttMs != null } ?: (peer.lastHandshakeAt != null) }
@@ -261,7 +261,7 @@ class OverviewScreenPresenter(
         status.lastReconcile?.let { pass ->
             add(FactRow("Reconcile", "last pass ${ago(pass.finishedAt, now)} · ${plural(pass.changes, "change")}"))
         }
-        add(FactRow("DNS", "${status.dns.count { it.inSync }} of ${status.dns.size} records in sync"))
+        add(FactRow("DNS", "${status.dns.count { it.inSync }} of ${status.dns.size} records healthy"))
         add(FactRow("Version", "${status.project} · ${status.version}"))
     }
 

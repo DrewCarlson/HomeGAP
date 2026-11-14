@@ -64,7 +64,7 @@ With `HOMEGAP_DEBUG=1`, the orchestrator prints stack traces for fatal errors.
 | The tunnel of a new node stays down. | The node waits for an order with its management name. The **Certificates** tab shows the order. |
 | Downloads over long paths are slow. | See [Performance](performance.md). |
 | `cluster-proxy` is yellow or red. | See [Cluster database](../cluster/database.md#the-cluster-proxy-check). |
-| A handshake is missing in the **Cluster mesh** panel. | The firewall of the provider must open `cluster.mesh.port`/udp. |
+| A handshake is missing in the **Mesh** panel. | The firewall of the provider must open `cluster.mesh.port`/udp. |
 | A private name returns 403 on the VPN. | See [Client addresses and private-only services](../services/client-addresses.md#troubleshooting). |
 | The orchestrator stops at the start with a `homegap: ...` error. | The config is not valid. Run `homegap validate`. See [Configuration](../configuration/index.md#check-the-file). |
 
