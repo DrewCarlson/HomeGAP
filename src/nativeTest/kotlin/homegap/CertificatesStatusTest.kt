@@ -334,7 +334,7 @@ class CertificatesStatusTest {
             contact = "admin@test.example.net",
             probes = probes,
             reachable = probes.mapValues { true },
-            caaLive = listOf("0 issue \"letsencrypt.org; validationmethods=dns-01\""),
+            caaLive = mapOf("test.example.net" to listOf("0 issue \"letsencrypt.org; validationmethods=dns-01\"")),
             nowMs = now * 1000,
         ),
     )

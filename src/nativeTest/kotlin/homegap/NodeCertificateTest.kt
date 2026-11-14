@@ -194,7 +194,7 @@ class NodeCertificateTest {
     @Test
     fun theMaintenancePageLabelNeedsTerminateMode() {
         fun parse(vararg labels: Pair<String, String>) =
-            parseContainerLabels("id", "c", labels.toMap(), "test.example.net")
+            parseContainerLabels("id", "c", labels.toMap(), listOf("test.example.net"))
         val passthrough = parse(
             "homegap.expose" to "git.test.example.net",
             "homegap.protocol" to "https",

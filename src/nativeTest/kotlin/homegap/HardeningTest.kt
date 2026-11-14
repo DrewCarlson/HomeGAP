@@ -108,7 +108,7 @@ class HardeningTest {
             "id",
             "front",
             labels + ("homegap.expose" to "app.test.example.net"),
-            "test.example.net",
+            listOf("test.example.net"),
         )
         assertTrue(parsed.warnings.any { "homegap.traefik_api must be" in it }, parsed.warnings.toString())
     }

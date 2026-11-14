@@ -24,10 +24,16 @@ data class DesiredState(
     val services: List<ServiceSpec>,
     val labelErrors: List<LabelIssue>,
     val labelWarnings: List<LabelIssue>,
+    /** The front door of the domain of the platform. */
     val frontDoor: ServiceSpec?,
     val nodes: Map<String, NodeDesired>,
     val dns: List<DesiredDnsRecord>,
+    /** The front door of each extra domain that has one. */
+    val extraFrontDoors: List<ServiceSpec> = emptyList(),
 ) {
+    /** Each front door: the one of the platform domain first. */
+    val frontDoors: List<ServiceSpec> get() = listOfNotNull(frontDoor) + extraFrontDoors
+
     /**
      * The addresses this plan publishes for [nodeId]'s management host (its A and AAAA records),
      * the same values the DNS domain writes to Bunny.
@@ -47,7 +53,8 @@ data class NodeDesired(
     val sniRoutes: List<SniRoute>,
     /** The hostnames whose plain HTTP (:80) requests the node redirects to HTTPS. */
     val httpsRedirectHosts: List<String>,
-    val wildcardRedirectDomain: String?,
+    /** The domains whose names one label below also get that redirect. */
+    val wildcardRedirectDomains: List<String>,
     /** The raw TCP/UDP ports that the node must publish (Traefik entrypoints and firewall). */
     val rawPorts: List<RawPort>,
     val healthResourceNiceId: String?,
@@ -192,7 +199,7 @@ object Planner {
         val parsed = mutableListOf<ServiceSpec>()
 
         for (container in containers.sortedBy { it.name }) {
-            val result = parseContainerLabels(container.id, container.name, container.labels, config.domain)
+            val result = parseContainerLabels(container.id, container.name, container.labels, config.serviceDomains)
             result.errors.forEach { errors += LabelIssue(container.name, it) }
             result.warnings.forEach { resolver.warnings += LabelIssue(container.name, it) }
             for (spec in result.specs) {
@@ -202,20 +209,37 @@ object Planner {
         }
 
         val claimed = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
-        val frontDoor = claimed.firstOrNull {
-            it.hostname == config.domain && it.access == Access.PUBLIC && !it.protocol.isRaw
-        }
-        val services = refuseCoveredPassthrough(claimed, frontDoor, errors)
+        val doors = frontDoors(config, claimed)
+        val services = doors.all.fold(claimed) { kept, door -> refuseCoveredPassthrough(kept, door, errors) }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
 
-        val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, frontDoor) }
+        val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, doors) }
         return DesiredState(
             services = services,
             labelErrors = errors,
             labelWarnings = resolver.warnings,
-            frontDoor = frontDoor,
+            frontDoor = doors.primary,
             nodes = if (config.cluster != null) sharePassthroughPorts(config, planned) else planned,
-            dns = planDns(config, activeNodes, services, frontDoor),
+            dns = planDns(config, activeNodes, services, doors),
+            extraFrontDoors = doors.extras,
+        )
+    }
+
+    /**
+     * The front doors of a plan. A front door is the public service at the root of a domain. It
+     * takes each name of that domain that has no service of its own.
+     */
+    private class FrontDoors(val primary: ServiceSpec?, val extras: List<ServiceSpec>) {
+        val all: List<ServiceSpec> = listOfNotNull(primary) + extras
+        val hostnames: Set<String> = all.map { it.hostname }.toSet()
+    }
+
+    private fun frontDoors(config: AppConfig, services: List<ServiceSpec>): FrontDoors {
+        fun doorOf(domain: String): ServiceSpec? =
+            services.firstOrNull { it.hostname == domain && it.access == Access.PUBLIC && !it.protocol.isRaw }
+        return FrontDoors(
+            primary = doorOf(config.domain),
+            extras = config.extraDomains.mapNotNull { doorOf(it.domain) },
         )
     }
 
@@ -440,10 +464,10 @@ object Planner {
      */
     private fun refuseCoveredPassthrough(
         services: List<ServiceSpec>,
-        frontDoor: ServiceSpec?,
+        frontDoor: ServiceSpec,
         errors: MutableList<LabelIssue>,
     ): List<ServiceSpec> {
-        if (frontDoor == null || !frontDoor.wildcard || frontDoor.tls != TlsMode.TERMINATE) {
+        if (!frontDoor.wildcard || frontDoor.tls != TlsMode.TERMINATE) {
             return services
         }
         val (covered, kept) = services.partition { isCoveredPassthrough(it, frontDoor) }
@@ -490,16 +514,18 @@ object Planner {
         config: AppConfig,
         node: NodeConfig,
         services: List<ServiceSpec>,
-        frontDoor: ServiceSpec?,
+        doors: FrontDoors,
     ): NodeDesired {
         val mine = services.filter { it.servesNode(node.id) }
-        val nodeFrontDoor = frontDoor?.takeIf { it.servesNode(node.id) }
-        val dedicated = mine.filter { it.access == Access.PUBLIC && it != frontDoor }
+        val nodeFrontDoor = doors.primary?.takeIf { it.servesNode(node.id) }
+        val nodeExtraDoors = doors.extras.filter { it.servesNode(node.id) }
+        val dedicated = mine.filter { it.access == Access.PUBLIC && it !in doors.all }
 
         val plan = NodePlan(config, node, PageHosts(config, node, served = nodeFrontDoor != null))
         if (nodeFrontDoor != null) {
             plan.addFrontDoor(nodeFrontDoor, dedicated)
         }
+        nodeExtraDoors.forEach { plan.addExtraFrontDoor(it, dedicated) }
         dedicated.forEach { plan.addDedicated(it) }
 
         val site = config.siteNiceId(node.id)
@@ -508,7 +534,7 @@ object Planner {
             .flatMap { privatePath(it, site) }
         return plan.build(
             // The health resource lets Bunny's port-80 monitor observe node -> tunnel -> origin.
-            healthTarget = nodeFrontDoor ?: dedicated.firstOrNull { it.isHttpLike() },
+            healthTarget = nodeFrontDoor ?: (nodeExtraDoors + dedicated).firstOrNull { it.isHttpLike() },
             privateResources = privateServices + privatePaths,
         )
     }
@@ -546,46 +572,89 @@ object Planner {
         private val rawPorts = mutableSetOf<RawPort>()
         private val passthroughKeys = mutableListOf<String>()
         private val maintenanceHosts = mutableListOf<String>()
-        private var wildcardRedirect: String? = null
+        private val wildcardRedirects = mutableListOf<String>()
 
+        /**
+         * The passthrough route of a front door. [pageHosts] are the page names of the node that
+         * the front door carries, and [excludeHosts] are the names that the node answers itself.
+         */
+        private class DoorRoute(
+            val niceId: String,
+            val name: String,
+            val pageHosts: List<String>,
+            val excludeHosts: List<String>,
+        )
+
+        /** The front door of the platform domain. It also carries the pages of the node. */
         fun addFrontDoor(frontDoor: ServiceSpec, dedicated: List<ServiceSpec>) {
-            if (frontDoor.tls == TlsMode.PASSTHROUGH && frontDoor.protocol == Protocol.HTTPS) {
-                val terminated = dedicated.filter { it.isHttpLike() && it.tls == TlsMode.TERMINATE }.map { it.hostname }
-                addPassthroughFrontDoor(frontDoor, terminated)
+            if (frontDoor.isPassthroughDoor()) {
+                val nodeHosts = listOfNotNull(managementHost, config.clientHost) + pages.shared
+                val route = DoorRoute(
+                    niceId = FRONTDOOR_TCP,
+                    name = "homegap-frontdoor",
+                    pageHosts = pages.perNode,
+                    excludeHosts = nodeHosts + terminatedHosts(dedicated),
+                )
+                addPassthroughFrontDoor(frontDoor, route)
             } else {
-                addTerminatedFrontDoor(frontDoor)
+                addTerminatedFrontDoor(frontDoor, pageHosts = pages.perNode)
+                addPageResources(frontDoor)
             }
         }
 
-        /** [terminatedHosts] are the names of the dedicated services for which the node ends TLS. */
-        private fun addPassthroughFrontDoor(frontDoor: ServiceSpec, terminatedHosts: List<String>) {
-            val nodeHosts = listOfNotNull(managementHost, config.clientHost) + pages.shared
-            passthroughKeys += FRONTDOOR_TCP
-            publicResources += passthroughResource(FRONTDOOR_TCP, frontDoor)
+        /** The front door of an extra domain. It carries only the names of its own domain. */
+        fun addExtraFrontDoor(frontDoor: ServiceSpec, dedicated: List<ServiceSpec>) {
+            if (frontDoor.isPassthroughDoor()) {
+                val route = DoorRoute(
+                    niceId = "$FRONTDOOR_TCP-${frontDoor.key}",
+                    name = "homegap-frontdoor-${frontDoor.key}",
+                    pageHosts = emptyList(),
+                    excludeHosts = terminatedHosts(dedicated).filter { it.endsWith(".${frontDoor.hostname}") },
+                )
+                addPassthroughFrontDoor(frontDoor, route)
+            } else {
+                addTerminatedFrontDoor(frontDoor, pageHosts = emptyList())
+            }
+        }
+
+        private fun ServiceSpec.isPassthroughDoor(): Boolean =
+            tls == TlsMode.PASSTHROUGH && protocol == Protocol.HTTPS
+
+        /** The names of the dedicated services for which the node ends TLS. */
+        private fun terminatedHosts(dedicated: List<ServiceSpec>): List<String> =
+            dedicated.filter { it.isHttpLike() && it.tls == TlsMode.TERMINATE }.map { it.hostname }
+
+        private fun addPassthroughFrontDoor(frontDoor: ServiceSpec, route: DoorRoute) {
+            passthroughKeys += route.niceId
+            publicResources += passthroughResource(route.niceId, frontDoor)
             sniRoutes += SniRoute(
-                name = "homegap-frontdoor",
-                resourceNiceId = FRONTDOOR_TCP,
-                exactHosts = listOf(frontDoor.hostname) + if (frontDoor.wildcard) emptyList() else pages.perNode,
+                name = route.name,
+                resourceNiceId = route.niceId,
+                exactHosts = listOf(frontDoor.hostname) + if (frontDoor.wildcard) emptyList() else route.pageHosts,
                 wildcardOf = if (frontDoor.wildcard) frontDoor.hostname else null,
-                excludeHosts = (nodeHosts + terminatedHosts).distinct().sorted(),
+                excludeHosts = route.excludeHosts.distinct().sorted(),
                 priority = FRONTDOOR_SNI_PRIORITY,
             )
             redirectHosts += frontDoor.hostname
             if (frontDoor.wildcard) {
-                wildcardRedirect = frontDoor.hostname
+                wildcardRedirects += frontDoor.hostname
             }
         }
 
-        private fun addTerminatedFrontDoor(frontDoor: ServiceSpec) {
+        private fun addTerminatedFrontDoor(frontDoor: ServiceSpec, pageHosts: List<String>) {
             val hostname = frontDoor.hostname
             if (frontDoor.maintenancePage) {
                 maintenanceHosts += hostname
-                maintenanceHosts += if (frontDoor.wildcard) listOf("*.$hostname") else pages.perNode
+                maintenanceHosts += if (frontDoor.wildcard) listOf("*.$hostname") else pageHosts
             }
             publicResources += httpResource(NICE_PREFIX + frontDoor.key, frontDoor, hostname)
             if (frontDoor.wildcard) {
                 publicResources += httpResource(NICE_PREFIX + "wildcard-" + frontDoor.key, frontDoor, "*.$hostname")
             }
+        }
+
+        /** The speed test and the status page of the node, which go to the homelab through [frontDoor]. */
+        private fun addPageResources(frontDoor: ServiceSpec) {
             if (pages.speedtestNode != null) {
                 publicResources += openResource(perNode(config, SPEEDTEST, node.id), frontDoor, pages.speedtestNode)
             }
@@ -667,7 +736,7 @@ object Planner {
                 privateResources = privateResources.sortedBy { it.niceId },
                 sniRoutes = sniRoutes.sortedBy { it.name },
                 httpsRedirectHosts = redirectHosts.distinct().sorted(),
-                wildcardRedirectDomain = wildcardRedirect,
+                wildcardRedirectDomains = wildcardRedirects.sorted(),
                 rawPorts = rawPorts.sorted(),
                 healthResourceNiceId = health?.niceId,
                 healthPath = (healthTarget?.healthcheck as? HealthCheck.Http)?.path ?: "/",
@@ -792,24 +861,26 @@ object Planner {
         config: AppConfig,
         nodes: List<NodeConfig>,
         services: List<ServiceSpec>,
-        frontDoor: ServiceSpec?,
+        doors: FrontDoors,
     ): List<DesiredDnsRecord> {
         val domain = config.domain
         val plan = DnsPlan(config)
+        val frontDoor = doors.primary
         val frontDoorNodes = if (frontDoor == null) emptyList() else nodes.filter { frontDoor.servesNode(it.id) }
 
         if (config.acme.caa) {
-            plan.addCaaRecords()
+            config.serviceDomains.forEach { plan.addCaaRecords(it) }
         }
-        if (frontDoor != null) {
-            plan.addGeoSet(frontDoor.hostname, "root", frontDoorNodes)
-            if (frontDoor.wildcard) {
-                plan.addGeoSet("*.${frontDoor.hostname}", "wildcard", frontDoorNodes)
+        for (door in doors.all) {
+            val doorNodes = nodes.filter { door.servesNode(it.id) }
+            plan.addGeoSet(door.hostname, "root", doorNodes)
+            if (door.wildcard) {
+                plan.addGeoSet("*.${door.hostname}", "wildcard", doorNodes)
             }
         }
         // One record set per hostname, however many services share it (raw ports on one name), on
-        // every node that serves any of them. The front door's own name already has its set.
-        services.filter { it != frontDoor && it.access == Access.PUBLIC && it.hostname != frontDoor?.hostname }
+        // every node that serves any of them. The own name of a front door already has its set.
+        services.filter { it !in doors.all && it.access == Access.PUBLIC && it.hostname !in doors.hostnames }
             .groupBy { it.hostname }
             .forEach { (host, group) ->
                 val eligible = nodes.filter { node -> group.any { it.servesNode(node.id) } }
@@ -896,12 +967,12 @@ object Planner {
          * challenge. A node has no DNS key, so it cannot order a certificate for a name under the
          * domain.
          */
-        fun addCaaRecords() {
+        fun addCaaRecords(domain: String) {
             val value = "${config.acme.caaIssuer}; validationmethods=dns-01"
             for (tag in listOf("issue", "issuewild")) {
                 records += DesiredDnsRecord(
-                    name = relativeName(config.domain),
-                    fqdn = config.domain,
+                    name = relativeName(domain),
+                    fqdn = domain,
                     type = "CAA",
                     value = value,
                     nodeId = CAA_OWNER,
@@ -921,7 +992,7 @@ object Planner {
         private fun addressRecords(node: NodeConfig): List<Pair<String, String>> =
             listOfNotNull(node.ipv4()?.let { "A" to it }, node.publicIpv6?.let { "AAAA" to it })
 
-        private fun relativeName(fqdn: String) = config.bunny.relativeName(fqdn)
+        private fun relativeName(fqdn: String) = config.relativeName(fqdn)
     }
 
     // ------------------------------------------------------------------ passthrough ports

@@ -51,9 +51,9 @@ class ConfigTest {
 
     @Test
     fun aNameIsRelativeToTheZone() {
-        val bunny = testConfig().bunny
-        assertEquals("test", bunny.relativeName("test.example.net"))
-        assertEquals("*.test", bunny.relativeName("*.test.example.net"))
-        assertEquals("", bunny.relativeName("example.net"))
+        val config = testConfig()
+        assertEquals("test", config.relativeName("test.example.net"))
+        assertEquals("*.test", config.relativeName("*.test.example.net"))
+        assertEquals("", config.relativeName("example.net"))
     }
 }

@@ -130,7 +130,10 @@ data class ControllerState(
     val version: Int = 1,
     val nodes: Map<String, NodeState> = emptyMap(),
     val pauses: Pauses = Pauses(),
+    /** The id of the Bunny zone of the platform domain. */
     val bunnyZoneId: Long? = null,
+    /** The id of the Bunny zone of each extra domain, by the name of the zone. */
+    val bunnyZoneIds: Map<String, Long> = emptyMap(),
     val clusterPangolin: ClusterPangolinState? = null,
 )
 

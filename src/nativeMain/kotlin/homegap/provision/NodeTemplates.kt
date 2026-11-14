@@ -2,6 +2,7 @@ package homegap.provision
 
 import homegap.config.AppConfig
 import homegap.config.NodeConfig
+import homegap.discovery.slug
 import homegap.model.NodeDesired
 import homegap.model.RawPort
 import homegap.model.SniRoute
@@ -404,6 +405,12 @@ object NodeTemplates {
                     // No resolver: a node orders no certificate. See [homegap.acme.NodeCertificate].
                     put("cert_resolver", NO_RESOLVER)
                 }
+                for (extra in config.extraDomains) {
+                    putJsonObject("homegap-${slug(extra.domain)}") {
+                        put("base_domain", extra.domain)
+                        put("cert_resolver", NO_RESOLVER)
+                    }
+                }
             }
             if (cluster != null) {
                 putJsonObject("postgres") {
@@ -774,7 +781,7 @@ object NodeTemplates {
     private fun JsonObjectBuilder.httpsRedirectRouter(desired: NodeDesired) {
         val hosts = buildList {
             desired.httpsRedirectHosts.forEach { add("Host(`$it`)") }
-            desired.wildcardRedirectDomain?.let { add("HostRegexp(`${wildcardRegex(it)}`)") }
+            desired.wildcardRedirectDomains.forEach { add("HostRegexp(`${wildcardRegex(it)}`)") }
         }
         if (hosts.isNotEmpty()) {
             redirectRouter("homegap-https-redirect", hosts.joinToString(" || "), HTTPS_REDIRECT_PRIORITY)

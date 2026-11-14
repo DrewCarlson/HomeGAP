@@ -75,11 +75,31 @@ object ConfigLoader {
         if (!(domain == zone || domain.endsWith(".$zone"))) {
             add("bunny.zone ($zone) must equal or be a parent of domain ($domain)")
         }
+        addAll(extraDomainErrors(config))
         if (config.bunny.routing !in BUNNY_ROUTINGS) {
             add("bunny.routing must be geolocation|latency|none")
         }
         if (config.bunny.monitor !in BUNNY_MONITORS) {
             add("bunny.monitor must be http|ping|none")
+        }
+    }
+
+    private fun extraDomainErrors(config: AppConfig): List<String> = buildList {
+        val seen = mutableListOf(config.domain)
+        for (extra in config.extraDomains) {
+            val domain = extra.domain
+            val zone = extra.zoneName
+            if (!PLAIN_HOSTNAME.matches(domain)) {
+                add("extra_domains: '$domain' must be a plain hostname in lower case")
+            }
+            if (!(domain == zone || domain.endsWith(".$zone"))) {
+                add("extra_domains: the zone ($zone) must equal or be a parent of the domain ($domain)")
+            }
+            val overlap = seen.firstOrNull { domain == it || domain.endsWith(".$it") || it.endsWith(".$domain") }
+            if (overlap != null) {
+                add("extra_domains: '$domain' overlaps the domain '$overlap'")
+            }
+            seen += domain
         }
     }
 
@@ -290,6 +310,7 @@ object ConfigLoader {
     /** The first label of the hostname of the speed test and of the status page. */
     private val HOST_LABEL = Regex("^[a-z][a-z0-9]{0,20}$")
     private val CAA_ISSUER = Regex("^[a-z0-9.-]+$")
+    private val PLAIN_HOSTNAME = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 
     val NODE_ID = Regex("^[a-z][a-z0-9-]{0,30}$")
 

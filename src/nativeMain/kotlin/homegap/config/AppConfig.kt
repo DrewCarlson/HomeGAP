@@ -19,6 +19,8 @@ data class AppConfig(
     val project: String = "home-gap",
     /** The base domain that the platform serves, for example `example.net`. */
     val domain: String,
+    /** More domains that services can use. The names of the platform itself stay under [domain]. */
+    @SerialName("extra_domains") val extraDomains: List<ExtraDomain> = emptyList(),
     @SerialName("data_dir") val dataDir: String = "/data",
     val reconcile: ReconcileConfig = ReconcileConfig(),
     val bunny: BunnyConfig,
@@ -36,6 +38,30 @@ data class AppConfig(
 ) {
     /** The public listener (speed test and status page) runs when either is on. */
     val publicOriginEnabled: Boolean get() = speedtest.enabled || statusPage.enabled
+
+    /** Each domain that a service can use: [domain] first, then the extra domains. */
+    val serviceDomains: List<String> get() = listOf(domain) + extraDomains.map { it.domain }
+
+    /** Each Bunny zone that HomeGAP writes: the zone of [domain] first. */
+    val zones: List<String> get() = (listOf(bunny.zone) + extraDomains.map { it.zoneName }).distinct()
+
+    /** The service domain that [fqdn] is in, or null for a name outside all of them. */
+    fun serviceDomainOf(fqdn: String): String? {
+        val name = fqdn.removePrefix("*.").lowercase()
+        return serviceDomains.firstOrNull { name == it || name.endsWith(".$it") }
+    }
+
+    /** The Bunny zone that holds the records of [fqdn]. A name outside the extra domains is in the main zone. */
+    fun zoneOf(fqdn: String): String {
+        val domain = serviceDomainOf(fqdn)
+        return extraDomains.firstOrNull { it.domain == domain }?.zoneName ?: bunny.zone
+    }
+
+    /** The name of [fqdn] in its zone, as Bunny stores it. The zone itself has the empty name. */
+    fun relativeName(fqdn: String): String {
+        val zone = zoneOf(fqdn)
+        return if (fqdn == zone) "" else fqdn.removeSuffix(".$zone")
+    }
 
     /** The cluster's client address (see [ClusterConfig.clientHostname]), or null without a cluster. */
     val clientHost: String? get() = cluster?.let { "${it.clientHostname}.$domain" }
@@ -84,6 +110,16 @@ data class ReconcileConfig(
     val removalGraceDuration: Duration get() = parseDuration(removalGrace)
 }
 
+/** A domain for services, in addition to [AppConfig.domain]. Its zone uses the same Bunny account. */
+@Serializable
+data class ExtraDomain(
+    val domain: String,
+    /** The Bunny DNS zone, equal to or a parent of [domain]. The default is [domain]. */
+    val zone: String? = null,
+) {
+    val zoneName: String get() = zone ?: domain
+}
+
 @Serializable
 data class BunnyConfig(
     /** The Bunny DNS zone, equal to or a parent of [AppConfig.domain]. */
@@ -98,9 +134,6 @@ data class BunnyConfig(
     @SerialName("api_url") val apiUrl: String = "https://api.bunny.net",
 ) {
     val apiKey: SecretRef get() = SecretRef("bunny.api_key", envVar = apiKeyEnv, file = apiKeyFile)
-
-    /** The name of [fqdn] in the zone, as Bunny stores it. The zone itself has the empty name. */
-    fun relativeName(fqdn: String): String = if (fqdn == zone) "" else fqdn.removeSuffix(".$zone")
 }
 
 @Serializable

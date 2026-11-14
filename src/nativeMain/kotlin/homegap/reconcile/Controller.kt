@@ -194,7 +194,10 @@ class Controller(
     @Volatile private var certProbes: Map<String, CertificateStatus.NodeProbes> = emptyMap()
 
     /** The CAA records of the domain from the last zone read. Null before one. */
-    @Volatile private var caaLive: List<String>? = null
+    @Volatile private var caaLive: Map<String, List<String>>? = null
+
+    /** The error of each Bunny zone that the last DNS sync did not reach. */
+    @Volatile private var dnsZoneErrors: Map<String, String> = emptyMap()
     private val discoveryMemory by lazy { DiscoveryMemory("${config.dataDir}/discovery.json") }
     private val heldContainers = mutableSetOf<String>()
 
@@ -534,15 +537,13 @@ class Controller(
             val plan = Planner.plan(cfg, known.orEmpty(), pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
-                frontDoorAddresses = plan.frontDoor
-                    ?.let { frontDoor -> containers.firstOrNull { it.name == frontDoor.containerName } }
-                    ?.networkSettings
-                    ?.networks
-                    ?.values
-                    ?.map { it.ipAddress }
-                    ?.filter { it.isNotBlank() }
-                    ?.toSet()
-                    .orEmpty()
+                val doorContainers = plan.frontDoors.map { it.containerName }.toSet()
+                frontDoorAddresses = containers.asSequence()
+                    .filter { it.name in doorContainers }
+                    .flatMap { it.networkSettings.networks.values }
+                    .map { it.ipAddress }
+                    .filter { it.isNotBlank() }
+                    .toSet()
                 plan.labelErrors.forEach { log.error("discovery", it.message, it.container) }
                 plan.labelWarnings.forEach { log.warn("discovery", it.message, it.container) }
                 if (dryRun) logDesired(plan)
@@ -836,7 +837,9 @@ class Controller(
                 if (!fresh || trigger.contains("dashboard")) {
                     val dnsRec = DnsReconciler(ctx, bunny, nameserverCheck)
                     val observed = runDomain("dns", null) { dnsRec.reconcile(records, pausedKeys) }
-                    dnsRec.lastCaa?.let { caaLive = it }
+                    // A zone that failed keeps the CAA records of its last read.
+                    caaLive = caaLive.orEmpty() + dnsRec.lastCaa
+                    dnsZoneErrors = dnsRec.lastZoneErrors
                     if (observed != null) {
                         dnsObs = observed
                         if (bunny != null) {
@@ -956,8 +959,10 @@ class Controller(
         plan.dns.filter { record ->
             val have = present[record.nodeId] ?: return@filter true
             val resources = plan.nodes[record.nodeId]?.publicResources ?: return@filter true
-            val frontDoorKey = plan.frontDoor?.key
-            val frontDoorWildcard = plan.frontDoor?.let { "*.${it.hostname}" }
+            // The front door of the domain of the record. A root or wildcard record has no other source.
+            val frontDoor = plan.frontDoors.firstOrNull { it.hostname == record.fqdn.removePrefix("*.") }
+            val frontDoorKey = frontDoor?.key
+            val frontDoorWildcard = frontDoor?.let { "*.${it.hostname}" }
             val needed = when {
                 record.purpose == "management" -> emptyList()
                 record.purpose == "root" -> resources.filter {
@@ -1024,7 +1029,7 @@ class Controller(
             "${it.hostname}(${it.protocol.label}/${it.tls.label}/${it.access.label})"
         }
         log.info("discovery", "[dry-run] ${plan.services.size} labeled service(s): $services")
-        plan.frontDoor?.let {
+        plan.frontDoors.forEach {
             val wildcard = if (it.wildcard) " + *.${it.hostname}" else ""
             log.info(
                 "discovery",
@@ -1309,6 +1314,7 @@ class Controller(
             dryRun = dryRun,
             project = cfg.project,
             domain = cfg.domain,
+            domains = domainStatus(cfg, plan),
             paused = stored.pauses.global,
             lastReconcile = lastSummary,
             reconciling = reconciling,
@@ -1427,7 +1433,7 @@ class Controller(
         auth = service.auth.label,
         regions = service.regions ?: cfg.nodes.map { it.id },
         kind = when {
-            service == plan.frontDoor -> "front-door"
+            service in plan.frontDoors -> "front-door"
             service.access.label == "private" -> "private"
             service.protocol.isRaw -> "raw"
             else -> "dedicated"
@@ -1442,11 +1448,21 @@ class Controller(
         },
     )
 
+    private fun domainStatus(cfg: AppConfig, plan: DesiredState?): List<DomainStatusDto> =
+        cfg.serviceDomains.map { domain ->
+            val zone = cfg.zoneOf(domain)
+            DomainStatusDto(
+                domain = domain,
+                zone = zone,
+                frontDoor = plan?.frontDoors?.firstOrNull { it.hostname == domain }?.containerName,
+                zoneError = dnsZoneErrors[zone],
+            )
+        }
+
     private fun dnsRecordStatus(observed: DnsReconciler.Observed): DnsRecordStatusDto {
         val record = observed.record
-        val name = observed.desired?.fqdn ?: record.name
         return DnsRecordStatusDto(
-            name = name,
+            name = observed.fqdn,
             type = record.typeName,
             value = record.tag?.takeIf { it.isNotEmpty() }?.let { "$it ${record.value}" } ?: record.value,
             nodeId = observed.desired?.nodeId,
@@ -1459,7 +1475,8 @@ class Controller(
             monitorStatus = BunnyRecord.MONITOR_STATUS.getOrElse(record.monitorStatus) { "unknown" },
             inSync = observed.inSync,
             diff = observed.diff,
-            changedAt = log.lastRecordChange(name),
+            // The log names a record that nothing wants by its name in the zone.
+            changedAt = log.lastRecordChange(observed.desired?.fqdn ?: record.name),
         )
     }
 

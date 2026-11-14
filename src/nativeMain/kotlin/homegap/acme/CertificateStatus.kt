@@ -44,7 +44,7 @@ object CertificateStatus {
         /** False for a node that did not answer the last pass: its probes are from before. */
         val reachable: Map<String, Boolean>,
         /** The CAA records of the domain in DNS, as `flags tag "value"`. Null before a DNS pass. */
-        val caaLive: List<String>?,
+        val caaLive: Map<String, List<String>>?,
         val nowMs: Long,
     )
 
@@ -205,19 +205,27 @@ object CertificateStatus {
         )
 
         private fun caa(): CaaStatusDto {
-            val desired = when {
+            val domains = config.serviceDomains
+            val wanted = when {
                 config.acme.caa ->
                     listOf("issue", "issuewild").map { "0 $it \"${config.acme.caaIssuer}; validationmethods=dns-01\"" }
                 else -> emptyList()
             }
-            val live = inputs.caaLive
+            // With extra domains, each record names its domain.
+            fun shown(domain: String, record: String) = if (domains.size > 1) "$domain $record" else record
+            val read = inputs.caaLive.orEmpty()
+            val desired = domains.flatMap { domain -> wanted.map { shown(domain, it) } }
+            val live = domains.flatMap { domain -> read[domain].orEmpty().map { shown(domain, it) } }
+            val missing = domains.filter { it in read }.flatMap { domain ->
+                wanted.filter { it !in read.getValue(domain) }.map { shown(domain, it) }
+            }
             return CaaStatusDto(
                 enabled = config.acme.caa,
                 desired = desired,
-                live = live.orEmpty(),
-                missing = if (live == null) emptyList() else desired.filter { it !in live },
-                foreign = live.orEmpty().filter { it !in desired },
-                known = live != null,
+                live = live,
+                missing = missing,
+                foreign = live.filter { it !in desired },
+                known = domains.all { it in read },
             )
         }
     }

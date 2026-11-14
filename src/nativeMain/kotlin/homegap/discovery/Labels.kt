@@ -263,8 +263,8 @@ fun parseLabels(
     containerId: String,
     containerName: String,
     labels: Map<String, String>,
-    domain: String,
-): LabelParseResult = LabelParser(containerName, labels, domain).parse(containerId)
+    domains: List<String>,
+): LabelParseResult = LabelParser(containerName, labels, domains).parse(containerId)
 
 /**
  * Reads the labels of one service. The order of the steps in [parse] is the order of the errors
@@ -273,7 +273,8 @@ fun parseLabels(
 private class LabelParser(
     private val containerName: String,
     private val labels: Map<String, String>,
-    private val domain: String,
+    /** The domains that a service can use. The first one is the domain of the platform. */
+    private val domains: List<String>,
 ) {
     private val errors = mutableListOf<String>()
     private val warnings = mutableListOf<String>()
@@ -409,8 +410,12 @@ private class LabelParser(
         if (!HOSTNAME.matches(expose)) {
             errors += "${Labels.EXPOSE} '$expose' is not a valid hostname"
         }
-        if (!(expose == domain || expose.endsWith(".$domain"))) {
-            errors += "${Labels.EXPOSE} '$expose' is outside the managed domain '$domain'"
+        if (domains.none { expose == it || expose.endsWith(".$it") }) {
+            val managed = when (domains.size) {
+                1 -> "the managed domain '${domains.single()}'"
+                else -> "the managed domains " + domains.joinToString { "'$it'" }
+            }
+            errors += "${Labels.EXPOSE} '$expose' is outside $managed"
         }
     }
 
@@ -569,7 +574,7 @@ private class LabelParser(
         if (auth == AuthMode.PIN && labels[Labels.PIN_ENV].isNullOrBlank()) {
             errors += "${Labels.AUTH}=pin requires ${Labels.PIN_ENV}"
         }
-        if (wildcard && expose != domain) {
+        if (wildcard && expose !in domains) {
             errors += "${Labels.WILDCARD}=true is only valid when ${Labels.EXPOSE} is the root domain"
         }
         if (publicPort != null && !protocol.isRaw) {
@@ -670,13 +675,13 @@ fun parseContainerLabels(
     containerId: String,
     containerName: String,
     labels: Map<String, String>,
-    domain: String,
+    domains: List<String>,
 ): ContainerParseResult {
     val specs = mutableListOf<ServiceSpec>()
     val errors = mutableListOf<String>()
     val warnings = mutableListOf<String>()
     val topLabels = labels.filterKeys { !it.startsWith(Labels.SERVICES_PREFIX) }
-    val topResult = parseLabels(containerId, containerName, topLabels, domain)
+    val topResult = parseLabels(containerId, containerName, topLabels, domains)
     topResult.spec?.let { specs += it }
     errors += topResult.errors
     warnings += topResult.warnings
@@ -692,7 +697,7 @@ fun parseContainerLabels(
             continue
         }
         val merged = topLabels.filterKeys { it in Labels.INHERITED } + ownLabels
-        val result = parseLabels(containerId, containerName, merged, domain)
+        val result = parseLabels(containerId, containerName, merged, domains)
         result.errors.forEach { errors += "$where: $it" }
         result.warnings.forEach { warnings += "$where: ${it.replace("'homegap.", "'${Labels.SERVICES_PREFIX}$name.")}" }
         result.spec?.let { specs += it.copy(name = name) }

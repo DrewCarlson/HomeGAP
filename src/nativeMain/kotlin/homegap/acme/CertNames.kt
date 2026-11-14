@@ -37,7 +37,8 @@ object CertNames {
             desiredNode.publicResources.forEach { resource ->
                 val name = resource.fullDomain
                 if (resource.mode == ResourceMode.HTTP && resource.ssl && name != null) {
-                    val reason = if (resource.serviceKey == desired.frontDoor?.key) "frontdoor" else "service"
+                    val ofFrontDoor = desired.frontDoors.any { it.key == resource.serviceKey }
+                    val reason = if (ofFrontDoor) "frontdoor" else "service"
                     add(name, reason, resource.serviceKey)
                 }
             }

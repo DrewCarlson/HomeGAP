@@ -9,10 +9,10 @@ import kotlin.test.*
 /** Port lists (`7881/tcp,7882/udp`), `tcp+udp`, and several named services on one container. */
 class PortListsTest {
     private fun parse(vararg labels: Pair<String, String>) =
-        parseLabels("id", "svc", labels.toMap(), "test.example.net")
+        parseLabels("id", "svc", labels.toMap(), listOf("test.example.net"))
 
     private fun parseAll(vararg labels: Pair<String, String>) =
-        parseContainerLabels("id", "svc", labels.toMap(), "test.example.net")
+        parseContainerLabels("id", "svc", labels.toMap(), listOf("test.example.net"))
 
     private fun portErrors(ports: String) =
         parse("homegap.expose" to "x.test.example.net", "homegap.port" to ports).errors
@@ -272,7 +272,7 @@ class PortListsTest {
             "homegap.services.web.traefik_api" to "http://other:9000",
         )
         assertEquals(listOf("http://other:9000"), traefikApiUrls("front", labels))
-        val parsed = parseContainerLabels("id", "front", labels, "test.example.net")
+        val parsed = parseContainerLabels("id", "front", labels, listOf("test.example.net"))
         assertEquals("http://other:9000", parsed.specs.single { it.name == "web" }.traefikApi)
         assertEquals(emptyList(), traefikApiUrls("front", mapOf("homegap.expose" to "app.test.example.net")))
     }

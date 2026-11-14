@@ -1,5 +1,6 @@
 package homegap.acme
 
+import homegap.clients.BunnyZones
 import homegap.clients.BunnyClient
 import homegap.config.AppConfig
 import homegap.platform.Crypto
@@ -304,13 +305,10 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
     private suspend fun order(request: OrderRequest, bunny: BunnyClient): Meta {
         val config = request.config
         val names = request.names
-        val zoneId = request.ctx.state.snapshot().bunnyZoneId
-            ?: bunny.findZone(config.bunny.zone)?.id
-            ?: error("Bunny zone ${config.bunny.zone} not found")
+        val zoneIds = BunnyZones(request.ctx.state, config.bunny.zone)
         val dns = DnsChallenge(
             bunny = bunny,
-            zoneId = zoneId,
-            zone = config.bunny.zone,
+            zones = names.map { config.zoneOf(it) }.distinct().associateWith { zoneIds.id(bunny, it) },
             names = names,
             onPresent = { step("dns") },
             onCleanup = { step("validated") },

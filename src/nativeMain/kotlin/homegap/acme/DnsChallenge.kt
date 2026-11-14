@@ -11,8 +11,8 @@ import homegap.model.DesiredDnsRecord
  */
 class DnsChallenge(
     private val bunny: BunnyClient,
-    private val zoneId: Long,
-    private val zone: String,
+    /** The id of each zone that has a name of the order, by the name of the zone. */
+    private val zones: Map<String, Long>,
     names: List<String>,
     private val onPresent: () -> Unit = {},
     private val onCleanup: () -> Unit = {},
@@ -20,23 +20,27 @@ class DnsChallenge(
     private val allowed = names.map { "$LABEL.${it.removePrefix("*.")}".lowercase() }.toSet()
     private val txt = BunnyRecord.typeCode("TXT")
 
-    private fun relative(fqdn: String): String {
+    /** The id of the zone of the challenge name [fqdn], and the name in that zone. */
+    private fun place(fqdn: String): Pair<Long, String> {
         val name = fqdn.trimEnd('.').lowercase()
         require(name in allowed) { "$name is not a challenge name of this order" }
-        require(name.endsWith(".$zone")) { "$name is outside the zone $zone" }
-        return name.removeSuffix(".$zone")
+        // The longest zone wins, for a zone that is inside a different zone.
+        val zone = zones.keys.filter { name.endsWith(".$it") }.maxByOrNull { it.length }
+        requireNotNull(zone) { "$name is outside the ${zones.keys.joinToString(prefix = "zone ")}" }
+        return zones.getValue(zone) to name.removeSuffix(".$zone")
     }
 
     suspend fun present(fqdn: String, value: String) {
         require(VALUE.matches(value)) { "not a challenge value" }
-        val record = BunnyRecord(type = txt, ttl = TTL, value = value, name = relative(fqdn), comment = COMMENT)
+        val (zoneId, name) = place(fqdn)
+        val record = BunnyRecord(type = txt, ttl = TTL, value = value, name = name, comment = COMMENT)
         bunny.addRecord(zoneId, record)
         onPresent()
     }
 
     suspend fun cleanup(fqdn: String, value: String) {
-        val name = relative(fqdn)
-        owned()
+        val (zoneId, name) = place(fqdn)
+        owned(zoneId)
             .filter { it.name.equals(name, ignoreCase = true) && it.value == value }
             .forEach { bunny.deleteRecord(zoneId, it.id) }
         onCleanup()
@@ -44,10 +48,13 @@ class DnsChallenge(
 
     /** Removes each challenge record that an earlier order did not remove. */
     suspend fun sweep() {
-        owned().forEach { bunny.deleteRecord(zoneId, it.id) }
+        for (zoneId in zones.values) {
+            owned(zoneId).forEach { bunny.deleteRecord(zoneId, it.id) }
+        }
     }
 
-    private suspend fun owned() = bunny.getZone(zoneId).records.filter { it.type == txt && it.comment == COMMENT }
+    private suspend fun owned(zoneId: Long) =
+        bunny.getZone(zoneId).records.filter { it.type == txt && it.comment == COMMENT }
 
     companion object {
         const val LABEL = "_acme-challenge"

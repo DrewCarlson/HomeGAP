@@ -1,5 +1,8 @@
 project: home-gap-e2e
 domain: test.example.net
+# A second domain for services, in its own zone of the DNS mock.
+extra_domains:
+  - domain: other.example.org
 data_dir: /data
 reconcile:
   resync_interval: 30s

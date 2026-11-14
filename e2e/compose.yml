@@ -120,6 +120,36 @@ services:
       homegap.healthcheck: "/health"
     networks: [e2e]
 
+  # The front door of the extra domain: each name of other.example.org that has no service of
+  # its own. The node ends TLS for it.
+  other-door:
+    image: docker.io/traefik/whoami:v1.10
+    command: ["--name", "other-door"]
+    labels:
+      homegap.expose: "other.example.org"
+      homegap.wildcard: "true"
+      homegap.port: "80"
+    networks: [e2e]
+
+  # A dedicated service on the extra domain.
+  shop:
+    image: docker.io/traefik/whoami:v1.10
+    command: ["--name", "shop"]
+    labels:
+      homegap.expose: "shop.other.example.org"
+      homegap.port: "80"
+    networks: [e2e]
+
+  # A private service on the extra domain: only Pangolin clients reach it.
+  notes:
+    image: docker.io/traefik/whoami:v1.10
+    command: ["--name", "notes"]
+    labels:
+      homegap.expose: "notes.other.example.org"
+      homegap.port: "80"
+      homegap.access: "private"
+    networks: [e2e]
+
   # Raw TCP on its own public port.
   echo:
     image: docker.io/alpine/socat:1.8.0.1

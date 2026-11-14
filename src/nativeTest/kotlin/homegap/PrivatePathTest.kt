@@ -32,7 +32,7 @@ class PrivatePathTest {
         containerId = "id",
         containerName = "svc",
         labels = labels.toMap(),
-        domain = "test.example.net",
+        domains = listOf("test.example.net"),
     )
 
     /** The front door on the shared network and on a network only private traffic uses. */

@@ -19,11 +19,23 @@ data class DnsScreenModel(
     val filter: ProblemsFilterModel,
     /** Geo steering: which edges visitors are sent to now, from the largest geo-routed record set. */
     val steering: List<SteeringModel>,
+    /** The domains that services can use. Empty when the config has no extra domain. */
+    val domains: List<DomainRowModel> = emptyList(),
     /** The row that the Inspector shows, so the list can mark it. */
     val selected: Location? = null,
     override val inspector: InspectorModel? = null,
     override val empty: EmptyStateModel? = null,
 ) : ScreenModel
+
+/** One domain that services can use: its DNS zone, its front door and the state of the zone. */
+@Immutable
+data class DomainRowModel(
+    val domain: String,
+    val zone: String,
+    val frontDoor: String,
+    val health: Health,
+    val state: String,
+)
 
 /** One name and type, with a member per edge (geo-routed) or a single value. */
 @Immutable

@@ -5,7 +5,7 @@ import kotlin.test.*
 
 class LabelsTest {
     private fun parse(vararg labels: Pair<String, String>) =
-        parseLabels("id", "svc", labels.toMap(), "test.example.net")
+        parseLabels("id", "svc", labels.toMap(), listOf("test.example.net"))
 
     @Test
     fun notExposedReturnsNothing() {

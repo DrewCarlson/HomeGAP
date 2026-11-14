@@ -29,6 +29,25 @@ fun DnsScreen(
             Span({ classes("muted", "small") }) { Text("Visitors go to the nearest node that answers.") }
         }
     }
+    if (model.domains.isNotEmpty()) {
+        Figure(
+            title = "Domains",
+            flush = true,
+        ) {
+            DataTable(
+                headers = listOf("Domain", "DNS zone", "Front door", "State"),
+            ) {
+                model.domains.forEach { domain ->
+                    Tr {
+                        Cell("Domain", "mono", "primary-cell") { Text(domain.domain) }
+                        Cell("DNS zone", "mono") { Text(domain.zone) }
+                        Cell("Front door", "mono") { Text(domain.frontDoor) }
+                        Cell("State", domain.health.toneClass) { Text(domain.state) }
+                    }
+                }
+            }
+        }
+    }
     Div({ classes("filters") }) {
         Label(attrs = { classes("filter-field") }) {
             Icon(Icons.SEARCH, size = 14)

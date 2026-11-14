@@ -91,6 +91,19 @@ class DnsScreenPresenter(
                     )
                 }
                 .orEmpty(),
+            domains = status.domains
+                .takeIf { it.size > 1 }
+                .orEmpty()
+                .map { domain ->
+                    val error = domain.zoneError
+                    DomainRowModel(
+                        domain = domain.domain,
+                        zone = domain.zone,
+                        frontDoor = domain.frontDoor ?: "none",
+                        health = if (error == null) Health.OK else Health.DEGRADED,
+                        state = if (error == null) "healthy" else "warning · $error",
+                    )
+                },
             selected = selected?.let { Location(Route.Dns, props.selection) },
             inspector = selected?.let {
                 inspector(

@@ -42,8 +42,10 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
   names=$(docker compose exec -T "node-$id" cat /opt/homegap/config/traefik/certs/homegap.crt | openssl x509 -noout -ext subjectAltName | tr ',' '\n' | sed -n 's/.*DNS://p' | sort | tr '\n' ' ')
   echo "$names"
   case " $names" in
-    *'*'*|*" git.test.example.net "*|*" test.example.net "*|*" media.test.example.net "*) echo "FAIL: the node holds a certificate for a wildcard or a passthrough name"; exit 1 ;;
+    *'*.test.example.net'*|*" git.test.example.net "*|*" test.example.net "*|*" media.test.example.net "*) echo "FAIL: the node holds a certificate for a wildcard or a passthrough name"; exit 1 ;;
   esac
+  # The front door of the extra domain is in terminate mode, so its root and its wildcard are on the certificate.
+  case " $names" in *" *.other.example.org other.example.org "*) ;; *) echo "FAIL: the names of the extra domain are not on the certificate"; exit 1 ;; esac
   case " $names" in *" wiki.test.example.net "*) ;; *) echo "FAIL: the terminate name is not on the certificate"; exit 1 ;; esac
   echo "--- the node has no ACME account and no resolver (expect {} and 0)"
   docker compose exec -T "node-$id" sh -c 'cat /opt/homegap/config/letsencrypt/acme.json; cat /opt/homegap/config/traefik/traefik_config.yml /opt/homegap/config/traefik/dynamic/homegap-routes.yml | grep -c -i "letsencrypt\|certificatesResolvers" || true'
@@ -57,8 +59,30 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
   v sh -c "printf 'turn-udp\n' | nc -u -w3 $ip 3478; printf 'alt-udp\n' | nc -u -w3 $ip 17000"
   echo "--- two UDP callers at once on 7882 (expect each its own reply, from different source ports)"
   v sh -c "printf 'caller-a\n' | nc -u -w3 $ip 7882 & printf 'caller-b\n' | nc -u -w3 $ip 7882 & wait"
+  echo "--- extra domain: its dedicated service, its front door and a name under the front door (expect shop, other-door, other-door, issuer Pebble)"
+  for name in shop.other.example.org:shop other.example.org:other-door anything.other.example.org:other-door; do
+    host=${name%%:*}; origin=${name#*:}
+    v sh -c "curl -sS --cacert /certs/trust.pem --resolve $host:443:$ip https://$host/ | grep -E '^Name: $origin\$'"
+  done
+  v sh -c "curl -sS -v --cacert /certs/trust.pem --resolve shop.other.example.org:443:$ip -o /dev/null https://shop.other.example.org/ 2>&1 | grep -E 'issuer:'"
 done
 echo "================ DNS"
+echo "--- the zone of the extra domain (expect the root, the wildcard and shop on each node, and the CAA records)"
+v sh -c "curl -s -H 'AccessKey: e2e-bunny-key' http://bunny-mock:8080/dnszone/8" | python3 -c '
+import json, sys
+records = json.load(sys.stdin)["Records"]
+addresses = sorted((r["Name"], r["Value"]) for r in records if r["Type"] == 0)
+for name, value in addresses: print(repr(name), value)
+nodes = ["172.30.0.10", "172.30.0.11"]
+assert addresses == sorted((name, ip) for name in ["", "*", "shop"] for ip in nodes), addresses
+assert sorted(r.get("Tag") for r in records if r["Type"] == 9 and r["Name"] == "") == ["issue", "issuewild"]
+assert not [r for r in records if r["Name"].startswith("_acme-challenge")], "a challenge record is left"
+'
+echo "--- no record of the extra domain is in the main zone (expect 0)"
+v sh -c "curl -s -H 'AccessKey: e2e-bunny-key' http://bunny-mock:8080/dnszone/7" | python3 -c '
+import json, sys
+print(sum(1 for r in json.load(sys.stdin)["Records"] if "other" in r["Name"]))
+'
 echo "--- CAA records for the domain (expect issue and issuewild, dns-01 only)"
 v sh -c "curl -s -H 'AccessKey: e2e-bunny-key' http://bunny-mock:8080/dnszone/7" | python3 -c '
 import json, sys

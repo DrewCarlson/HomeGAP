@@ -3,6 +3,7 @@ package homegap.reconcile
 import homegap.acme.DnsChallenge
 import homegap.clients.BunnyClient
 import homegap.clients.BunnyRecord
+import homegap.clients.BunnyZones
 import homegap.model.DesiredDnsRecord
 import homegap.platform.runCatchingCancellable
 import kotlin.math.abs
@@ -20,14 +21,30 @@ class DnsReconciler(
     /** Asks the nameservers of the zone if they serve what the API reports. With null, there is no check. */
     private val nameservers: NameserverCheck? = null,
 ) {
-    data class Observed(val record: BunnyRecord, val desired: DesiredDnsRecord?, val inSync: Boolean, val diff: String?)
+    data class Observed(
+        val record: BunnyRecord,
+        val desired: DesiredDnsRecord?,
+        val inSync: Boolean,
+        val diff: String?,
+        /** The zone of the record. */
+        val zone: String = "",
+    ) {
+        /** The full name of the record. Bunny stores the name without the zone. */
+        val fqdn: String get() = desired?.fqdn ?: if (record.name.isEmpty()) zone else "${record.name}.$zone"
+    }
 
     var lastObserved: List<Observed> = emptyList()
         private set
 
-    /** The CAA records at `domain`, as `flags tag "value"`, from the last zone read. */
-    var lastCaa: List<String>? = null
+    /** The CAA records at each service domain whose zone the last pass read, as `flags tag "value"`. */
+    var lastCaa: Map<String, List<String>> = emptyMap()
         private set
+
+    /** The error of each zone that the last pass did not sync. */
+    var lastZoneErrors: Map<String, String> = emptyMap()
+        private set
+
+    private val zones = BunnyZones(ctx.state, ctx.config.bunny.zone)
 
     /** The zone in one pass: its records, the records that the pass matched, and the pauses. */
     private class ZonePass(
@@ -62,13 +79,39 @@ class DnsReconciler(
             desired.forEach { ctx.diff.add(DOMAIN, it.fqdn, diffKey(it), action = "unknown", desired = it.value) }
             return emptyList()
         }
-        val zoneId = zoneId(bunny)
+        // Each zone gets its own pass. A zone that fails does not stop the other zones.
+        val byZone = desired.groupBy { ctx.config.zoneOf(it.fqdn) }
+        val zoneNames = ctx.config.zones
+        val failures = mutableMapOf<String, String>()
+        val served = zoneNames.flatMap { zone ->
+            runCatchingCancellable { reconcileZone(bunny, zone, byZone[zone].orEmpty(), pausedServiceKeys) }
+                .onFailure { failures[zone] = it.message ?: it.toString() }
+                .getOrDefault(emptyList())
+                .map { it.copy(zone = zone) }
+        }
+        lastObserved = served
+        lastZoneErrors = failures
+        check(failures.isEmpty()) {
+            failures.entries.joinToString("; ") { (zone, error) -> if (zoneNames.size == 1) error else "zone $zone: $error" }
+        }
+        return served
+    }
+
+    private suspend fun reconcileZone(
+        bunny: BunnyClient,
+        zoneName: String,
+        desired: List<DesiredDnsRecord>,
+        pausedServiceKeys: Set<String>,
+    ): List<Observed> {
+        val zoneId = zones.id(bunny, zoneName)
         val zone = runCatchingCancellable { bunny.getZone(zoneId) }.getOrElse {
             // The cached zone id may be stale (zone recreated): look it up again next pass.
-            ctx.state.update { state -> state.copy(bunnyZoneId = null) }
+            zones.forget(zoneName)
             throw it
         }
-        lastCaa = domainCaa(zone.records)
+        for (domain in ctx.config.serviceDomains.filter { ctx.config.zoneOf(it) == zoneName }) {
+            lastCaa = lastCaa + (domain to domainCaa(zone.records, domain))
+        }
         val pass = ZonePass(
             bunny = bunny,
             zoneId = zoneId,
@@ -83,24 +126,13 @@ class DnsReconciler(
         }
         removeUndesired(pass, desired)
 
-        val served = checkNameservers(zone.nameservers, pass.observed)
-        lastObserved = served
-        return served
+        return checkNameservers(zone.nameservers, pass.observed)
     }
 
-    /** Returns the id of the zone from the state. The first pass finds the zone by name and saves the id. */
-    private suspend fun zoneId(bunny: BunnyClient): Long {
-        ctx.state.snapshot().bunnyZoneId?.let { return it }
-        val zone = ctx.config.bunny.zone
-        val id = bunny.findZone(zone)?.id ?: error("Bunny zone $zone not found (create it in Bunny DNS first)")
-        ctx.state.update { it.copy(bunnyZoneId = id) }
-        return id
-    }
-
-    /** HomeGAP publishes its CAA records at `domain`, which is the apex only if the zone is the domain. */
-    private fun domainCaa(records: List<BunnyRecord>): List<String> {
+    /** HomeGAP publishes its CAA records at [domain], which is the apex only if the zone is the domain. */
+    private fun domainCaa(records: List<BunnyRecord>, domain: String): List<String> {
         val caaType = BunnyRecord.typeCode("CAA")
-        val name = ctx.config.bunny.relativeName(ctx.config.domain)
+        val name = ctx.config.relativeName(domain)
         return records
             .filter { it.type == caaType && it.name.equals(name, ignoreCase = true) }
             .map { "${it.flags ?: 0} ${it.tag.orEmpty()} \"${it.value}\"" }

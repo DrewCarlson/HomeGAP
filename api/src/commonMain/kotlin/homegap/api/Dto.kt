@@ -18,6 +18,8 @@ data class StatusSnapshot(
     val project: String,
     val domain: String,
     val paused: Boolean,
+    /** Each domain that services can use: the domain of the platform first. */
+    val domains: List<DomainStatusDto> = emptyList(),
     val lastReconcile: ReconcileSummaryDto? = null,
     val reconciling: Boolean = false,
     val nodes: List<NodeStatusDto> = emptyList(),
@@ -890,7 +892,21 @@ data class CertProbeDto(
     val stale: Boolean = false,
 )
 
-/** The CAA records of the domain: what HomeGAP publishes, and what DNS has now. */
+/** A domain that services can use, with its Bunny zone and its front door. */
+@Serializable
+data class DomainStatusDto(
+    val domain: String,
+    val zone: String,
+    /** The container that is the front door of the domain. Null without a front door. */
+    val frontDoor: String? = null,
+    /** The reason why the last sync of the zone failed. Null after a sync that had no error. */
+    val zoneError: String? = null,
+)
+
+/**
+ * The CAA records of the domains: what HomeGAP publishes, and what DNS has now. With extra
+ * domains, each record starts with its domain.
+ */
 @Serializable
 data class CaaStatusDto(
     val enabled: Boolean = true,
