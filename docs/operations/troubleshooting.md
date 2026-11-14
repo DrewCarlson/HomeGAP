@@ -63,6 +63,7 @@ With `HOMEGAP_DEBUG=1`, the orchestrator prints stack traces for fatal errors.
 | A browser shows a certificate warning, or a node serves the default certificate. | The **Certificates** tab of the **DNS** page. Read the cause of the last order. See [Certificates](../configuration/certificates.md#expiry-and-failures). |
 | The tunnel of a new node stays down. | The node waits for an order with its management name. The **Certificates** tab shows the order. |
 | Downloads over long paths are slow. | See [Performance](performance.md). |
+| The log shows "the mesh agent has not reported". | The cluster services of the homelab do not run. Add `COMPOSE_PROFILES=cluster` to `.env`, and run `docker compose up -d`. See [Cluster mode](../cluster/index.md#enable-cluster-mode). |
 | `cluster-proxy` is yellow or red. | See [Cluster database](../cluster/database.md#the-cluster-proxy-check). |
 | A handshake is missing in the **Mesh** panel. | The firewall of the provider must open `cluster.mesh.port`/udp. |
 | A private name returns 403 on the VPN. | See [Client addresses and private-only services](../services/client-addresses.md#troubleshooting). |

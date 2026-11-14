@@ -4,7 +4,7 @@ This page lists the files that HomeGAP reads and writes on the homelab and on th
 
 ## The data directory of the orchestrator
 
-The data directory is `data_dir` (default `/data`), on the `homegap-data` volume.
+The data directory is `data_dir` (default `/data`). With the shipped compose file, this is the folder `data/orchestrator` of the stack.
 
 | Path | Content |
 | --- | --- |
@@ -13,16 +13,16 @@ The data directory is `data_dir` (default `/data`), on the `homegap-data` volume
 | `discovery.json` | The containers of the last discovery, with their labels. HomeGAP uses it for the grace period of a container that is gone. |
 | `dashboard-token` | The dashboard token that HomeGAP creates if the config gives none, with mode 0600. |
 | `known_hosts` | The SSH host keys of the nodes. |
-| `ssh/` | The SSH keys that the add-node wizard generates, with mode 0600. |
+| `ssh/` | The SSH keys of the nodes, with mode 0600: the keys that the add-node wizard generates, and the keys that you put there by hand. |
 | `ssh-askpass.sh` | A helper that gives the setup password to `ssh`. |
-| `tunnels/` | The connector specs, which the `tunnels` container also reads. With the shipped compose file, this is the `homegap-tunnels` volume at `/tunnels`. |
+| `tunnels/` | The connector specs, which the `tunnels` container also reads. With the shipped compose file, this is the folder `data/tunnels` at `/tunnels`. |
 | `acme/` | The ACME account key, the certificate of the nodes with its key, the state of the order, and the last 20 orders. See [Certificates](../configuration/certificates.md). |
 | `cluster/secrets.json` | The cluster passwords: PostgreSQL, Valkey, Sentinel, etcd and the Patroni API. |
 | `cluster/homelab-role` | The role of the homelab that HomeGAP records when it creates the cluster. |
 | `cluster/backups/` | With `cluster.homelab_role: vote`, the daily dumps of the cluster database. HomeGAP keeps the newest seven. |
-| `cluster/config/` | The configs of the homelab member, which the cluster containers read. With the shipped compose file, this is the `homegap-cluster-config` volume at `/cluster-config`. |
+| `cluster/config/` | The configs of the homelab member, which the cluster containers read. With the shipped compose file, this is the folder `data/cluster/config` at `/cluster-config`. |
 | `cluster/maintenance` | The maintenance hold, in cluster mode. |
-| `mesh/` | The description of the mesh for the mesh agent, its status and the mesh key of the homelab. With the shipped compose file, this is the `homegap-mesh` volume at `/mesh`. |
+| `mesh/` | The description of the mesh for the mesh agent, its status and the mesh key of the homelab. With the shipped compose file, this is the folder `data/mesh` at `/mesh`. |
 | `locations.yml` | Your edits to the location catalog. |
 | `speedtests.json` | The results of the speed tests. |
 
@@ -34,8 +34,12 @@ The config file is `/config/config.yml`. Edits from the dashboard leave backups 
 
 | Path | Content |
 | --- | --- |
-| `.env` | The secrets, with mode 600. |
-| `secrets/ssh/` | The private SSH keys of nodes that you add by hand. |
+| `compose.yml`, `upgrade.sh` | The compose file of the stack and the upgrade script. An upgrade replaces them. |
+| `.homegap/` | A copy of each file that HomeGAP wrote to the folder. See [Install on the homelab](../getting-started/install.md#the-folder). |
+| `compose.override.yml` | Your changes to the stack. |
+| `.env` | The secrets and the variables of `compose.yml`, with mode 600. |
+| `config/` | The config file and the backups of the edits from the dashboard. |
+| `data/` | All that HomeGAP writes. See [Install on the homelab](../getting-started/install.md#the-data-folder). |
 | `backups/` | In cluster mode, the nightly `pg_dump` files. HomeGAP keeps the newest seven. |
 
 ## The image
@@ -46,7 +50,8 @@ The config file is `/config/config.yml`. Edits from the dashboard leave backups 
 | `/usr/local/bin/newt` | The Newt binary. |
 | `/usr/share/homegap/map/world.pmtiles` | The map tiles. |
 | `/usr/share/homegap/docs` | These docs. |
-| `/usr/share/homegap/tunnels-version` | The tunnels version, for `deploy/upgrade.sh`. |
+| `/usr/share/homegap/tunnels-version` | The tunnels version, for `upgrade.sh`. |
+| `/usr/share/homegap/deploy` | The files of the homelab stack, for `homegap init`. |
 
 The image creates the system user `homegap` (uid 10001), with the home directory `/data`. The Dockerfile has no `USER` line, so the container runs as root by default.
 

@@ -30,8 +30,8 @@ ping -M do -s <mtu - 28> 203.0.113.10
 
 With `tunnels.native: true`, the `tunnels` container needs:
 
-- `cap_add: [NET_ADMIN]`.
-- `devices: ["/dev/net/tun:/dev/net/tun"]`.
+- `cap_add: [NET_ADMIN]`. The shipped compose file has it.
+- `devices: ["/dev/net/tun:/dev/net/tun"]`. The shipped compose file has it.
 - WireGuard in the kernel of the host.
 
 ## The homelab side in native mode

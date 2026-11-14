@@ -122,7 +122,7 @@ networks:
     ipam: { config: [ { subnet: 172.33.0.0/24 } ] }
 ```
 
-The `homegap.private_hosts` label is optional.
+The `homegap.private_hosts` label is optional. In the HomeGAP stack, the `tunnels` part and the network go in `compose.override.yml`.
 
 ## Configure client addresses and private-only services
 

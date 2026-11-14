@@ -37,10 +37,18 @@ We recommend cluster mode with two or more nodes. The vote needs a majority. Wit
 
 ## Enable cluster mode
 
-To use all the defaults, add this line to the config file:
+Cluster mode has two switches. To use all the defaults, add this line to the config file:
 
 ```yaml
 cluster: {}
 ```
+
+Then add this line to `.env`, and run `docker compose up -d`:
+
+```text
+COMPOSE_PROFILES=cluster
+```
+
+The line in `.env` starts the cluster services of the homelab. Without it, the stack has no container for the mesh or the database.
 
 For the options, see the [Configuration reference](../configuration/reference.md). For the full description of the cluster, see [Cluster mode](../cluster/index.md).

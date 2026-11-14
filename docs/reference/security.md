@@ -42,7 +42,7 @@ The orchestrator runs with two capabilities: `NET_ADMIN` for its route to the me
 !!! danger "Warning"
     Do not mount the Docker socket in the orchestrator. A socket mount gives the full Docker API, also with `:ro`. A person who controls that container then controls the Docker host.
 
-Only the orchestrator mounts the `homegap-data` volume, which holds the state cache, the SSH keys and the dashboard token. The cluster containers and the `tunnels` container each mount only their own volume.
+Only the orchestrator mounts the folder `data/orchestrator`, which holds the state cache, the SSH keys and the dashboard token. The cluster containers and the `tunnels` container each mount only their own folders.
 
 In cluster mode, Pangolin on each node uses its own database role, `pangolin`. This role owns the `pangolin` database and is not a superuser. The superuser `postgres` can sign in only from inside a member, never over the mesh.
 

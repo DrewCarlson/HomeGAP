@@ -32,17 +32,34 @@ Read the pages in this order. Each part builds on the part before it.
 - Two or more nodes. The vote needs a majority. With the homelab and only one node, the loss of either one stops all writes.
 - A decision about the role of the homelab, before the first start. The homelab can hold a copy of the database (the default) or only vote. See [The homelab as a vote only](database.md#the-homelab-as-a-vote-only).
 - WireGuard in the kernel of the homelab host. It is part of Linux 5.6 and later.
-- The `homegap-mesh` and `homegap-mesh-agent` services from `deploy/homelab-compose.yml`. The agent needs `cap_add: [NET_ADMIN, NET_RAW]`.
-- `cap_add: [NET_ADMIN]` on the orchestrator, for its route to the mesh.
-- The cluster containers of the homelab from the same file: `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. They share the network namespace of `homegap-mesh`.
+- The cluster services of the shipped compose file: `homegap-mesh`, `homegap-mesh-agent`, `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. They start only with the profile `cluster`.
+- `cap_add: [NET_ADMIN]` on the orchestrator, for its route to the mesh. The shipped compose file has it.
 
 ## Enable cluster mode
 
-To use all the defaults, add this line to the config:
+Cluster mode has two switches. The config tells the orchestrator to build the cluster. The profile tells Docker Compose to start the cluster services of the homelab. The orchestrator has no control of Docker, so it cannot start them.
 
-```yaml
-cluster: {}
-```
+1. Add this line to `.env`:
+
+    ```text
+    COMPOSE_PROFILES=cluster
+    ```
+
+2. Add `cluster:` to the config. To use all the defaults, add this line:
+
+    ```yaml
+    cluster: {}
+    ```
+
+3. Start the cluster services:
+
+    ```bash
+    docker compose up -d
+    ```
+
+If the config has `cluster:` and the cluster services do not run, the orchestrator cannot find the mesh agent. Then the orchestrator writes an error for the mesh of the homelab to its log. The error gives the line for `.env`. With the profile and without `cluster:` in the config, the cluster services start and wait.
+
+The config has these keys:
 
 | Key | Default | Rules |
 | --- | --- | --- |

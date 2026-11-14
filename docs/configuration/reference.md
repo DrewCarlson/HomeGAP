@@ -222,5 +222,6 @@ Every `/api` route needs the bearer token, with two exceptions. The terminal Web
 | `HOMEGAP_NEWT` | `/usr/local/bin/newt` | The path of the Newt binary, for the tunnel supervisor. |
 | `HOMEGAP_DEBUG` | None. | If set, prints stack traces on fatal errors. |
 | `HOMEGAP_DOCS_DIR` | `/usr/share/homegap/docs` | The directory where the dashboard finds these docs. |
+| `HOMEGAP_STACK_FILES` | `/usr/share/homegap/deploy` | The directory where `homegap init` finds the files of the homelab stack. |
 
 The orchestrator also reads the variables that your `*_env` keys name. See [Secrets](secrets.md).

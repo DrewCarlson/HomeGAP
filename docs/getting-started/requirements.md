@@ -12,7 +12,7 @@ This page lists what you must have before you install HomeGAP.
 
 ## The homelab
 
-The homelab compose file expects the Docker network of your Traefik as an external network with the name `traefik`. If your network has a different name, change the name in the compose file.
+The homelab compose file expects the Docker network of your Traefik as an external network with the name `traefik`. If your network has a different name, set `TRAEFIK_NETWORK` in `.env`.
 
 Cluster mode needs WireGuard in the kernel of the homelab host, for the mesh interface `hg-mesh`. The setting `tunnels.native: true` also needs it. WireGuard is part of Linux 5.6 and later.
 

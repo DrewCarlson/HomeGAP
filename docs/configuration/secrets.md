@@ -38,16 +38,7 @@ PANGOLIN_LICENSE_KEY=...
 HOMEGAP_DASHBOARD_TOKEN=...
 ```
 
-Then give the variables to the orchestrator in the compose file:
-
-```yaml
-services:
-  orchestrator:
-    environment:
-      BUNNY_API_KEY: ${BUNNY_API_KEY:?set BUNNY_API_KEY}
-      PANGOLIN_LICENSE_KEY: ${PANGOLIN_LICENSE_KEY:-}
-      HOMEGAP_DASHBOARD_TOKEN: ${HOMEGAP_DASHBOARD_TOKEN}
-```
+The shipped compose file gives each variable of `.env` to the orchestrator.
 
 The config refers to the variables by their names:
 

@@ -42,27 +42,27 @@ HomeGAP installs Docker on the node if Docker is not there (`install_docker`, de
 
     1. Create the folder for the keys:
         ```bash
-        mkdir -p secrets/ssh
+        mkdir -p data/orchestrator/ssh
         ```
     2. Create a key for the node:
         ```bash
-        ssh-keygen -t ed25519 -N '' -C homegap-na1 -f secrets/ssh/na1
+        ssh-keygen -t ed25519 -N '' -C homegap-na1 -f data/orchestrator/ssh/na1
         ```
     3. Make the private key readable only by you:
         ```bash
-        chmod 600 secrets/ssh/na1
+        chmod 600 data/orchestrator/ssh/na1
         ```
     4. Copy the public key to the server:
         ```bash
-        ssh-copy-id -i secrets/ssh/na1.pub deploy@203.0.113.10
+        ssh-copy-id -i data/orchestrator/ssh/na1.pub deploy@203.0.113.10
         ```
     5. Give the user passwordless sudo:
         ```bash
-        ssh -t -i secrets/ssh/na1 deploy@203.0.113.10 'echo "deploy ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/homegap >/dev/null && sudo chmod 440 /etc/sudoers.d/homegap'
+        ssh -t -i data/orchestrator/ssh/na1 deploy@203.0.113.10 'echo "deploy ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/homegap >/dev/null && sudo chmod 440 /etc/sudoers.d/homegap'
         ```
     6. Test the login and sudo:
         ```bash
-        ssh -i secrets/ssh/na1 -o BatchMode=yes deploy@203.0.113.10 'sudo -n true && echo ok'
+        ssh -i data/orchestrator/ssh/na1 -o BatchMode=yes deploy@203.0.113.10 'sudo -n true && echo ok'
         ```
         The command must print `ok` without a prompt.
     7. Add the node to `nodes[]` in `config/config.yml`:
@@ -72,11 +72,13 @@ HomeGAP installs Docker on the node if Docker is not there (`install_docker`, de
             region: NA
             host: 203.0.113.10
             ssh_user: deploy
-            ssh_key_file: /secrets/ssh/na1
+            ssh_key_file: /data/ssh/na1
             location: { latitude: 40.71, longitude: -74.01, name: "New York" }
         ```
 
-    The `ssh_key_file` path is the path inside the orchestrator container. The compose file mounts `./secrets/ssh` at `/secrets/ssh`.
+    The `ssh_key_file` path is the path inside the orchestrator container. The compose file mounts `data/orchestrator` at `/data`. This is the same folder where the add-node wizard keeps the keys that it makes.
+
+    After the first start of the stack, the folder `data/orchestrator` belongs to root. Then run the commands above with `sudo`.
 
     These rules apply to the entry:
 

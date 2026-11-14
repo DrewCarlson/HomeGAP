@@ -22,9 +22,9 @@ On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, p
 
 On each node, `wg-quick` manages the interface, and it starts at boot. Changes to the peers apply in place. They do not drop the sessions.
 
-On the homelab, the interface is in the network namespace of the `homegap-mesh` container. The cluster containers of the homelab share this namespace. The orchestrator is not in it. `deploy/upgrade.sh` never recreates `homegap-mesh`, so the interface stays up during an upgrade.
+On the homelab, the interface is in the network namespace of the `homegap-mesh` container. The cluster containers of the homelab share this namespace. The orchestrator is not in it. `upgrade.sh` never recreates `homegap-mesh`, so the interface stays up during an upgrade.
 
-The `homegap-mesh-agent` container manages the interface. The orchestrator writes the description of the mesh to the `homegap-mesh` volume. The agent applies it. Then it writes its public key and the state of each peer to the same volume. The private key of the homelab stays in that volume.
+The `homegap-mesh-agent` container manages the interface. The orchestrator writes the description of the mesh to the folder `data/mesh`. The agent applies it. Then it writes its public key and the state of each peer to the same folder. The private key of the homelab stays in that folder.
 
 ## The isolation of the homelab member
 

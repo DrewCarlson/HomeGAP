@@ -88,6 +88,36 @@ homegap maintenance start [--minutes N] | end
 
 Asks the orchestrator in the same container to move the cluster primaries off the homelab. The orchestrator holds them there for up to N minutes (default 30, from 5 to 240). `end` ends the hold. The command uses the dashboard API, with your dashboard token or the token that HomeGAP created. See [Cluster database](../cluster/database.md#maintenance-of-the-homelab-member).
 
+## init
+
+```text
+homegap init [--dir PATH] [--yes] [--refresh]
+```
+
+Writes the files of the homelab stack to a folder. Run it in a container of its own, with your folder at `/work`:
+
+```bash
+docker run --rm -it -v "$PWD:/work" ghcr.io/drewcarlson/homegap init
+```
+
+The command writes `compose.yml`, `upgrade.sh` and the example files. If they are missing, it also makes `.env`, `config/config.yml` and `backups/`. It never changes a file of your own. See [Install on the homelab](../getting-started/install.md#the-folder).
+
+If a file of the stack has changes from you, the command asks before it replaces the file. Each line of the output has a result and a path:
+
+| Result | Meaning |
+| --- | --- |
+| `created` | The folder has no such file. The command makes it. |
+| `updated` | The file has no changes from you. The command writes the content of this version. |
+| `unchanged` | The file already has the content of this version. |
+| `replaced` | Your answer is yes. Your file is now `<name>.previous`. |
+| `kept` | Your answer is no, or there is no terminal. The file of this version is `<name>.new`. |
+
+| Option | What it does |
+| --- | --- |
+| `--dir PATH` | The folder. The default is `/work`. |
+| `--yes` | Replaces each file that has changes from you, with no question. |
+| `--refresh` | Changes only the files of the stack. It makes no file of your own. `upgrade.sh` uses it. |
+
 ## version and help
 
 `homegap version` (or `--version`) prints the version of the binary. `homegap help` (or `--help`, `-h`) prints the usage.

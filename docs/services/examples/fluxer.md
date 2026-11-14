@@ -61,12 +61,13 @@ The proxy requirements of Fluxer apply to your Traefik as usual: WebSocket upgra
 
 ## The network of LiveKit
 
-The `tunnels` container must join the Docker network of Fluxer. With the project name `fluxer`, this network is `fluxer_fluxer`. Add it to the `tunnels` service in the homelab compose file:
+The `tunnels` container must join the Docker network of Fluxer. With the project name `fluxer`, this network is `fluxer_fluxer`. Add it to the `tunnels` service in `compose.override.yml`:
 
 ```yaml
 services:
   tunnels:
-    networks: [traefik, fluxer]
+    networks:
+      fluxer: {}
 
 networks:
   fluxer:

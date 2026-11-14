@@ -1,25 +1,20 @@
 # Upgrade the homelab
 
-Use `deploy/upgrade.sh` to upgrade HomeGAP on the homelab. The script keeps access up during the upgrade. This page tells you what the script does and how to use it.
+Use `upgrade.sh` to upgrade HomeGAP on the homelab. The script keeps access up during the upgrade. It also brings the files of the stack to the new version. This page tells you what the script does and how to use it.
 
 ## Run the script
 
-Put `upgrade.sh` next to your compose file. Use it instead of `docker compose pull && docker compose up -d`:
+The script is in the folder of the stack, next to `compose.yml`. Run it in that folder, instead of `docker compose pull && docker compose up -d`:
 
 ```bash
 ./upgrade.sh
-```
-
-The script gives its arguments to every `docker compose` call. If your compose file has a different name, give it as an argument:
-
-```bash
-./upgrade.sh -f homelab-compose.yml
 ```
 
 | Option | What it does |
 | --- | --- |
 | `--tunnels` | Recreates the `tunnels` container, also if its version does not change. |
 | `--no-pull` | Uses the images that are already on the host. |
+| `--no-refresh` | Does not change the files of the stack. |
 | `-h`, `--help` | Shows the help. |
 
 ## Run it over SSH
@@ -65,9 +60,27 @@ To check an image before an upgrade:
 
 If the image has a signature from a release build, the command shows the signature and exits with 0. If the command fails, do not run the upgrade.
 
+## The files of the stack
+
+After the pull, the script runs `homegap init --refresh` from the new image. This command brings `compose.yml`, `upgrade.sh` and the example files to the new version. It never changes `.env`, `compose.override.yml` or `config/config.yml`.
+
+| The file in the folder | What the script does |
+| --- | --- |
+| It has no changes from you. | The script writes the file of the new version. |
+| It has changes from you, and the script has a terminal. | The script asks you. If you answer `y`, it saves your file as `<name>.previous` and writes the file of the new version. |
+| It has changes from you, and you answer `n` or there is no terminal. | Your file stays. The file of the new version goes next to it as `<name>.new`. |
+
+If `upgrade.sh` itself gets a new version, the script starts the new version and continues from there.
+
+Then the script checks the compose files. A new version of `compose.yml` can need a variable that your `.env` does not have. In that case, the script shows the name of the variable and stops before it restarts a container. Set the variable in `.env` and run the script again.
+
+To move your changes out of a file that HomeGAP changes, put them in `compose.override.yml`. See [Your settings](../getting-started/install.md#your-settings).
+
+The script skips this step if the folder has no `compose.yml`, or if you give arguments for `docker compose`.
+
 ## What the script does
 
-1. It pulls the new images.
+1. It pulls the new images. Then it brings the files of the stack to the new version.
 2. It recreates the orchestrator. Traffic never goes through the orchestrator, so this does not stop access. The script waits up to 120 seconds for the orchestrator to start. Then it recreates the mesh agent.
 3. It moves the database primary and the Valkey primary to a node, and holds them there (`homegap maintenance start --minutes 30`).
 4. It recreates the cluster containers of the homelab one at a time. It waits up to 5 minutes for each container to serve again.
@@ -94,23 +107,11 @@ The script recreates it only when the tunnels version of the new image is differ
 
 Until then, the container continues to run the previous image. Thus Docker also keeps that image.
 
-## Merged compose projects
-
-If the HomeGAP services are part of a different compose project with other names, set these environment variables:
-
-| Variable | Default |
-| --- | --- |
-| `HG_ORCHESTRATOR` | `orchestrator` |
-| `HG_TUNNELS` | `tunnels` |
-| `HG_CLUSTER` | `homegap-etcd:etcd homegap-sentinel:sentinel homegap-valkey:valkey homegap-db:patroni` |
-
-`HG_CLUSTER` is a list of `service:role` pairs, separated by spaces, in the order of the restarts.
-
 ## Standalone mode
 
-The script asks the orchestrator to start maintenance only if the compose file has cluster services. In standalone mode, the orchestrator answers that the cluster is not enabled. The script pulls the images of the cluster containers, but it does not recreate them. It does not end a hold. It still updates the orchestrator and the tunnels.
+In standalone mode, the stack has no cluster services, because the profile `cluster` is off. The script then skips the cluster steps. It does not pull the cluster image, and it does not start maintenance. It still updates the orchestrator and the tunnels.
 
-If the compose file has no cluster services, the script skips the cluster steps.
+With the profile `cluster` and no `cluster:` in the config, the orchestrator answers that the cluster is not enabled. The script then leaves the cluster containers as they are.
 
 ## After the upgrade
 

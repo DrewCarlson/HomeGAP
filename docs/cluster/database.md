@@ -100,7 +100,7 @@ The homelab member writes a nightly `pg_dump` to `./backups`, next to the homela
 A dump holds the database `pangolin`: the users, the devices, the sites and the resources of Pangolin. To restore a homelab, keep these items together:
 
 - The dumps in `./backups`. With `cluster.homelab_role: vote`, they are in `cluster/backups` in the data directory.
-- The data directory of the orchestrator (the `homegap-data` volume). It holds the state cache, the cluster passwords and the ACME account.
+- The data directory of the orchestrator (the folder `data/orchestrator`). It holds the state cache, the cluster passwords and the ACME account.
 - The config file.
 
 The dumps are on the same disk as the database of the homelab. We recommend that you copy them to a different machine each day.

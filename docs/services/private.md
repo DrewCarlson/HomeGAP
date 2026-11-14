@@ -112,12 +112,13 @@ If the command does not print `open`, look at the host:
 
 ### A different service on the host
 
-For a service of the host that is not SSH, use labels on a container, with the address of the host in `homegap.host`. The LAN address of the host works. The name `host.docker.internal` also works, if the `tunnels` service has this entry in the compose file:
+For a service of the host that is not SSH, use labels on a container, with the address of the host in `homegap.host`. The LAN address of the host works. The name `host.docker.internal` also works, if the `tunnels` service has this entry in `compose.override.yml`:
 
 ```yaml
-tunnels:
-  extra_hosts:
-    - "host.docker.internal:host-gateway"
+services:
+  tunnels:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 ```
 
 !!! danger "Warning"

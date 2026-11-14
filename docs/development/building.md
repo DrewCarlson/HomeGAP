@@ -70,7 +70,7 @@ api/            wire types shared by the API and the dashboard
 presentation/   presenters and UI models of the dashboard, tested on Node
 web/            Compose for HTML dashboard, bundled with Vite (kotlin-vite)
 cluster/        the cluster image (PostgreSQL with Patroni, etcd, Valkey, HAProxy)
-deploy/         homelab compose (homelab-compose.yml) and the upgrade script (upgrade.sh)
+deploy/         the files of the homelab stack: compose.yml, upgrade.sh and the examples
 blueprints/     example Pangolin base blueprint
 config/         example configuration
 locations/      the shipped data-center catalog (datacenters.yml)

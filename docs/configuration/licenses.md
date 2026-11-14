@@ -34,14 +34,11 @@ A key binds to one Pangolin instance when you activate it the first time. If a s
 
 ## Give the keys to the orchestrator
 
-Put the keys in `.env`, and give the variables to the orchestrator in the compose file. For example, in standalone mode with two nodes:
+Put the keys in `.env`. The shipped compose file gives each variable of `.env` to the orchestrator. For example, in standalone mode with two nodes:
 
-```yaml
-services:
-  orchestrator:
-    environment:
-      PANGOLIN_LICENSE_KEY_NA1: ${PANGOLIN_LICENSE_KEY_NA1}
-      PANGOLIN_LICENSE_KEY_NA2: ${PANGOLIN_LICENSE_KEY_NA2}
+```text
+PANGOLIN_LICENSE_KEY_NA1=...
+PANGOLIN_LICENSE_KEY_NA2=...
 ```
 
 ```yaml
