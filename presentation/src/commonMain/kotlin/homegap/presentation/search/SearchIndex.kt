@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import homegap.api.LogEntryDto
 import homegap.api.SearchHitDto
 import homegap.api.StatusSnapshot
+import homegap.presentation.format.label
 import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.presentation.ui.location
@@ -44,7 +45,7 @@ fun searchIndex(
             SearchHit(
                 kind = SearchKind.Node,
                 title = node.id,
-                subtitle = listOfNotNull(node.location?.name, node.health.name.lowercase()).joinToString(" · "),
+                subtitle = listOfNotNull(node.location?.name, node.health.label).joinToString(" · "),
                 location = Location(Route.Nodes, node.id),
                 keywords = "${node.region} ${node.provider} ${node.host} ${node.managementHost}",
             )

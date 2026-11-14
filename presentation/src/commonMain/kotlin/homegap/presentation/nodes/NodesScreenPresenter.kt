@@ -111,7 +111,7 @@ class NodesScreenPresenter(
             empty = if (status.nodes.isEmpty()) {
                 EmptyStateModel(
                     title = "No nodes yet",
-                    text = "An edge node is a small VPS near your visitors. HomeGAP sets it up over SSH: " +
+                    text = "A node is a small VPS near your visitors. HomeGAP sets it up over SSH: " +
                         "a user, a key, the firewall and the software. Nothing changes until you run it.",
                     action = ActionModel(
                         label = "+ Add node",
