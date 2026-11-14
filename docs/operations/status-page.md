@@ -7,14 +7,14 @@ The status page is a public page that shows the state of your nodes. This page t
 With `status_page.enabled: true`, anybody can open `https://status.<domain>/`. The page shows:
 
 - The node that the visitor came through. This is the node that DNS selects for the location of the visitor. The page also shows the round trip of the visitor to the homelab through this node.
-- The state of every node: online, degraded or offline.
-- The round trip of the visitor through each other node that is not offline.
+- The state of every node: **Healthy**, **Warning** or **Not serving**.
+- The round trip of the visitor through each other node that serves.
 
 | State | Meaning |
 | --- | --- |
-| Online | The node works. |
-| Degraded | The tunnel of the node is up, but a check fails or is down. |
-| Offline | The node is paused or in removal, or its tunnel to the homelab is down. A node is also offline while all changes are paused. |
+| Healthy | The node works. In the API of the page, the state is `online`. |
+| Warning | The tunnel of the node is up, but a check has a warning or fails. In the API, the state is `degraded`. |
+| Not serving | The node is paused or in removal, or its tunnel to the homelab is down. A node also does not serve while all changes are paused. In the API, the state is `offline`. |
 
 While the page is open, it refreshes every minute.
 

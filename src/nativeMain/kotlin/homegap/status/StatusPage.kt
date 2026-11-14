@@ -26,7 +26,7 @@ $${Brand.FAVICON_LINK}
 @font-face { font-family: "JetBrains Mono"; font-weight: 400; font-display: swap; src: url("/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2"); }
 :root {
   --bg: #070A1F; --fg: #E6E8F5; --muted: #A9AFD6; --faint: #7E86BA; --card: #0A0E2A; --line: #1E2452;
-  --ok: #18FFFF; --ok-soft: rgba(24, 255, 255, .10); --warn: #FFC46B; --warn-soft: rgba(255, 196, 107, .12); --off: #7E86BA; --off-soft: rgba(126, 134, 186, .12);
+  --ok: #5EE6A0; --ok-soft: rgba(94, 230, 160, .10); --warn: #FFC46B; --warn-soft: rgba(255, 196, 107, .12); --off: #7E86BA; --off-soft: rgba(126, 134, 186, .12);
   --bad: #FF8A98; --bad-soft: rgba(255, 138, 152, .12); --accent: #8EF6FF; --bar: #141A45; --shadow: none;
   /* The map's names for the same colors. */
   --down: var(--bad); --unknown: var(--off); --surface: var(--card); --text: var(--fg); --border: var(--line); --text-2: var(--muted);
@@ -49,7 +49,7 @@ button:disabled { opacity: .55; cursor: default; }
 .banner .dot { width: 10px; height: 10px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 4px; box-shadow: var(--shadow); }
 .hero { display: grid; grid-template-columns: 1fr auto; gap: 16px; padding: 22px 24px; margin-bottom: 16px; align-items: center; }
-.eyebrow { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+.eyebrow { color: var(--muted); font-size: 13px; font-weight: 600; }
 .via { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin-top: 4px; overflow-wrap: anywhere; }
 .where { color: var(--muted); margin-top: 2px; }
 .big { text-align: right; }
@@ -57,7 +57,7 @@ button:disabled { opacity: .55; cursor: default; }
 .big .unit { font-size: 16px; color: var(--muted); font-weight: 500; margin-left: 3px; }
 .quality { font-size: 13px; font-weight: 600; margin-top: 4px; }
 .list { padding: 6px 0; }
-.list h2 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 12px 24px 6px; }
+.list h2 { font-size: 13px; color: var(--muted); margin: 12px 24px 6px; }
 .row { display: grid; grid-template-columns: 14px 1fr minmax(90px, 180px) 76px; gap: 14px; align-items: center; padding: 12px 24px; border-top: 1px solid var(--line); }
 .row:first-of-type { border-top: 0; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--off); justify-self: center; }
@@ -154,7 +154,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
   function row(n) {
     var d = document.createElement('div');
     d.className = 'row';
-    var label = n.state === 'online' ? 'Online' : n.state === 'degraded' ? 'Degraded' : 'Offline';
+    var label = n.state === 'online' ? 'Healthy' : n.state === 'degraded' ? 'Warning' : 'Not serving';
     d.innerHTML =
       '<span class="dot ' + n.state + '"></span>' +
       '<div><div class="name"></div><div class="meta"><span class="where"></span> &middot; <span class="state ' + n.state + '">' + label + '</span></div></div>' +
@@ -182,9 +182,9 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
     var deg = nodes.length - on - off;
     var b = el('banner'), dot = b.querySelector('.dot');
     b.hidden = false;
-    if (on === nodes.length) { b.className = 'banner ok'; dot.className = 'dot online'; el('bannerText').textContent = 'All ' + nodes.length + ' nodes online'; }
-    else if (off === nodes.length) { b.className = 'banner bad'; dot.className = 'dot offline'; el('bannerText').textContent = 'No nodes online'; }
-    else { b.className = 'banner warn'; dot.className = 'dot degraded'; el('bannerText').textContent = on + ' of ' + nodes.length + ' nodes online' + (deg ? ' · ' + deg + ' degraded' : '') + (off ? ' · ' + off + ' offline' : ''); }
+    if (on === nodes.length) { b.className = 'banner ok'; dot.className = 'dot online'; el('bannerText').textContent = 'All ' + nodes.length + ' nodes healthy'; }
+    else if (off === nodes.length) { b.className = 'banner bad'; dot.className = 'dot offline'; el('bannerText').textContent = 'No node serves'; }
+    else { b.className = 'banner warn'; dot.className = 'dot degraded'; el('bannerText').textContent = on + ' of ' + nodes.length + ' nodes healthy' + (deg ? ' · ' + deg + ' with a warning' : '') + (off ? ' · ' + off + ' not serving' : ''); }
   }
 
   async function load() {
