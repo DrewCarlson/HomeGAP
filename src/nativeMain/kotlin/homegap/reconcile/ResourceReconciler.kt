@@ -614,6 +614,11 @@ class ResourceReconciler(
                     put("hostname", resource.target.host)
                     put("port", resource.target.port)
                     resource.target.method?.let { put("method", it) }
+                    // Pangolin gives each router the same priority. A lower one for a wildcard
+                    // lets the service of an exact name under it answer that name.
+                    if (resource.fullDomain?.startsWith("*.") == true) {
+                        put("priority", WILDCARD_PRIORITY)
+                    }
                     resource.healthcheck?.let { check ->
                         putJsonObject("healthcheck") { healthcheck(resource, check) }
                     }
@@ -668,6 +673,9 @@ class ResourceReconciler(
     }
 
     companion object {
+        /** Below the default priority of a Pangolin target (100). */
+        private const val WILDCARD_PRIORITY = 90
+
         /** Diff and base-blueprint scope for the cluster's shared resources. */
         const val CLUSTER_SCOPE = "cluster"
         private const val BASE_KEY = "base"
