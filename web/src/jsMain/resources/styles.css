@@ -39,6 +39,8 @@
   --rail-width: 80px;
   --inspector-width: 360px;
   --touch: 44px;
+  /* A chevron that points right, as a mask for the mark of a part that opens. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 6l6 6-6 6'/%3E%3C/svg%3E");
   /* Overlay stacking, top first */
   --z-search: 60;
   --z-dialog: 50;
@@ -132,6 +134,7 @@ p { margin: 0; }
 .nav-label { flex: 1; min-width: 0; }
 .nav-label-short { display: none; }
 .nav-search { display: none; }
+.nav-row { display: contents; }
 .nav-count { font: 500 11px/1 var(--mono); }
 .nav-count.warn { color: var(--amber); }
 .nav-count.down { color: var(--rose); }
@@ -281,7 +284,8 @@ html.overlay-open { overflow: hidden; padding-right: var(--scrollbar-width, 0px)
   background: var(--ground); font: 12px/1.5 var(--mono); color: #FFB3BE; overflow-wrap: anywhere;
 }
 .lost-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12px; color: var(--ink-dim); }
-.lost-token summary { cursor: pointer; font-size: 13px; color: var(--ink-dim); }
+.lost-token summary { list-style: none; cursor: pointer; font-size: 13px; color: var(--ink-dim); }
+.lost-token summary::-webkit-details-marker, .qr-details > summary::-webkit-details-marker { display: none; }
 .lost-token form { display: grid; gap: 10px; margin-top: 10px; }
 
 /* ---------------------------------------------------------------- banners */
@@ -701,6 +705,8 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   position: absolute; z-index: 3; display: grid; place-items: end center; padding: 2px; color: var(--cyan-soft);
   background: linear-gradient(to bottom, transparent, rgba(8, 12, 37, .94));
   opacity: 0; pointer-events: none; transition: opacity .3s ease;
+  /* The arrow moves a little. The clip keeps it inside, so it adds no scrollbar to the box. */
+  overflow: hidden;
 }
 .scroll-hint.right { place-items: center end; background: linear-gradient(to right, transparent, rgba(8, 12, 37, .94)); }
 .scroll-hint.shown { opacity: 1; }
@@ -717,8 +723,14 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
 /* A panel that opens on request (the config file, the desired state). */
 .code-box > summary { list-style: none; cursor: pointer; border-bottom: 0; }
 .code-box > summary::-webkit-details-marker { display: none; }
-.code-box > summary h2::before { content: "▸ "; color: var(--ink-faint); }
-.code-box[open] > summary h2::before { content: "▾ "; }
+/* The mark of a part that opens: a chevron that turns down when the part is open. */
+.code-box > summary h2::before, .qr-details > summary::before, .lost-token > summary::before {
+  content: ""; display: inline-block; width: 16px; height: 16px; margin-right: 6px; vertical-align: -3px; background: currentColor; opacity: .7;
+  -webkit-mask: var(--chevron) center / contain no-repeat; mask: var(--chevron) center / contain no-repeat;
+  transition: transform .2s ease;
+}
+.code-box[open] > summary h2::before, .qr-details[open] > summary::before, .lost-token[open] > summary::before { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .code-box > summary h2::before, .qr-details > summary::before, .lost-token > summary::before { transition: none; } }
 .code-box[open] > summary { border-bottom: 1px solid var(--rule); }
 .code-box .code-text { max-height: 60vh; overflow: auto; }
 .figure-note { padding: 10px 16px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-dim); }
@@ -1066,7 +1078,7 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
 .qr { flex: none; border-radius: 4px; }
 .app-address-text { display: grid; gap: 8px; min-width: 0; }
 .app-address-value { font-size: 14px; color: var(--ink); word-break: break-all; }
-.qr-details > summary { width: fit-content; color: var(--cyan-soft); font-size: 13px; cursor: pointer; }
+.qr-details > summary { list-style: none; width: fit-content; color: var(--cyan-soft); font-size: 13px; cursor: pointer; }
 .qr-details .qr { margin-top: 10px; }
 .copy-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .people { list-style: none; margin: 0; padding: 0; }
@@ -1167,12 +1179,17 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .shell { flex-direction: column; padding-top: var(--nav-space, 0); }
   .nav {
     position: fixed; top: 0; left: 0; right: 0; z-index: 10; width: auto; height: auto; overflow: visible;
-    padding: 6px 12px 0; gap: 2px; border-right: 0; border-bottom: 1px solid var(--rule);
+    padding: 10px 12px 0; gap: 8px; border-right: 0; border-bottom: 1px solid var(--rule);
   }
-  .nav-head { min-height: var(--touch); padding: 0; }
-  /* Scrolled down: the header row folds away, and Search joins the row of sections. */
+  .nav-head { min-height: 40px; padding: 0; }
+  /* The buttons of the header are smaller and softer than the sections under them. */
+  .nav-head .icon-btn { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; border-color: var(--rule); background: transparent; }
+  .nav-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* Scrolled down: the header row folds away, and Search stands left of the row of sections, which scrolls beside it. */
   .nav.compact .nav-head { display: none; }
-  .nav.compact .nav-search { display: block; flex: none; position: sticky; left: 0; z-index: 1; padding-right: 4px; background: var(--ground); }
+  .nav.compact .nav-search { display: block; flex: none; padding-bottom: 6px; }
+  .nav.compact .nav-search .icon-btn { width: 40px; height: 40px; min-height: 40px; border-radius: 10px; border-color: var(--rule); background: transparent; }
+  .nav.compact .nav-list { margin-left: 0; padding-left: 0; }
   .live-stage { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 16px; margin: 12px; padding: 16px 12px; }
   .live-side { width: 100%; }
   .live-title { text-align: center; }
@@ -1231,10 +1248,14 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .path-line { display: none; }
   .path-names { white-space: normal; }
   .figure-head { flex-wrap: wrap; }
+  /* A row of choices fits the panel, and scrolls sideways if its labels are too long. */
+  .figure-head .figure-actions { width: 100%; }
+  .figure-head .segmented { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .figure-head .segmented button { flex: 1 0 auto; padding: 0 9px; }
   .phone-actions { display: flex; gap: 8px; }
   /* One row of sections with their labels. It scrolls sideways, and a part of the next section shows at the edge. */
   .nav-list {
-    display: flex; align-items: center; gap: 2px; margin: 0 -12px; padding: 0 12px 6px;
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; margin: 0 -12px; padding: 0 12px 6px;
     overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
   }
   .nav-list::-webkit-scrollbar { display: none; }

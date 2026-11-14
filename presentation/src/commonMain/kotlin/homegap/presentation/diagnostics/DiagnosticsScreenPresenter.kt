@@ -107,7 +107,11 @@ class DiagnosticsScreenPresenter(private val api: ControllerApi) : Presenter<Dia
     }
 }
 
-/** The installed certificate of [node], its dates, and what it serves on its own and the shared names. */
+/**
+ * The installed certificate of [node], its dates, and what the node serves on each name that is on
+ * that certificate. A name that the homelab holds (passthrough) is not on the certificate of the
+ * node, so it is not in the list.
+ */
 internal fun certificateFacts(status: StatusSnapshot, node: String): List<homegap.presentation.ui.FactRow> {
     val certs = status.certificates ?: return emptyList()
     val delivery = certs.delivery.firstOrNull { it.node == node } ?: return emptyList()
@@ -116,7 +120,8 @@ internal fun certificateFacts(status: StatusSnapshot, node: String): List<homega
         homegap.presentation.ui.FactRow("installed", delivery.installed ?: delivery.state, mono = true),
         issued?.takeIf { delivery.state == "ok" }?.let { homegap.presentation.ui.FactRow("valid", "${dayOf(it.notBefore)} → ${dayOf(it.notAfter)}", mono = true) },
     )
-    val mine = certs.probes.filter { row -> row.group != "management" || row.name == status.nodes.firstOrNull { it.id == node }?.managementHost }
+    val managementHost = status.nodes.firstOrNull { it.id == node }?.managementHost
+    val mine = certs.probes.filter { row -> row.kind != "homelab" && (row.group != "management" || row.name == managementHost) }
     return head + mine.mapNotNull { row ->
         val cell = row.cells.firstOrNull { it.node == node } ?: return@mapNotNull null
         val text = when (cell.state) {
@@ -125,7 +130,7 @@ internal fun certificateFacts(status: StatusSnapshot, node: String): List<homega
             "unknown" -> "not probed yet"
             "mismatch" -> "does not cover the name"
             else -> "${cell.daysRemaining ?: "?"} days"
-        } + if (row.kind == "homelab") " · held by the homelab" else ""
+        }
         homegap.presentation.ui.FactRow(row.name, text, mono = true)
     }
 }

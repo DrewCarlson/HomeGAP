@@ -70,11 +70,20 @@ fun AppShell(model: AppModel) {
                 }
             }
             SearchField(model.search)
-            NavList(
-                items = model.nav,
-                onNavigate = model.onNavigate,
-                onSearch = model.search.onOpen,
-            )
+            // Phones: after the header row folds away, Search stands left of the row of sections.
+            Div({ classes("nav-row") }) {
+                Div({ classes("nav-search") }) {
+                    IconButton(
+                        iconPath = Icons.SEARCH,
+                        label = "Search everything",
+                        onClick = model.search.onOpen,
+                    )
+                }
+                NavList(
+                    items = model.nav,
+                    onNavigate = model.onNavigate,
+                )
+            }
             model.header?.let { header ->
                 ReconcileBox(header)
                 NavFoot(header)
@@ -287,7 +296,7 @@ private fun Brand() {
 
 /** The ten sections in two groups, each with the count of its items needing attention. */
 @Composable
-private fun NavList(items: List<NavItem>, onNavigate: (Route) -> Unit, onSearch: () -> Unit) {
+private fun NavList(items: List<NavItem>, onNavigate: (Route) -> Unit) {
     Nav({
         classes("nav-list")
         attr("aria-label", "Sections")
@@ -298,14 +307,6 @@ private fun NavList(items: List<NavItem>, onNavigate: (Route) -> Unit, onSearch:
             val active = scopeElement.querySelector(".nav-link.active")
             active?.asDynamic()?.scrollIntoView(js("({ block: 'nearest', inline: 'center' })"))
             onDispose {}
-        }
-        // Phones only: Search stays in reach after the header row folds away.
-        Div({ classes("nav-search") }) {
-            IconButton(
-                iconPath = Icons.SEARCH,
-                label = "Search everything",
-                onClick = onSearch,
-            )
         }
         NavGroup.entries.forEach { group ->
             Div({ classes("nav-group") }) {
