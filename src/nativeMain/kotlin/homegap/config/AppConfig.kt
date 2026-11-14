@@ -390,7 +390,22 @@ data class GeoLocation(
 data class HomelabConfig(
     /** Where the homelab is, for the maps. The public status page only shows its region. */
     val location: GeoLocation? = null,
+    val ssh: HomelabSshConfig = HomelabSshConfig(),
 )
+
+/** SSH to the homelab host for Pangolin clients: a private service that the config turns on. */
+@Serializable
+data class HomelabSshConfig(
+    val enabled: Boolean = false,
+    /** Host label: `<hostname>.<domain>`. */
+    val hostname: String = "ssh",
+    /** The port of the SSH server of the host. */
+    val port: Int = 22,
+    /** The roles that can use the service. Admin always can. */
+    val roles: List<String> = emptyList(),
+) {
+    fun host(domain: String) = "$hostname.$domain"
+}
 
 /** The self-hosted map (see `tools/build-map.sh`). */
 @Serializable

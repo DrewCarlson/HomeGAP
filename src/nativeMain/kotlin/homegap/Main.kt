@@ -12,6 +12,7 @@ import homegap.di.TunnelOptions
 import homegap.di.TunnelsGraph
 import homegap.discovery.DockerContainerSummary
 import homegap.mesh.MeshAgent
+import homegap.model.HomelabServices
 import homegap.model.Planner
 import homegap.model.PublicResource
 import homegap.platform.Files
@@ -145,7 +146,7 @@ private fun printPlan(configPath: String, line: CommandLine) {
     val containers = labelsByContainer.map { (name, labels) ->
         DockerContainerSummary(id = name, names = listOf("/$name"), labels = labels)
     }
-    val plan = Planner.plan(config, containers)
+    val plan = Planner.plan(config, containers + HomelabServices.containers(config))
     plan.labelErrors.forEach { println("ERROR ${it.container}: ${it.message}") }
     plan.labelWarnings.forEach { println("WARN  ${it.container}: ${it.message}") }
     for ((id, node) in plan.nodes) {

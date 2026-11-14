@@ -87,6 +87,12 @@ object TunnelFiles {
      */
     fun restartPath(dir: String, nodeId: String) = "$dir/$nodeId.restart"
 
+    /** The supervisor writes the address of the Docker host here. See [HostGateway]. */
+    fun hostGatewayPath(dir: String) = "$dir/host-gateway"
+
+    fun readHostGateway(dir: String): String? =
+        Files.readTextOrNull(hostGatewayPath(dir))?.trim()?.takeIf { it.isNotEmpty() }
+
     fun readSpecs(dir: String): List<TunnelSpec> =
         Files.list(dir)
             .filter { it.endsWith(SPEC_SUFFIX) }
@@ -162,6 +168,7 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
         Files.mkdirs(dir)
         Files.mkdirs("$dir/logs")
         logger.info { "Tunnel supervisor watching $dir (newt: $newtBinary)" }
+        writeHostGateway()
         // Only spec files: the status files this loop writes live in the same directory.
         launch {
             watchDirectory(dir) { it.endsWith(TunnelFiles.SPEC_SUFFIX) }.collect { events.send(Event.Rescan) }
@@ -184,6 +191,16 @@ class TunnelSupervisor(options: TunnelOptions, private val http: HttpClient) {
             runCatchingCancellable { handle(this, event) }
                 .onFailure { logger.error(it) { "supervisor event $event failed" } }
         }
+    }
+
+    /** Tells the orchestrator how this container reaches the homelab host. */
+    private fun writeHostGateway() {
+        val gateway = Files.readTextOrNull(HostGateway.ROUTE_TABLE)?.let(HostGateway::parse)
+        if (gateway == null) {
+            logger.warn { "No default route: a service on the homelab host has no address" }
+            return
+        }
+        Files.writeAtomic(TunnelFiles.hostGatewayPath(dir), gateway)
     }
 
     private suspend fun handle(scope: CoroutineScope, event: Event) {

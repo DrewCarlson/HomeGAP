@@ -116,6 +116,9 @@ speedtest:
 # The public status page only ever shows its region.
 # homelab:
 #   location: { latitude: 32.78, longitude: -96.8, name: "Dallas, Texas" }
+#   ssh:                     # SSH to the homelab host, for Pangolin clients only
+#     enabled: true          # the alias is ssh.<domain>
+#     roles: [Member]        # who may use it (Admin always can)
 
 status_page:
   enabled: false

@@ -56,6 +56,7 @@ object ConfigLoader {
             addAll(reconcileErrors(config.reconcile))
             addAll(tunnelErrors(config.tunnels))
             addAll(statusPageErrors(config))
+            addAll(homelabErrors(config.homelab))
             addAll(speedtestErrors(config))
             addAll(dashboardErrors(config.dashboard))
             addAll(meshErrors(config.cluster?.mesh))
@@ -154,6 +155,19 @@ object ConfigLoader {
     private fun tunnelErrors(tunnels: TunnelsConfig): List<String> = buildList {
         if (tunnels.mtu != null && tunnels.mtu !in 1280..1500) {
             add("tunnels.mtu must be between 1280 and 1500")
+        }
+    }
+
+    private fun homelabErrors(homelab: HomelabConfig): List<String> = buildList {
+        val ssh = homelab.ssh
+        if (!ssh.enabled) {
+            return@buildList
+        }
+        if (!HOST_LABEL.matches(ssh.hostname)) {
+            add("homelab.ssh.hostname must be a single lowercase label")
+        }
+        if (ssh.port !in 1..MAX_PORT) {
+            add("homelab.ssh.port must be a port number")
         }
     }
 
@@ -309,6 +323,7 @@ object ConfigLoader {
 
     /** The first label of the hostname of the speed test and of the status page. */
     private val HOST_LABEL = Regex("^[a-z][a-z0-9]{0,20}$")
+    private const val MAX_PORT = 65535
     private val CAA_ISSUER = Regex("^[a-z0-9.-]+$")
     private val PLAIN_HOSTNAME = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 

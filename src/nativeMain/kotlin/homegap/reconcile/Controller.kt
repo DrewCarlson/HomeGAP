@@ -36,6 +36,7 @@ import homegap.discovery.declaresService
 import homegap.discovery.traefikApiUrls
 import homegap.model.DesiredDnsRecord
 import homegap.model.DesiredState
+import homegap.model.HomelabServices
 import homegap.model.Planner
 import homegap.model.isHttpLike
 import homegap.platform.Crypto
@@ -200,6 +201,9 @@ class Controller(
     @Volatile private var dnsZoneErrors: Map<String, String> = emptyMap()
     private val discoveryMemory by lazy { DiscoveryMemory("${config.dataDir}/discovery.json") }
     private val heldContainers = mutableSetOf<String>()
+
+    /** The last pass had no address for the services of the homelab host. The log shows it once. */
+    private var hostAddressMissing = false
 
     private val clusterRec by lazy {
         ClusterReconciler(
@@ -534,7 +538,13 @@ class Controller(
             val known = remembered?.containers
             val containers = known.takeIf { listed != null }
             val routers = containers?.let { passTimes.measure("discovery") { traefikRouters(it) } }
-            val plan = Planner.plan(cfg, known.orEmpty(), pauses.services, traefikRouters = routers.orEmpty())
+            val hostServices = HomelabServices.containers(cfg)
+            if (cfg.homelab.ssh.enabled && hostServices.isEmpty() && !hostAddressMissing) {
+                log.warn("discovery", "homelab.ssh waits for the address of the host from the tunnels container")
+            }
+            hostAddressMissing = cfg.homelab.ssh.enabled && hostServices.isEmpty()
+            val planned = known.orEmpty() + hostServices
+            val plan = Planner.plan(cfg, planned, pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
                 val doorContainers = plan.frontDoors.map { it.containerName }.toSet()

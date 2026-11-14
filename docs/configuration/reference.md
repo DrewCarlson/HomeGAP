@@ -194,6 +194,10 @@ Every `/api` route needs the bearer token, with two exceptions. The terminal Web
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `location` | object | None. | `{ latitude, longitude, name }`: the location of the homelab, for the maps. The public status page shows only its region. |
+| `ssh.enabled` | boolean | `false` | Publishes the SSH server of the homelab host as a private service. See [Reach the homelab host over SSH](../services/private.md#reach-the-homelab-host-over-ssh). |
+| `ssh.hostname` | string | `ssh` | The first label of the alias, `<hostname>.<domain>`. A single lowercase label. |
+| `ssh.port` | integer | `22` | The port of the SSH server of the host. |
+| `ssh.roles` | list | `[]` | The roles that can reach the host. The `Admin` role always can. |
 
 ## map
 
