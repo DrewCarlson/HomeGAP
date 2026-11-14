@@ -2265,7 +2265,7 @@
 </tr>
 <tr>
 <td>The homelab origin is down.</td>
-<td>Public services are down, because the homelab is the single origin. Passthrough sites show a "back shortly" page (503) approximately 15 seconds after the nodes lose the homelab. Raw ports and resources that the node terminates fail.</td>
+<td>Public services are down, because the homelab is the single origin. Sites that the node terminates show a "back shortly" page (503) approximately 15 seconds after the nodes lose the homelab. For passthrough sites, the node closes the connection at once. Raw ports fail. See <a href="../../services/traffic-paths/#when-the-homelab-is-down">Traffic paths</a>.</td>
 <td>Restore the origin. The tunnels connect again.</td>
 </tr>
 <tr>
@@ -2285,11 +2285,11 @@
 </tr>
 <tr>
 <td>The mesh link between two nodes is broken (cluster).</td>
-<td>Nothing is visible while a majority of members still reach each other. The dashboard shows the isolated member.</td>
+<td>Nothing is visible while a majority of members still reach each other. The <strong>Mesh</strong> panel shows the link without a handshake.</td>
 <td>Repair the network. WireGuard connects again by itself.</td>
 </tr>
 <tr>
-<td>Fewer than half of the cluster members are reachable.</td>
+<td>Half or fewer of the cluster members are reachable.</td>
 <td>The cluster cannot elect a primary. Sign-ins and changes fail. Connected apps and public traffic continue to work.</td>
 <td>Bring the members back. The dashboard shows "no majority".</td>
 </tr>
@@ -2350,7 +2350,7 @@
 </tr>
 <tr>
 <td>The file <code>cluster/secrets.json</code> is gone or damaged while the cluster runs.</td>
-<td>The cluster part of each pass fails. HomeGAP does not create new passwords, because the database keeps the old ones.</td>
+<td>Nothing changes until the orchestrator restarts, because it holds the passwords in memory. After a restart, the cluster part and the node part of each pass fail. Live traffic does not change. HomeGAP does not create new passwords, because the database keeps the old ones.</td>
 <td>Restore the file from a backup of the data directory.</td>
 </tr>
 </tbody>

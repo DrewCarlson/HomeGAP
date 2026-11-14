@@ -2508,7 +2508,7 @@
 <li>Type the node id to confirm.</li>
 </ol>
 <p>The API call is <code>POST /api/nodes/{id}/decommission?confirm={id}</code>.</p>
-<p>Until the decommission, you can undo the removal. The dashboard offers <strong>Undo</strong> for one day, and you can add the node to the config again. The node stays in the cluster, so it needs no new join.</p>
+<p>Until the decommission, you can undo the removal. The dashboard offers <strong>Undo</strong> for 30 seconds. After that, you can add the node to the config again. The node stays in the cluster, so it needs no new join.</p>
 <p>HomeGAP removes only its own records. In cluster mode, the decommission also does these steps:</p>
 <ul>
 <li>It removes the homelab site and the exit site of the node from the Pangolin of the cluster.</li>
@@ -2540,13 +2540,14 @@
 <li>One node, with <strong>Pause</strong> on the <strong>Nodes</strong> page.</li>
 <li>One service, with <strong>Pause</strong> on the <strong>Services</strong> page, or with the label <code>homegap.pause</code>.</li>
 </ul>
+<p>The dashboard asks you to confirm a pause of everything and a pause of a node. A resume needs no confirmation.</p>
 <p>HomeGAP observes a paused target, but it never changes it. It keeps the DNS records of paused nodes and services. The API call is <code>POST /api/pause</code> with a body like this:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="nt">"scope"</span><span class="p">:</span><span class="w"> </span><span class="s2">"node"</span><span class="p">,</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"na1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"paused"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
 </code></pre></div>
 <p>The <code>scope</code> is <code>global</code>, <code>node</code> or <code>service</code>.</p>
 <h2 id="the-management-host">The management host<a class="headerlink" href="#the-management-host" title="Permanent link">&para;</a></h2>
 <p>Newt and the Pangolin client must reach the Pangolin API of each node. HomeGAP routes <code>https://&lt;management_host&gt;/api/v1</code> on each node. The default of <code>management_host</code> is <code>pangolin-&lt;id&gt;.&lt;domain&gt;</code>. This name is not part of the wildcard passthrough, and it has its own plain DNS record.</p>
-<p>The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. By default, the web UI of Pangolin is not public. To open it, use SSH port forwarding:</p>
+<p>The Pangolin ports 3000, 3002 and 3003 on the node listen only on loopback. In standalone mode, the web UI of Pangolin is not public by default. In cluster mode, each node serves it at <code>https://&lt;client_hostname&gt;.&lt;domain&gt;</code>. To open it on one node, use SSH port forwarding:</p>
 <ol>
 <li>Open the tunnel:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">3002</span>:127.0.0.1:3002<span class="w"> </span>deploy@203.0.113.10

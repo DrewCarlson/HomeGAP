@@ -2652,7 +2652,7 @@
 </tr>
 <tr>
 <td><code>tunnels</code></td>
-<td>The same image with the command <code>tunnels --dir /tunnels</code>. It keeps one Newt connector for each node.</td>
+<td>The same image with the command <code>tunnels</code>. Its directory is <code>/tunnels</code>. It keeps one Newt connector for each node.</td>
 </tr>
 </tbody>
 </table>
@@ -2673,7 +2673,7 @@
 </ul>
 <p>The orchestrator has these volumes:</p>
 <ul>
-<li><code>./config/config.yml:/config/config.yml</code>. This mount must be writable only if you enable config edits on the dashboard.</li>
+<li><code>./config/config.yml:/config/config.yml</code>. This mount must be writable, unless you set <code>dashboard.allow_config_edits: false</code>.</li>
 <li><code>./secrets/ssh:/secrets/ssh:ro</code>. The SSH keys of the nodes.</li>
 <li><code>homegap-data:/data</code>. The state cache, <code>known_hosts</code>, the generated SSH keys and the dashboard token. No other container mounts this volume.</li>
 <li><code>homegap-cluster-config:/cluster-config</code>. The config that the orchestrator writes for the cluster containers. They mount it read-only at <code>/config</code>.</li>
@@ -2706,7 +2706,7 @@
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>PANGOLIN_LICENSE_KEY=...
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>HOMEGAP_DASHBOARD_TOKEN=...
 </code></pre></div>
-    <code>PANGOLIN_LICENSE_KEY</code> is optional. For <code>HOMEGAP_DASHBOARD_TOKEN</code>, use a long random string.</li>
+    <code>PANGOLIN_LICENSE_KEY</code> is optional. To use it, also set <code>pangolin.license_key_env: PANGOLIN_LICENSE_KEY</code> in the config. The example config has this line as a comment. For <code>HOMEGAP_DASHBOARD_TOKEN</code>, use a long random string.</li>
 <li>Make sure that the config has <code>dashboard.auth_token_env: HOMEGAP_DASHBOARD_TOKEN</code>. The example config has it.</li>
 <li>If you set no dashboard token, read the token that HomeGAP creates after the first start. See <a href="../../operations/dashboard/#access">Dashboard</a>.</li>
 <li>Make the file readable only by you:
@@ -2754,7 +2754,7 @@
 <li>On your workstation, open the SSH tunnel:
     <div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8088</span>:127.0.0.1:8088<span class="w"> </span>&lt;homelab&gt;
 </code></pre></div></li>
-<li>Open <code>http://localhost:8088</code> in your browser. If you set a token, the dashboard asks for it.</li>
+<li>Open <code>http://localhost:8088</code> in your browser. The dashboard asks for the token: your <code>HOMEGAP_DASHBOARD_TOKEN</code>, or the token that HomeGAP created.</li>
 </ol>
 <p>For the long term, publish the dashboard as a private Pangolin resource. See <a href="../../services/private/">Private services</a>.</p>
 <h2 id="disable-dry-run">Disable dry run<a class="headerlink" href="#disable-dry-run" title="Permanent link">&para;</a></h2>

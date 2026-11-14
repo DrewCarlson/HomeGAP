@@ -1957,6 +1957,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#node-ports-on-the-mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Node: ports on the mesh
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#node-ports-on-loopback" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2340,6 +2351,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#node-ports-on-the-mesh" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Node: ports on the mesh
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#node-ports-on-loopback" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2462,6 +2484,55 @@
 </tbody>
 </table>
 <p>A firewall at the provider level must open the same ports.</p>
+<h2 id="node-ports-on-the-mesh">Node: ports on the mesh<a class="headerlink" href="#node-ports-on-the-mesh" title="Permanent link">&para;</a></h2>
+<p>In cluster mode, HomeGAP also opens these TCP ports in <code>ufw</code>, but only on the interfaces of the cluster:</p>
+<table>
+<thead>
+<tr>
+<th>Port</th>
+<th>Interface</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2379</td>
+<td><code>hg-mesh</code></td>
+<td>The etcd client port.</td>
+</tr>
+<tr>
+<td>2380</td>
+<td><code>hg-mesh</code></td>
+<td>The etcd peer port.</td>
+</tr>
+<tr>
+<td>3004</td>
+<td><code>hg-mesh</code></td>
+<td>The API of Gerbil.</td>
+</tr>
+<tr>
+<td>5432</td>
+<td><code>hg-mesh</code> and <code>hg-cluster</code></td>
+<td>PostgreSQL.</td>
+</tr>
+<tr>
+<td>6379</td>
+<td><code>hg-mesh</code> and <code>hg-cluster</code></td>
+<td>Valkey.</td>
+</tr>
+<tr>
+<td>8008</td>
+<td><code>hg-mesh</code> and <code>hg-cluster</code></td>
+<td>The API of Patroni.</td>
+</tr>
+<tr>
+<td>26379</td>
+<td><code>hg-mesh</code></td>
+<td>Valkey Sentinel.</td>
+</tr>
+</tbody>
+</table>
+<p><code>hg-cluster</code> is the bridge of the <code>homegap-cluster</code> Docker network on the node. A rule in the <code>DOCKER-USER</code> chain drops packets from a container to ports 2380 and 26379 of another member. See <a href="../../cluster/mesh/#what-a-container-on-a-node-can-reach">Cluster mesh</a>.</p>
 <h2 id="node-ports-on-loopback">Node: ports on loopback<a class="headerlink" href="#node-ports-on-loopback" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2473,7 +2544,7 @@
 <tbody>
 <tr>
 <td>3000, 3002, 3003</td>
-<td>Pangolin. The orchestrator reaches them through SSH port forwarding.</td>
+<td>Pangolin. The orchestrator reaches 3000 and 3003 through SSH port forwarding.</td>
 </tr>
 <tr>
 <td><code>127.0.0.1:8404</code></td>

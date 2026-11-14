@@ -2399,8 +2399,10 @@
 <ul>
 <li>The nodes, over SSH.</li>
 <li>The Bunny API at <code>api.bunny.net</code>. The config key <code>bunny.api_url</code> sets the URL (default <code>https://api.bunny.net</code>).</li>
-<li>The container registries.</li>
+<li>The ACME server of Let's Encrypt, for the certificate of the nodes. The config key <code>acme.directory</code> sets the URL.</li>
+<li>The nameservers of the zone, for DNS queries.</li>
 </ul>
+<p>The Docker daemon of the homelab and the nodes need access to the container registries.</p>
 <p>The orchestrator needs no inbound access.</p>
 
 

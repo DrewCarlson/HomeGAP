@@ -2576,8 +2576,8 @@
 <h1 id="http-api">HTTP API<a class="headerlink" href="#http-api" title="Permanent link">&para;</a></h1>
 <p>The dashboard uses an HTTP API on the orchestrator. You can use the same API from scripts. This page lists every route.</p>
 <h2 id="basics">Basics<a class="headerlink" href="#basics" title="Permanent link">&para;</a></h2>
-<p>The base URL is <code>http://&lt;dashboard.bind&gt;</code>. Every <code>/api/*</code> route needs the header <code>Authorization: Bearer &lt;token&gt;</code>. The token comes from <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. Without them, HomeGAP creates a token. See <a href="../../operations/dashboard/#access">Dashboard</a>.</p>
-<p>An action returns <code>{"ok": true, "message": "..."}</code>. An error returns <code>{"ok": false, "message": "..."}</code>, with one of these HTTP status codes:</p>
+<p>The base URL is <code>http://&lt;dashboard.bind&gt;</code>. Every <code>/api/*</code> route needs the header <code>Authorization: Bearer &lt;token&gt;</code>, with two exceptions. <code>/api/terminal/ws</code> uses a ticket. The Traefik of the homelab can read <code>GET /api/traefik/homelab</code> from the front door container without a token. The token comes from <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. Without them, HomeGAP creates a token. See <a href="../../operations/dashboard/#access">Dashboard</a>.</p>
+<p>An action returns <code>{"ok": true, "message": "..."}</code>. If you can undo the action, the answer also has an <code>undo</code> id for <code>POST /api/undo/{id}</code>. An error returns <code>{"ok": false, "message": "..."}</code>, with one of these HTTP status codes:</p>
 <table>
 <thead>
 <tr>
@@ -2595,8 +2595,39 @@
 <td>The request conflicts with the current state.</td>
 </tr>
 <tr>
+<td>429</td>
+<td>The address sent more than 20 wrong tokens in one minute.</td>
+</tr>
+<tr>
 <td>500</td>
 <td>Any other error.</td>
+</tr>
+<tr>
+<td>503</td>
+<td><code>/api/events</code> already has 32 open streams.</td>
+</tr>
+</tbody>
+</table>
+<p>Some answers have no JSON body:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>401</td>
+<td>The token is missing or wrong.</td>
+</tr>
+<tr>
+<td>404</td>
+<td><code>GET /api/setup/jobs/{id}</code> does not know the job.</td>
+</tr>
+<tr>
+<td>204</td>
+<td><code>GET /api/speedtest/live</code>, when no test runs.</td>
 </tr>
 </tbody>
 </table>
@@ -2647,11 +2678,19 @@
 </tr>
 <tr>
 <td><code>GET /api/events?after=SEQ</code></td>
-<td>Server-sent events. The <code>status</code> event sends the snapshot when it changes. The <code>log</code> event sends the new log entries after <code>SEQ</code>.</td>
+<td>Server-sent events. The first event is <code>status</code>, with the full snapshot. After that, a <code>patch</code> event sends the top-level fields of the snapshot that changed. The <code>log</code> event sends the new log entries after <code>SEQ</code>. The stream also sends <code>metrics</code>, <code>job</code>, <code>speedtest</code> and <code>access</code> events.</td>
 </tr>
 <tr>
-<td><code>GET /api/log?domain=&amp;limit=</code></td>
-<td>Returns the recent reconcile log. The default of <code>limit</code> is 300.</td>
+<td><code>GET /api/metrics?range=&amp;edge=</code></td>
+<td>Returns the series of the graphs. <code>range</code> is in seconds. The default is one hour, and the maximum is one day. <code>edge</code> selects one node.</td>
+</tr>
+<tr>
+<td><code>GET /api/log?domain=&amp;level=&amp;q=&amp;before=&amp;limit=</code></td>
+<td>Returns the recent reconcile log. <code>before=SEQ</code> gives older entries. The default of <code>limit</code> is 300, and the maximum is 1000.</td>
+</tr>
+<tr>
+<td><code>GET /api/search?q=</code></td>
+<td>Searches the nodes, the services and the other items of the dashboard.</td>
 </tr>
 </tbody>
 </table>
@@ -2689,7 +2728,15 @@
 <tbody>
 <tr>
 <td><code>POST /api/resync</code></td>
-<td>Queues a pass.</td>
+<td>Queues a pass. With <code>?apply=once</code>, that pass applies the changes that wait, and the global pause stays on.</td>
+</tr>
+<tr>
+<td><code>POST /api/undo/{id}</code></td>
+<td>Undoes an action, with the <code>undo</code> id from its answer.</td>
+</tr>
+<tr>
+<td><code>POST /api/tunnels/{id}/restart</code></td>
+<td>Restarts the Newt connector of a node.</td>
 </tr>
 <tr>
 <td><code>POST /api/pause</code></td>
@@ -2701,7 +2748,7 @@
 </tr>
 <tr>
 <td><code>POST /api/cluster/maintenance/start?minutes=N</code></td>
-<td>Moves the cluster primaries off the homelab and holds them for up to N minutes (default 30).</td>
+<td>Moves the cluster primaries off the homelab and holds them for up to N minutes (default 30). HomeGAP limits N to a value from 5 to 240.</td>
 </tr>
 <tr>
 <td><code>POST /api/cluster/maintenance/end</code></td>
@@ -2710,7 +2757,7 @@
 </tbody>
 </table>
 <h2 id="certificates">Certificates<a class="headerlink" href="#certificates" title="Permanent link">&para;</a></h2>
-<p>The status snapshot has a <code>certificates</code> part. It holds only public facts: the names, the dates, the issuer, the serial number and the fingerprint. It never holds a key, a certificate file, the ACME account key or a challenge value.</p>
+<p>The status snapshot has a <code>certificates</code> part. It holds the facts of the certificate: the names, the dates, the issuer, the serial number and the fingerprint. It also holds the state and the history of the orders, the delivery to each node, the TLS probes and the state of the CAA records. It never holds a key, a certificate file, the ACME account key or a challenge value.</p>
 <table>
 <thead>
 <tr>
@@ -2748,11 +2795,15 @@
 <tbody>
 <tr>
 <td><code>POST /api/nodes</code></td>
-<td>Adds a node. The body is a node entry. HomeGAP writes the config file again, with a backup.</td>
+<td>Adds a node. The body is a JSON object with <code>id</code>, <code>host</code> and <code>sshKeyFile</code>. Optional fields are <code>region</code>, <code>provider</code>, <code>os</code>, <code>sshUser</code>, <code>sshPort</code>, <code>latitude</code>, <code>longitude</code>, <code>locationName</code>, <code>managementHost</code> and <code>sshAllowFrom</code>. HomeGAP writes the config file again, with a backup.</td>
 </tr>
 <tr>
 <td><code>DELETE /api/nodes/{id}</code></td>
-<td>Removes a node from the config. DNS drains first. The stack stays up, and the node stays in the cluster, until the decommission.</td>
+<td>Removes a node from the config. DNS drains first. The stack stays up, and the node stays in the cluster, until the decommission. The answer has an <code>undo</code> id.</td>
+</tr>
+<tr>
+<td><code>PUT /api/nodes/{id}/location</code></td>
+<td>Sets the location of a node. Body: <code>{"location": {...}}</code>, as for the homelab. HomeGAP writes the config file again.</td>
 </tr>
 <tr>
 <td><code>POST /api/nodes/{id}/provision</code></td>
@@ -2768,7 +2819,7 @@
 </tr>
 <tr>
 <td><code>POST /api/nodes/{id}/decommission?confirm={id}</code></td>
-<td>Stops the stack of a removed node and forgets the node. <code>confirm</code> must repeat the node id. If the teardown fails, the call returns an error and the node stays. With <code>force=true</code>, HomeGAP forgets the node without a teardown.</td>
+<td>Removes the stack, the cluster member, the mesh interface and the contents of the install directory of a removed node. Then HomeGAP forgets the node. <code>confirm</code> must repeat the node id. If the teardown fails, the call returns an error and the node stays. With <code>force=true</code>, HomeGAP forgets the node without a teardown.</td>
 </tr>
 <tr>
 <td><code>GET /api/nodes/{id}/logs?service=&amp;since=&amp;tail=</code></td>
@@ -2781,7 +2832,7 @@
 </tbody>
 </table>
 <h2 id="terminal">Terminal<a class="headerlink" href="#terminal" title="Permanent link">&para;</a></h2>
-<p>These routes answer with an error when <code>dashboard.terminal</code> is off.</p>
+<p>When <code>dashboard.terminal</code> is off, the routes that start a shell or give a ticket answer with an error. <code>GET /api/terminal</code> then returns <code>enabled: false</code>.</p>
 <table>
 <thead>
 <tr>
@@ -2861,7 +2912,7 @@
 <tbody>
 <tr>
 <td><code>POST /api/setup/test</code></td>
-<td>Tests an initial SSH login. Body: <code>host</code>, <code>port</code>, <code>user</code>, <code>password</code> or <code>keyFile</code>, and <code>resetHostKey</code>.</td>
+<td>Tests an initial SSH login. Body: <code>host</code>, <code>port</code>, <code>user</code>, <code>password</code> or <code>keyFile</code>, <code>resetHostKey</code> and <code>hostKeyFingerprint</code>. A password login to a server with no recorded host key first returns the fingerprint. Send the test again with the fingerprint that you confirmed in <code>hostKeyFingerprint</code>.</td>
 </tr>
 <tr>
 <td><code>POST /api/setup/keys</code></td>
@@ -2923,11 +2974,15 @@
 </tr>
 <tr>
 <td><code>DELETE /api/access/users/{id}</code></td>
-<td>Removes a user.</td>
+<td>Removes a user after 30 seconds. The answer has an <code>undo</code> id.</td>
 </tr>
 <tr>
 <td><code>PUT /api/access/users/{id}/roles</code></td>
 <td>Sets the roles of a user. Body: <code>{"roleIds": [...]}</code>.</td>
+</tr>
+<tr>
+<td><code>POST /api/access/invitations/{id}/reissue</code></td>
+<td>Makes a new invite link for an open invitation. The old link stops.</td>
 </tr>
 <tr>
 <td><code>DELETE /api/access/invitations/{id}</code></td>
@@ -2955,6 +3010,18 @@
 <tr>
 <td><code>POST /api/speedtest/nodes/{id}?streams=N</code></td>
 <td>Runs a test between the homelab and a node. The call returns when the test ends. <code>streams</code> is optional.</td>
+</tr>
+<tr>
+<td><code>GET /api/speedtest/live</code></td>
+<td>Returns the test between the homelab and a node that runs now.</td>
+</tr>
+<tr>
+<td><code>POST /api/speedtest/runs?streams=N</code></td>
+<td>Starts a test of every node, one node at a time. The status snapshot has the progress.</td>
+</tr>
+<tr>
+<td><code>DELETE /api/speedtest/runs</code></td>
+<td>Stops that run.</td>
 </tr>
 <tr>
 <td><code>POST /api/speedtest/link</code></td>

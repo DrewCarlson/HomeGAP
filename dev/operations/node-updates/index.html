@@ -2422,7 +2422,7 @@
 <h1 id="node-updates-and-rollback">Node updates and rollback<a class="headerlink" href="#node-updates-and-rollback" title="Permanent link">&para;</a></h1>
 <p>HomeGAP updates the stacks of the nodes one at a time, and it rolls back a failed update. This page tells you how an update works and how to recover from a failure.</p>
 <h2 id="provisioning-in-the-background">Provisioning in the background<a class="headerlink" href="#provisioning-in-the-background" title="Permanent link">&para;</a></h2>
-<p>Provisioning runs in the background. A slow node never delays the health checks, the tunnels or DNS for the other nodes. Examples of a slow node are a first install or a slow Docker download. During provisioning, the node shows <code>provisioning…</code> or <code>updating…</code> on the dashboard.</p>
+<p>Provisioning runs in the background. A slow node never delays the health checks, the tunnels or DNS for the other nodes. Examples of a slow node are a first install or a slow Docker download. During provisioning, the node shows the current phase on the dashboard, for example <code>writing the stack (4 of 7)</code>.</p>
 <h2 id="a-rolling-update">A rolling update<a class="headerlink" href="#a-rolling-update" title="Permanent link">&para;</a></h2>
 <p>Some changes alter the stack of nodes that are already healthy. Examples are a new image version, the MTU, the tuning and raw ports. HomeGAP sends such a change to one node at a time:</p>
 <ol>
@@ -2451,7 +2451,7 @@
 <h2 id="drift">Drift<a class="headerlink" href="#drift" title="Permanent link">&para;</a></h2>
 <p>Every <code>reconcile.node_check_interval</code> (default 5 minutes), HomeGAP checks each node over SSH. It repairs the changes that somebody makes outside HomeGAP. To keep a change that you make by hand, pause the node. See <a href="../nodes/#pause">Manage nodes</a>.</p>
 <h2 id="preview-the-stack-of-a-node">Preview the stack of a node<a class="headerlink" href="#preview-the-stack-of-a-node" title="Permanent link">&para;</a></h2>
-<p>To see the stack that HomeGAP writes to a node, run this command. The output does not show the secrets.</p>
+<p>To see the stack that HomeGAP writes to a node, run this command. The output does not show the secrets. It reads only the config file, so it has no services from labels. In cluster mode, it does not show the cluster settings of the stack.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>render-node<span class="w"> </span>na1
 </code></pre></div>
 

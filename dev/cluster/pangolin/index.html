@@ -2468,9 +2468,9 @@
 <h2 id="the-image">The image<a class="headerlink" href="#the-image" title="Permanent link">&para;</a></h2>
 <p>Each node runs the PostgreSQL build of the configured image. The tag <code>ee-&lt;version&gt;</code> becomes <code>ee-postgresql-&lt;version&gt;</code>. The default of <code>pangolin.pangolin_image</code> is <code>docker.io/fosrl/pangolin:ee-1.26.0</code>.</p>
 <h2 id="reads-and-writes">Reads and writes<a class="headerlink" href="#reads-and-writes" title="Permanent link">&para;</a></h2>
-<p>Pangolin sends writes to the current primary through <code>cluster-proxy</code>. It reads from the database member on its own node. A sign-in, and the use of the session at once, works through a node approximately 300 ms from the primary. The end-to-end tests check this with added latency on the mesh.</p>
+<p>Pangolin sends writes to the current primary through <code>cluster-proxy</code>. It reads from the database member on its own node. A sign-in, and the use of the session at once, works through a node approximately 300 ms from the primary. The end-to-end tests check a sign-in through every node.</p>
 <h2 id="sites-and-resources">Sites and resources<a class="headerlink" href="#sites-and-resources" title="Permanent link">&para;</a></h2>
-<p>Each node is its own region. The homelab gets one site for each node, with the name <code>&lt;site_name&gt;-&lt;node id&gt;</code>, for example <code>homelab-na1</code>. HomeGAP creates each site through its node. Thus the connector of the site always uses the exit node of that node.</p>
+<p>Each node is its own region. The homelab gets one site for each node. Its identifier is <code>&lt;site_name&gt;-&lt;node id&gt;</code>, for example <code>homelab-na1</code>. Its name is <code>&lt;site_name&gt; via &lt;node id&gt;</code>, for example <code>homelab via na1</code>. HomeGAP creates each site through its node. Thus the connector of the site always uses the exit node of that node.</p>
 <p>Each service is one resource with a target on the site of every node. HomeGAP applies the resources one time in each pass, through the first node that is ready. A node routes only through its own target. Thus every node keeps its own tunnel to the homelab, and no node relays through another node.</p>
 <p>Some things stay separate on each node:</p>
 <ul>

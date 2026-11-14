@@ -2434,7 +2434,7 @@
 <h1 id="diagnostics-and-troubleshooting">Diagnostics and troubleshooting<a class="headerlink" href="#diagnostics-and-troubleshooting" title="Permanent link">&para;</a></h1>
 <p>This page tells you where to find logs and diagnostics, and what to check for common problems.</p>
 <h2 id="the-diagnostics-page">The Diagnostics page<a class="headerlink" href="#the-diagnostics-page" title="Permanent link">&para;</a></h2>
-<p>The <strong>Diagnostics</strong> page shows the logs of any container on a node. It also runs a read-only diagnostics bundle. The bundle has:</p>
+<p>The <strong>Diagnostics</strong> page shows the logs of the containers in the table below. It also runs a read-only diagnostics bundle. The bundle has:</p>
 <ul>
 <li>The containers, and the backends of the cluster proxy.</li>
 <li>The mesh interface and the probe.</li>
@@ -2501,10 +2501,10 @@
 <tbody>
 <tr>
 <td>HomeGAP ignores a label.</td>
-<td>The errors and warnings on the <strong>Services</strong> page. Look for an unknown label, or a hostname that two containers claim. See <a href="../../services/">Services</a>.</td>
+<td>The label errors on the <strong>Services</strong> page, for example a hostname that two containers claim. The <code>discovery</code> warnings on the <strong>Activity</strong> page, for example an unknown label. See <a href="../../services/">Services</a>.</td>
 </tr>
 <tr>
-<td>A node stays <code>provisioning…</code>.</td>
+<td>A node stays in a provisioning phase.</td>
 <td>The <strong>Activity</strong> log and the <code>ssh</code> check. HomeGAP tries a failed first provisioning again after 5 minutes.</td>
 </tr>
 <tr>
@@ -2544,7 +2544,7 @@
 <td>See <a href="../../cluster/database/#the-cluster-proxy-check">Cluster database</a>.</td>
 </tr>
 <tr>
-<td>A handshake is missing in the <strong>Cluster mesh</strong> panel.</td>
+<td>A handshake is missing in the <strong>Mesh</strong> panel.</td>
 <td>The firewall of the provider must open <code>cluster.mesh.port</code>/udp.</td>
 </tr>
 <tr>

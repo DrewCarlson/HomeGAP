@@ -2450,7 +2450,7 @@
 <ul>
 <li>The node that the visitor came through. This is the node that DNS selects for the location of the visitor. The page also shows the round trip of the visitor to the homelab through this node.</li>
 <li>The state of every node: online, degraded or offline.</li>
-<li>The round trip of the visitor through each other online node.</li>
+<li>The round trip of the visitor through each other node that is not offline.</li>
 </ul>
 <table>
 <thead>
@@ -2466,11 +2466,11 @@
 </tr>
 <tr>
 <td>Degraded</td>
-<td>The node carries traffic, but a check fails.</td>
+<td>The tunnel of the node is up, but a check fails or is down.</td>
 </tr>
 <tr>
 <td>Offline</td>
-<td>The node is down, paused or in removal, or its tunnel to the homelab is down.</td>
+<td>The node is paused or in removal, or its tunnel to the homelab is down. A node is also offline while all changes are paused.</td>
 </tr>
 </tbody>
 </table>
@@ -2496,7 +2496,7 @@
 <p>On HTTPS, the node sends each request on to the homelab under its own name, <code>status-&lt;node&gt;.&lt;domain&gt;</code>. That name goes through the front door and the tunnel to the homelab. The address bar keeps <code>status.&lt;domain&gt;</code>, and the orchestrator always knows which node the visitor came through. Thus the page, the node list and every ping come from the orchestrator.</p>
 <p>For the round trip through each other node, the browser sends one request to <code>status-&lt;node&gt;.&lt;domain&gt;</code>. The request goes through that node and its tunnel to the homelab, and back. The browser measures the time with Resource Timing, from the request to the first byte. Thus the time does not include DNS and the setup of the connection.</p>
 <h2 id="enable-the-status-page">Enable the status page<a class="headerlink" href="#enable-the-status-page" title="Permanent link">&para;</a></h2>
-<p>The status page needs a front door. The first activation needs a restart of the orchestrator.</p>
+<p>The status page needs a front door. The status page and the speed test share one listener, which starts only with the orchestrator. If neither was on at the start, the first activation needs a restart of the orchestrator.</p>
 <table>
 <thead>
 <tr>

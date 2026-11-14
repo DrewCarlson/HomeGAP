@@ -2469,7 +2469,8 @@
 <ul>
 <li>Keep each log message, error message, script, template, wire format and serialized name exactly as it is.</li>
 <li>Change the structure of a function only if a test or the end-to-end harness covers it. If nothing covers it, make only the changes that cannot change the behavior: a new name, a line break, a constant.</li>
-<li>Do not change the tests to make a cleanup pass.</li>
+<li>Do not change what a test asserts to make a cleanup pass.</li>
+<li>The tests and the build scripts follow these rules too. A cleanup of a test keeps its name, its calls and its expected values.</li>
 </ul>
 <h2 id="warnings">Warnings<a class="headerlink" href="#warnings" title="Permanent link">&para;</a></h2>
 <p>A file has no warnings from the compiler and no warnings from the inspections of the IDE.</p>
@@ -2507,7 +2508,7 @@
 <h2 id="shared-code">Shared code<a class="headerlink" href="#shared-code" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Do not copy a helper. If two files need the same helper, put it in a shared file and use it in both.</li>
-<li>To catch the errors of a suspend block, use <code>runCatchingCancellable</code> from <code>homegap.platform</code>. Do not write <code>try</code>/<code>catch</code> with a check for <code>CancellationException</code> by hand.</li>
+<li>To catch the errors of a suspend block, use <code>runCatchingCancellable</code>. It is in <code>homegap.platform</code> for the orchestrator, and in <code>homegap.presentation.core</code> for the dashboard. Do not write <code>try</code>/<code>catch</code> with a check for <code>CancellationException</code> by hand.</li>
 <li>Use <code>orEmpty()</code>, not <code>?: ""</code> or <code>?: emptyList()</code>.</li>
 <li>Use <code>check</code> and <code>require</code> for a condition that throws. Do not write <code>if (...) throw IllegalStateException(...)</code>.</li>
 </ul>
@@ -2523,7 +2524,7 @@
 <ol>
 <li>Run the inspections of the IDE on each file that you changed. The result must be empty.</li>
 <li>Run the tests:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>./gradlew<span class="w"> </span>macosArm64Test
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>./gradlew<span class="w"> </span>macosArm64Test<span class="w"> </span>:presentation:jsNodeTest
 </code></pre></div></li>
 <li>For a change in a reconciler, a template or a script, run the end-to-end harness. See <a href="../e2e/">End-to-end tests</a>. After the deploy, the first pass must show no changes, and the stack of each node must keep its hash.</li>
 </ol>

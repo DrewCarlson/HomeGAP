@@ -2434,7 +2434,7 @@
 <tbody>
 <tr>
 <td><code>./gradlew macosArm64Test</code></td>
-<td>Runs the unit tests on the host target.</td>
+<td>Runs the unit tests on an Apple Silicon Mac. The other targets are <code>linuxX64</code> and <code>linuxArm64</code>.</td>
 </tr>
 <tr>
 <td><code>./gradlew :presentation:jsNodeTest</code></td>
@@ -2470,7 +2470,7 @@
 </ol>
 <p>The Dockerfile builds the map tiles and these docs (<code>mkdocs.embedded.yml</code>) itself.</p>
 <h2 id="ci">CI<a class="headerlink" href="#ci" title="Permanent link">&para;</a></h2>
-<p><code>.github/workflows/build.yml</code> runs on pushes to <code>main</code>, on version tags and on pull requests. It runs the unit tests and the presenter tests, then builds the multi-arch image. On pushes to <code>main</code> and on version tags, it publishes the image to GHCR. The image tags are:</p>
+<p><code>.github/workflows/build.yml</code> runs on pushes to <code>main</code>, on version tags, on pull requests and on a manual start. It runs the unit tests and the presenter tests. Then it builds two multi-arch images: the orchestrator image and the cluster image from <code>cluster/Dockerfile</code>. On each run that is not a pull request, it publishes the two images to GHCR and signs them with cosign. The name of the cluster image has the suffix <code>-cluster</code>. The image tags are:</p>
 <table>
 <thead>
 <tr>
@@ -2495,22 +2495,37 @@
 <a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>  model/        pure planner: labels + config -&gt; desired state
 <a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>  reconcile/    controller loop and the node, tunnel, resource and DNS reconcilers
 <a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>  clients/      Pangolin (integration + bootstrap), Bunny, SSH (OpenSSH ControlMaster)
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  provision/    node stack templates, certificates, YAML emitter
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  state/        local state cache
-<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  dashboard/    REST API + embedded SPA, and the map's files
-<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  locations/    the locations catalog (shipped list + local edits)
-<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  tunnels/      Newt connector supervisor
-<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>api/            wire types shared by the API and the dashboard
-<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>web/            Compose for HTML dashboard, bundled with Vite (kotlin-vite)
-<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>deploy/         homelab compose; reference node stack
-<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>blueprints/     example Pangolin base blueprint
-<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>config/         example configuration
-<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>locations/      the shipped data-center catalog (datacenters.yml)
-<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>tools/          build-map.sh: the self-hosted map's tiles
-<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>e2e/            end-to-end harness
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>  provision/    node, cluster and exit stack templates, firewall rules, maintenance page, YAML emitter
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>  acme/         the certificate of the nodes: orders, DNS challenge, probes
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>  setup/        the add-node wizard: first login, keys, setup scripts
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>  mesh/         the mesh agent of the homelab
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>  state/        local state cache
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>  dashboard/    HTTP server, token check, embedded SPA, and the map and docs files
+<a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a>  routes/       the REST API routes
+<a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>  access/       users and devices of the cluster
+<a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a>  diagnostics/  node logs and the diagnostics bundle
+<a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>  terminal/     shell sessions on the nodes
+<a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a>  speedtest/    speed tests and the public listener
+<a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a>  status/       the public status page
+<a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>  locations/    the locations catalog (shipped list + local edits)
+<a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a>  tunnels/      Newt connector supervisor
+<a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a>  config/       config file, secrets, shared directories
+<a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a>  platform/     files, processes, crypto and other native helpers
+<a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a>  di/           the dependency graphs
+<a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>api/            wire types shared by the API and the dashboard
+<a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a>presentation/   presenters and UI models of the dashboard, tested on Node
+<a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a>web/            Compose for HTML dashboard, bundled with Vite (kotlin-vite)
+<a id="__codelineno-2-26" name="__codelineno-2-26" href="#__codelineno-2-26"></a>cluster/        the cluster image (PostgreSQL with Patroni, etcd, Valkey, HAProxy)
+<a id="__codelineno-2-27" name="__codelineno-2-27" href="#__codelineno-2-27"></a>deploy/         homelab compose (homelab-compose.yml) and the upgrade script (upgrade.sh)
+<a id="__codelineno-2-28" name="__codelineno-2-28" href="#__codelineno-2-28"></a>blueprints/     example Pangolin base blueprint
+<a id="__codelineno-2-29" name="__codelineno-2-29" href="#__codelineno-2-29"></a>config/         example configuration
+<a id="__codelineno-2-30" name="__codelineno-2-30" href="#__codelineno-2-30"></a>locations/      the shipped data-center catalog (datacenters.yml)
+<a id="__codelineno-2-31" name="__codelineno-2-31" href="#__codelineno-2-31"></a>tools/          build-map.sh: the self-hosted map's tiles; localize-docs-assets.py: local copies of the docs theme files
+<a id="__codelineno-2-32" name="__codelineno-2-32" href="#__codelineno-2-32"></a>docs/           these docs
+<a id="__codelineno-2-33" name="__codelineno-2-33" href="#__codelineno-2-33"></a>e2e/            end-to-end harness
 </code></pre></div>
 <h2 id="contributing">Contributing<a class="headerlink" href="#contributing" title="Permanent link">&para;</a></h2>
-<p>Issues and pull requests are welcome. Before you open a pull request, make sure that the unit tests pass (<code>./gradlew macosArm64Test</code>). For changes to provisioning, routing or DNS, the end-to-end harness must also pass. See <a href="../e2e/">End-to-end tests</a>.</p>
+<p>Issues and pull requests are welcome. Before you open a pull request, make sure that the unit tests and the presenter tests pass (<code>./gradlew macosArm64Test :presentation:jsNodeTest</code>). For changes to provisioning, routing or DNS, the end-to-end harness must also pass. See <a href="../e2e/">End-to-end tests</a>.</p>
 <p>For changes to these docs, see <a href="../documentation/">Documentation</a>.</p>
 
 

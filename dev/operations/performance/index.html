@@ -2480,7 +2480,7 @@
 </table>
 <h3 id="tcp-tuning-on-the-nodes">TCP tuning on the nodes<a class="headerlink" href="#tcp-tuning-on-the-nodes" title="Permanent link">&para;</a></h3>
 <p>The file sets BBR congestion control, the <code>fq</code> qdisc, socket buffers up to 64 MiB, MTU probing and a higher tolerance for reordering. BBR keeps long paths with packet loss fast.</p>
-<p>Docker containers do not inherit the TCP settings of the host. Thus HomeGAP also applies the same settings in the network namespace of Gerbil and Traefik on the node. The <strong>Nodes</strong> page shows them as <code>edge tcp</code>.</p>
+<p>Docker containers do not inherit the TCP settings of the host. Thus HomeGAP also applies the same settings in the network namespace of Gerbil and Traefik on the node. The fact <code>edge_tcp</code> of the node in <code>GET /api/status</code> shows them. The Inspector of a node shows the settings of the host in the <strong>TCP</strong> row.</p>
 <p>The node fact <code>tcp_cc</code> shows the congestion control that the kernel really uses. Some VPS kernels refuse BBR.</p>
 <h3 id="the-mtu">The MTU<a class="headerlink" href="#the-mtu" title="Permanent link">&para;</a></h3>
 <p>If the path has PPPoE or another tunnel, use a lower MTU. To check a value, run this command from the homelab. Replace <code>&lt;mtu - 28&gt;</code> with the MTU minus 28:</p>

@@ -2356,7 +2356,7 @@
 <h1 id="publish-a-service">Publish a service<a class="headerlink" href="#publish-a-service" title="Permanent link">&para;</a></h1>
 <p>This page tells you how to send the first real traffic through HomeGAP, and how to check the result.</p>
 <h2 id="publish-through-the-front-door">Publish through the front door<a class="headerlink" href="#publish-through-the-front-door" title="Permanent link">&para;</a></h2>
-<p>The front door claims the root domain and <code>*.&lt;domain&gt;</code>. Thus HomeGAP publishes each name that your homelab Traefik serves under the domain, and you add no more labels.</p>
+<p>The front door claims the root domain and <code>*.&lt;domain&gt;</code>. Thus HomeGAP publishes the root and each name one label under the domain that your homelab Traefik serves, and you add no more labels.</p>
 <p>To publish a service, add a normal Traefik router at home, for example with the rule <code>Host(`whoami.example.net`)</code>.</p>
 <p>A service that needs its own path gets its own <code>homegap.*</code> labels. This applies to a dedicated hostname, a raw TCP or UDP service and a private service. See the <a href="../../services/labels/">Label reference</a>. A Docker event starts a pass at once, so the change starts without a wait for the next resync.</p>
 <h2 id="check-the-service">Check the service<a class="headerlink" href="#check-the-service" title="Permanent link">&para;</a></h2>

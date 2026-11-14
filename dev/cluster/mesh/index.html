@@ -2442,7 +2442,7 @@
 
 
 <h1 id="cluster-mesh">Cluster mesh<a class="headerlink" href="#cluster-mesh" title="Permanent link">&para;</a></h1>
-<p>The cluster mesh is the private network of the cluster. This page tells you how the mesh works and how to read the <strong>Cluster mesh</strong> panel.</p>
+<p>The cluster mesh is the private network of the cluster. This page tells you how the mesh works and how to read the <strong>Mesh</strong> panel.</p>
 <h2 id="what-the-mesh-is">What the mesh is<a class="headerlink" href="#what-the-mesh-is" title="Permanent link">&para;</a></h2>
 <p><code>hg-mesh</code> is a private WireGuard mesh between the homelab and every node. Cluster traffic uses only this mesh: the database, Valkey and the node API of Gerbil.</p>
 <p>The addresses are fixed. The homelab is host 1 of <code>cluster.mesh.subnet</code>. A node is host <code>10 + slot</code>, where the slot is the permanent tunnel slot of the node. With the default subnet, the homelab is <code>10.77.0.1</code> and the first node is <code>10.77.0.10</code>.</p>
@@ -2479,53 +2479,82 @@
 <li>From the host, like etcd, Patroni and replication. A small <code>probe</code> container in the cluster member of the node does this on the host network. The node keeps the readings in <code>/run/homegap-probe</code>, so a reboot clears them.</li>
 <li>From inside the Docker network, through the checks of HAProxy. This is the path of the database and Valkey traffic of Pangolin, across the <code>homegap-cluster</code> bridge and its NAT.</li>
 </ul>
-<p>The homelab does not send probes, but every node sends probes to it.</p>
+<p>Every node sends probes to the homelab. The homelab has no probe container. In each pass, the orchestrator sends one request to the Patroni of each node over the mesh. Thus the homelab row has a host probe with fewer samples, and no container probe.</p>
 <h2 id="the-cluster-mesh-panel">The Cluster mesh panel<a class="headerlink" href="#the-cluster-mesh-panel" title="Permanent link">&para;</a></h2>
-<p>The <strong>Nodes</strong> page has a <strong>Cluster mesh</strong> panel. For each node and peer, it shows <strong>Host probe (last hour)</strong> and <strong>Container probe (last hour)</strong>. Each probe column shows:</p>
+<p>The <strong>Nodes</strong> page has a <strong>Mesh</strong> panel. It is a matrix: each row is a member, and each column is a peer of that member. The note under the title shows how many links are up. Three buttons select what the cells show: <strong>Host probe</strong>, <strong>Container probe</strong> or <strong>Handshake</strong>.</p>
+<p>With <strong>Host probe</strong> or <strong>Container probe</strong>, a cell shows:</p>
 <ul>
 <li>The latest round trip.</li>
 <li>The part of the probes lost in the last hour.</li>
-<li>Each outage, with its start and its duration. An outage is three or more lost probes in a row.</li>
+<li>The number of outages in the last hour. An outage is three or more lost probes in a row. The tooltip of the cell gives the start and the duration of each outage.</li>
 </ul>
-<p>A degraded pill means some loss or an outage in the last hour. A red pill means that the peer does not answer now. If only the container column shows a problem, the link is good. The problem is then in the Docker network of that node.</p>
-<p>The <strong>Last handshake with</strong> column shows a pill for each peer, with the peer and the time since the last WireGuard handshake. The color and the description of the pill tell the state:</p>
+<p>The color of a cell tells the state:</p>
 <table>
 <thead>
 <tr>
-<th>Pill</th>
-<th>Description</th>
+<th>Color</th>
 <th>Meaning</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Green</td>
+<td>Cyan</td>
+<td>No outage in the last hour, and less than 0.5 % of the probes lost.</td>
+</tr>
+<tr>
+<td>Amber</td>
+<td>An outage in the last hour that is over, or 0.5 % or more of the probes lost.</td>
+</tr>
+<tr>
+<td>Rose</td>
+<td>The peer does not answer now, or 5 % or more of the probes lost.</td>
+</tr>
+</tbody>
+</table>
+<p>If only the container probe shows a problem, the link is good. The problem is then in the Docker network of that node.</p>
+<p>With <strong>Handshake</strong>, a cell shows the time since the last WireGuard handshake with the peer. The color and the tooltip of the cell tell the state:</p>
+<table>
+<thead>
+<tr>
+<th>Cell</th>
+<th>Tooltip</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cyan</td>
 <td>None.</td>
 <td>The last handshake is 3 minutes old or less.</td>
 </tr>
 <tr>
-<td>Yellow</td>
+<td>Amber</td>
 <td>"No recent handshake"</td>
 <td>The last handshake is 3 to 10 minutes old.</td>
 </tr>
 <tr>
-<td>Red</td>
+<td>Rose</td>
 <td>"No handshake for over 10 minutes"</td>
 <td>The last handshake is more than 10 minutes old.</td>
 </tr>
 <tr>
-<td>Red, <code>never</code></td>
+<td>Rose, <code>never</code></td>
 <td>"No handshake yet"</td>
 <td>The member has never had a handshake with the peer.</td>
 </tr>
 <tr>
-<td>Red, <code>not configured</code></td>
+<td>Rose, <code>not configured</code></td>
 <td>"Not in this member's peer list yet"</td>
 <td>The member does not have this peer in its configuration yet.</td>
 </tr>
+<tr>
+<td>Dim</td>
+<td>"This member could not be read"</td>
+<td>HomeGAP cannot read the state of the member.</td>
+</tr>
 </tbody>
 </table>
-<p><img src="../../img/cluster/01-mesh-panel.png" alt="The Cluster mesh panel on the Nodes page with the probe columns"></p>
+<p><img src="../../img/cluster/01-mesh-panel.png" alt="The Cluster mesh panel on the Nodes page with the probe matrix"></p>
 
 
 

@@ -2356,12 +2356,17 @@
 <tr>
 <td><code>cluster.mesh.subnet</code></td>
 <td><code>10.77.0.0/24</code></td>
-<td>Must not overlap <code>100.64.0.0/10</code>, the tunnel ranges of Pangolin. Must have space for the maximum of 32 nodes. Use /26 or larger.</td>
+<td>A network address with a prefix from /16 to /26. Must not overlap <code>100.64.0.0/10</code>, the tunnel ranges of Pangolin. Must have space for the maximum of 32 nodes.</td>
 </tr>
 <tr>
 <td><code>cluster.mesh.port</code></td>
 <td><code>51821</code></td>
 <td>A UDP port. Must be different from 51820 and 21820.</td>
+</tr>
+<tr>
+<td><code>cluster.homelab_role</code></td>
+<td><code>database</code></td>
+<td><code>database</code> or <code>vote</code>. See <a href="database/#the-homelab-as-a-vote-only">The homelab as a vote only</a>.</td>
 </tr>
 <tr>
 <td><code>cluster.image</code></td>
@@ -2402,6 +2407,16 @@
 <td><code>cluster.exit_nodes.newt_image</code></td>
 <td><code>docker.io/fosrl/newt:1.20.0</code></td>
 <td>The connector image for the exit of each node.</td>
+</tr>
+<tr>
+<td><code>cluster.tunnel_dns.resolvers</code></td>
+<td><code>[8.8.8.8]</code></td>
+<td>The IP addresses of the DNS servers that the Pangolin apps can reach through the tunnel. An empty list disables this.</td>
+</tr>
+<tr>
+<td><code>cluster.tunnel_dns.roles</code></td>
+<td><code>[Member]</code></td>
+<td>The roles that can use these DNS servers.</td>
 </tr>
 </tbody>
 </table>

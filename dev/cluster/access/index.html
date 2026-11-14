@@ -2499,23 +2499,24 @@
 
 <h1 id="users-and-devices">Users and devices<a class="headerlink" href="#users-and-devices" title="Permanent link">&para;</a></h1>
 <p>The <strong>Access</strong> page manages the people who can sign in to the Pangolin apps, and their devices. This page tells you how to use it.</p>
-<p>The page is available only in cluster mode. Its subtitle is "Who can sign in to the Pangolin apps, and their devices". You do not sign in to Pangolin as the admin.</p>
+<p>The page is available only in cluster mode. Its caption is "Access · Pangolin users and devices". You do not sign in to Pangolin as the admin.</p>
 <p><img src="../../img/access/01-page.png" alt="The Access page with the app address, the Add a user form, the users and the devices"></p>
 <h2 id="how-changes-reach-pangolin">How changes reach Pangolin<a class="headerlink" href="#how-changes-reach-pangolin" title="Permanent link">&para;</a></h2>
 <p>All nodes share one database. Thus HomeGAP sends each change through the Pangolin of any node that it can reach. The page shows the node, for example "Read through na1's Pangolin". HomeGAP writes each change to the reconcile log.</p>
 <p>The first time, HomeGAP gives its API key the permissions that the page needs. This takes one admin login.</p>
 <h2 id="the-pangolin-app-address">The Pangolin app address<a class="headerlink" href="#the-pangolin-app-address" title="Permanent link">&para;</a></h2>
-<p>The <strong>Pangolin app address</strong> panel shows <code>https://&lt;client_hostname&gt;.&lt;domain&gt;</code>. Click <strong>Copy</strong>, and give the address to your users. In the Pangolin app, they add it as a self-hosted server. See <a href="../pangolin-apps/">Connect the Pangolin apps</a>.</p>
+<p>The <strong>Pangolin app address</strong> panel shows <code>https://&lt;client_hostname&gt;.&lt;domain&gt;</code> and a QR code of the address. Click <strong>Copy</strong>, and give the address to your users. In the Pangolin app, they add it as a self-hosted server, or they scan the code with a phone. See <a href="../pangolin-apps/">Connect the Pangolin apps</a>.</p>
 <h2 id="add-a-user">Add a user<a class="headerlink" href="#add-a-user" title="Permanent link">&para;</a></h2>
 <ol>
-<li>In <strong>Add a user</strong>, type the email address in <strong>Email</strong>.</li>
+<li>Click <strong>+ Add user</strong>. The <strong>Add a user</strong> panel opens.</li>
+<li>Type the email address in <strong>Email</strong>.</li>
 <li>Under <strong>Roles</strong>, select one or more roles. A new user has the role with the least privilege by default.</li>
 <li>Select how the user gets a password. Do one of the procedures below.</li>
 </ol>
-<p>The page shows "Pick at least one role" if you do not select a role.</p>
+<p>The panel shows "Pick at least one role" if you do not select a role.</p>
 <h3 id="with-a-password">With a password<a class="headerlink" href="#with-a-password" title="Permanent link">&para;</a></h3>
 <ol>
-<li>Select <strong>Set a password now</strong>. The text tells you "They can sign in straight away. Share it with them privately."</li>
+<li>Select <strong>Set a password now</strong>. The text tells you "They can sign in at once. Share it with them privately."</li>
 <li>In <strong>Password</strong>, type a password with at least 8 characters.</li>
 <li>Click <strong>Create user</strong>.</li>
 <li>Give the password to the user on a private channel.</li>
@@ -2523,33 +2524,38 @@
 <h3 id="with-an-invite-link">With an invite link<a class="headerlink" href="#with-an-invite-link" title="Permanent link">&para;</a></h3>
 <ol>
 <li>Clear <strong>Set a password now</strong>.</li>
-<li>Click <strong>Create invite link</strong>. The page shows the <strong>Invite link</strong>.</li>
-<li>Click <strong>Copy</strong>.</li>
+<li>Click <strong>Create invite link</strong>. The panel shows the link.</li>
+<li>Click <strong>Copy link</strong>.</li>
 <li>Send the link to the person. The link is valid for 7 days. The person opens it and chooses a password.</li>
+<li>Click <strong>Done</strong>.</li>
 </ol>
 <p><img src="../../img/access/02-add-user.png" alt="The Add a user form with an email, a role and Set a password now selected" width="566px">
 <img src="../../img/access/03-invite-link.png" alt="The Add a user form with a new invite link and the Copy button" width="566px"></p>
 <h2 id="users">Users<a class="headerlink" href="#users" title="Permanent link">&para;</a></h2>
-<p>The <strong>Users</strong> panel shows "Everyone who can sign in, on every node".</p>
+<p>The <strong>People</strong> panel shows "Everyone who can sign in, on every node". Each row shows the name, the email address, the roles and the number of devices of a user. Click a user to open the user in the Inspector.</p>
 <ul>
-<li>To change the roles of a user, click the role buttons in the <strong>Roles</strong> column.</li>
-<li>To remove a user, click <strong>Remove</strong>. Then confirm. The user can no longer sign in, and the devices of the user stop.</li>
+<li>To change the roles of a user, select the roles under <strong>Roles</strong> in the Inspector. Then click <strong>Save</strong>.</li>
+<li>To remove a user, click <strong>Remove</strong> in the Inspector. Then confirm. HomeGAP removes the user after 30 seconds. Until then, you can undo the removal. After the removal, the user can no longer sign in, and the devices of the user stop.</li>
 </ul>
-<p>The server admin account that HomeGAP creates has the badge <strong>server admin</strong>. You cannot remove this user here.</p>
-<p>The <strong>Open invitations</strong> panel shows the invitations that nobody has used yet, with their <strong>Expires</strong> time. To withdraw an invitation, click <strong>Remove</strong>.</p>
+<p>For the server admin account that HomeGAP creates, the Inspector shows <strong>server admin</strong>. You cannot change or remove this user here.</p>
+<p>The <strong>Open invitations</strong> panel shows the invitations that nobody has used yet, with the time until each one expires. Each invitation has a ⋮ menu with these actions:</p>
+<ul>
+<li><strong>New link</strong> makes a new invite link, valid for 7 days. The old link stops.</li>
+<li><strong>Revoke</strong> withdraws the invitation. The page asks you to confirm.</li>
+</ul>
 <h2 id="devices">Devices<a class="headerlink" href="#devices" title="Permanent link">&para;</a></h2>
-<p>The <strong>Devices</strong> panel shows "Pangolin apps and machine clients, and the node each one relays through". For each device, the table shows:</p>
+<p>The <strong>Devices</strong> panel shows "Pangolin apps and machine clients". Each device is a card that shows:</p>
 <ul>
-<li><strong>Device</strong>: the name of the device.</li>
-<li><strong>Owner</strong>: the email of the person, or <strong>Machine client</strong>.</li>
-<li><strong>Status</strong>: for example <code>online</code>, <code>offline</code>, <code>blocked</code> or <code>archived</code>.</li>
-<li><strong>Node</strong>: the node that the device relays through.</li>
+<li>The name of the device.</li>
+<li>The status: <code>online</code>, <code>offline</code>, <code>blocked</code> or <code>archived</code>.</li>
+<li>The app, and the owner. The owner is the email of the person, or <strong>Machine client</strong>.</li>
+<li>The node that the device relays through, for example <code>via na1</code>.</li>
 </ul>
-<p>You can do these actions on a device:</p>
+<p>Click a device to open it in the Inspector. The Inspector has these actions:</p>
 <ul>
 <li><strong>Block</strong> or <strong>Unblock</strong>. For <strong>Block</strong>, the page asks you to confirm.</li>
 <li><strong>Archive</strong> or <strong>Restore</strong>.</li>
-<li><strong>Delete</strong>. The page asks you to confirm.</li>
+<li><strong>Delete</strong>. The page asks you to type the name of the device to confirm.</li>
 </ul>
 <p><img src="../../img/access/04-devices.png" alt="The Devices panel with an online device and the node it relays through"></p>
 <h2 id="roles">Roles<a class="headerlink" href="#roles" title="Permanent link">&para;</a></h2>
@@ -2579,11 +2585,15 @@
 </tr>
 <tr>
 <td><code>DELETE /api/access/users/{id}</code></td>
-<td>Removes a user.</td>
+<td>Removes a user after 30 seconds. The answer has an undo id.</td>
 </tr>
 <tr>
 <td><code>PUT /api/access/users/{id}/roles</code></td>
 <td>Sets the roles of a user.</td>
+</tr>
+<tr>
+<td><code>POST /api/access/invitations/{id}/reissue</code></td>
+<td>Makes a new invite link for an open invitation.</td>
 </tr>
 <tr>
 <td><code>DELETE /api/access/invitations/{id}</code></td>

@@ -2271,7 +2271,7 @@
 <dt><strong>Named service</strong></dt>
 <dd>A service under <code>homegap.services.&lt;name&gt;.</code> on a container that can also have other services. Its key is <code>&lt;host slug&gt;--&lt;name&gt;</code>. See <a href="../../services/labels/#named-services">Named services</a>.</dd>
 <dt><strong>Newt</strong></dt>
-<dd>The tunnel client of Pangolin. HomeGAP runs it on the homelab as connectors.</dd>
+<dd>The tunnel client of Pangolin. HomeGAP runs it on the homelab as connectors. With <code>cluster.exit_nodes.nodes</code>, each node also runs one as its exit connector.</dd>
 <dt><strong>niceId</strong></dt>
 <dd>The fixed id of a Pangolin resource. The ids of the resources that HomeGAP manages start with <code>hg-</code>. HomeGAP deletes only stale <code>hg-*</code> resources.</dd>
 <dt><strong>Node</strong></dt>
@@ -2279,7 +2279,7 @@
 <dt><strong>Olm</strong></dt>
 <dd>The Pangolin client in the Pangolin apps.</dd>
 <dt><strong>Orchestrator</strong></dt>
-<dd>The <code>homegap run</code> process on the homelab. It reads the labels and manages the nodes, the tunnels and DNS. It is never in the traffic path.</dd>
+<dd>The <code>homegap run</code> process on the homelab. It reads the labels and manages the nodes, the tunnels and DNS. It is never in the traffic path of your services. It serves only its own pages: the dashboard and, if enabled, the status page and the speed test.</dd>
 <dt><strong>Pangolin EE</strong></dt>
 <dd>The Enterprise Edition of Pangolin, by Fossorial. HomeGAP needs it for cluster mode and for wildcard resources in <code>terminate</code> mode. See <a href="../../configuration/licenses/">Pangolin EE licenses</a>.</dd>
 <dt><strong>Pass</strong></dt>

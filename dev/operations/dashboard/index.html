@@ -2702,62 +2702,62 @@
 <p>If the dashboard is public, anybody can control every node. Reach it only through a private Pangolin resource or an SSH tunnel. See <a href="../../services/private/">Private services</a>.</p>
 </div>
 <h2 id="access">Access<a class="headerlink" href="#access" title="Permanent link">&para;</a></h2>
-<p>A bearer token protects every <code>/api</code> route. Set it with <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file <code>dashboard-token</code> in its data directory, with mode 0600. To read the token, run this command:</p>
+<p>A bearer token protects the <code>/api</code> routes. Two routes have their own check. The terminal WebSocket uses a one-time ticket, which the token gets. The Traefik of the homelab can read <code>/api/traefik/homelab</code> from the front door container without the token. Set the token with <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file <code>dashboard-token</code> in its data directory, with mode 0600. To read the token, run this command:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>cat<span class="w"> </span>/data/dashboard-token
 </code></pre></div>
 <p>The dashboard asks for the token in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.</p>
 <p>To remove the token from the browser, click <strong>Sign out</strong> at the bottom of the menu, or search for "Sign out". Do this on a computer that other people use.</p>
 <p>The dashboard updates live. It uses one server-sent event stream (<code>/api/events</code>). After the first snapshot, the stream sends only the parts that change. When the browser tab is hidden for 30 seconds, the dashboard closes the stream. It opens the stream again when you return to the tab.</p>
-<p>The orchestrator writes to the stream every 25 seconds or less. If the dashboard gets nothing for 60 seconds, it opens a new stream. The orchestrator keeps 32 streams open at most. A dashboard above that number gets an error until a different one closes.</p>
+<p>The orchestrator writes to the stream approximately every 25 seconds, and after 30 seconds at most. If the dashboard gets nothing for 60 seconds, it opens a new stream. The orchestrator keeps 32 streams open at most. A dashboard above that number gets an error until a different one closes.</p>
 <p>If the dashboard cannot reach the orchestrator for more than 5 seconds, a dialog says so. The dialog shows the error and the time to the next try, and it has <strong>Reconnect now</strong>. It closes by itself when the orchestrator answers again. Until then, the page shows the last data from the orchestrator.</p>
 <h2 id="the-layout">The layout<a class="headerlink" href="#the-layout" title="Permanent link">&para;</a></h2>
-<p>The menu has two groups: <strong>Operate</strong> (Overview, Nodes, Services, Access, Speed test) and <strong>Plumbing</strong> (DNS, Tunnels, Activity, Diagnostics, Config). A number next to a page is the count of items that need attention there. On a tablet the menu is a rail of icons. On a phone it is a grid of icons under the header, which gets smaller when you scroll.</p>
+<p>The menu has two groups: <strong>Operate</strong> (Overview, Nodes, Services, Access, Speed test) and <strong>Plumbing</strong> (DNS, Tunnels, Activity, Diagnostics, Config). A number next to a page is the count of items that need attention there. On a tablet the menu is a rail of icons. On a phone it is one row of pages under the header. Swipe the row sideways to see all pages. When you scroll the page, the dashboard hides the header, and <strong>Search</strong> moves into the row.</p>
 <p>The box at the bottom of the menu shows the last pass, and two controls:</p>
 <ul>
 <li><strong>Resync</strong> queues a pass now.</li>
-<li><strong>Pause</strong> stops all changes everywhere. HomeGAP then only observes, and every page shows a banner with <strong>Resume</strong>. While changes are paused, the box offers <strong>Run one pass</strong>: one pass that applies changes, after which HomeGAP is paused again. A re-provision or a switch of the primary while paused asks if you want to apply just that change or resume everything.</li>
+<li><strong>Pause</strong> stops all changes everywhere. The dashboard asks you to confirm first. HomeGAP then only observes, and every page shows a banner with <strong>Resume</strong>. While changes are paused, the box offers <strong>Run one pass</strong>: one pass that applies changes, after which HomeGAP is paused again. A re-provision or a switch of the primary while paused asks if you want to apply just that change or resume everything.</li>
 </ul>
-<p>Each page starts with a headline that states the answer, for example "5 of 6 edges healthy.". Under it, a status line shows the most important message. When there are more, <strong>+N more</strong> opens all of them.</p>
-<p>Select a node, a service or another item to open it in the <strong>Inspector</strong>. On a wide screen the Inspector is a column on the right. On a narrower screen it is a drawer, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.</p>
+<p>Each page starts with a headline that states the answer, for example "5 of 6 nodes serve.". A node with a warning still serves, and the headline gives the count of such nodes. Under the headline, a status line shows the most important message. When there are more, <strong>+N more</strong> opens the other messages.</p>
+<p>Select a node, a service or another item to open it in the <strong>Inspector</strong>. On a desktop the Inspector is a drawer on the right that does not block the page, so you can select a different row. On a tablet it is a drawer over the page, and on a phone it is a sheet at the bottom. The Inspector holds the actions for the item. When an item has more than three actions, one is a button and the others are in <strong>More</strong>. Esc, the close button or the back button closes it. On a phone you can also drag the sheet down.</p>
 <p>Press ⌘K, Ctrl+K or <code>/</code> to search everything: nodes, services, DNS records, tunnels, pages, actions such as <strong>Resync now</strong>, and on the orchestrator the log, the config keys and the secrets. The search shows the names of config keys and secrets, never their values.</p>
-<p>Actions that are risky ask first. To remove a node or a person, you type its name. After you remove a node or a person, a message with <strong>Undo</strong> shows for 30 seconds. A later message does not replace it. <strong>Dismiss</strong> removes it. A removed person stays until then, and <strong>Undo</strong> keeps them. <strong>Undo</strong> on a removed node adds it back with its config.</p>
+<p>Actions that are risky ask first. An action that you cannot undo, such as <strong>Decommission</strong>, also asks you to type the name. After you remove a node or a person, a message with <strong>Undo</strong> shows for 30 seconds. A later message does not replace it. <strong>Dismiss</strong> removes it. A removed person stays until then, and <strong>Undo</strong> keeps them. <strong>Undo</strong> on a removed node adds it back with its config.</p>
 <h2 id="the-pages">The pages<a class="headerlink" href="#the-pages" title="Permanent link">&para;</a></h2>
 <h3 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h3>
 <p>The whole system at a glance:</p>
 <ul>
-<li>The gauges: edges, tunnels, services, DNS, and in cluster mode the mesh links and the replica lag.</li>
+<li>The gauges: nodes, tunnels, services, DNS, and in cluster mode the mesh links and the replica lag.</li>
 <li><strong>Needs attention</strong>: what is wrong now, worst first. Select an item to inspect it.</li>
-<li>The network: the traffic path (homelab, tunnels, edges, names) or the map. The page remembers your choice. See <a href="../maps/">Maps and locations</a>.</li>
-<li>Each edge's Pangolin API probe over the last hour.</li>
-<li>Each service through each edge, in milliseconds.</li>
+<li>The network: the traffic path (the homelab, then one row for each node with its tunnel and its names) or the map. The names in a row open the <strong>Services</strong> page. The page remembers your choice. See <a href="../maps/">Maps and locations</a>.</li>
+<li>The Pangolin API probe of each node over the last hour.</li>
+<li>Each service through each node, in milliseconds.</li>
 <li>The system and the recent changes.</li>
 </ul>
 <p><img src="../../img/dashboard/overview.png" alt="The Overview page with the gauges, Needs attention and the traffic path"></p>
 <h3 id="nodes">Nodes<a class="headerlink" href="#nodes" title="Permanent link">&para;</a></h3>
-<p>The fleet table shows each node's health, its checks, its Pangolin API probe over the last hour, its tunnel, its certificate, its stack and its drift. While a stack update runs or is held, a strip above the table shows each node's part in the rollout.</p>
-<p>Select a node to open it in the Inspector. The Inspector shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its checks, its system facts, its stack and its last 10 provisioning runs. While a job runs, the stack column shows its step, for example "writing the stack (4 of 7)". The actions on a node are <strong>Re-provision</strong>, <strong>Pause</strong> or <strong>Resume</strong>, <strong>Diagnostics</strong>, <strong>Speed test</strong>, <strong>Change location</strong> and <strong>Remove</strong>. <strong>Change location</strong> moves the node to a known city or a point on the map. Geo DNS and the maps use the new place from the next pass. After a removal, the action is <strong>Decommission</strong>. During a held rollout, the node also has <strong>Retry update</strong> and <strong>Skip update</strong>. See <a href="../nodes/">Manage nodes</a> and <a href="../node-updates/">Node updates and rollback</a>.</p>
-<p><strong>+ Add node</strong> opens the wizard over the page. When a run fails, <strong>Retry</strong> runs each step again and keeps the user that the failed run made. If something blocked the new SSH connections of the orchestrator, the button shows a time, for example "Retry in 2:59". A retry before that time fails for the same reason. See <a href="../../getting-started/add-node/">Add a node</a>. In cluster mode, the page also has the <strong>Cluster database</strong> and <strong>Cluster mesh</strong> panels. See <a href="../../cluster/mesh/">Cluster mesh</a> and <a href="../../cluster/database/">Cluster database</a>.</p>
+<p>The table shows the health of each node, its Pangolin API probe over the last hour, its tunnel and its certificate. Under the health, the table names the check that fails, the step of a job that runs (for example "writing the stack (4 of 7)") or the count of differences from the config. <strong>All</strong> and <strong>Problems</strong> filter the table. During an update, a strip above the table shows the part of each node in the rollout.</p>
+<p>Select a node to open it in the Inspector. The Inspector shows its checks, with the checks that fail at the top. Then it shows its graphs (the Pangolin API probe, the requests and the egress through its proxy, the mesh round trip and the tunnel), its system facts, its software version, its differences from the config and its last 10 provisioning runs. The actions on a node are <strong>Re-provision</strong>, <strong>Pause</strong> or <strong>Resume</strong>, <strong>Diagnostics</strong>, <strong>Speed test</strong>, <strong>Change location</strong> and <strong>Remove</strong>. <strong>Change location</strong> moves the node to a known city or a point on the map. Geo DNS and the maps use the new place from the next pass. After a removal, the action is <strong>Decommission</strong>. During a held rollout, the node also has <strong>Retry update</strong> and <strong>Skip update</strong>. See <a href="../nodes/">Manage nodes</a> and <a href="../node-updates/">Node updates and rollback</a>.</p>
+<p><strong>+ Add node</strong> opens the wizard over the page. When a run fails, <strong>Retry</strong> runs each step again and keeps the user that the failed run made. If something blocked the new SSH connections of the orchestrator, the button shows a time, for example "Retry in 2:59". A retry before that time fails for the same reason. See <a href="../../getting-started/add-node/">Add a node</a>. In cluster mode, the page also has the <strong>Database</strong> and <strong>Mesh</strong> panels. See <a href="../../cluster/mesh/">Cluster mesh</a> and <a href="../../cluster/database/">Cluster database</a>.</p>
 <p><img src="../../img/dashboard/nodes.png" alt="The Nodes page with the fleet table and a node in the Inspector"></p>
 <h3 id="services">Services<a class="headerlink" href="#services" title="Permanent link">&para;</a></h3>
-<p>Each service, with its response time through each edge. Amber is slow (over 1 s). Rose is failing, with the status code. A dash means that the edge does not serve it. The orchestrator measures this on each pass with one request through each edge's proxy.</p>
-<p>Filter by text, or show only the problems. Select a service to see how each edge serves it, how it is published and its source labels. Each service has <strong>Open</strong>, <strong>Pause</strong> or <strong>Resume</strong>, and <strong>Logs</strong>.</p>
-<p><img src="../../img/dashboard/services.png" alt="The Services page with the response time through each edge"></p>
+<p>Each service, with its response time through each node. Amber is slow (over 1 s). Rose is failing, with the status code. A dash means that the node does not serve it. The orchestrator measures this on each pass with one request through the proxy of each node.</p>
+<p>Filter by text, or show only the problems. Select a service to see how each node serves it, how it is published and its source labels. Each service has <strong>Pause</strong> or <strong>Resume</strong>, and <strong>Logs</strong>, which opens the <strong>Diagnostics</strong> page. An <code>http</code> or <code>https</code> service also has <strong>Open</strong>.</p>
+<p><img src="../../img/dashboard/services.png" alt="The Services page with the response time through each node"></p>
 <h3 id="dns">DNS<a class="headerlink" href="#dns" title="Permanent link">&para;</a></h3>
-<p>The records that HomeGAP manages, grouped into record sets. The page shows the state of each member, its monitor, and if it matches the desired state. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them. The geo steering strip shows which edges answer now and which are withdrawn, and for how long. The Inspector shows when HomeGAP last changed each record.</p>
+<p>The records that HomeGAP manages, grouped into record sets. A healthy record set shows as one line. A record set with a problem also shows each member, with its monitor and its state. Filter by text, or show only the problems. A plain record is in sync only when each nameserver of the zone serves it. Geo record sets give a different answer in each location, so HomeGAP does not compare them. The geo steering strip shows which nodes answer now and which are withdrawn, and for how long. The Inspector shows when HomeGAP last changed the record set.</p>
 <p><img src="../../img/dashboard/dns.png" alt="The DNS page with the record sets"></p>
 <p>The CAA record sets belong to certificate management. They are read-only, and they link to the <strong>Certificates</strong> tab.</p>
 <h3 id="certificates">Certificates<a class="headerlink" href="#certificates" title="Permanent link">&para;</a></h3>
 <p>A tab of the <strong>DNS</strong> page. It shows the certificate that the nodes share, which node has it, what a visitor gets on each name through each node, the orders, and who can issue for the domain. See <a href="../../configuration/certificates/#the-certificates-page">Certificates</a>.</p>
 <h3 id="tunnels">Tunnels<a class="headerlink" href="#tunnels" title="Permanent link">&para;</a></h3>
-<p>One card for each Newt connector: its state, its process, its restarts and its throughput over the last hour. The Inspector shows the Newt version and the last times the connector stopped, with the reason. <strong>Restart connector</strong> stops Newt and starts it again. Traffic through that node pauses for a few seconds.</p>
+<p>One card for each tunnel: its state, its connector, its restarts and its throughput over the last hour. The Inspector shows the Newt version and the last times the connector stopped, with the reason. <strong>Restart connector</strong> stops Newt and starts it again. Traffic through that node pauses for a few seconds.</p>
 <p><img src="../../img/dashboard/tunnels.png" alt="The Tunnels page with one connector for each node and a connector in the Inspector"></p>
 <h3 id="access_1">Access<a class="headerlink" href="#access_1" title="Permanent link">&para;</a></h3>
-<p>Who can sign in to the Pangolin apps, their invitations and their devices. The app address has a QR code for phones. Select a person to change their roles, then <strong>Save</strong>. An open invitation has <strong>New link</strong>, which makes a new invite link and stops the old one, and <strong>Revoke</strong>. Select a device to see when it was last seen. This page is available only in cluster mode. See <a href="../../cluster/access/">Users and devices</a>.</p>
+<p>Who can sign in to the Pangolin apps, their invitations and their devices. The address of the Pangolin app is at the end of the page. <strong>Show QR</strong> opens a QR code of the address for phones. Select a person to change their roles, then <strong>Save</strong>. An open invitation has <strong>New link</strong>, which makes a new invite link and stops the old one, and <strong>Revoke</strong>. Select a device to see when it was last seen. This page is available only in cluster mode. See <a href="../../cluster/access/">Users and devices</a>.</p>
 <h3 id="speed-test">Speed test<a class="headerlink" href="#speed-test" title="Permanent link">&para;</a></h3>
-<p>Latency and throughput through the real traffic path. <strong>Test all nodes</strong> tests each node in turn on the orchestrator, so the run continues when you close the page. The gauge is white for ping, cyan for download and violet for upload. See <a href="../speed-tests/">Speed tests</a>.</p>
+<p>Latency and throughput through the real traffic path. <strong>Test all nodes</strong> tests each node in turn on the orchestrator, so the run continues when you close the page. The gauge is white for ping, cyan for download and violet for upload. The bars of a node scale to the next whole Gb/s over its faster direction: a node at 200 Mb/s has a scale of 1 Gb/s, and a node at 1.2 Gb/s has a scale of 2 Gb/s. See <a href="../speed-tests/">Speed tests</a>.</p>
 <p><img src="../../img/dashboard/speedtest.png" alt="The Speed test page with the live gauge and the results"></p>
 <h3 id="activity">Activity<a class="headerlink" href="#activity" title="Permanent link">&para;</a></h3>
-<p>The reconcile log, newest first. Filter by level, domain or text. Each entry belongs to a numbered pass. Select an entry to see its details, and <strong>Show pass #N</strong> to see only that pass. <strong>Load older</strong> gets older entries. The orchestrator keeps the last 10,000 entries in its data directory, so the log continues after a restart.</p>
+<p>The reconcile log, newest first. Passes that change nothing show as one row with their count. Filter by level, domain or text. Each entry belongs to a numbered pass. Select an entry to see its details, and <strong>Show pass #N</strong> to see only that pass. <strong>Load older</strong> gets older entries. The orchestrator keeps the last 10,000 entries in its data directory, so the log continues after a restart.</p>
 <p><img src="../../img/dashboard/activity.png" alt="The Activity page with the reconcile log"></p>
 <h3 id="diagnostics">Diagnostics<a class="headerlink" href="#diagnostics" title="Permanent link">&para;</a></h3>
 <p>Container logs and a read-only snapshot of each node. The diagnostics bundle also shows as a report: one verdict for each section. See <a href="../troubleshooting/">Diagnostics and troubleshooting</a>.</p>
@@ -2765,19 +2765,18 @@
 <h3 id="config">Config<a class="headerlink" href="#config" title="Permanent link">&para;</a></h3>
 <p>The page shows:</p>
 <ul>
-<li>The diff between the desired state and the actual state.</li>
+<li>The differences between the desired state and the actual state.</li>
 <li>Each referenced secret, as present or missing. The page never shows the values.</li>
-<li>The effective desired state.</li>
-<li>The config file.</li>
+<li>The desired state and the config file. Each opens when you select it, and each has <strong>Copy</strong>.</li>
 </ul>
-<p><strong>Manage locations</strong> opens the Locations page over it. See <a href="../maps/">Maps and locations</a>.</p>
+<p><strong>Locations</strong> in the head of the page opens the Locations page over it. See <a href="../maps/">Maps and locations</a>.</p>
 <p><img src="../../img/dashboard/config.png" alt="The Config page with the diff and the secrets"></p>
 <h2 id="terminal">Terminal<a class="headerlink" href="#terminal" title="Permanent link">&para;</a></h2>
 <p>The dashboard can open a shell on a node. The <strong>Terminal</strong> action is in the menu of a node on the <strong>Nodes</strong> page and in the Inspector of the node. The terminal opens in a panel at the bottom of the dashboard, and the panel stays open when you go to a different page.</p>
 <p>The shell runs on the orchestrator, through the SSH connection that the orchestrator already has to the node. The browser gets no key and no password. You are the management user of the node, in the install directory of the stack.</p>
 <ul>
 <li>Each session has a tab. You can have 2 sessions for one node and 6 sessions in total.</li>
-<li>A session continues when you close or reload the page. When you open the dashboard again, the tab is there and shows the last output.</li>
+<li>A session continues when you close or reload the page. When you open the dashboard again, the tab is there and shows the last output. The panel is then a bar at the bottom. Select the tab to open the panel.</li>
 <li>If you open the same session in a second window, that window takes the session.</li>
 <li><strong>Commands</strong> types a common command for you, for example the list of containers or the log of a container.</li>
 <li>A session ends when the shell exits, or when you close its tab. HomeGAP also ends a session that had no browser for 15 minutes, and each session after 8 hours. A restart of the orchestrator ends all sessions.</li>
@@ -2807,16 +2806,20 @@
 <td>If Docker is on the node.</td>
 </tr>
 <tr>
-<td>One check for each container</td>
-<td><code>running</code>, with its Docker health in parentheses. <code>starting</code> is degraded, and <code>unhealthy</code> is down.</td>
+<td><code>pangolin</code>, <code>gerbil</code> and <code>traefik</code></td>
+<td>One check for each of these containers: <code>running</code>, with its Docker health in parentheses. <code>starting</code> is a warning, and <code>unhealthy</code> is failing.</td>
+</tr>
+<tr>
+<td><code>tls-mgmt</code> and <code>tls-root</code></td>
+<td>The certificate that the node serves for its management host and for the root name, with the days that remain. No certificate is failing. The certificate that HomeGAP renews is a warning when its renewal is late. A different certificate is a warning with fewer than 14 days.</td>
 </tr>
 <tr>
 <td><code>gerbil-udp</code></td>
-<td>If Gerbil answers on 51820/udp.</td>
+<td>If a process listens on 51820/udp. The dashboard names it <strong>WireGuard port</strong>.</td>
 </tr>
 <tr>
 <td><code>pangolin-api</code></td>
-<td>The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. The limit is the fastest probe of the node since the start of the orchestrator, plus 300 ms. A probe over the limit is degraded.</td>
+<td>The Pangolin API probe: the time of a request through the node to the Integration API of Pangolin. The limit is the fastest probe of the node since the start of the orchestrator, plus 300 ms. A probe over the limit is a warning.</td>
 </tr>
 <tr>
 <td><code>tunnel</code></td>
@@ -2839,9 +2842,10 @@
 <h2 id="banners">Banners<a class="headerlink" href="#banners" title="Permanent link">&para;</a></h2>
 <p>The dashboard shows a banner in these cases:</p>
 <ul>
+<li>HomeGAP runs in dry-run mode.</li>
 <li>Changes are paused. The banner has <strong>Resume</strong>.</li>
 <li>A node update fails and holds the rollout. See <a href="../node-updates/">Node updates and rollback</a>.</li>
-<li>Two or more nodes are configured, and none of them answers over SSH. The banner tells you that the homelab lost every node. The log records the start and the end. The nodes continue to serve.</li>
+<li>Two or more nodes are configured, and none of them answers over SSH. The banner tells you that the homelab lost every node. The log records the start and the end. The nodes continue to serve. After the homelab reaches a node again, a banner tells you how long the loss was. That banner stays for one hour.</li>
 </ul>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
 <p>The <strong>Documentation</strong> link at the bottom of the menu opens these docs at <code>/docs/</code>, for the version that runs.</p>

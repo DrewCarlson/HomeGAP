@@ -2449,7 +2449,7 @@
 <p>Literal Jinja delimiters in a page, for example in a Go template for <code>docker inspect</code>, break the build. Put such text in a Jinja <code>raw</code> block.</p>
 </div>
 <h2 id="versions">Versions<a class="headerlink" href="#versions" title="Permanent link">&para;</a></h2>
-<p><code>.github/workflows/docs.yml</code> builds both configs on every push and pull request that changes the docs. It publishes to GitHub Pages (the <code>gh-pages</code> branch) with the Zensical fork of mike, but only when the repository is public:</p>
+<p><code>.github/workflows/docs.yml</code> builds both configs on each pull request, each push to <code>main</code> and each version tag that changes the docs. It publishes to GitHub Pages (the <code>gh-pages</code> branch) with the Zensical fork of mike, but only when the repository is public:</p>
 <table>
 <thead>
 <tr>
@@ -2472,15 +2472,16 @@
 <p>The Dockerfile builds <code>mkdocs.embedded.yml</code> into <code>/usr/share/homegap/docs</code>. This config inherits <code>mkdocs.yml</code>, but it has no version selector and no mike. The image build gives it <code>VERSION</code>, and <code>build.yml</code> passes the image version. The image build does not install mike.</p>
 <p>The dashboard serves this copy at <code>/docs/</code>, and links it as <strong>Documentation</strong> at the bottom of the sidebar. To use a different folder, set <code>HOMEGAP_DOCS_DIR</code>. For example, build a local copy and point the orchestrator at it:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>zensical<span class="w"> </span>build<span class="w"> </span>-f<span class="w"> </span>mkdocs.embedded.yml
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>python3<span class="w"> </span>tools/localize-docs-assets.py<span class="w"> </span>site-embedded
 </code></pre></div>
-<p>The output goes to <code>site-embedded/</code>.</p>
+<p>The output goes to <code>site-embedded/</code>. The script makes the theme load its optional files from the site, not from a CDN. The image build runs the same two commands.</p>
 <h2 id="writing-rules">Writing rules<a class="headerlink" href="#writing-rules" title="Permanent link">&para;</a></h2>
 <p>Follow the <a href="../style-guide/">Writing style guide</a> for every page.</p>
 <p>A screenshot that the maintainer must add is an HTML comment on its own line, in this form:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>&lt;!-- SCREENSHOT: docs/img/&lt;page&gt;/&lt;nn&gt;-&lt;what&gt;.png | what the image shows --&gt;
 </code></pre></div>
 <p>The images go in <code>docs/img/</code>.</p>
-<p>Do not use Mermaid diagrams. Mermaid loads from a CDN, and the copy on the dashboard must work without internet access.</p>
+<p>Do not use Mermaid diagrams. <code>mkdocs.yml</code> does not enable them.</p>
 
 
 

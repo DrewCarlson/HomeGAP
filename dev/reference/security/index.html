@@ -2492,7 +2492,7 @@
 <ul>
 <li>Run it on a minimal host.</li>
 <li>Mount the secrets. Do not put them in the image.</li>
-<li>Keep the dashboard private. Every <code>/api</code> route needs the dashboard token. Set your own token with <code>dashboard.auth_token_env</code>. An address that sends more than 20 wrong tokens in one minute gets the answer <code>429</code> until that minute ends. For a request that the front door forwards, the address is the address of the viewer, so one viewer cannot lock a different viewer out. The dashboard loads only its own files, and no other page can show it in a frame.</li>
+<li>Keep the dashboard private. Every <code>/api</code> route needs the dashboard token, except the terminal WebSocket (a one-time ticket) and <code>/api/traefik/homelab</code>, which the Traefik of the homelab reads from the front door container. Set your own token with <code>dashboard.auth_token_env</code>. An address that sends more than 20 wrong tokens in one minute gets the answer <code>429</code> until that minute ends. For a request that the front door forwards, the address is the address of the viewer, so one viewer cannot lock a different viewer out. The dashboard loads only its own files, and no other page can show it in a frame.</li>
 </ul>
 <div class="admonition danger">
 <p class="admonition-title">Warning</p>
@@ -2509,7 +2509,7 @@
 <p>The dashboard can open a shell on a node. See <a href="../../operations/dashboard/#terminal">Terminal</a>. The shell uses the SSH connection of the orchestrator, so the key stays on the homelab. A WebSocket carries the terminal. It accepts only a single-use ticket from the API, and only from the page of the dashboard. <code>dashboard.terminal: false</code> turns the feature off.</p>
 <p><code>ufw</code> on the node opens only the ports in <a href="../ports/">Ports and firewall</a>. HomeGAP adds new rules before it removes its old rules. It never touches rules that it did not add.</p>
 <h2 id="the-homelab">The homelab<a class="headerlink" href="#the-homelab" title="Permanent link">&para;</a></h2>
-<p>The orchestrator has no Docker socket. It reads Docker through the <code>docker-proxy</code> service, which accepts only <code>GET</code> requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries traffic.</p>
+<p>The orchestrator has no Docker socket. It reads Docker through the <code>docker-proxy</code> service, which accepts only <code>GET</code> requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries the traffic of your services.</p>
 <p>The orchestrator runs with two capabilities: <code>NET_ADMIN</code> for its route to the mesh, and <code>DAC_OVERRIDE</code> to read the mounted keys and config.</p>
 <div class="admonition danger">
 <p class="admonition-title">Warning</p>
@@ -2528,7 +2528,7 @@
 <p>HomeGAP never publishes the IP address of the homelab. Every tunnel goes outbound from home. In cluster mode, the homelab dials the mesh. On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database.</p>
 <p>The add-node wizard sends a password only to a host key that you confirmed. After that, HomeGAP connects to a node only if it shows the host key from its first connection.</p>
 <h2 id="images">Images<a class="headerlink" href="#images" title="Permanent link">&para;</a></h2>
-<p>The default images of the node stack have a version tag. A node gets a new version only when the default or your config changes. See <a href="../../operations/node-updates/">Node updates and rollback</a>.</p>
+<p>The default images of Pangolin, Gerbil, Traefik and CrowdSec have a version tag. A node gets a new version of them only when the default or your config changes. The default cluster image has the tag <code>latest</code>, and the cluster member of a node follows the image of the homelab. See <a href="../../operations/node-updates/">Node updates and rollback</a>.</p>
 <p>The release build signs the HomeGAP images. HomeGAP does not check a signature before it uses an image. To check the images yourself, see <a href="../../operations/upgrade/#check-the-image-signatures">Check the image signatures</a>.</p>
 <h2 id="traffic">Traffic<a class="headerlink" href="#traffic" title="Permanent link">&para;</a></h2>
 <p>With <code>passthrough</code>, a node cannot read the traffic. It holds no certificate for a passthrough name. With the CAA records of the domain, it cannot order one. A node can see the name, the address of the client, and the size and time of the traffic.</p>
@@ -2557,7 +2557,7 @@
 <h2 id="what-the-public-can-see">What the public can see<a class="headerlink" href="#what-the-public-can-see" title="Permanent link">&para;</a></h2>
 <ul>
 <li>The public status page shows the id, the region, the state and the location of each node. It also uses the name <code>status-&lt;node&gt;.&lt;domain&gt;</code> of each node, which resolves to the public address of that node. It shows the homelab only as its region. See <a href="../../operations/status-page/#what-the-page-tells-a-visitor">Status page</a>.</li>
-<li>The token of a speed test link for a device is in the fragment of the URL. The browser never sends it to a server, so no log contains it. See <a href="../../operations/speed-tests/">Speed tests</a>.</li>
+<li>The token of a speed test link for a device is in the fragment of the URL. Thus it is never part of a request URL, and no access log contains it. The test page sends it in a header. See <a href="../../operations/speed-tests/">Speed tests</a>.</li>
 <li>The nodes end TLS for the shared names <code>status.&lt;domain&gt;</code> and <code>speedtest.&lt;domain&gt;</code>, which serve only these HomeGAP pages. A node then sends each request back into its own port 443 under its own name, and the front door carries it home still encrypted. On that inner connection the node does not check the certificate, because the connection does not leave the node before it enters the tunnel.</li>
 </ul>
 <h2 id="report-a-security-issue">Report a security issue<a class="headerlink" href="#report-a-security-issue" title="Permanent link">&para;</a></h2>

@@ -2569,7 +2569,7 @@
 <p>The wizard writes the node to the config file. Thus <code>dashboard.allow_config_edits</code> must be <code>true</code> (the default), and the config mount of the orchestrator must be writable. Before each write, HomeGAP saves a backup of the file as <code>&lt;config&gt;.bak-&lt;millis&gt;</code>.</p>
 <p>Setup runs on the orchestrator as a background job. You can leave the page while the job runs.</p>
 <h2 id="how-setup-protects-your-access">How setup protects your access<a class="headerlink" href="#how-setup-protects-your-access" title="Permanent link">&para;</a></h2>
-<p>Setup logs in one time with the initial credentials, and it does every step through that one connection. If the server has a login blocker (fail2ban, sshguard or CrowdSec), setup first exempts the address of the orchestrator, as the server sees it. It also removes any current ban on that address.</p>
+<p>Setup logs in one time with the initial credentials, and it does the setup work through that one connection. Only the last check is a second connection: a login with the key of the node. If the server has a login blocker (fail2ban, sshguard or CrowdSec), setup first exempts the address of the orchestrator, as the server sees it. It also removes any current ban on that address.</p>
 <p>Setup proves each change before it keeps the change:</p>
 <ul>
 <li>Before it hardens SSH, setup checks the key login and the passwordless sudo of the new user over a fresh connection.</li>
@@ -2584,7 +2584,7 @@
 <h3 id="open-the-wizard">Open the wizard<a class="headerlink" href="#open-the-wizard" title="Permanent link">&para;</a></h3>
 <ol>
 <li>On the dashboard, open <strong>Nodes</strong>.</li>
-<li>Click <strong>Add node</strong>. The page shows "Set up a fresh server from its initial login and provision it".
+<li>Click <strong>+ Add node</strong>. The <strong>Add a node</strong> wizard opens. It shows "Sets up a new server as an edge node. Nothing changes until you run it."
 <img src="../../img/add-node/01-open-wizard.png" alt="The Nodes page with the Add node button"></li>
 </ol>
 <h3 id="1-server">1. Server<a class="headerlink" href="#1-server" title="Permanent link">&para;</a></h3>
@@ -2625,15 +2625,16 @@
 <p>The <strong>Management user</strong> is "The account HomeGAP manages the node with."</p>
 <ol>
 <li>Keep <strong>Create a dedicated user</strong> selected. The default <strong>User name</strong> is <code>homegap</code>. This user has passwordless sudo and logs in over SSH with a key only.</li>
-<li>Optional: select <strong>Add it to the docker group</strong>.</li>
+<li>Keep <strong>Add it to the docker group</strong> selected, or clear it. It is selected by default.</li>
 <li>Under <strong>SSH key</strong>, select <strong>Generate a new key</strong>, <strong>Paste a private key</strong> or <strong>Use a key file on the orchestrator</strong>.</li>
 <li>Click <strong>Generate key</strong> or <strong>Use this key</strong>. The page shows "Key ready" and the fingerprint.</li>
-<li>Optional: under <strong>SSH hardening</strong>, select <strong>Disable root login</strong>. This option needs a management user other than root.</li>
-<li>Optional: select <strong>Disable password login</strong>. Then SSH accepts keys only, for every user.</li>
+<li>Under <strong>SSH hardening</strong>, <strong>Disable root login</strong> is selected by default. Clear it to keep root login. This option needs a management user other than root. If the initial login is not root, and root login is off already or the server keeps it on, setup writes a note in the step and continues.</li>
+<li><strong>Disable password login</strong> is selected by default. Then SSH accepts keys only, for every user. Clear it to keep password login.</li>
+<li>Optional: if the initial login is not root and HomeGAP creates a management user, select <strong>Disable SSH login for</strong> the initial user. Then that user cannot log in over SSH. The console of your provider still works.</li>
 <li>Click <strong>Continue</strong>.</li>
 </ol>
 <p>A generated key is an ed25519 key. HomeGAP keeps it in <code>&lt;data dir&gt;/ssh/</code> on the orchestrator.</p>
-<p>HomeGAP uses sudo only for system changes: packages, the firewall, WireGuard and sysctls. The files under the install directory (<code>/opt/homegap</code> by default) belong to the management user. If the user is in the <code>docker</code> group, HomeGAP also runs Docker Compose as this user, so <code>docker compose</code> works there without sudo. The data directories of the cluster member stay with their containers.</p>
+<p>HomeGAP runs each script on the node as root, through <code>sudo -n</code>. It then gives the files under the install directory (<code>/opt/homegap</code> by default) to the management user. If the user is in the <code>docker</code> group, HomeGAP also runs Docker Compose as this user, so <code>docker compose</code> works there without sudo. The data directories of the cluster member stay with their containers.</p>
 <p><img src="../../img/add-node/04-access.png" alt="The Access step with a dedicated user, a generated key and both options under SSH hardening"></p>
 <h3 id="4-firewall">4. Firewall<a class="headerlink" href="#4-firewall" title="Permanent link">&para;</a></h3>
 <ol>
@@ -2653,7 +2654,7 @@
 <p class="admonition-title">Warning</p>
 <p>This risk applies to <strong>Only these sources</strong>. If the public IP address of the orchestrator changes to an address outside the list, HomeGAP loses SSH access to the node. This occurs with a residential IP address, a new ISP or a homelab in a new location. Provisioning and health checks for that node then fail until you correct the rule.</p>
 <p>Use a stable address range. Or open SSH to anywhere and disable password login.</p>
-<p>To recover, log in through the web console of your provider. Run <code>ufw allow &lt;ssh port&gt;/tcp</code>. Then update <code>ssh_allow_from</code> in the config. The next pass replaces the rules.</p>
+<p>To recover, log in through the web console of your provider. Run <code>ufw allow &lt;ssh port&gt;/tcp</code>. Then update <code>ssh_allow_from</code> in the config, and click <strong>Re-provision</strong> for the node. Provisioning replaces the rules of HomeGAP. It does not remove your rule, so delete that rule with <code>ufw delete allow &lt;ssh port&gt;/tcp</code>.</p>
 </div>
 <p><img src="../../img/add-node/05-firewall.png" alt="The Firewall step with the list of rules"></p>
 <h3 id="5-review-run">5. Review &amp; run<a class="headerlink" href="#5-review-run" title="Permanent link">&para;</a></h3>
@@ -2668,7 +2669,7 @@
 <p>A failed job shows the step with the failure and the reason. Correct the cause, then click <strong>Retry</strong>.</p>
 <p>You can run setup again safely. The completed steps are idempotent. If an earlier run already disabled password login, setup continues with the key of the node.</p>
 <h2 id="after-the-wizard">After the wizard<a class="headerlink" href="#after-the-wizard" title="Permanent link">&para;</a></h2>
-<p>Provisioning runs in the background. The first install takes a few minutes for Docker, the firewall and the Pangolin stack. During this time, the node shows <code>provisioning…</code> on the <strong>Nodes</strong> page.</p>
+<p>Provisioning runs in the background. The first install takes a few minutes for Docker, the firewall and the Pangolin stack. During this time, the node shows the current phase on the <strong>Nodes</strong> page, for example <code>preparing the host (1 of 4)</code>.</p>
 <p>If the first provisioning fails, HomeGAP tries again after five minutes. To try again at once, click <strong>Re-provision</strong>.</p>
 <p><img src="../../img/add-node/08-provisioning.png" alt="The Nodes page with the new node in the provisioning… state"></p>
 <h2 id="add-a-node-by-hand">Add a node by hand<a class="headerlink" href="#add-a-node-by-hand" title="Permanent link">&para;</a></h2>

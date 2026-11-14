@@ -2645,10 +2645,10 @@
 <td>The Pangolin stack on the nodes.</td>
 </tr>
 <tr>
-<td><code>certificates</code></td>
+<td><code>acme</code></td>
 <td>object</td>
 <td>See below.</td>
-<td>The certificate that HomeGAP sends to the nodes.</td>
+<td>The certificate that HomeGAP orders and sends to the nodes.</td>
 </tr>
 <tr>
 <td><code>tunnels</code></td>
@@ -2782,7 +2782,7 @@
 <td><code>ttl</code></td>
 <td>integer</td>
 <td><code>60</code></td>
-<td>The TTL of the records, in seconds.</td>
+<td>The TTL of the A and AAAA records, in seconds. The CAA records always have a TTL of 3600.</td>
 </tr>
 <tr>
 <td><code>routing</code></td>
@@ -2996,14 +2996,14 @@
 <tr>
 <td><code>state_dir</code></td>
 <td>string</td>
-<td>None.</td>
-<td>The directory that the orchestrator and the tunnel supervisor share.</td>
+<td><code>HOMEGAP_TUNNELS_DIR</code>, then <code>/tunnels</code>, then <code>&lt;data_dir&gt;/tunnels</code>.</td>
+<td>The directory where the orchestrator writes the connector specs. Give the tunnel supervisor the same directory with <code>--dir</code> or <code>HOMEGAP_TUNNELS_DIR</code>.</td>
 </tr>
 <tr>
 <td><code>newt_binary</code></td>
 <td>string</td>
 <td><code>/usr/local/bin/newt</code></td>
-<td>The path of the Newt binary.</td>
+<td>Not used. The tunnel supervisor takes the path of the Newt binary from <code>--newt</code> or <code>HOMEGAP_NEWT</code>.</td>
 </tr>
 <tr>
 <td><code>mtu</code></td>
@@ -3318,7 +3318,7 @@
 <td><code>allow_config_edits</code></td>
 <td>boolean</td>
 <td><code>true</code></td>
-<td>Lets the dashboard add and remove nodes. This writes the config file again.</td>
+<td>Lets the dashboard add and remove nodes, and set the location of a node and of the homelab. Each of these changes writes the config file again.</td>
 </tr>
 <tr>
 <td><code>terminal</code></td>
@@ -3328,7 +3328,7 @@
 </tr>
 </tbody>
 </table>
-<p>Every <code>/api</code> route needs the bearer token. If neither key gives a token, HomeGAP creates one in <code>&lt;data_dir&gt;/dashboard-token</code>.</p>
+<p>Every <code>/api</code> route needs the bearer token, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read <code>/api/traefik/homelab</code> without the token. If neither key gives a token, HomeGAP creates one in <code>&lt;data_dir&gt;/dashboard-token</code>.</p>
 <h2 id="speedtest">speedtest<a class="headerlink" href="#speedtest" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -3486,12 +3486,12 @@
 <tr>
 <td><code>HOMEGAP_TUNNELS_DIR</code></td>
 <td><code>/tunnels</code></td>
-<td>The directory of the connector specs, for the orchestrator and the tunnel supervisor. The default is the mount point of the shipped compose file.</td>
+<td>The directory of the connector specs, for the orchestrator and the tunnel supervisor. The default is the mount point of the shipped compose file. If that directory does not exist, HomeGAP uses <code>&lt;data_dir&gt;/tunnels</code>.</td>
 </tr>
 <tr>
 <td><code>HOMEGAP_MESH_DIR</code></td>
 <td><code>/mesh</code></td>
-<td>The directory that the orchestrator and the mesh agent share. The default is the mount point of the shipped compose file.</td>
+<td>The directory that the orchestrator and the mesh agent share. The default is the mount point of the shipped compose file. If that directory does not exist, HomeGAP uses <code>&lt;data_dir&gt;/mesh</code>.</td>
 </tr>
 <tr>
 <td><code>HOMEGAP_MESH_HOST</code></td>
@@ -3501,7 +3501,7 @@
 <tr>
 <td><code>HOMEGAP_CLUSTER_CONFIG_DIR</code></td>
 <td><code>/cluster-config</code></td>
-<td>The directory where the orchestrator writes the config of the cluster containers of the homelab. The default is the mount point of the shipped compose file.</td>
+<td>The directory where the orchestrator writes the config of the cluster containers of the homelab. The default is the mount point of the shipped compose file. If that directory does not exist, HomeGAP uses <code>&lt;data_dir&gt;/cluster/config</code>.</td>
 </tr>
 <tr>
 <td><code>HOMEGAP_NEWT</code></td>

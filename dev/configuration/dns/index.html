@@ -2467,7 +2467,7 @@
 </tr>
 </tbody>
 </table>
-<p><code>bunny.ttl</code> sets the TTL of the records (default 60 seconds).</p>
+<p><code>bunny.ttl</code> sets the TTL of the A and AAAA records (default 60 seconds). The CAA records always have a TTL of 3600 seconds.</p>
 <h2 id="monitors">Monitors<a class="headerlink" href="#monitors" title="Permanent link">&para;</a></h2>
 <p><code>bunny.monitor</code> sets the monitor on each geo record:</p>
 <ul>
@@ -2476,7 +2476,7 @@
 <li><code>none</code>.</li>
 </ul>
 <p>The records for the management hosts, the speed test of each node and the status page of each node have no monitor.</p>
-<p>The health path is the <code>homegap.healthcheck</code> of the front door (default <code>/</code>). Bunny sends a probe every 30 seconds from three regions. If the origin is down, the probe gets a 502. If the tunnel is down, the probe fails within 5 seconds.</p>
+<p>The health path is the <code>homegap.healthcheck</code> of the front door (default <code>/</code>). On a node that does not serve the front door, it is the health check of the first HTTP service of that node. A node with no HTTP service answers 502, so an <code>http</code> monitor shows it as offline. Bunny sends a probe every 30 seconds from three regions. If the origin is down, the probe gets a 502. If the tunnel is down, the probe fails within 5 seconds.</p>
 <h2 id="failover">Failover<a class="headerlink" href="#failover" title="Permanent link">&para;</a></h2>
 <p>Bunny removes the offline members from a record set. The next-nearest node then answers. If all members are offline, Bunny returns all of them (fail-open).</p>
 <p>In practice, failover takes approximately 1 to 5 minutes: the health interval, plus the TTL, plus the time that resolvers cache the answer.</p>
@@ -2522,7 +2522,7 @@
 <tr>
 <td><code>speedtest-&lt;node&gt;.&lt;domain&gt;</code></td>
 <td><code>speedtest</code></td>
-<td>A plain record for each node.</td>
+<td>A plain record for each node that serves the front door.</td>
 </tr>
 <tr>
 <td><code>status.&lt;domain&gt;</code></td>
@@ -2532,24 +2532,31 @@
 <tr>
 <td><code>status-&lt;node&gt;.&lt;domain&gt;</code></td>
 <td><code>status</code></td>
-<td>A plain record for each node.</td>
+<td>A plain record for each node that serves the front door.</td>
 </tr>
 <tr>
 <td><code>pangolin-&lt;node&gt;.&lt;domain&gt;</code></td>
 <td><code>management</code></td>
 <td>A plain record for each node.</td>
 </tr>
+<tr>
+<td><code>&lt;domain&gt;</code></td>
+<td><code>caa</code></td>
+<td>Two CAA records (<code>issue</code> and <code>issuewild</code>), with <code>acme.caa: true</code> (the default). See <a href="../certificates/">Certificates</a>.</td>
+</tr>
 </tbody>
 </table>
-<p>HomeGAP creates A records, and AAAA records for nodes with <code>public_ipv6</code>.</p>
+<p>The records of the speed test and the status page exist only when a front door exists.</p>
+<p>HomeGAP creates A records, and AAAA records for nodes with <code>public_ipv6</code>. During a certificate order, it also creates TXT records at <code>_acme-challenge</code> names. It removes them after the order.</p>
 <p>A record set includes only the nodes that serve the service (<code>homegap.regions</code>). For a shared hostname, it includes every node that serves any of its services. If a node refuses the wildcard (<code>terminate</code> without EE), HomeGAP leaves it out of the wildcard set. When you remove a node, HomeGAP first removes it from DNS.</p>
 <h2 id="ownership-of-records">Ownership of records<a class="headerlink" href="#ownership-of-records" title="Permanent link">&para;</a></h2>
-<p>HomeGAP marks each of its records with the comment <code>managed-by:homegap &lt;purpose&gt; node=&lt;id&gt;</code>. It does not touch records that it did not create, except at the names that it manages.</p>
+<p>HomeGAP marks each of its records with the comment <code>managed-by:homegap &lt;purpose&gt; node=&lt;id&gt;</code>. The comment of a challenge record is <code>managed-by:homegap acme-challenge</code>. It does not touch records that it did not create, except at the names that it manages.</p>
 <div class="admonition danger">
 <p class="admonition-title">Warning</p>
 <p>At a name that HomeGAP manages, HomeGAP deletes some records that it did not create. The log and the <strong>Config</strong> diff give the reason "collides with a managed record set".</p>
 <ul>
 <li>HomeGAP deletes an A or AAAA record with the same name and type as a managed record.</li>
+<li>With <code>acme.caa: true</code>, HomeGAP deletes a CAA record at <code>domain</code> that it did not create.</li>
 <li>HomeGAP deletes any CNAME record at that name.</li>
 <li>HomeGAP adopts a record that has exactly the desired value.</li>
 </ul>

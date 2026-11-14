@@ -2571,7 +2571,7 @@
 </tr>
 <tr>
 <td>The front door with <code>terminate</code>.</td>
-<td>Yes: the root name, and <code>*.&lt;domain&gt;</code> if the front door has <code>homegap.wildcard</code>.</td>
+<td>Yes: the root name, and the names of the status page and the speed test for each node. With <code>homegap.wildcard</code>, <code>*.&lt;domain&gt;</code> is on the certificate, and it replaces each name one label under the domain.</td>
 </tr>
 </tbody>
 </table>
@@ -2601,7 +2601,7 @@
 <li>One third of the lifetime of the certificate remains.</li>
 <li>The ACME directory in the config changes.</li>
 </ul>
-<p>If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes have its key. This occurs when you remove a node, or when you change a service from <code>terminate</code> to <code>passthrough</code>.</p>
+<p>If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes have its key. This occurs when you remove a node, or when you change a service from <code>terminate</code> to <code>passthrough</code>. HomeGAP revokes the old certificate only after the new order succeeds. It does not revoke the old certificate if <code>acme.directory</code> changed in the same order.</p>
 <p>A new certificate does not restart the stack of a node. Traefik loads it in a few seconds.</p>
 <h3 id="limits">Limits<a class="headerlink" href="#limits" title="Permanent link">&para;</a></h3>
 <ul>

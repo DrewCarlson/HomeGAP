@@ -2599,6 +2599,8 @@
 <li><code>homegap.maintenance_page</code> needs <code>homegap.tls: terminate</code>. A passthrough service has no page, because the node holds no certificate for its name. If you set the label to <code>true</code> on a passthrough service, you get the error "...needs homegap.tls=terminate...".</li>
 <li>If the front door has <code>homegap.tls: terminate</code> and <code>homegap.wildcard</code>, HomeGAP refuses <code>homegap.tls: passthrough</code> on another hostname one label under the domain. See <a href="../../configuration/certificates/#the-front-door-in-terminate-mode-with-a-wildcard">Certificates</a>.</li>
 <li>Without <code>homegap.healthcheck</code>, Bunny still probes <code>/</code> through the front door. On raw services, the label applies only to the TCP ports.</li>
+<li>An HTTP path in <code>homegap.healthcheck</code> gives an HTTP check only on a service that the node terminates. On a passthrough service or a raw TCP port, the check of the Pangolin target is a TCP check.</li>
+<li><code>homegap.maintenance_page: true</code> on a raw service gives the warning "... has no effect on raw ... services".</li>
 </ul>
 <h2 id="extension-labels">Extension labels<a class="headerlink" href="#extension-labels" title="Permanent link">&para;</a></h2>
 <table>
@@ -2658,7 +2660,7 @@
 <tr>
 <td><code>homegap.traefik_api</code></td>
 <td><code>http://&lt;container name&gt;:8080</code></td>
-<td>Sets the URL of the API of this Traefik, for <code>homegap.private_middleware</code>. The form is <code>http://&lt;host&gt;:&lt;port&gt;</code>, with no path. The host must be a container name or a private IPv4 address. For other values, HomeGAP gives a warning and uses the default.</td>
+<td>Sets the URL of the API of this Traefik, for <code>homegap.private_middleware</code>. The form is <code>http://&lt;host&gt;[:&lt;port&gt;]</code> or <code>https://&lt;host&gt;[:&lt;port&gt;]</code>, with no path. The host must be a container name or a private IPv4 address. For other values, HomeGAP gives a warning and uses the default.</td>
 </tr>
 </tbody>
 </table>
@@ -2666,14 +2668,14 @@
 <ul>
 <li><code>homegap.public_port</code> on an <code>http</code> or <code>https</code> service gives the warning "... only applies to tcp/udp".</li>
 <li>A hostname that HomeGAP routes itself is an error. These are the management host of a node, the client address of the cluster, and the names of the status page and the speed test. The error is <code>hostname N is reserved for HomeGAP</code>.</li>
-<li>With more than one port, <code>homegap.public_port</code> is an error. Write <code>public:port</code> in <code>homegap.port</code> instead.</li>
+<li>With more than one port, or with an entry that has its own <code>public:</code> part, <code>homegap.public_port</code> is an error. Write <code>public:port</code> in <code>homegap.port</code> instead.</li>
 <li>The node uses these ports itself: <code>22</code>, <code>80</code>, <code>443</code>, <code>2379</code>, <code>2380</code>, <code>3000</code>, <code>3001</code>, <code>3002</code>, <code>3003</code>, <code>3004</code>, <code>3005</code>, <code>5432</code>, <code>5433</code>, <code>6379</code>, <code>6380</code>, <code>8008</code>, <code>8080</code>, <code>8082</code>, <code>8090</code>, <code>21820</code>, <code>26379</code> and <code>51820</code>. A public raw service cannot use them as public ports. The error is <code>public port N is reserved on nodes; publish it on another port (public:port in homegap.port, or homegap.public_port)</code>. In cluster mode, <code>cluster.mesh.port</code>/udp is reserved too. HomeGAP does not check private services, because they publish nothing on the nodes.</li>
 <li>HomeGAP removes <code>Admin</code> from the roles that it sends to Pangolin, because Pangolin refuses it there. The <code>Admin</code> role can reach everything.</li>
 <li>The PIN must be a number from 100000 to 999999. If there is no PIN, or the PIN is not valid, HomeGAP writes an error to the log.</li>
-<li><code>homegap.proxy_protocol</code> works only on <code>https</code> services in <code>passthrough</code> mode and on raw services with TCP ports, and only on public services. On a raw service, it applies only to the TCP ports. See <a href="../client-addresses/">Client addresses and private-only services</a>.</li>
-<li><code>homegap.private_network</code> works only on public <code>http</code> and <code>https</code> services.</li>
+<li><code>homegap.proxy_protocol</code> works only on <code>https</code> services in <code>passthrough</code> mode and on raw services with TCP ports, and only on public services. On each other service, it is an error. On a raw service, it applies only to the TCP ports. See <a href="../client-addresses/">Client addresses and private-only services</a>.</li>
+<li><code>homegap.private_network</code> works only on public <code>http</code> and <code>https</code> services. On each other service, it is an error.</li>
 <li><code>homegap.private_hosts</code> and <code>homegap.private_middleware</code> need <code>homegap.private_network</code>.</li>
-<li>A name in <code>homegap.private_hosts</code> can be relative to the hostname of the service (<code>jellyfin</code>, <code>*.home</code>) or a full name. You can use <code>*</code> and <code>?</code>.</li>
+<li>A name in <code>homegap.private_hosts</code> can be relative to the hostname of the service (<code>jellyfin</code>, <code>*.home</code>). It can also be a full name, if that name is the hostname of the service or a name under it. HomeGAP reads each other name as a relative name. You can use <code>*</code> and <code>?</code>.</li>
 <li><code>homegap.private_middleware</code> compares the middleware without its <code>@provider</code> part. HomeGAP reads the routers from the Traefik API.</li>
 </ul>
 <h2 id="port-lists">Port lists<a class="headerlink" href="#port-lists" title="Permanent link">&para;</a></h2>
@@ -2711,11 +2713,11 @@
 <li>A list with a protocol on an entry is a raw service, also without <code>homegap.protocol</code>. For example, <code>homegap.port: "7881/tcp, 7882/udp"</code> is enough.</li>
 <li><code>homegap.protocol</code> gives the protocol of the entries without their own protocol. With <code>tcp+udp</code>, each such port is on TCP and UDP. The protocol of an entry has priority.</li>
 <li>Without <code>homegap.protocol</code>, each entry needs a protocol if one entry has one. Otherwise, you get the error <code>'&lt;entry&gt;' needs a protocol (/tcp, /udp or /tcp+udp), or set homegap.protocol</code>.</li>
-<li>An <code>http</code> or <code>https</code> service takes only one port number. A list gives the error <code>must be one port number for http services</code>.</li>
+<li>An <code>http</code> or <code>https</code> service takes only one port number. A list gives the error <code>must be one port number for http services</code>, or <code>for https services</code>.</li>
 <li>An entry that is not a port from 1 to 65535 gives an error with examples of valid entries.</li>
 <li>The same public port and protocol twice in one service gives the error <code>is listed twice</code>.</li>
 </ul>
-<p>The protocol of the service is the sum of its ports: <code>tcp</code>, <code>udp</code> or <code>tcp+udp</code>. The <strong>Services</strong> page shows the port list in the protocol column, for example <code>7881/tcp, 7882/udp</code>. See <a href="../raw-ports/">Raw TCP and UDP</a>.</p>
+<p>The protocol of the service is the sum of its ports: <code>tcp</code>, <code>udp</code> or <code>tcp+udp</code>. The <strong>Services</strong> page shows the port list in the <strong>Published as</strong> column, for example <code>7881/tcp, 7882/udp</code>. See <a href="../raw-ports/">Raw TCP and UDP</a>.</p>
 <h2 id="named-services">Named services<a class="headerlink" href="#named-services" title="Permanent link">&para;</a></h2>
 <p>One container can declare several services. Put the labels of each service under <code>homegap.services.&lt;name&gt;.</code>, for example <code>homegap.services.alt.expose</code> and <code>homegap.services.alt.port</code>. Every label works under this prefix, for example <code>tls</code>, <code>access</code>, <code>auth</code>, <code>healthcheck</code>, <code>proxy_protocol</code> and <code>private_network</code>.</p>
 <p>These rules apply:</p>

@@ -2436,7 +2436,8 @@
 <h2 id="the-harness">The harness<a class="headerlink" href="#the-harness" title="Permanent link">&para;</a></h2>
 <p>The harness has these parts:</p>
 <ul>
-<li>A fake Ubuntu VPS, with sshd and its own Docker daemon.</li>
+<li>Two fake Ubuntu VPS nodes (<code>node-na1</code> and <code>node-as1</code>), each with sshd and its own Docker daemon.</li>
+<li>A fresh server (<code>node-fr1</code>) for the add-node wizard. It is not in the config.</li>
 <li>A simulated homelab, with Traefik, whoami and socat.</li>
 <li>The orchestrator and the tunnel supervisor.</li>
 <li>A stand-in for the Bunny API.</li>
@@ -2453,7 +2454,7 @@
     <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>e2e/verify.sh
 </code></pre></div></li>
 </ol>
-<p>To test EE features, put the keys, for example <code>PANGOLIN_LICENSE_KEY</code>, in an untracked <code>.env</code> file at the root of the repository. <code>e2e/run.sh</code> exports it.</p>
+<p>To test EE features, put <code>PANGOLIN_LICENSE_KEY</code> in an untracked <code>.env</code> file at the root of the repository. <code>e2e/run.sh</code> exports it.</p>
 <p>The dashboard of the harness is at <code>http://127.0.0.1:18088</code>.</p>
 <h2 id="what-verifysh-checks">What verify.sh checks<a class="headerlink" href="#what-verifysh-checks" title="Permanent link">&para;</a></h2>
 <p><code>e2e/verify.sh</code> does these checks on every node:</p>
@@ -2465,14 +2466,18 @@
 <li>Passthrough of the wildcard.</li>
 <li>The management API, which the node serves itself.</li>
 <li>In cluster mode, the client address: the login page and the API on this node.</li>
+<li>The shared names of the status page and the speed test, which this node answers itself.</li>
 <li>The health endpoint on port 80, which Bunny probes.</li>
 <li>The redirect from HTTP to HTTPS.</li>
 <li>A dedicated passthrough service, with the certificate of the origin.</li>
 <li>A dedicated terminate service, with the certificate that HomeGAP orders for the nodes.</li>
 <li>Raw TCP on the public port 19000.</li>
-<li>The certificate on the node has no wildcard and no passthrough name. The ACME store of the node is empty.</li>
+<li>A port list on TCP (7881 and 3478) and on UDP (3478), and a named service on 17000/udp.</li>
+<li>Two UDP callers at the same time on port 7882.</li>
+<li>The certificate on the node has the terminate name, no wildcard and no passthrough name. The ACME store of the node is empty.</li>
 </ul>
-<p>The script also checks that the zone has the two CAA records.</p>
+<p>The script also checks that the zone has the two CAA records, and it prints the number of challenge records that stay in the zone.</p>
+<p>Most checks print the result next to the value to expect. Compare them. The script stops with an error only for the names on the certificate and for the CAA records.</p>
 <h2 id="the-certificate-of-the-nodes">The certificate of the nodes<a class="headerlink" href="#the-certificate-of-the-nodes" title="Permanent link">&para;</a></h2>
 <p>The <code>pebble</code> service is a local ACME server in place of Let's Encrypt. It accepts each challenge without a DNS lookup. Thus the harness checks that HomeGAP writes and removes the challenge records. It does not check that they resolve.</p>
 <p>Pebble makes a new root certificate each time its container starts. <code>run.sh</code> reads the root and writes <code>work/certs/trust.pem</code>, which the viewer and the tunnels trust. After a new root, <code>run.sh</code> removes <code>work/data/acme</code>, so HomeGAP orders the certificate again.</p>
@@ -2499,7 +2504,7 @@
 <p>Two harnesses cannot run at the same time, because they use the same addresses and ports. Before you start the second harness, run <code>docker compose down</code> in <code>e2e/</code> for the first one.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>If you recreate a node container of the harness, recreate the <code>gerbil</code>, <code>traefik</code> and <code>maintenance</code> containers in it. Also recreate the connector in <code>/opt/homegap/exit</code>. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.</p>
+<p>If you recreate a node container of the harness, recreate the <code>gerbil</code>, <code>traefik</code> and <code>maintenance</code> services in it. Also recreate the connector in <code>/opt/homegap/exit</code>. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.</p>
 </div>
 
 

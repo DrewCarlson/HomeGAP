@@ -2404,9 +2404,10 @@
 <h2 id="records-at-the-names-that-homegap-manages">Records at the names that HomeGAP manages<a class="headerlink" href="#records-at-the-names-that-homegap-manages" title="Permanent link">&para;</a></h2>
 <div class="admonition danger">
 <p class="admonition-title">Warning</p>
-<p>On each pass that is not a dry run, HomeGAP deletes records that collide with its managed record sets. This occurs at each name that HomeGAP manages: the root, <code>*.&lt;domain&gt;</code>, the dedicated hostnames, the node management hosts and the other managed names.</p>
+<p>On each DNS sync that is not a dry run and not paused, HomeGAP deletes records that collide with its managed record sets. This occurs at each name that HomeGAP manages: the root, <code>*.&lt;domain&gt;</code>, the dedicated hostnames, the node management hosts and the other managed names.</p>
 <ul>
 <li>HomeGAP deletes an A or AAAA record that it did not create, if it has the same name and type as a managed record.</li>
+<li>With <code>acme.caa: true</code> (the default), HomeGAP deletes a CAA record at <code>&lt;domain&gt;</code> that it did not create.</li>
 <li>HomeGAP deletes any CNAME record at a managed name.</li>
 <li>HomeGAP adopts an unmanaged record that has exactly the desired value.</li>
 </ul>
@@ -2468,9 +2469,19 @@
 <td>A record for each node.</td>
 <td>With the status page.</td>
 </tr>
+<tr>
+<td><code>&lt;domain&gt;</code></td>
+<td>Two CAA records.</td>
+<td>With <code>acme.caa: true</code> (the default).</td>
+</tr>
+<tr>
+<td><code>_acme-challenge.&lt;name&gt;</code></td>
+<td>A TXT record.</td>
+<td>During a certificate order. HomeGAP removes it after the order.</td>
+</tr>
 </tbody>
 </table>
-<p>HomeGAP creates A records, and AAAA records for nodes with <code>public_ipv6</code>. The TTL comes from <code>bunny.ttl</code> (default <code>60</code>). The monitor comes from <code>bunny.monitor</code> (default <code>http</code>). Only geo records get a monitor.</p>
+<p>HomeGAP creates A records, and AAAA records for nodes with <code>public_ipv6</code>. The TTL of these records comes from <code>bunny.ttl</code> (default <code>60</code>). The monitor comes from <code>bunny.monitor</code> (default <code>http</code>). Only geo records get a monitor.</p>
 <p>For the routing and the monitors, see <a href="../../configuration/dns/">DNS routing and health checks</a>.</p>
 
 

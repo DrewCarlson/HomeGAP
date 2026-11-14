@@ -2473,8 +2473,8 @@
 </tr>
 </tbody>
 </table>
-<p>A change of <code>speedtest.enabled</code> or <code>speedtest.bind</code> needs a restart of the orchestrator.</p>
-<p>The front door already forwards <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code> from the nodes. A node answers the shared name <code>speedtest.&lt;domain&gt;</code> itself, and sends its requests on to the homelab as <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the <code>homegap-mesh</code> service, because it owns the networks of the orchestrator:</p>
+<p>The speed test and the status page share one listener, which starts only with the orchestrator. If neither was on at the start, the first activation needs a restart of the orchestrator. A change of <code>speedtest.bind</code> also needs a restart.</p>
+<p>The front door already forwards <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code> from the nodes. A node answers the shared name <code>speedtest.&lt;domain&gt;</code> itself, and sends its requests on to the homelab as <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the <code>orchestrator</code> service. The orchestrator is on three networks, so <code>traefik.docker.network</code> must name the network that Traefik shares with it:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">labels</span><span class="p">:</span>
 <a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">traefik.enable</span><span class="p">:</span><span class="w"> </span><span class="s">"true"</span>
 <a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">traefik.docker.network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">traefik</span>
