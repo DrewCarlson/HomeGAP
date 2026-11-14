@@ -1748,6 +1748,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Enable the speed tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Routing
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1805,6 +1822,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         API
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-speed-test-or-the-status-page-gives-a-404" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The speed test or the status page gives a 404
       </span>
     </span>
   </a>
@@ -2372,6 +2400,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Enable the speed tests">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#routing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Routing
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2429,6 +2474,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         API
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-speed-test-or-the-status-page-gives-a-404" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The speed test or the status page gives a 404
       </span>
     </span>
   </a>
@@ -2503,17 +2559,17 @@
 </tbody>
 </table>
 <p>The speed test and the status page share one listener, which starts only with the orchestrator. If neither was on at the start, the first activation needs a restart of the orchestrator. A change of <code>speedtest.bind</code> also needs a restart.</p>
-<p>The front door already forwards <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code> from the nodes. A node answers the shared name <code>speedtest.&lt;domain&gt;</code> itself, and sends its requests on to the homelab as <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>. Route these names to the orchestrator on port 8089 from the homelab Traefik. Put these labels on the <code>orchestrator</code> service. The orchestrator is on three networks, so <code>traefik.docker.network</code> must name the network that Traefik shares with it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">labels</span><span class="p">:</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">traefik.enable</span><span class="p">:</span><span class="w"> </span><span class="s">"true"</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">traefik.docker.network</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">traefik</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">traefik.http.routers.homegap-speedtest.rule</span><span class="p">:</span><span class="w"> </span><span class="s">"Host(`speedtest.example.net`)</span><span class="nv"> </span><span class="s">||</span><span class="nv"> </span><span class="s">HostRegexp(`^speedtest-[a-z0-9-]+\\.example\\.net$`)"</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">traefik.http.routers.homegap-speedtest.entrypoints</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">websecure</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">traefik.http.routers.homegap-speedtest.tls</span><span class="p">:</span><span class="w"> </span><span class="s">"true"</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">traefik.http.services.homegap-speedtest.loadbalancer.server.port</span><span class="p">:</span><span class="w"> </span><span class="s">"8089"</span>
-</code></pre></div>
-<p>The orchestrator is on more than one Docker network. <code>traefik.docker.network</code> tells Traefik which network to use. Without it, Traefik can choose a network that it is not on, and each request ends with a 504 after 30 seconds. Use the full name of your Traefik network, as <code>docker network ls</code> shows it.</p>
-<p>If you also enable the status page, use one rule for both. See <a href="../status-page/#routing">Status page</a>.</p>
+<h3 id="routing">Routing<a class="headerlink" href="#routing" title="Permanent link">&para;</a></h3>
+<p>The front door already forwards <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code> from the nodes. A node answers the shared name <code>speedtest.&lt;domain&gt;</code> itself, and sends its requests on to the homelab as <code>speedtest-&lt;node&gt;.&lt;domain&gt;</code>.</p>
+<p>On the homelab, your Traefik must send these names to the orchestrator on the port of <code>speedtest.bind</code> (8089). HomeGAP gives Traefik that route. You add no labels.</p>
+<p>The route comes through the HTTP provider that you added to Traefik in the installation. See <a href="../../getting-started/install/">Install the homelab</a>. When <code>speedtest.enabled</code> is <code>true</code>, the provider has the route <code>homegap-pages</code> with these names:</p>
+<ul>
+<li><code>speedtest.&lt;domain&gt;</code>.</li>
+<li><code>speedtest-&lt;node&gt;.&lt;domain&gt;</code> for each node.</li>
+</ul>
+<p>When you add or remove a node, HomeGAP changes the route. When you set <code>speedtest.enabled</code> to <code>false</code>, HomeGAP removes the names. Traefik reads the provider every <code>pollInterval</code> (30 seconds in the installation guide).</p>
+<p>The route has no entry point, so it is on each entry point of your Traefik. It has TLS on, and your Traefik gives the certificate from its own TLS settings.</p>
+<p>If a name gives a 404, see <a href="#the-speed-test-or-the-status-page-gives-a-404">The speed test or the status page gives a 404</a>.</p>
 <h2 id="the-two-tests">The two tests<a class="headerlink" href="#the-two-tests" title="Permanent link">&para;</a></h2>
 <p>The <strong>Speed test</strong> page has two tests. Each test measures ping, jitter, download and upload.</p>
 <h3 id="homelab-node">Homelab ↔ node<a class="headerlink" href="#homelab-node" title="Permanent link">&para;</a></h3>
@@ -2576,6 +2632,20 @@
 </tr>
 </tbody>
 </table>
+<h2 id="the-speed-test-or-the-status-page-gives-a-404">The speed test or the status page gives a 404<a class="headerlink" href="#the-speed-test-or-the-status-page-gives-a-404" title="Permanent link">&para;</a></h2>
+<p>Your Traefik does not have the route <code>homegap-pages</code>. Do these checks:</p>
+<ol>
+<li>Make sure that the static configuration of Traefik has the HTTP provider with the address <code>http://orchestrator:8088/api/traefik/homelab</code>.</li>
+<li>Make sure that <code>dashboard.bind</code> is <code>0.0.0.0:8088</code>, so that Traefik can reach the orchestrator on their shared network.</li>
+<li>Open the Traefik dashboard and find the router <code>homegap-pages@http</code>. Its service must show the orchestrator as up.</li>
+<li>
+<p>Read the address directly, with the dashboard token:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$HOMEGAP_DASHBOARD_TOKEN</span><span class="s2">"</span><span class="w"> </span>http://orchestrator:8088/api/traefik/homelab
+</code></pre></div>
+<p>The answer must have the router <code>homegap-pages</code> with the names of the speed test and the status page.</p>
+</li>
+</ol>
+<p>The service of the route uses the host name from the address of the provider and the port of <code>speedtest.bind</code>. Thus Traefik must reach the orchestrator by that host name on both ports.</p>
 
 
 

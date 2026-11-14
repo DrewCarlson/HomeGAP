@@ -2415,7 +2415,7 @@
 </tbody>
 </table>
 <h2 id="the-homelab">The homelab<a class="headerlink" href="#the-homelab" title="Permanent link">&para;</a></h2>
-<p>The homelab compose file expects the Docker network of your Traefik as an external network with the name <code>traefik</code>. If your network has a different name, change the name in the compose file.</p>
+<p>The homelab compose file expects the Docker network of your Traefik as an external network with the name <code>traefik</code>. If your network has a different name, set <code>TRAEFIK_NETWORK</code> in <code>.env</code>.</p>
 <p>Cluster mode needs WireGuard in the kernel of the homelab host, for the mesh interface <code>hg-mesh</code>. The setting <code>tunnels.native: true</code> also needs it. WireGuard is part of Linux 5.6 and later.</p>
 <h2 id="ssh-access-to-the-nodes">SSH access to the nodes<a class="headerlink" href="#ssh-access-to-the-nodes" title="Permanent link">&para;</a></h2>
 <p>HomeGAP accepts two types of SSH access:</p>

@@ -1551,6 +1551,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#serve-the-dashboard-through-your-traefik" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Serve the dashboard through your Traefik
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Serve the dashboard through your Traefik">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#private-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Private access
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#public-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Public access
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#access" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2496,6 +2535,45 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#serve-the-dashboard-through-your-traefik" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Serve the dashboard through your Traefik
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Serve the dashboard through your Traefik">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#private-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Private access
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#public-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Public access
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#access" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2728,11 +2806,56 @@
 <p>The orchestrator serves a dashboard on <code>dashboard.bind</code>. This page tells you how to reach it safely and what each page shows.</p>
 <div class="admonition danger">
 <p class="admonition-title">Warning</p>
-<p>If the dashboard is public, anybody can control every node. Reach it only through a private Pangolin resource or an SSH tunnel. See <a href="../../services/private/">Private services</a>.</p>
+<p>A person with the dashboard token can control every node. Keep the dashboard private: serve it to Pangolin clients only, or reach it through an SSH tunnel. Make it public only if you accept that the token is then the only protection.</p>
 </div>
+<h2 id="serve-the-dashboard-through-your-traefik">Serve the dashboard through your Traefik<a class="headerlink" href="#serve-the-dashboard-through-your-traefik" title="Permanent link">&para;</a></h2>
+<p>HomeGAP can give the dashboard a name at your homelab Traefik, for example <code>orc.example.net</code>. Your Traefik then serves it over HTTPS with its own certificate. You set the name in the config file. The compose file needs no labels.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">dashboard</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">bind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0:8088</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orc</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">private</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dashboard.hostname</code></td>
+<td>None.</td>
+<td>The first label of the name, <code>&lt;hostname&gt;.&lt;domain&gt;</code>. Without it, Traefik gets no route for the dashboard.</td>
+</tr>
+<tr>
+<td><code>dashboard.access</code></td>
+<td><code>private</code></td>
+<td><code>private</code> serves the name to Pangolin clients only. <code>public</code> serves it to everybody.</td>
+</tr>
+</tbody>
+</table>
+<p>The route comes through the HTTP provider that you added to Traefik in the installation, as the route of the speed test does. See <a href="../speed-tests/#routing">Speed tests</a>. The route is <code>homegap-dashboard</code>. <code>dashboard.bind</code> must be <code>0.0.0.0:8088</code>, so that Traefik can reach the dashboard.</p>
+<h3 id="private-access">Private access<a class="headerlink" href="#private-access" title="Permanent link">&para;</a></h3>
+<p>With <code>access: private</code>, only a device with the Pangolin app reaches the name. This mode uses the private path of the front door, so the front door must have the label <code>homegap.private_network</code>. See <a href="../../services/client-addresses/#private-only-services">Client addresses and private-only services</a>.</p>
+<p>HomeGAP then does two things:</p>
+<ul>
+<li>It makes the name a private name of the front door. Pangolin clients resolve it to the address of the front door on the private network.</li>
+<li>It adds an allowlist to the route. The allowlist admits only the range of the private network. A request that comes through a node from the internet gets a 403.</li>
+</ul>
+<p>A computer on your home network also gets a 403, because it does not come from the private network. Use the Pangolin app there too, or use the address of <code>dashboard.bind</code>.</p>
+<p>If the front door has no <code>homegap.private_network</code>, the dashboard gets no route. The activity log shows "dashboard.access is private, but the front door has no homegap.private_network".</p>
+<h3 id="public-access">Public access<a class="headerlink" href="#public-access" title="Permanent link">&para;</a></h3>
+<p>With <code>access: public</code>, the name answers on the internet, as each other name of the front door does.</p>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p>A public dashboard has only the token between the internet and your nodes. A person who gets the token can change the config, remove nodes and open a shell on a node. Use a long token that nothing else uses, and set <code>dashboard.terminal: false</code> if you do not need the terminal.</p>
+</div>
+<p>HomeGAP still limits wrong tokens: an address that sends 20 wrong tokens in one minute gets a 429 for the remainder of that minute.</p>
 <h2 id="access">Access<a class="headerlink" href="#access" title="Permanent link">&para;</a></h2>
 <p>A bearer token protects the <code>/api</code> routes. Two routes have their own check. The terminal WebSocket uses a one-time ticket, which the token gets. The Traefik of the homelab can read <code>/api/traefik/homelab</code> from the front door container without the token. Set the token with <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file <code>dashboard-token</code> in its data directory, with mode 0600. To read the token, run this command:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>cat<span class="w"> </span>/data/dashboard-token
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>cat<span class="w"> </span>/data/dashboard-token
 </code></pre></div>
 <p>The dashboard asks for the token in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.</p>
 <p>To remove the token from the browser, click <strong>Sign out</strong> at the bottom of the menu, or search for "Sign out". Do this on a computer that other people use.</p>

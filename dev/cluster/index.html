@@ -2365,14 +2365,30 @@
 <li>Two or more nodes. The vote needs a majority. With the homelab and only one node, the loss of either one stops all writes.</li>
 <li>A decision about the role of the homelab, before the first start. The homelab can hold a copy of the database (the default) or only vote. See <a href="database/#the-homelab-as-a-vote-only">The homelab as a vote only</a>.</li>
 <li>WireGuard in the kernel of the homelab host. It is part of Linux 5.6 and later.</li>
-<li>The <code>homegap-mesh</code> and <code>homegap-mesh-agent</code> services from <code>deploy/homelab-compose.yml</code>. The agent needs <code>cap_add: [NET_ADMIN, NET_RAW]</code>.</li>
-<li><code>cap_add: [NET_ADMIN]</code> on the orchestrator, for its route to the mesh.</li>
-<li>The cluster containers of the homelab from the same file: <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. They share the network namespace of <code>homegap-mesh</code>.</li>
+<li>The cluster services of the shipped compose file: <code>homegap-mesh</code>, <code>homegap-mesh-agent</code>, <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. They start only with the profile <code>cluster</code>.</li>
+<li><code>cap_add: [NET_ADMIN]</code> on the orchestrator, for its route to the mesh. The shipped compose file has it.</li>
 </ul>
 <h2 id="enable-cluster-mode">Enable cluster mode<a class="headerlink" href="#enable-cluster-mode" title="Permanent link">&para;</a></h2>
-<p>To use all the defaults, add this line to the config:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">cluster</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+<p>Cluster mode has two switches. The config tells the orchestrator to build the cluster. The profile tells Docker Compose to start the cluster services of the homelab. The orchestrator has no control of Docker, so it cannot start them.</p>
+<ol>
+<li>
+<p>Add this line to <code>.env</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>COMPOSE_PROFILES=cluster
 </code></pre></div>
+</li>
+<li>
+<p>Add <code>cluster:</code> to the config. To use all the defaults, add this line:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">cluster</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+</code></pre></div>
+</li>
+<li>
+<p>Start the cluster services:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d
+</code></pre></div>
+</li>
+</ol>
+<p>If the config has <code>cluster:</code> and the cluster services do not run, the orchestrator cannot find the mesh agent. Then the orchestrator writes an error for the mesh of the homelab to its log. The error gives the line for <code>.env</code>. With the profile and without <code>cluster:</code> in the config, the cluster services start and wait.</p>
+<p>The config has these keys:</p>
 <table>
 <thead>
 <tr>

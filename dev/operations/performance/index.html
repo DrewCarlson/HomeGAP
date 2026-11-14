@@ -2518,8 +2518,8 @@
 <h3 id="native-mode">Native mode<a class="headerlink" href="#native-mode" title="Permanent link">&para;</a></h3>
 <p>With <code>tunnels.native: true</code>, the <code>tunnels</code> container needs:</p>
 <ul>
-<li><code>cap_add: [NET_ADMIN]</code>.</li>
-<li><code>devices: ["/dev/net/tun:/dev/net/tun"]</code>.</li>
+<li><code>cap_add: [NET_ADMIN]</code>. The shipped compose file has it.</li>
+<li><code>devices: ["/dev/net/tun:/dev/net/tun"]</code>. The shipped compose file has it.</li>
 <li>WireGuard in the kernel of the host.</li>
 </ul>
 <h2 id="the-homelab-side-in-native-mode">The homelab side in native mode<a class="headerlink" href="#the-homelab-side-in-native-mode" title="Permanent link">&para;</a></h2>

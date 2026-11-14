@@ -2467,9 +2467,13 @@
 </tbody>
 </table>
 <h2 id="enable-cluster-mode">Enable cluster mode<a class="headerlink" href="#enable-cluster-mode" title="Permanent link">&para;</a></h2>
-<p>To use all the defaults, add this line to the config file:</p>
+<p>Cluster mode has two switches. To use all the defaults, add this line to the config file:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">cluster</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
 </code></pre></div>
+<p>Then add this line to <code>.env</code>, and run <code>docker compose up -d</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>COMPOSE_PROFILES=cluster
+</code></pre></div>
+<p>The line in <code>.env</code> starts the cluster services of the homelab. Without it, the stack has no container for the mesh or the database.</p>
 <p>For the options, see the <a href="../../configuration/reference/">Configuration reference</a>. For the full description of the cluster, see <a href="../../cluster/">Cluster mode</a>.</p>
 
 

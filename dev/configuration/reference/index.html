@@ -3408,6 +3408,18 @@
 <td><code>true</code></td>
 <td>Lets the dashboard open a shell on a node. See <a href="../../operations/dashboard/#terminal">Terminal</a>.</td>
 </tr>
+<tr>
+<td><code>hostname</code></td>
+<td>string</td>
+<td>None.</td>
+<td>The first label of the name of the dashboard at your Traefik, <code>&lt;hostname&gt;.&lt;domain&gt;</code>. See <a href="../../operations/dashboard/#serve-the-dashboard-through-your-traefik">Serve the dashboard through your Traefik</a>.</td>
+</tr>
+<tr>
+<td><code>access</code></td>
+<td>string</td>
+<td><code>private</code></td>
+<td>Who reaches <code>hostname</code>: <code>private</code> (Pangolin clients only) or <code>public</code>.</td>
+</tr>
 </tbody>
 </table>
 <p>Every <code>/api</code> route needs the bearer token, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read <code>/api/traefik/homelab</code> without the token. If neither key gives a token, HomeGAP creates one in <code>&lt;data_dir&gt;/dashboard-token</code>.</p>
@@ -3514,6 +3526,30 @@
 <td>None.</td>
 <td><code>{ latitude, longitude, name }</code>: the location of the homelab, for the maps. The public status page shows only its region.</td>
 </tr>
+<tr>
+<td><code>ssh.enabled</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Publishes the SSH server of the homelab host as a private service. See <a href="../../services/private/#reach-the-homelab-host-over-ssh">Reach the homelab host over SSH</a>.</td>
+</tr>
+<tr>
+<td><code>ssh.hostname</code></td>
+<td>string</td>
+<td><code>ssh</code></td>
+<td>The first label of the alias, <code>&lt;hostname&gt;.&lt;domain&gt;</code>. A single lowercase label.</td>
+</tr>
+<tr>
+<td><code>ssh.port</code></td>
+<td>integer</td>
+<td><code>22</code></td>
+<td>The port of the SSH server of the host.</td>
+</tr>
+<tr>
+<td><code>ssh.roles</code></td>
+<td>list</td>
+<td><code>[]</code></td>
+<td>The roles that can reach the host. The <code>Admin</code> role always can.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="map">map<a class="headerlink" href="#map" title="Permanent link">&para;</a></h2>
@@ -3599,6 +3635,11 @@
 <td><code>HOMEGAP_DOCS_DIR</code></td>
 <td><code>/usr/share/homegap/docs</code></td>
 <td>The directory where the dashboard finds these docs.</td>
+</tr>
+<tr>
+<td><code>HOMEGAP_STACK_FILES</code></td>
+<td><code>/usr/share/homegap/deploy</code></td>
+<td>The directory where <code>homegap init</code> finds the files of the homelab stack.</td>
 </tr>
 </tbody>
 </table>

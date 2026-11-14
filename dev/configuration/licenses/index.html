@@ -2433,12 +2433,9 @@
 </div>
 </div>
 <h2 id="give-the-keys-to-the-orchestrator">Give the keys to the orchestrator<a class="headerlink" href="#give-the-keys-to-the-orchestrator" title="Permanent link">&para;</a></h2>
-<p>Put the keys in <code>.env</code>, and give the variables to the orchestrator in the compose file. For example, in standalone mode with two nodes:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">services</span><span class="p">:</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">orchestrator</span><span class="p">:</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">      </span><span class="nt">PANGOLIN_LICENSE_KEY_NA1</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${PANGOLIN_LICENSE_KEY_NA1}</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">      </span><span class="nt">PANGOLIN_LICENSE_KEY_NA2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${PANGOLIN_LICENSE_KEY_NA2}</span>
+<p>Put the keys in <code>.env</code>. The shipped compose file gives each variable of <code>.env</code> to the orchestrator. For example, in standalone mode with two nodes:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>PANGOLIN_LICENSE_KEY_NA1=...
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>PANGOLIN_LICENSE_KEY_NA2=...
 </code></pre></div>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">nodes</span><span class="p">:</span>
 <a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">na1</span>

@@ -2544,7 +2544,7 @@
 <p class="admonition-title">Warning</p>
 <p>Do not mount the Docker socket in the orchestrator. A socket mount gives the full Docker API, also with <code>:ro</code>. A person who controls that container then controls the Docker host.</p>
 </div>
-<p>Only the orchestrator mounts the <code>homegap-data</code> volume, which holds the state cache, the SSH keys and the dashboard token. The cluster containers and the <code>tunnels</code> container each mount only their own volume.</p>
+<p>Only the orchestrator mounts the folder <code>data/orchestrator</code>, which holds the state cache, the SSH keys and the dashboard token. The cluster containers and the <code>tunnels</code> container each mount only their own folders.</p>
 <p>In cluster mode, Pangolin on each node uses its own database role, <code>pangolin</code>. This role owns the <code>pangolin</code> database and is not a superuser. The superuser <code>postgres</code> can sign in only from inside a member, never over the mesh.</p>
 <p>The containers of a node cannot control the cluster. etcd and Sentinel need a password that Pangolin does not hold. A firewall on each node keeps its containers away from the etcd peer port and the Sentinel port. See <a href="../../cluster/mesh/#what-a-container-on-a-node-can-reach">Cluster mesh</a>.</p>
 <p>Each node also votes in the cluster database. Patroni members share their config, so a person with root on a node can still run commands in the cluster containers of the homelab. HomeGAP therefore isolates those containers:</p>

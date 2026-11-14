@@ -2482,8 +2482,8 @@
 <p>On the homelab end of the mesh, HomeGAP drops inbound traffic, except replies, ping and the ports of the cluster database. Thus the nodes reach only the cluster services of the homelab.</p>
 <h2 id="the-interfaces">The interfaces<a class="headerlink" href="#the-interfaces" title="Permanent link">&para;</a></h2>
 <p>On each node, <code>wg-quick</code> manages the interface, and it starts at boot. Changes to the peers apply in place. They do not drop the sessions.</p>
-<p>On the homelab, the interface is in the network namespace of the <code>homegap-mesh</code> container. The cluster containers of the homelab share this namespace. The orchestrator is not in it. <code>deploy/upgrade.sh</code> never recreates <code>homegap-mesh</code>, so the interface stays up during an upgrade.</p>
-<p>The <code>homegap-mesh-agent</code> container manages the interface. The orchestrator writes the description of the mesh to the <code>homegap-mesh</code> volume. The agent applies it. Then it writes its public key and the state of each peer to the same volume. The private key of the homelab stays in that volume.</p>
+<p>On the homelab, the interface is in the network namespace of the <code>homegap-mesh</code> container. The cluster containers of the homelab share this namespace. The orchestrator is not in it. <code>upgrade.sh</code> never recreates <code>homegap-mesh</code>, so the interface stays up during an upgrade.</p>
+<p>The <code>homegap-mesh-agent</code> container manages the interface. The orchestrator writes the description of the mesh to the folder <code>data/mesh</code>. The agent applies it. Then it writes its public key and the state of each peer to the same folder. The private key of the homelab stays in that folder.</p>
 <h2 id="the-isolation-of-the-homelab-member">The isolation of the homelab member<a class="headerlink" href="#the-isolation-of-the-homelab-member" title="Permanent link">&para;</a></h2>
 <p>Each node is a member of the cluster database, so HomeGAP treats the namespace of <code>homegap-mesh</code> as reachable from the nodes. The agent keeps a firewall there that refuses everything except these connections:</p>
 <ul>

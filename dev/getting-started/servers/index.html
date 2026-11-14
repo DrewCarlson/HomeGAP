@@ -2415,22 +2415,22 @@
 <p>Run these commands on the homelab, in the HomeGAP folder. Replace the user, the address and the node id with your values.</p>
 <ol>
 <li>Create the folder for the keys:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>secrets/ssh
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>data/orchestrator/ssh
 </code></pre></div></li>
 <li>Create a key for the node:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ssh-keygen<span class="w"> </span>-t<span class="w"> </span>ed25519<span class="w"> </span>-N<span class="w"> </span><span class="s1">''</span><span class="w"> </span>-C<span class="w"> </span>homegap-na1<span class="w"> </span>-f<span class="w"> </span>secrets/ssh/na1
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>ssh-keygen<span class="w"> </span>-t<span class="w"> </span>ed25519<span class="w"> </span>-N<span class="w"> </span><span class="s1">''</span><span class="w"> </span>-C<span class="w"> </span>homegap-na1<span class="w"> </span>-f<span class="w"> </span>data/orchestrator/ssh/na1
 </code></pre></div></li>
 <li>Make the private key readable only by you:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>secrets/ssh/na1
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>data/orchestrator/ssh/na1
 </code></pre></div></li>
 <li>Copy the public key to the server:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>ssh-copy-id<span class="w"> </span>-i<span class="w"> </span>secrets/ssh/na1.pub<span class="w"> </span>deploy@203.0.113.10
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>ssh-copy-id<span class="w"> </span>-i<span class="w"> </span>data/orchestrator/ssh/na1.pub<span class="w"> </span>deploy@203.0.113.10
 </code></pre></div></li>
 <li>Give the user passwordless sudo:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ssh<span class="w"> </span>-t<span class="w"> </span>-i<span class="w"> </span>secrets/ssh/na1<span class="w"> </span>deploy@203.0.113.10<span class="w"> </span><span class="s1">'echo "deploy ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/homegap &gt;/dev/null &amp;&amp; sudo chmod 440 /etc/sudoers.d/homegap'</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>ssh<span class="w"> </span>-t<span class="w"> </span>-i<span class="w"> </span>data/orchestrator/ssh/na1<span class="w"> </span>deploy@203.0.113.10<span class="w"> </span><span class="s1">'echo "deploy ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/homegap &gt;/dev/null &amp;&amp; sudo chmod 440 /etc/sudoers.d/homegap'</span>
 </code></pre></div></li>
 <li>Test the login and sudo:
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ssh<span class="w"> </span>-i<span class="w"> </span>secrets/ssh/na1<span class="w"> </span>-o<span class="w"> </span><span class="nv">BatchMode</span><span class="o">=</span>yes<span class="w"> </span>deploy@203.0.113.10<span class="w"> </span><span class="s1">'sudo -n true &amp;&amp; echo ok'</span>
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>ssh<span class="w"> </span>-i<span class="w"> </span>data/orchestrator/ssh/na1<span class="w"> </span>-o<span class="w"> </span><span class="nv">BatchMode</span><span class="o">=</span>yes<span class="w"> </span>deploy@203.0.113.10<span class="w"> </span><span class="s1">'sudo -n true &amp;&amp; echo ok'</span>
 </code></pre></div>
     The command must print <code>ok</code> without a prompt.</li>
 <li>Add the node to <code>nodes[]</code> in <code>config/config.yml</code>:
@@ -2439,11 +2439,12 @@
 <a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">region</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">NA</span>
 <a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">203.0.113.10</span>
 <a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">ssh_user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">deploy</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">ssh_key_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/secrets/ssh/na1</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">ssh_key_file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/data/ssh/na1</span>
 <a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">location</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> latitude</span><span class="p">:</span><span class="w"> </span><span class="nv">40.71</span><span class="p p-Indicator">,</span><span class="nt"> longitude</span><span class="p">:</span><span class="w"> </span><span class="nv">-74.01</span><span class="p p-Indicator">,</span><span class="nt"> name</span><span class="p">:</span><span class="w"> </span><span class="s">"New</span><span class="nv"> </span><span class="s">York"</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </code></pre></div></li>
 </ol>
-<p>The <code>ssh_key_file</code> path is the path inside the orchestrator container. The compose file mounts <code>./secrets/ssh</code> at <code>/secrets/ssh</code>.</p>
+<p>The <code>ssh_key_file</code> path is the path inside the orchestrator container. The compose file mounts <code>data/orchestrator</code> at <code>/data</code>. This is the same folder where the add-node wizard keeps the keys that it makes.</p>
+<p>After the first start of the stack, the folder <code>data/orchestrator</code> belongs to root. Then run the commands above with <code>sudo</code>.</p>
 <p>These rules apply to the entry:</p>
 <ul>
 <li>The node id must match <code>^[a-z][a-z0-9-]{0,30}$</code>. It has lowercase letters, digits and dashes, and it starts with a letter.</li>

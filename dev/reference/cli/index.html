@@ -1971,6 +1971,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#init" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        init
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#version-and-help" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2479,6 +2490,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#init" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        init
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#version-and-help" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2636,6 +2658,66 @@
 <div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>homegap maintenance start [--minutes N] | end
 </code></pre></div>
 <p>Asks the orchestrator in the same container to move the cluster primaries off the homelab. The orchestrator holds them there for up to N minutes (default 30, from 5 to 240). <code>end</code> ends the hold. The command uses the dashboard API, with your dashboard token or the token that HomeGAP created. See <a href="../../cluster/database/#maintenance-of-the-homelab-member">Cluster database</a>.</p>
+<h2 id="init">init<a class="headerlink" href="#init" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>homegap init [--dir PATH] [--yes] [--refresh]
+</code></pre></div>
+<p>Writes the files of the homelab stack to a folder. Run it in a container of its own, with your folder at <code>/work</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-it<span class="w"> </span>-v<span class="w"> </span><span class="s2">"</span><span class="nv">$PWD</span><span class="s2">:/work"</span><span class="w"> </span>ghcr.io/drewcarlson/homegap<span class="w"> </span>init
+</code></pre></div>
+<p>The command writes <code>compose.yml</code>, <code>upgrade.sh</code> and the example files. If they are missing, it also makes <code>.env</code>, <code>config/config.yml</code> and <code>backups/</code>. It never changes a file of your own. See <a href="../../getting-started/install/#the-folder">Install on the homelab</a>.</p>
+<p>If a file of the stack has changes from you, the command asks before it replaces the file. Each line of the output has a result and a path:</p>
+<table>
+<thead>
+<tr>
+<th>Result</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>created</code></td>
+<td>The folder has no such file. The command makes it.</td>
+</tr>
+<tr>
+<td><code>updated</code></td>
+<td>The file has no changes from you. The command writes the content of this version.</td>
+</tr>
+<tr>
+<td><code>unchanged</code></td>
+<td>The file already has the content of this version.</td>
+</tr>
+<tr>
+<td><code>replaced</code></td>
+<td>Your answer is yes. Your file is now <code>&lt;name&gt;.previous</code>.</td>
+</tr>
+<tr>
+<td><code>kept</code></td>
+<td>Your answer is no, or there is no terminal. The file of this version is <code>&lt;name&gt;.new</code>.</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--dir PATH</code></td>
+<td>The folder. The default is <code>/work</code>.</td>
+</tr>
+<tr>
+<td><code>--yes</code></td>
+<td>Replaces each file that has changes from you, with no question.</td>
+</tr>
+<tr>
+<td><code>--refresh</code></td>
+<td>Changes only the files of the stack. It makes no file of your own. <code>upgrade.sh</code> uses it.</td>
+</tr>
+</tbody>
+</table>
 <h2 id="version-and-help">version and help<a class="headerlink" href="#version-and-help" title="Permanent link">&para;</a></h2>
 <p><code>homegap version</code> (or <code>--version</code>) prints the version of the binary. <code>homegap help</code> (or <code>--help</code>, <code>-h</code>) prints the usage.</p>
 <h2 id="exit-codes-and-errors">Exit codes and errors<a class="headerlink" href="#exit-codes-and-errors" title="Permanent link">&para;</a></h2>

@@ -2536,15 +2536,16 @@
 <p>The front door publishes <code>chat.example.net</code>. The web app needs no HomeGAP labels.</p>
 <p>The proxy requirements of Fluxer apply to your Traefik as usual: WebSocket upgrades, long timeouts and bodies up to 512 MB. See the <a href="https://docs.fluxer.com/operator/reverse-proxy/">reverse proxy guide of Fluxer</a>.</p>
 <h2 id="the-network-of-livekit">The network of LiveKit<a class="headerlink" href="#the-network-of-livekit" title="Permanent link">&para;</a></h2>
-<p>The <code>tunnels</code> container must join the Docker network of Fluxer. With the project name <code>fluxer</code>, this network is <code>fluxer_fluxer</code>. Add it to the <code>tunnels</code> service in the homelab compose file:</p>
+<p>The <code>tunnels</code> container must join the Docker network of Fluxer. With the project name <code>fluxer</code>, this network is <code>fluxer_fluxer</code>. Add it to the <code>tunnels</code> service in <code>compose.override.yml</code>:</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">services</span><span class="p">:</span>
 <a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">tunnels</span><span class="p">:</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">traefik</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">fluxer</span><span class="p p-Indicator">]</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="nt">networks</span><span class="p">:</span>
-<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">fluxer</span><span class="p">:</span>
-<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fluxer_fluxer</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">      </span><span class="nt">fluxer</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{}</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="nt">networks</span><span class="p">:</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nt">fluxer</span><span class="p">:</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">external</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">fluxer_fluxer</span>
 </code></pre></div>
 <p>You can also use <code>docker network connect fluxer_fluxer &lt;tunnels container&gt;</code>.</p>
 <div class="admonition warning">

@@ -2429,7 +2429,7 @@
 <h1 id="files-and-state">Files and state<a class="headerlink" href="#files-and-state" title="Permanent link">&para;</a></h1>
 <p>This page lists the files that HomeGAP reads and writes on the homelab and on the nodes.</p>
 <h2 id="the-data-directory-of-the-orchestrator">The data directory of the orchestrator<a class="headerlink" href="#the-data-directory-of-the-orchestrator" title="Permanent link">&para;</a></h2>
-<p>The data directory is <code>data_dir</code> (default <code>/data</code>), on the <code>homegap-data</code> volume.</p>
+<p>The data directory is <code>data_dir</code> (default <code>/data</code>). With the shipped compose file, this is the folder <code>data/orchestrator</code> of the stack.</p>
 <table>
 <thead>
 <tr>
@@ -2460,7 +2460,7 @@
 </tr>
 <tr>
 <td><code>ssh/</code></td>
-<td>The SSH keys that the add-node wizard generates, with mode 0600.</td>
+<td>The SSH keys of the nodes, with mode 0600: the keys that the add-node wizard generates, and the keys that you put there by hand.</td>
 </tr>
 <tr>
 <td><code>ssh-askpass.sh</code></td>
@@ -2468,7 +2468,7 @@
 </tr>
 <tr>
 <td><code>tunnels/</code></td>
-<td>The connector specs, which the <code>tunnels</code> container also reads. With the shipped compose file, this is the <code>homegap-tunnels</code> volume at <code>/tunnels</code>.</td>
+<td>The connector specs, which the <code>tunnels</code> container also reads. With the shipped compose file, this is the folder <code>data/tunnels</code> at <code>/tunnels</code>.</td>
 </tr>
 <tr>
 <td><code>acme/</code></td>
@@ -2488,7 +2488,7 @@
 </tr>
 <tr>
 <td><code>cluster/config/</code></td>
-<td>The configs of the homelab member, which the cluster containers read. With the shipped compose file, this is the <code>homegap-cluster-config</code> volume at <code>/cluster-config</code>.</td>
+<td>The configs of the homelab member, which the cluster containers read. With the shipped compose file, this is the folder <code>data/cluster/config</code> at <code>/cluster-config</code>.</td>
 </tr>
 <tr>
 <td><code>cluster/maintenance</code></td>
@@ -2496,7 +2496,7 @@
 </tr>
 <tr>
 <td><code>mesh/</code></td>
-<td>The description of the mesh for the mesh agent, its status and the mesh key of the homelab. With the shipped compose file, this is the <code>homegap-mesh</code> volume at <code>/mesh</code>.</td>
+<td>The description of the mesh for the mesh agent, its status and the mesh key of the homelab. With the shipped compose file, this is the folder <code>data/mesh</code> at <code>/mesh</code>.</td>
 </tr>
 <tr>
 <td><code>locations.yml</code></td>
@@ -2520,12 +2520,28 @@
 </thead>
 <tbody>
 <tr>
-<td><code>.env</code></td>
-<td>The secrets, with mode 600.</td>
+<td><code>compose.yml</code>, <code>upgrade.sh</code></td>
+<td>The compose file of the stack and the upgrade script. An upgrade replaces them.</td>
 </tr>
 <tr>
-<td><code>secrets/ssh/</code></td>
-<td>The private SSH keys of nodes that you add by hand.</td>
+<td><code>.homegap/</code></td>
+<td>A copy of each file that HomeGAP wrote to the folder. See <a href="../../getting-started/install/#the-folder">Install on the homelab</a>.</td>
+</tr>
+<tr>
+<td><code>compose.override.yml</code></td>
+<td>Your changes to the stack.</td>
+</tr>
+<tr>
+<td><code>.env</code></td>
+<td>The secrets and the variables of <code>compose.yml</code>, with mode 600.</td>
+</tr>
+<tr>
+<td><code>config/</code></td>
+<td>The config file and the backups of the edits from the dashboard.</td>
+</tr>
+<tr>
+<td><code>data/</code></td>
+<td>All that HomeGAP writes. See <a href="../../getting-started/install/#the-data-folder">Install on the homelab</a>.</td>
 </tr>
 <tr>
 <td><code>backups/</code></td>
@@ -2560,7 +2576,11 @@
 </tr>
 <tr>
 <td><code>/usr/share/homegap/tunnels-version</code></td>
-<td>The tunnels version, for <code>deploy/upgrade.sh</code>.</td>
+<td>The tunnels version, for <code>upgrade.sh</code>.</td>
+</tr>
+<tr>
+<td><code>/usr/share/homegap/deploy</code></td>
+<td>The files of the homelab stack, for <code>homegap init</code>.</td>
 </tr>
 </tbody>
 </table>
