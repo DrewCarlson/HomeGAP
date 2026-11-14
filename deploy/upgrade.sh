@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Upgrades HomeGAP on the homelab without taking access down. Run it next to your compose file
-# instead of `docker compose pull && docker compose up -d`:
+# Upgrades HomeGAP on the homelab without taking access down. Run it in the folder of the stack,
+# next to compose.yml, instead of `docker compose pull && docker compose up -d`:
 #
-#   ./upgrade.sh                      # uses ./compose.yml (or whatever `docker compose` finds)
-#   ./upgrade.sh -f homelab-compose.yml
+#   ./upgrade.sh
 #
-# Arguments are passed to every `docker compose` call. In order, it:
-#   1. pulls the new images;
+# In order, it:
+#   1. pulls the new images, and brings compose.yml, this script and the example files to the
+#      version of the new image (see below);
 #   2. recreates the orchestrator (the control plane only: traffic never goes through it) and
 #      the mesh agent (the mesh interface stays up without it);
 #   3. moves the database and Valkey primaries to a node and holds them there
@@ -26,10 +26,14 @@
 # The tunnels container restarts every Newt connector at once, so every node loses the homelab
 # for a few seconds. It is only recreated when the image's tunnels version differs from the one
 # it runs (the tunnel supervisor's code, its platform layer, dependency versions and Newt), or
-# with --tunnels. --no-pull uses the images already on the host. Until then it keeps running the previous image, so Docker keeps that image too.
+# with --tunnels. Until then it keeps running the previous image, so Docker keeps that image too.
+# --no-pull uses the images already on the host.
 #
-# Service names can be overridden for merged compose projects: HG_ORCHESTRATOR, HG_MESH_AGENT,
-# HG_TUNNELS and HG_CLUSTER (space-separated service:role pairs, in restart order).
+# The files of the stack come from the new image (`homegap init --refresh`). A file that you did
+# not change gets its new version. For a file that you changed, the script asks. Without a
+# terminal, or after a "no", your file stays and the new version goes next to it as <name>.new.
+# Your own files (.env, compose.override.yml, config/) never change. --no-refresh skips this
+# step. Other arguments go to every `docker compose` call, and they also skip this step.
 #
 # Over SSH, run the script in screen or tmux. A connection that drops stops the script before it
 # ends, and the upgrade can restart the tunnel that carries the connection. Without screen or
@@ -38,20 +42,26 @@ set -euo pipefail
 
 FORCE_TUNNELS=no
 PULL=yes
+REFRESH=yes
+ORIGINAL=("$@")
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --tunnels) FORCE_TUNNELS=yes ;;
     --no-pull) PULL=no ;;
-    -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --no-refresh) REFRESH=no ;;
+    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) ARGS+=("$a") ;;
   esac
 done
 
-ORCHESTRATOR=${HG_ORCHESTRATOR:-orchestrator}
-MESH_AGENT=${HG_MESH_AGENT:-homegap-mesh-agent}
-TUNNELS=${HG_TUNNELS:-tunnels}
-CLUSTER=${HG_CLUSTER:-homegap-etcd:etcd homegap-sentinel:sentinel homegap-valkey:valkey homegap-db:patroni}
+ORCHESTRATOR=orchestrator
+MESH_AGENT=homegap-mesh-agent
+TUNNELS=tunnels
+# The cluster services with their roles, in the order of the restarts.
+CLUSTER="homegap-etcd:etcd homegap-sentinel:sentinel homegap-valkey:valkey homegap-db:patroni"
+# This script started itself again after it got its new version: the pull and the refresh are done.
+REFRESHED=${HG_REFRESHED:-}
 TUNNELS_VERSION_FILE=/usr/share/homegap/tunnels-version
 
 dc() { docker compose ${ARGS[@]+"${ARGS[@]}"} "$@"; }
@@ -102,7 +112,18 @@ EOF
   fi
 fi
 
-services=$(dc config --services)
+services=""
+cluster_services=()
+# Reads the services of the compose project. Stops if the project has no orchestrator.
+read_services() {
+  local pair
+  services=$(dc config --services)
+  has "$ORCHESTRATOR" || die "no '$ORCHESTRATOR' service in this compose project"
+  cluster_services=()
+  for pair in $CLUSTER; do
+    if has "${pair%%:*}"; then cluster_services+=("$pair"); fi
+  done
+}
 has() { printf '%s\n' "$services" | grep -qx "$1"; }
 running() { [ -n "$(dc ps -q --status running "$1" 2>/dev/null)" ]; }
 
@@ -139,17 +160,43 @@ wait_until() {
   done
 }
 
-has "$ORCHESTRATOR" || die "no '$ORCHESTRATOR' service in this compose project (set HG_ORCHESTRATOR)"
-cluster_services=()
-for pair in $CLUSTER; do has "${pair%%:*}" && cluster_services+=("$pair"); done
+# Brings compose.yml, this script and the example files to the version of the new image. The
+# one-off container runs as the owner of this folder, so the files keep their owner.
+refresh_files() {
+  local owner before
+  owner=$(stat -c '%u:%g' . 2>/dev/null || echo "$(id -u):$(id -g)")
+  before=$(cksum < "$0")
+  say "Updating the files of the stack"
+  if [ -t 0 ]; then
+    dc run --rm --no-deps --user "$owner" -v "$PWD:/work" "$ORCHESTRATOR" init --refresh
+  else
+    dc run --rm --no-deps -T --user "$owner" -v "$PWD:/work" "$ORCHESTRATOR" init --refresh </dev/null
+  fi || { warn "could not update the files of the stack; the upgrade continues with the files that are here"; return 0; }
+  if [ "$(cksum < "$0")" != "$before" ]; then
+    say "upgrade.sh has a new version: starting it"
+    HG_REFRESHED=1 exec bash "$0" ${ORIGINAL[@]+"${ORIGINAL[@]}"}
+  fi
+  dc config -q || die "the compose files are not valid (see the message above). Nothing restarted. Correct the cause and run this again."
+}
 
-if [ "$PULL" = yes ]; then
+read_services
+
+if [ "$PULL" = yes ] && [ -z "$REFRESHED" ]; then
   say "Pulling images"
   pull=("$ORCHESTRATOR")
   has "$MESH_AGENT" && pull+=("$MESH_AGENT")
   has "$TUNNELS" && pull+=("$TUNNELS")
   for pair in ${cluster_services[@]+"${cluster_services[@]}"}; do pull+=("${pair%%:*}"); done
   dc pull "${pull[@]}"
+fi
+
+if [ "$REFRESH" = yes ] && [ -z "$REFRESHED" ]; then
+  if [ ${#ARGS[@]} -eq 0 ] && [ -f compose.yml ]; then
+    refresh_files
+    read_services
+  else
+    echo "The files of the stack stay as they are: the refresh needs ./compose.yml and no compose arguments."
+  fi
 fi
 
 say "Updating the orchestrator"
