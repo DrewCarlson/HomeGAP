@@ -58,6 +58,9 @@ nodes:
     location: { latitude: 19.1, longitude: 72.9 }
 dashboard:
   bind: 0.0.0.0:8088
+  # The homelab Traefik serves the dashboard at orc.test.example.net, for Pangolin clients only.
+  hostname: orc
+  access: private
 
 # Where the homelab is, for the maps (the status page shows only its region).
 homelab:

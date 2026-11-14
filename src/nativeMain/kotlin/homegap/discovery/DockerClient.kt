@@ -113,6 +113,7 @@ data class ContainerNetworkSettings(
 @Serializable
 data class NetworkEndpoint(
     @SerialName("IPAddress") val ipAddress: String = "",
+    @SerialName("IPPrefixLen") val prefixLength: Int = 0,
 )
 
 @Serializable

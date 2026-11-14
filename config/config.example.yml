@@ -131,3 +131,6 @@ dashboard:
   # and keeps it in <data_dir>/dashboard-token.
   auth_token_env: HOMEGAP_DASHBOARD_TOKEN
   allow_config_edits: true
+  # hostname: orc            # your Traefik serves the dashboard at orc.<domain>
+  # access: private          # private: Pangolin clients only (needs homegap.private_network on
+  #                          # the front door). public: everybody, with only the token as protection.

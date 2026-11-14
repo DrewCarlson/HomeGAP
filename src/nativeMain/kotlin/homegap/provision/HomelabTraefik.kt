@@ -5,6 +5,7 @@ import homegap.discovery.TraefikRouter
 import homegap.model.DesiredState
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -25,6 +26,12 @@ object HomelabTraefik {
 
     /** The router and the service of the speed test and the status page. */
     const val PAGES = "homegap-pages"
+
+    /** The router and the service of the dashboard. */
+    const val DASHBOARD = "homegap-dashboard"
+
+    /** The middleware that admits only the private path of Pangolin clients. */
+    const val PRIVATE_ONLY = "homegap-private-only"
     private const val PRIORITY = 100000
 
     /** Above a catch-all route of the homelab, and below the route that answers 421. */
@@ -91,19 +98,48 @@ object HomelabTraefik {
         }
     }
 
+    /**
+     * The route of the dashboard: its name, the address of the dashboard, and the source range
+     * that can use it. A null range gives the route to each source.
+     */
+    class Dashboard(val host: String, val url: String, val allowFrom: String?)
+
     /** The configuration for [names]. It is empty if there are no names. */
     fun misdirectedConfig(names: List<String>): JsonObject =
         dynamicConfig(names, pageHosts = emptyList(), origin = "")
 
     /**
      * The full configuration: the route that answers 421 for [misdirected], and the route that
-     * sends [pageHosts] to the listener of the speed test and the status page at [origin]. Each
-     * route is there only if it has a name.
+     * sends [pageHosts] to the listener of the speed test and the status page at [origin]. With
+     * [dashboard], it also has the route of the dashboard. Each route is there only if it has a name.
      */
-    fun dynamicConfig(misdirected: List<String>, pageHosts: List<String>, origin: String): JsonObject {
-        if (misdirected.isEmpty() && pageHosts.isEmpty()) return JsonObject(emptyMap())
+    fun dynamicConfig(
+        misdirected: List<String>,
+        pageHosts: List<String>,
+        origin: String,
+        dashboard: Dashboard? = null,
+    ): JsonObject {
+        if (misdirected.isEmpty() && pageHosts.isEmpty() && dashboard == null) return JsonObject(emptyMap())
         return buildJsonObject {
-            putRoutes(misdirected, pageHosts, origin)
+            putJsonObject("http") {
+                putJsonObject("routers") {
+                    putRouters(misdirected, pageHosts)
+                    dashboard?.let { putDashboardRouter(it) }
+                }
+                if (pageHosts.isNotEmpty() || dashboard != null) {
+                    putJsonObject("services") {
+                        if (pageHosts.isNotEmpty()) putService(PAGES, origin)
+                        dashboard?.let { putService(DASHBOARD, it.url) }
+                    }
+                }
+                dashboard?.allowFrom?.let { range ->
+                    putJsonObject("middlewares") {
+                        putJsonObject(PRIVATE_ONLY) {
+                            putJsonObject("ipAllowList") { putJsonArray("sourceRange") { add(range) } }
+                        }
+                    }
+                }
+            }
             if (misdirected.isNotEmpty()) {
                 putJsonObject("tls") {
                     putJsonObject("options") {
@@ -114,36 +150,43 @@ object HomelabTraefik {
         }
     }
 
-    private fun JsonObjectBuilder.putRoutes(misdirected: List<String>, pageHosts: List<String>, origin: String) {
-        putJsonObject("http") {
-            putJsonObject("routers") {
-                if (misdirected.isNotEmpty()) {
-                    putJsonObject(MISDIRECTED_ROUTER) {
-                        put("rule", hostRule(misdirected))
-                        // Above the catch-all routes, which answer these names if this route does not.
-                        put("priority", PRIORITY)
-                        put("service", "noop@internal")
-                        putJsonObject("tls") { put("options", NodeTemplates.ELSEWHERE_TLS_OPTIONS) }
-                    }
-                }
-                if (pageHosts.isNotEmpty()) {
-                    putJsonObject(PAGES) {
-                        put("rule", hostRule(pageHosts))
-                        put("priority", PAGES_PRIORITY)
-                        put("service", PAGES)
-                        // The certificate comes from the TLS settings of the homelab Traefik.
-                        putJsonObject("tls") {}
-                    }
-                }
+    private fun JsonObjectBuilder.putService(name: String, url: String) {
+        putJsonObject(name) {
+            putJsonObject("loadBalancer") {
+                putJsonArray("servers") { addJsonObject { put("url", url) } }
             }
-            if (pageHosts.isNotEmpty()) {
-                putJsonObject("services") {
-                    putJsonObject(PAGES) {
-                        putJsonObject("loadBalancer") {
-                            putJsonArray("servers") { addJsonObject { put("url", origin) } }
-                        }
-                    }
-                }
+        }
+    }
+
+    private fun JsonObjectBuilder.putDashboardRouter(dashboard: Dashboard) {
+        putJsonObject(DASHBOARD) {
+            put("rule", hostRule(listOf(dashboard.host)))
+            put("priority", PAGES_PRIORITY)
+            put("service", DASHBOARD)
+            putJsonObject("tls") {}
+            if (dashboard.allowFrom != null) {
+                putJsonArray("middlewares") { add(PRIVATE_ONLY) }
+            }
+        }
+    }
+
+    private fun JsonObjectBuilder.putRouters(misdirected: List<String>, pageHosts: List<String>) {
+        if (misdirected.isNotEmpty()) {
+            putJsonObject(MISDIRECTED_ROUTER) {
+                put("rule", hostRule(misdirected))
+                // Above the catch-all routes, which answer these names if this route does not.
+                put("priority", PRIORITY)
+                put("service", "noop@internal")
+                putJsonObject("tls") { put("options", NodeTemplates.ELSEWHERE_TLS_OPTIONS) }
+            }
+        }
+        if (pageHosts.isNotEmpty()) {
+            putJsonObject(PAGES) {
+                put("rule", hostRule(pageHosts))
+                put("priority", PAGES_PRIORITY)
+                put("service", PAGES)
+                // The certificate comes from the TLS settings of the homelab Traefik.
+                putJsonObject("tls") {}
             }
         }
     }

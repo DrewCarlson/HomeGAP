@@ -57,6 +57,7 @@ object ConfigLoader {
             addAll(tunnelErrors(config.tunnels))
             addAll(statusPageErrors(config))
             addAll(homelabErrors(config.homelab))
+            addAll(publishedDashboardErrors(config))
             addAll(speedtestErrors(config))
             addAll(dashboardErrors(config.dashboard))
             addAll(meshErrors(config.cluster?.mesh))
@@ -155,6 +156,24 @@ object ConfigLoader {
     private fun tunnelErrors(tunnels: TunnelsConfig): List<String> = buildList {
         if (tunnels.mtu != null && tunnels.mtu !in 1280..1500) {
             add("tunnels.mtu must be between 1280 and 1500")
+        }
+    }
+
+    private fun publishedDashboardErrors(config: AppConfig): List<String> = buildList {
+        val hostname = config.dashboard.hostname ?: return@buildList
+        if (!HOST_LABEL.matches(hostname)) {
+            add("dashboard.hostname must be a single lowercase label")
+        }
+        if (config.dashboard.access !in DASHBOARD_ACCESS) {
+            add("dashboard.access must be private|public")
+        }
+        val taken = listOfNotNull(
+            config.speedtest.hostname.takeIf { config.speedtest.enabled },
+            config.statusPage.hostname.takeIf { config.statusPage.enabled },
+            config.cluster?.clientHostname,
+        )
+        if (hostname in taken) {
+            add("dashboard.hostname '$hostname' is the name of a different page of HomeGAP")
         }
     }
 
@@ -324,6 +343,7 @@ object ConfigLoader {
     /** The first label of the hostname of the speed test and of the status page. */
     private val HOST_LABEL = Regex("^[a-z][a-z0-9]{0,20}$")
     private const val MAX_PORT = 65535
+    private val DASHBOARD_ACCESS = setOf("private", "public")
     private val CAA_ISSUER = Regex("^[a-z0-9.-]+$")
     private val PLAIN_HOSTNAME = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 

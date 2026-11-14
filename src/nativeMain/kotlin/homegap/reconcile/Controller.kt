@@ -238,6 +238,10 @@ class Controller(
     /** The front door container's addresses on its Docker networks, as last discovered. */
     @Volatile var frontDoorAddresses: Set<String> = emptySet()
         private set
+
+    /** The source range of the private path of the front door. Null if the front door has none. */
+    @Volatile var privateSourceRange: String? = null
+        private set
     private val routerFailing = mutableSetOf<String>()
     private val traefikApi by lazy { TraefikApi(localHttp) }
 
@@ -547,6 +551,7 @@ class Controller(
             val plan = Planner.plan(cfg, planned, pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
+                privateSourceRange = privateRangeOf(plan, containers)
                 val doorContainers = plan.frontDoors.map { it.containerName }.toSet()
                 frontDoorAddresses = containers.asSequence()
                     .filter { it.name in doorContainers }
@@ -1468,6 +1473,22 @@ class Controller(
                 zoneError = dnsZoneErrors[zone],
             )
         }
+
+    /**
+     * The range of the private network of the front door, as `address/prefix`. Pangolin clients
+     * reach the front door from this network, and public traffic never does.
+     */
+    private fun privateRangeOf(plan: DesiredState, containers: List<DockerContainerSummary>): String? {
+        val frontDoor = plan.frontDoor ?: return null
+        val address = frontDoor.privateHost ?: return null
+        return containers
+            .firstOrNull { it.name == frontDoor.containerName }
+            ?.networkSettings
+            ?.networks
+            ?.values
+            ?.firstOrNull { it.ipAddress == address && it.prefixLength > 0 }
+            ?.let { "${it.ipAddress}/${it.prefixLength}" }
+    }
 
     private fun dnsRecordStatus(observed: DnsReconciler.Observed): DnsRecordStatusDto {
         val record = observed.record

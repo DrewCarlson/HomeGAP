@@ -58,8 +58,23 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
             .filter { it !in pageHosts }
         // Traefik reads this configuration from the orchestrator, so the same host has the pages.
         val origin = "http://${request.host()}:${config.speedtest.port}"
-        val answer = HomelabTraefik.dynamicConfig(misdirected, pageHosts, origin)
+        val answer = HomelabTraefik.dynamicConfig(misdirected, pageHosts, origin, dashboardRoute(request.host()))
         call.respondText(answer.toString(), ContentType.Application.Json)
+    }
+
+    /**
+     * The route of the dashboard, if the config gives it a name. A dashboard for Pangolin clients
+     * only has a route after the pass finds the private network of the front door.
+     */
+    @Suppress("HttpUrlsUsage")
+    private fun dashboardRoute(orchestratorHost: String): HomelabTraefik.Dashboard? {
+        val config = controller.config
+        val host = config.dashboard.publishedHost(config.domain) ?: return null
+        val allowFrom = when {
+            config.dashboard.publishedPrivately -> controller.privateSourceRange ?: return null
+            else -> null
+        }
+        return HomelabTraefik.Dashboard(host, "http://$orchestratorHost:${config.dashboard.port}", allowFrom)
     }
 
     companion object {

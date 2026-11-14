@@ -166,6 +166,8 @@ If a node has a `region` but no `location`, HomeGAP uses a rough center of the r
 | `auth_token_file` | string | None. | A file with the bearer token. |
 | `allow_config_edits` | boolean | `true` | Lets the dashboard add and remove nodes, and set the location of a node and of the homelab. Each of these changes writes the config file again. |
 | `terminal` | boolean | `true` | Lets the dashboard open a shell on a node. See [Terminal](../operations/dashboard.md#terminal). |
+| `hostname` | string | None. | The first label of the name of the dashboard at your Traefik, `<hostname>.<domain>`. See [Serve the dashboard through your Traefik](../operations/dashboard.md#serve-the-dashboard-through-your-traefik). |
+| `access` | string | `private` | Who reaches `hostname`: `private` (Pangolin clients only) or `public`. |
 
 Every `/api` route needs the bearer token, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read `/api/traefik/homelab` without the token. If neither key gives a token, HomeGAP creates one in `<data_dir>/dashboard-token`.
 

@@ -76,6 +76,7 @@ data class AppConfig(
         }
         if (speedtest.enabled) add(speedtest.autoHost(domain))
         if (statusPage.enabled) add(statusPage.autoHost(domain))
+        dashboard.publishedHost(domain)?.let(::add)
     }.mapTo(mutableSetOf()) { it.lowercase() }
 
     /**
@@ -474,7 +475,16 @@ data class DashboardConfig(
     @SerialName("allow_config_edits") val allowConfigEdits: Boolean = true,
     /** Lets the dashboard open a shell on a node. */
     val terminal: Boolean = true,
+    /** Host label: the homelab Traefik serves the dashboard at `<hostname>.<domain>`. Null gives no route. */
+    val hostname: String? = null,
+    /** Who reaches [hostname]: `private` (Pangolin clients only) or `public`. */
+    val access: String = "private",
 ) {
+    /** The name of the dashboard at the homelab Traefik, or null without one. */
+    fun publishedHost(domain: String): String? = hostname?.let { "$it.$domain" }
+
+    val publishedPrivately: Boolean get() = hostname != null && access == "private"
+
     fun authToken(): SecretRef? {
         if (authTokenEnv == null && authTokenFile == null) {
             return null

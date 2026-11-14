@@ -166,6 +166,9 @@ object Planner {
     const val STATUS = "hg-status"
     const val PRIVATE_PATH_PREFIX = "hg-private--"
 
+    /** The source of an issue about the route of the dashboard, when there is no front door. */
+    private const val DASHBOARD = "dashboard"
+
     /** The CAA records belong to the homelab, not to a node. */
     const val CAA_OWNER = "homelab"
     private const val CAA_TTL = 3600
@@ -209,8 +212,9 @@ object Planner {
         }
 
         val claimed = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
-        val doors = frontDoors(config, claimed)
-        val services = doors.all.fold(claimed) { kept, door -> refuseCoveredPassthrough(kept, door, errors) }
+        val published = withPrivateDashboard(config, claimed, errors)
+        val doors = frontDoors(config, published)
+        val services = doors.all.fold(published) { kept, door -> refuseCoveredPassthrough(kept, door, errors) }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
 
         val planned = config.nodes.associate { node -> node.id to planNode(config, node, services, doors) }
@@ -232,6 +236,27 @@ object Planner {
     private class FrontDoors(val primary: ServiceSpec?, val extras: List<ServiceSpec>) {
         val all: List<ServiceSpec> = listOfNotNull(primary) + extras
         val hostnames: Set<String> = all.map { it.hostname }.toSet()
+    }
+
+    /**
+     * A dashboard for Pangolin clients only uses the private path of the front door: its name is
+     * one more private name of the front door. Without that path, the dashboard has no route.
+     */
+    private fun withPrivateDashboard(
+        config: AppConfig,
+        services: List<ServiceSpec>,
+        errors: MutableList<LabelIssue>,
+    ): List<ServiceSpec> {
+        if (!config.dashboard.publishedPrivately) return services
+        val host = config.dashboard.publishedHost(config.domain) ?: return services
+        val frontDoor = frontDoors(config, services).primary
+        if (frontDoor?.privateHost == null) {
+            val reason = "dashboard.access is private, but the front door has no ${Labels.PRIVATE_NETWORK}"
+            errors += LabelIssue(frontDoor?.containerName ?: DASHBOARD, "$reason: the dashboard has no route")
+            return services
+        }
+        val withHost = frontDoor.copy(privateHosts = (frontDoor.privateHosts + host).distinct())
+        return services.map { if (it == frontDoor) withHost else it }
     }
 
     private fun frontDoors(config: AppConfig, services: List<ServiceSpec>): FrontDoors {

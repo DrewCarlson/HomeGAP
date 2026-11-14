@@ -3,6 +3,8 @@ package homegap
 import homegap.config.ClusterConfig
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
+import homegap.discovery.ContainerNetworkSettings
+import homegap.discovery.NetworkEndpoint
 import homegap.discovery.TraefikRouter
 import homegap.model.Planner
 import homegap.provision.HomelabTraefik
@@ -12,6 +14,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -154,6 +157,74 @@ class MisdirectedTest {
         val misdirectedOnly = HomelabTraefik.misdirectedConfig(listOf("pangolin.test.example.net"))
         assertNull(misdirectedOnly["http"]!!.jsonObject["services"])
         assertNull(misdirectedOnly["http"]!!.jsonObject["routers"]!!.jsonObject[HomelabTraefik.PAGES])
+    }
+
+    @Test
+    fun aPrivateDashboardRouteAdmitsOnlyThePrivateNetwork() {
+        val dashboard = HomelabTraefik.Dashboard(
+            host = "orc.test.example.net",
+            url = "http://orchestrator:8088",
+            allowFrom = "172.29.0.3/24",
+        )
+        val http = HomelabTraefik.dynamicConfig(emptyList(), emptyList(), origin = "", dashboard)["http"]!!.jsonObject
+
+        val router = http["routers"]!!.jsonObject[HomelabTraefik.DASHBOARD]!!.jsonObject
+        assertEquals("Host(`orc.test.example.net`)", router["rule"]!!.jsonPrimitive.content)
+        assertEquals("""["${HomelabTraefik.PRIVATE_ONLY}"]""", router["middlewares"].toString())
+        val allowList = http["middlewares"]!!.jsonObject[HomelabTraefik.PRIVATE_ONLY]!!.jsonObject["ipAllowList"]
+        assertEquals("""{"sourceRange":["172.29.0.3/24"]}""", allowList.toString())
+        val service = http["services"]!!.jsonObject[HomelabTraefik.DASHBOARD]!!.jsonObject
+        val servers = service["loadBalancer"]!!.jsonObject["servers"]
+        assertEquals("""[{"url":"http://orchestrator:8088"}]""", servers.toString())
+    }
+
+    @Test
+    fun aPublicDashboardRouteHasNoAllowList() {
+        val dashboard = HomelabTraefik.Dashboard("orc.test.example.net", "http://orchestrator:8088", allowFrom = null)
+        val http = HomelabTraefik.dynamicConfig(emptyList(), emptyList(), origin = "", dashboard)["http"]!!.jsonObject
+
+        assertNull(http["routers"]!!.jsonObject[HomelabTraefik.DASHBOARD]!!.jsonObject["middlewares"])
+        assertNull(http["middlewares"])
+    }
+
+    @Test
+    fun aPrivateDashboardIsOneMorePrivateNameOfTheFrontDoor() {
+        val private = ConfigLoader.parse("$TEST_CONFIG\ndashboard:\n  hostname: orc\n")
+        val networks = mapOf(
+            "traefik" to NetworkEndpoint("172.32.0.2", 16),
+            "homegap-private" to NetworkEndpoint("172.29.0.3", 24),
+        )
+        val privateLabels = mapOf("homegap.private_network" to "homegap-private", "homegap.private_hosts" to "wiki")
+        val frontDoor = TRAEFIK.copy(
+            labels = TRAEFIK.labels + privateLabels,
+            networkSettings = ContainerNetworkSettings(networks),
+        )
+
+        val plan = Planner.plan(private, listOf(frontDoor))
+        assertTrue(plan.labelErrors.isEmpty(), plan.labelErrors.toString())
+        assertTrue("orc.test.example.net" in plan.frontDoor!!.privateHosts)
+        val aliases = plan.nodes.getValue("na1").privateResources.map { it.alias }
+        assertTrue("orc.test.example.net" in aliases && "wiki.test.example.net" in aliases, aliases.toString())
+
+        val withoutPath = Planner.plan(private, listOf(TRAEFIK))
+        assertTrue(withoutPath.labelErrors.single().message.startsWith("dashboard.access is private"))
+        val public = ConfigLoader.parse("$TEST_CONFIG\ndashboard:\n  hostname: orc\n  access: public\n")
+        val publicPlan = Planner.plan(public, listOf(TRAEFIK))
+        assertTrue(publicPlan.labelErrors.isEmpty(), "a public dashboard needs no private path")
+    }
+
+    @Test
+    fun theNameOfTheDashboardIsChecked() {
+        val badName = "$TEST_CONFIG\ndashboard:\n  hostname: Orc.x\n"
+        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(badName) }
+        val wrongAccess = "$TEST_CONFIG\ndashboard:\n  hostname: orc\n  access: lan\n"
+        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(wrongAccess) }
+        val taken = "$TEST_CONFIG\nstatus_page:\n  enabled: true\ndashboard:\n  hostname: status\n"
+        assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(taken) }
+        val claimed = container("app", "homegap.expose" to "orc.test.example.net", "homegap.port" to "80")
+        val config = ConfigLoader.parse("$TEST_CONFIG\ndashboard:\n  hostname: orc\n  access: public\n")
+        val plan = Planner.plan(config, listOf(TRAEFIK, claimed))
+        assertTrue(plan.labelErrors.isNotEmpty(), "a label cannot take the name")
     }
 
     @Test

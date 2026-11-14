@@ -66,17 +66,29 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
   done
   v sh -c "curl -sS -v --cacert /certs/trust.pem --resolve shop.other.example.org:443:$ip -o /dev/null https://shop.other.example.org/ 2>&1 | grep -E 'issuer:'"
 done
+echo "================ dashboard at the homelab Traefik"
+echo "--- a private dashboard: the public gets 403 through each node, the private network gets 200"
+for ip in 172.30.0.10 172.30.0.11; do
+  code=$(v sh -c "curl -sS --cacert /certs/trust.pem --resolve orc.test.example.net:443:$ip -o /dev/null -w '%{http_code}' https://orc.test.example.net/")
+  echo "public through $ip: $code"
+  [ "$code" = 403 ] || { echo "FAIL: the private dashboard answers the public with $code"; exit 1; }
+done
+private=$(docker inspect homelab-traefik -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}}={{$net.IPAddress}} {{end}}' | tr ' ' '\n' | grep -i priv | cut -d= -f2)
+code=$(docker compose exec -T tunnels sh -c "curl -sk --resolve orc.test.example.net:443:$private -o /dev/null -w '%{http_code}' https://orc.test.example.net/")
+echo "private network ($private): $code"
+[ "$code" = 200 ] || { echo "FAIL: the private dashboard answers the private network with $code"; exit 1; }
 echo "================ homelab host"
 echo "--- homelab.ssh is a private service to the address that the tunnels container found (expect the gateway twice)"
 gateway=$(cat work/tunnels/host-gateway)
-docker compose exec -T tunnels sh -c "ip route | sed -n 's/^default via \\([0-9.]*\\).*/\\1/p'"
+route=$(docker compose exec -T tunnels sh -c "ip route | sed -n 's/^default via \\([0-9.]*\\).*/\\1/p'" | tr -d '\r')
+echo "$route"
 echo "$gateway"
+[ -n "$gateway" ] && [ "$gateway" = "$route" ] || { echo "FAIL: the tunnels container wrote '$gateway', its default route is '$route'"; exit 1; }
 curl -s -H "Authorization: Bearer $(cat work/data/dashboard-token)" http://127.0.0.1:18088/api/status | python3 -c '
 import json, sys
 services = [s for s in json.load(sys.stdin)["services"] if s["hostname"] == "hostssh.test.example.net"]
 assert len(services) == 1 and services[0]["container"] == "homelab" and services[0]["access"] == "private", services
 '
-docker compose logs orchestrator | grep -q "hostssh.test.example.net -> $gateway" || { echo "FAIL: no private resource for the host at $gateway"; exit 1; }
 echo "================ DNS"
 echo "--- the zone of the extra domain (expect the root, the wildcard and shop on each node, and the CAA records)"
 v sh -c "curl -s -H 'AccessKey: e2e-bunny-key' http://bunny-mock:8080/dnszone/8" | python3 -c '

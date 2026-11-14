@@ -3,7 +3,47 @@
 The orchestrator serves a dashboard on `dashboard.bind`. This page tells you how to reach it safely and what each page shows.
 
 !!! danger "Warning"
-    If the dashboard is public, anybody can control every node. Reach it only through a private Pangolin resource or an SSH tunnel. See [Private services](../services/private.md).
+    A person with the dashboard token can control every node. Keep the dashboard private: serve it to Pangolin clients only, or reach it through an SSH tunnel. Make it public only if you accept that the token is then the only protection.
+
+## Serve the dashboard through your Traefik
+
+HomeGAP can give the dashboard a name at your homelab Traefik, for example `orc.example.net`. Your Traefik then serves it over HTTPS with its own certificate. You set the name in the config file. The compose file needs no labels.
+
+```yaml
+dashboard:
+  bind: 0.0.0.0:8088
+  hostname: orc
+  access: private
+```
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `dashboard.hostname` | None. | The first label of the name, `<hostname>.<domain>`. Without it, Traefik gets no route for the dashboard. |
+| `dashboard.access` | `private` | `private` serves the name to Pangolin clients only. `public` serves it to everybody. |
+
+The route comes through the HTTP provider that you added to Traefik in the installation, as the route of the speed test does. See [Speed tests](speed-tests.md#routing). The route is `homegap-dashboard`. `dashboard.bind` must be `0.0.0.0:8088`, so that Traefik can reach the dashboard.
+
+### Private access
+
+With `access: private`, only a device with the Pangolin app reaches the name. This mode uses the private path of the front door, so the front door must have the label `homegap.private_network`. See [Client addresses and private-only services](../services/client-addresses.md#private-only-services).
+
+HomeGAP then does two things:
+
+- It makes the name a private name of the front door. Pangolin clients resolve it to the address of the front door on the private network.
+- It adds an allowlist to the route. The allowlist admits only the range of the private network. A request that comes through a node from the internet gets a 403.
+
+A computer on your home network also gets a 403, because it does not come from the private network. Use the Pangolin app there too, or use the address of `dashboard.bind`.
+
+If the front door has no `homegap.private_network`, the dashboard gets no route. The activity log shows "dashboard.access is private, but the front door has no homegap.private_network".
+
+### Public access
+
+With `access: public`, the name answers on the internet, as each other name of the front door does.
+
+!!! danger "Warning"
+    A public dashboard has only the token between the internet and your nodes. A person who gets the token can change the config, remove nodes and open a shell on a node. Use a long token that nothing else uses, and set `dashboard.terminal: false` if you do not need the terminal.
+
+HomeGAP still limits wrong tokens: an address that sends 20 wrong tokens in one minute gets a 429 for the remainder of that minute.
 
 ## Access
 
