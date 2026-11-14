@@ -8,10 +8,13 @@ import org.jetbrains.compose.web.dom.Div
 import org.jetbrains.compose.web.dom.Span
 import org.jetbrains.compose.web.dom.Text
 
-/** Where a [ToastStack] floats, so it covers no content and no button of the Inspector. */
+/** Where a [ToastStack] floats, so it covers no button of the Inspector. */
 enum class ToastPlacement(val className: String?) {
-    /** The bottom left of the window, above the state of the last pass in the menu. On phones, the bottom. */
+    /** The top right of the window. On phones, under the menu. */
     Corner(null),
+
+    /** The top right of the page, at the left edge of the drawer of the Inspector. */
+    BesideInspector("beside-inspector"),
 
     /** Just above the action bar of the Inspector's drawer or sheet, inside its dialog. */
     AboveInspectorActions("above-actions"),

@@ -338,26 +338,62 @@ table.data tr.empty:hover td { background: none; }
 .form-actions { display: flex; justify-content: flex-end; }
 
 /* ---------------------------------------------------------------- speed test */
-/* The running test: a half-ring gauge filled to --p (0..1) of its scale, and one bar per sample. */
-.live-test { border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px 14px; background: var(--surface-2); display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
-.live-side { flex: 1; min-width: 180px; display: grid; gap: 6px; }
-/* Centered once it wraps onto its own line (phones); beside the bars otherwise. */
-.gauge-box { margin: 0 auto; }
-.live-phase { font-weight: 600; }
-/* Gauge colors carry the phase: white for ping, cyan for download, violet for upload. */
-.gauge { position: relative; width: 180px; height: 100px; overflow: hidden; flex: none; --tone: #FFFFFF; }
-.gauge.tone-cyan, .live-test.tone-cyan { --tone: var(--cyan); }
-.gauge.tone-violet, .live-test.tone-violet { --tone: var(--violet); }
-.live-test.tone-white { --tone: #FFFFFF; }
-.gauge-arc { position: absolute; left: 0; top: 0; width: 180px; height: 180px; border-radius: 50%;
-  background: conic-gradient(from -90deg, var(--tone) calc(var(--p, 0) * 180deg), var(--rule-strong) 0 180deg, transparent 0);
-  -webkit-mask: radial-gradient(circle, transparent 61%, #000 62%); mask: radial-gradient(circle, transparent 61%, #000 62%); }
-.gauge-text { position: absolute; left: 0; right: 0; bottom: 0; text-align: center; }
-.gauge-value { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
-.gauge-unit { color: var(--muted); font-size: 12px; }
-.gauge-scale { display: flex; justify-content: space-between; width: 180px; color: var(--muted); font-size: 11px; }
-.bars { display: flex; align-items: flex-end; gap: 2px; height: 40px; }
-.bars span { flex: 1; min-width: 2px; background: var(--tone, var(--accent)); opacity: .8; border-radius: 1px 1px 0 0; }
+/* The running test: a half ring filled to --p (0..1) of its scale, the three phases, and one bar per sample.
+   --p and the two parts of the number are registered, so the browser moves them from the last value to the new one. */
+@property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
+@property --whole { syntax: "<integer>"; inherits: false; initial-value: 0; }
+@property --tenths { syntax: "<integer>"; inherits: false; initial-value: 0; }
+.live-stage {
+  --tone: #FFFFFF; margin: 16px; padding: 20px 24px; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 28px; align-items: center;
+  border: 1px solid var(--rule-strong); border-radius: 8px;
+  background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--tone) 7%, transparent), transparent 60%), var(--panel-raised);
+}
+/* The color carries the phase: white for ping, cyan for download, violet for upload. */
+.live-stage.tone-cyan { --tone: var(--cyan); }
+.live-stage.tone-violet { --tone: var(--violet); }
+.gauge { position: relative; width: 240px; height: 142px; flex: none; transition: --p .45s cubic-bezier(.22, 1, .36, 1); }
+.gauge-arc {
+  position: absolute; left: 0; top: 0; width: 240px; height: 240px; border-radius: 50%;
+  background: conic-gradient(from -90deg, var(--tone) calc(var(--p, 0) * 180deg), var(--rule) 0 180deg, transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 66%, #000 67%); mask: radial-gradient(circle, transparent 66%, #000 67%);
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--tone) 35%, transparent));
+  clip-path: inset(0 0 50% 0);
+}
+.gauge-text { position: absolute; left: 0; right: 0; top: 54px; text-align: center; }
+.gauge-value {
+  font: 600 44px/1 var(--mono); letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+  counter-reset: whole var(--whole) tenths var(--tenths);
+  transition: --whole .45s cubic-bezier(.22, 1, .36, 1), --tenths .2s linear;
+}
+.gauge-value::before { content: counter(whole); }
+.gauge-value.tenths::before { content: counter(whole) "." counter(tenths); }
+.gauge-value.empty::before { content: "—"; color: var(--ink-faint); }
+.gauge-unit { margin-top: 6px; color: var(--ink-dim); font-size: 12px; }
+.gauge-scale { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: space-between; padding: 0 6px; color: var(--ink-faint); font: 11px var(--mono); }
+/* Before the first figures the arc pulses, so the wait shows as work. */
+.gauge.starting .gauge-arc { animation: gauge-wait 1.4s ease-in-out infinite; }
+@keyframes gauge-wait { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.live-side { display: grid; gap: 14px; min-width: 0; }
+.live-title { font-size: 15px; font-weight: 600; }
+.live-phases { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.live-phases li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; row-gap: 4px; align-items: center; padding: 10px 12px; border: 1px solid var(--rule); border-radius: 6px; color: var(--ink-faint); transition: border-color .3s ease, color .3s ease, background .3s ease; }
+.live-phases li.now { border-color: var(--tone); color: var(--ink); background: color-mix(in srgb, var(--tone) 6%, transparent); }
+.live-phases li.done { color: var(--ink-dim); }
+.live-phase-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--rule-strong); transition: background .3s ease; }
+.live-phases li.now .live-phase-mark { background: var(--tone); animation: phase-pulse 1.2s ease-in-out infinite; }
+.live-phases li.done .live-phase-mark { background: var(--green); }
+@keyframes phase-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--tone) 50%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
+.live-phase-name { font-size: 12.5px; font-weight: 500; }
+.live-phase-value { grid-column: 1 / -1; font-size: 14px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-phases li.next .live-phase-value { color: var(--ink-faint); font-weight: 400; }
+/* One slot per sample. The slots have a fixed width and fill from the left, so no bar moves or widens when one more comes. */
+.live-strip { display: flex; align-items: flex-end; gap: 2px; height: 44px; overflow: hidden; border-bottom: 1px solid var(--rule); }
+.live-strip span { flex: 0 0 5px; background: var(--tone); opacity: .75; border-radius: 2px 2px 0 0; transform-origin: bottom; animation: bar-in .3s ease-out; transition: height .3s ease; }
+@keyframes bar-in { from { transform: scaleY(0); opacity: 0; } to { transform: none; opacity: .75; } }
+@media (prefers-reduced-motion: reduce) {
+  .gauge, .gauge-value, .live-stage, .live-phases li, .speed-fill { transition: none; }
+  .gauge.starting .gauge-arc, .live-phases li.now .live-phase-mark, .live-strip span, .speed-number { animation: none; }
+}
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .metric-label { color: var(--muted); font-size: 11.5px; font-weight: 500; }
 .metric-value { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -419,8 +455,9 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .ansi-italic { font-style: italic; }
 .ansi-underline { text-decoration: underline; }
 
-/* Bottom left, above the state of the last pass in the menu. The Inspector and the page actions are on the right. */
-.toasts { position: fixed; bottom: 190px; left: 12px; z-index: var(--z-toast); width: min(380px, calc(100vw - 24px)); display: grid; gap: 8px; }
+/* Top right of the window. With the drawer of the Inspector open, at the left edge of the drawer. */
+.toasts { position: fixed; top: 16px; right: 16px; z-index: var(--z-toast); width: min(380px, calc(100vw - 32px)); display: grid; gap: 8px; }
+.toasts.beside-inspector { right: calc(var(--inspector-width) + 16px); width: min(380px, calc(100vw - var(--inspector-width) - 32px)); }
 .toast {
   position: relative; overflow: hidden; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px;
   padding: 10px 8px 10px 12px; min-height: 52px; box-sizing: border-box;
@@ -452,13 +489,13 @@ pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); f
 .toast-error .toast-icon { color: var(--rose); background: color-mix(in srgb, var(--rose) 16%, transparent); }
 .toast-error .toast-text { color: #FFB3BE; }
 .toast-error .toast-timer { background: var(--rose); }
-@keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes toast-timer { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 /* With the Inspector's column open the stack sits just left of it. */
 /* In the drawer and the sheet the stack rises from just above the action bar. */
 .inspector-toasts { position: relative; height: 0; z-index: 4; }
-.inspector-toasts .toasts { position: absolute; left: 12px; right: 12px; bottom: 10px; width: auto; }
+.inspector-toasts .toasts { position: absolute; top: auto; left: 12px; right: 12px; bottom: 10px; width: auto; }
 /* Room to scroll the body's end out from under a toast. */
 .inspector:has(.inspector-toasts .toast) .inspector-body { padding-bottom: 112px; }
 
@@ -1049,22 +1086,25 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
 .overlay-drawer:has(.form-panel) { width: min(460px, 100vw); }
 
 /* ---------------------------------------------------------------- speed test */
-.speed-rows { display: grid; }
-.speed-row { display: grid; grid-template-columns: 140px minmax(0, 1fr) 90px 130px auto; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--rule); }
-.speed-bars { display: grid; gap: 4px; }
-.speed-bar { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 8px; }
-.speed-track { height: 6px; background: var(--rule); }
-.speed-fill { height: 6px; }
+/* The last result of each node, one card each. */
+.speed-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; padding: 16px; }
+.speed-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel-raised); transition: border-color .3s ease; }
+.speed-card.running { border-color: var(--cyan-soft); }
+.speed-card.failed { border-color: color-mix(in srgb, var(--rose) 50%, var(--rule)); }
+.speed-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.speed-card-name { min-width: 0; }
+.speed-card-name b { font-size: 16px; font-weight: 600; }
+.speed-figures { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.speed-figure { display: grid; gap: 6px; min-width: 0; }
+.speed-number { font: 600 26px/1.1 var(--mono); letter-spacing: -.02em; font-variant-numeric: tabular-nums; white-space: nowrap; animation: number-in .35s ease-out; }
+@keyframes number-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.speed-unit { font: 400 12px var(--sans); letter-spacing: 0; color: var(--ink-dim); }
+.speed-track { height: 4px; border-radius: 2px; background: var(--rule); overflow: hidden; }
+.speed-fill { height: 100%; border-radius: 2px; transition: width .7s cubic-bezier(.22, 1, .36, 1); }
 .bar-down { background: var(--cyan); }
-.speed-scale { text-align: right; }
-/* Before the first figures the arc of the gauge pulses, so the wait shows as work. */
-.gauge.starting .gauge-arc { animation: gauge-wait 1.4s ease-in-out infinite; }
-@keyframes gauge-wait { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .gauge.starting .gauge-arc { animation: none; } }
+.speed-card-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .bar-up { background: var(--violet); }
 .bar-slow { background: var(--amber); }
-.speed-values { text-align: right; font-size: 13px; }
-.live-test { margin: 12px 16px; }
 
 /* ---------------------------------------------------------------- tablet: 600-1199 px */
 @media (max-width: 1199px) {
@@ -1081,7 +1121,6 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .nav-label { display: none; }
   .nav-label-short { display: block; }
   .nav-count { position: absolute; top: 6px; right: 10px; }
-  .toasts { bottom: 150px; left: 8px; }
   /* The rail keeps the state of the last pass: a dot over a short text. */
   .reconcile .pass-status { flex-direction: column; gap: 4px; padding: 8px 2px; font-size: 10px; line-height: 1.3; text-align: center; }
   /* The monitor column is hidden here, so the state takes the last column. */
@@ -1111,8 +1150,6 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .wide-only { display: none; }
   .device-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .person { grid-template-columns: minmax(0, 1fr) auto; }
-  .speed-row { grid-template-columns: 110px minmax(0, 1fr) 80px auto; }
-  .speed-ping { display: none; }
   .edge-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .path-row { grid-template-columns: 70px minmax(180px, 260px) minmax(0, 1fr); }
   .system-grid { grid-template-columns: 1fr; }
@@ -1136,7 +1173,15 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   /* Scrolled down: the header row folds away, and Search joins the row of sections. */
   .nav.compact .nav-head { display: none; }
   .nav.compact .nav-search { display: block; flex: none; position: sticky; left: 0; z-index: 1; padding-right: 4px; background: var(--ground); }
-  .toasts { bottom: 12px; left: 12px; right: 12px; width: auto; }
+  .live-stage { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 16px; margin: 12px; padding: 16px 12px; }
+  .live-side { width: 100%; }
+  .live-title { text-align: center; }
+  .live-phases { gap: 6px; }
+  .live-phases li { padding: 8px; }
+  .live-phase-value { font-size: 13px; }
+  .speed-cards { grid-template-columns: minmax(0, 1fr); padding: 12px; }
+  /* Under the menu, which is fixed at the top. */
+  .toasts { top: 72px; left: 12px; right: 12px; width: auto; }
   .nav-head { justify-content: space-between; flex-direction: row; }
   .nav-head-actions { flex-direction: row; }
   .nav-head .phone-actions { display: flex; }
@@ -1170,9 +1215,6 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .person.invite { grid-template-columns: minmax(0, 1fr) 32px; }
   .person.invite > :not(.row-menu) { grid-column: 1; }
   .person.invite > .row-menu { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-  .speed-row { grid-template-columns: minmax(0, 1fr) auto; }
-  .speed-bars { grid-column: 1 / -1; grid-row: 2; }
-  .speed-values { display: none; }
   .app-address { flex-direction: column; align-items: flex-start; }
   .log-domain { display: none; }
   .log-text { grid-column: 1 / -1; }
@@ -1233,7 +1275,6 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .link-row { grid-template-columns: 1fr auto; }
   .link-row .link-label { grid-column: 1 / -1; }
-  .toasts { left: 12px; right: 12px; bottom: 12px; width: auto; }
 }
 
 /* ---------------------------------------------------------------- rollout */

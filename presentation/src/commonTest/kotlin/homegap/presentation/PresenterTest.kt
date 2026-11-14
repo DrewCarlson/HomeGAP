@@ -41,6 +41,7 @@ import homegap.presentation.data.Confirmations
 import homegap.presentation.routing.Route
 import homegap.presentation.routing.Router
 import homegap.presentation.services.ServicesScreenPresenter
+import homegap.presentation.speedtest.PhaseState
 import homegap.presentation.speedtest.SpeedTestScreenModel
 import homegap.presentation.speedtest.SpeedTestScreenPresenter
 import homegap.presentation.speedtest.SpeedTestScreenProps
@@ -542,13 +543,17 @@ class PresenterTest {
         assertEquals("40.0", ping.value)
         assertEquals("ms", ping.unit)
         assertEquals("50 ms", ping.scaleMax)
-        assertEquals(listOf(0.5, 1.0), ping.bars)
+        assertEquals(listOf(0.4, 0.8), ping.bars, "the bars share the scale of the gauge")
+        assertEquals(40 to 0, ping.whole to ping.tenths)
+        assertEquals(listOf(PhaseState.Now, PhaseState.Next, PhaseState.Next), ping.phases.map { it.state })
         val down = homegap.presentation.speedtest.liveTestModel("a1", homegap.api.SpeedTestLiveDto("a1", "download", pingMs = 30.0, mbps = 180.0, mbpsSamples = listOf(90.0, 180.0)), null)
         assertEquals("Download", down.phase)
         assertEquals("180", down.value)
         assertEquals(180.0 / 250.0, down.fraction)
         assertEquals(listOf("30.0 ms", "—", "180 Mb/s", "—"), down.metrics.map { it.value })
         assertEquals(homegap.presentation.ui.ChartTone.Cyan, down.tone)
+        assertEquals(180 to null, down.whole to down.tenths)
+        assertEquals(listOf("30.0 ms", "180 Mb/s", ""), down.phases.map { it.value })
     }
 
     @Test

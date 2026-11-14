@@ -16,6 +16,7 @@ import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.AppCoroutineScope
 import homegap.presentation.data.ControllerApi
 import homegap.presentation.format.*
+import homegap.presentation.format.plural
 import homegap.presentation.routing.Location
 import homegap.presentation.routing.Route
 import homegap.presentation.ui.ChartTone
@@ -206,6 +207,10 @@ class SpeedTestScreenPresenter(
                     )
                 },
                 note = latest?.let { ago(it.at, now) + it.streamsNote() + it.error?.let { e -> " · $e" }.orEmpty() },
+                summary = latest?.let { result ->
+                    listOfNotNull(ago(result.at, now), result.streams?.let { plural(it, "stream") }, result.error).joinToString(" · ")
+                },
+                running = running == nodeId,
                 downFraction = ((latest?.downMbps ?: 0.0) / scale).coerceIn(0.0, 1.0),
                 upFraction = ((latest?.upMbps ?: 0.0) / scale).coerceIn(0.0, 1.0),
                 scale = "${(scale / BAR_STEP_MBPS).toInt()} Gb/s",
@@ -279,6 +284,9 @@ internal fun barScaleMbps(downMbps: Double?, upMbps: Double?): Double {
 
 private const val BAR_STEP_MBPS = 1000.0
 
+/** How many samples the strip of bars under the gauge holds. */
+private const val LIVE_BARS = 48
+
 private val GAUGE_STEPS = listOf(10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0)
 
 /** The gauge's full scale: the first step above [v] with a little room. */
@@ -291,7 +299,20 @@ internal fun liveTestModel(nodeId: String, live: SpeedTestLiveDto?, all: Pair<In
     val samples = if (live == null) emptyList() else if (ping) live.pingSamples else live.mbpsSamples
     val value = if (live == null) null else if (ping) live.pingSamples.lastOrNull() else live.mbps
     val scale = gaugeScale(samples.maxOrNull() ?: value ?: 0.0)
-    val top = samples.maxOrNull()?.takeIf { it > 0 } ?: 1.0
+    val shown = samples.takeLast(LIVE_BARS)
+    // The value in tenths: under 100 it shows one digit after the point, from 100 on it shows none.
+    val tenths = value?.let { (it * 10).roundToInt() }
+    val current = when (live?.phase) {
+        null -> -1
+        "ping" -> 0
+        "download" -> 1
+        else -> 2
+    }
+    fun state(index: Int) = when {
+        index < current -> PhaseState.Done
+        index == current -> PhaseState.Now
+        else -> PhaseState.Next
+    }
     return LiveTestModel(
         title = title,
         starting = live == null,
@@ -302,6 +323,13 @@ internal fun liveTestModel(nodeId: String, live: SpeedTestLiveDto?, all: Pair<In
             else -> "Upload"
         },
         value = value?.let { if (ping) formatMillis(it).removeSuffix(" ms") else formatMbps(it).removeSuffix(" Mb/s") } ?: "—",
+        whole = when {
+            tenths == null -> 0
+            value >= 100 -> value.roundToInt()
+            else -> tenths / 10
+        },
+        tenths = tenths?.takeIf { value < 100 }?.let { it % 10 },
+        hasValue = value != null,
         unit = if (ping || live == null) "ms" else "Mb/s",
         fraction = ((value ?: 0.0) / scale).coerceIn(0.0, 1.0),
         scaleMax = "${scale.toInt()} ${if (ping || live == null) "ms" else "Mb/s"}",
@@ -310,7 +338,26 @@ internal fun liveTestModel(nodeId: String, live: SpeedTestLiveDto?, all: Pair<In
             "upload" -> ChartTone.Violet
             else -> ChartTone.White
         },
-        bars = samples.takeLast(48).map { it / top },
+        // The bars share the scale of the gauge, so they keep their height when a higher sample comes.
+        bars = shown.map { (it / scale).coerceIn(0.0, 1.0) },
+        barsStart = samples.size - shown.size,
+        phases = listOf(
+            LivePhaseModel(
+                label = "Ping",
+                state = state(0),
+                value = live?.pingMs?.let { formatMillis(it) }.orEmpty(),
+            ),
+            LivePhaseModel(
+                label = "Download",
+                state = state(1),
+                value = (if (live?.phase == "download") live.mbps else live?.downMbps)?.let { formatMbps(it) }.orEmpty(),
+            ),
+            LivePhaseModel(
+                label = "Upload",
+                state = state(2),
+                value = live?.mbps?.takeIf { live.phase == "upload" }?.let { formatMbps(it) }.orEmpty(),
+            ),
+        ),
         metrics = listOf(
             MetricModel("Ping", formatMillis(live?.pingMs)),
             MetricModel("Jitter", formatMillis(live?.jitterMs)),

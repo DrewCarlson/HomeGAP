@@ -83,11 +83,11 @@ private fun TunnelTests(model: SpeedTestScreenModel.Ready) {
             }
         },
     ) {
-        model.live?.let { LiveTest(it) }
-        Div({ classes("speed-rows") }) {
+        model.live?.let { LiveStage(it) }
+        Div({ classes("speed-cards") }) {
             model.nodeTests.forEach { test ->
                 key(test.nodeId) {
-                    SpeedRow(
+                    NodeCard(
                         test = test,
                         canStart = model.canStart,
                         onRun = { model.onRunTest(test.nodeId) },
@@ -101,72 +101,107 @@ private fun TunnelTests(model: SpeedTestScreenModel.Ready) {
     }
 }
 
+/** The last result of one node: its two rates as figures over thin meters, then ping and the scale. */
 @Composable
-private fun SpeedRow(test: NodeTestModel, canStart: Boolean, onRun: () -> Unit) {
+private fun NodeCard(test: NodeTestModel, canStart: Boolean, onRun: () -> Unit) {
     val metrics = test.metrics
-    Div({ classes("speed-row") }) {
-        Div {
-            B { Text(test.nodeId) }
-            Div({ classes("muted", "mono", "small") }) { Text(test.note ?: "no result yet") }
+    Div({
+        classes("speed-card")
+        if (test.running) classes("running")
+        if (test.failed) classes("failed")
+    }) {
+        Div({ classes("speed-card-head") }) {
+            Div({ classes("speed-card-name") }) {
+                B { Text(test.nodeId) }
+                Div({
+                    classes("muted", "small")
+                    test.note?.let { title(it) }
+                }) {
+                    Text(test.summary ?: "No result yet")
+                }
+            }
+            ActionButton(
+                text = test.buttonText,
+                small = true,
+                enabled = canStart,
+                onClick = onRun,
+            )
         }
-        Div({ classes("speed-bars") }) {
-            SpeedBar(label = "down", fraction = test.downFraction, className = "bar-down")
-            SpeedBar(label = "up", fraction = test.upFraction, className = if (test.slow) "bar-slow" else "bar-up")
-            if (metrics != null) {
-                Div({ classes("muted", "mono", "small", "speed-scale") }) { Text("of ${test.scale}") }
+        Div({ classes("speed-figures") }) {
+            SpeedFigure(
+                label = "Down",
+                value = metrics?.get(2)?.value,
+                fraction = test.downFraction,
+                className = "bar-down",
+            )
+            SpeedFigure(
+                label = "Up",
+                value = metrics?.get(3)?.value,
+                fraction = test.upFraction,
+                className = if (test.slow) "bar-slow" else "bar-up",
+            )
+        }
+        if (metrics != null) {
+            Div({ classes("speed-card-foot", "mono", "small", "muted") }) {
+                Span { Text("Ping ${metrics[0].value} · ±${metrics[1].value}") }
+                Span { Text("Scale ${test.scale}") }
             }
         }
-        Div({ classes("mono", "speed-values") }) {
-            if (metrics != null) {
-                Div { Text(metrics[2].value) }
-                Div({ classes(if (test.slow) "tone-warn" else "muted") }) { Text(metrics[3].value) }
-            } else {
-                Div({ classes("muted") }) { Text("—") }
-            }
-        }
-        Div({ classes("mono", "muted", "small", "speed-ping") }) {
-            if (metrics != null) {
-                Text("${metrics[0].value} · ±${metrics[1].value}")
-            }
-        }
-        ActionButton(
-            text = test.buttonText,
-            small = true,
-            enabled = canStart,
-            onClick = onRun,
-        )
     }
 }
 
+/** One rate: its label, the number with its unit, and a meter that slides to [fraction]. */
 @Composable
-private fun SpeedBar(label: String, fraction: Double, className: String) {
-    Div({ classes("speed-bar") }) {
-        Span({ classes("muted", "mono", "small") }) { Text(label) }
+private fun SpeedFigure(label: String, value: String?, fraction: Double, className: String) {
+    Div({ classes("speed-figure") }) {
+        Div({ classes("metric-label") }) { Text(label) }
+        // A new value is a new element, so it fades in.
+        key(value) {
+            Div({ classes("speed-number") }) {
+                Text(value?.substringBefore(' ') ?: "—")
+                value?.substringAfter(' ', "")?.takeIf { it.isNotEmpty() }?.let { unit ->
+                    Span({ classes("speed-unit") }) { Text(" $unit") }
+                }
+            }
+        }
         Div({ classes("speed-track") }) {
             Div({
                 classes("speed-fill", className)
-                style { property("width", "${(fraction * 100).coerceAtLeast(0.5)}%") }
+                style { property("width", "${fraction * 100}%") }
             })
         }
     }
 }
 
+/**
+ * The test that runs: the gauge with the number of the current phase, the three phases with their
+ * results, and one bar for each sample. The arc, the number and the bars move in CSS, from the
+ * last value to the new one.
+ */
 @Composable
-private fun LiveTest(live: LiveTestModel) {
-    Div({ classes("live-test", live.tone.className) }) {
-        Div({ classes("gauge-box") }) {
-            Div({
-                classes("gauge", live.tone.className)
-                if (live.starting) {
-                    classes("starting")
-                }
-                style { property("--p", live.fraction.toString()) }
-            }) {
-                Div({ classes("gauge-arc") })
-                Div({ classes("gauge-text") }) {
-                    Div({ classes("gauge-value") }) { Text(live.value) }
-                    Div({ classes("gauge-unit") }) { Text(live.unit) }
-                }
+private fun LiveStage(live: LiveTestModel) {
+    Div({ classes("live-stage", live.tone.className) }) {
+        Div({
+            classes("gauge")
+            if (live.starting) {
+                classes("starting")
+            }
+            attr("role", "img")
+            attr("aria-label", "${live.phase}: ${live.value} ${live.unit}")
+            style { property("--p", live.fraction.toString()) }
+        }) {
+            Div({ classes("gauge-arc") })
+            Div({ classes("gauge-text") }) {
+                Div({
+                    classes("gauge-value")
+                    if (!live.hasValue) classes("empty")
+                    if (live.tenths != null) classes("tenths")
+                    style {
+                        property("--whole", live.whole.toString())
+                        property("--tenths", (live.tenths ?: 0).toString())
+                    }
+                })
+                Div({ classes("gauge-unit") }) { Text(live.unit) }
             }
             Div({ classes("gauge-scale") }) {
                 Span { Text("0") }
@@ -174,19 +209,30 @@ private fun LiveTest(live: LiveTestModel) {
             }
         }
         Div({ classes("live-side") }) {
-            Div({ classes("live-phase") }) { Text("${live.title} · ${live.phase}") }
-            Div({ classes("bars") }) {
-                live.bars.forEach { h ->
-                    Span({ style { property("height", "${(h * 100).coerceAtLeast(4.0)}%") } })
+            Div({ classes("live-title") }) { Text(live.title) }
+            Ol({ classes("live-phases") }) {
+                live.phases.forEach { phase ->
+                    Li({ classes(phase.state.name.lowercase()) }) {
+                        Span({ classes("live-phase-mark") })
+                        Span({ classes("live-phase-name") }) { Text(phase.label) }
+                        Span({ classes("live-phase-value", "mono") }) { Text(phase.value.ifEmpty { "—" }) }
+                    }
                 }
             }
-            Div({ classes("metrics") }) {
-                live.metrics.forEach { Metric(it) }
+            Div({
+                classes("live-strip")
+                attr("aria-hidden", "true")
+            }) {
+                live.bars.forEachIndexed { index, height ->
+                    // A bar keeps its number, so only a new bar rises.
+                    key(live.phase, live.barsStart + index) {
+                        Span({ style { property("height", "${(height * 100).coerceAtLeast(4.0)}%") } })
+                    }
+                }
             }
         }
     }
 }
-
 
 @Composable
 private fun DeviceTests(device: DeviceTestModel) {

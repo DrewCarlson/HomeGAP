@@ -55,16 +55,27 @@ button.secondary { background:transparent; color:var(--accent); }
    white for ping, cyan for download, violet for upload. Amber and rose are kept for problems. */
 body[data-phase="download"] { --tone:#18FFFF; }
 body[data-phase="upload"] { --tone:#B388FF; }
-.gauge { position:relative; width:220px; height:122px; overflow:hidden; flex:none; }
+/* --p and the two parts of the number are registered, so the browser moves them from the last value to the new one. */
+@property --p { syntax:"<number>"; inherits:true; initial-value:0; }
+@property --whole { syntax:"<integer>"; inherits:false; initial-value:0; }
+@property --tenths { syntax:"<integer>"; inherits:false; initial-value:0; }
+.gauge { position:relative; width:220px; height:122px; overflow:hidden; flex:none; transition:--p .45s cubic-bezier(.22, 1, .36, 1); }
 .gauge-arc { position:absolute; inset:0 0 auto 0; width:220px; height:220px; border-radius:50%;
-  background:conic-gradient(from -90deg, var(--tone) calc(var(--p, 0) * 180deg), #2E3570 0 180deg, transparent 0);
-  -webkit-mask:radial-gradient(circle, transparent 62%, #000 63%); mask:radial-gradient(circle, transparent 62%, #000 63%); }
+  background:conic-gradient(from -90deg, var(--tone) calc(var(--p, 0) * 180deg), #1E2452 0 180deg, transparent 0);
+  -webkit-mask:radial-gradient(circle, transparent 66%, #000 67%); mask:radial-gradient(circle, transparent 66%, #000 67%); }
 .gauge-text { position:absolute; left:0; right:0; bottom:0; text-align:center; }
-.gauge-value { font-size:30px; font-weight:600; font-variant-numeric:tabular-nums; line-height:1.1; }
+.gauge-value { font-size:36px; font-weight:600; letter-spacing:-.03em; font-variant-numeric:tabular-nums; line-height:1.1;
+  counter-reset:whole var(--whole) tenths var(--tenths); transition:--whole .45s cubic-bezier(.22, 1, .36, 1), --tenths .2s linear; }
+.gauge-value::before { content:counter(whole); }
+.gauge-value.tenths::before { content:counter(whole) "." counter(tenths); }
+.gauge-value.empty::before { content:"\2013"; }
 .gauge-unit { color:var(--muted); font-size:13px; }
 .gauge-scale { display:flex; justify-content:space-between; width:220px; color:var(--muted); font-size:11px; }
-.bars { display:flex; align-items:flex-end; gap:2px; height:48px; margin-top:8px; }
-.bars span { flex:1; min-width:2px; background:var(--tone); opacity:.75; border-radius:2px 2px 0 0; }
+/* One slot per sample. The slots have a fixed width and fill from the left, so no bar moves or widens when one more comes. */
+.bars { display:flex; align-items:flex-end; gap:2px; height:48px; margin-top:8px; overflow:hidden; }
+.bars span { flex:0 0 5px; background:var(--tone); opacity:.75; border-radius:2px 2px 0 0; transform-origin:bottom; animation:bar-in .3s ease-out; transition:height .3s ease; }
+@keyframes bar-in { from { transform:scaleY(0); opacity:0; } to { transform:none; opacity:.75; } }
+@media (prefers-reduced-motion: reduce) { .gauge, .gauge-value, .bars span { transition:none; animation:none; } }
 .table-wrap { overflow-x:auto; margin:0 -16px; padding:0 16px; }
 table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
 th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
@@ -101,7 +112,7 @@ td .reason { display:block; font-size:13px; font-weight:400; }
   <div class="card live">
     <div class="gauge-box">
       <div class="gauge" id="gauge"><div class="gauge-arc"></div>
-        <div class="gauge-text"><div class="gauge-value" id="g-value">&ndash;</div><div class="gauge-unit" id="g-unit">&nbsp;</div></div>
+        <div class="gauge-text"><div class="gauge-value empty" id="g-value"></div><div class="gauge-unit" id="g-unit">&nbsp;</div></div>
       </div>
       <div class="gauge-scale"><span>0</span><span id="g-max"></span></div>
     </div>
@@ -136,29 +147,41 @@ td .reason { display:block; font-size:13px; font-weight:400; }
     var STEPS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
     var max = 0, bars = [], unit = '', lastBar = 0;
     function scale(v) { for (var i = 0; i < STEPS.length; i++) if (STEPS[i] >= v * 1.1) return STEPS[i]; return STEPS[STEPS.length - 1]; }
-    function draw() {
-      var top = Math.max.apply(null, [1].concat(bars)), b = el('bars');
-      b.textContent = '';
-      bars.forEach(function (v) { var x = document.createElement('span'); x.style.height = Math.max(2, v / top * 100) + '%'; b.appendChild(x); });
+    // Each bar is a share of the scale of the gauge. Only a new bar is a new element, so only it rises.
+    function heights() {
+      var b = el('bars').children;
+      for (var i = 0; i < b.length; i++) b[i].style.height = Math.max(4, Math.min(100, bars[i] / (max || 1) * 100)) + '%';
+    }
+    // The number in two parts, so the page counts from the last value to this one.
+    function number(v) {
+      var g = el('g-value');
+      g.setAttribute('aria-label', fmt(v));
+      if (v == null) { g.className = 'gauge-value empty'; return; }
+      var tenths = Math.round(v * 10), big = v >= 100;
+      g.className = big ? 'gauge-value' : 'gauge-value tenths';
+      g.style.setProperty('--whole', big ? Math.round(v) : Math.floor(tenths / 10));
+      g.style.setProperty('--tenths', tenths % 10);
     }
     return {
       start: function (label, u, node) {
         max = 0; bars = []; unit = u; lastBar = 0;
         el('g-label').textContent = label; el('g-node').textContent = node ? 'Through node ' + node : ' ';
         document.body.dataset.phase = label.toLowerCase();
-        el('g-unit').textContent = u; this.set(null); draw();
+        el('g-unit').textContent = u; this.set(null); el('bars').textContent = '';
       },
       set: function (v) {
         if (v != null) max = Math.max(max, scale(v));
         el('gauge').style.setProperty('--p', v == null || !max ? 0 : Math.min(1, v / max));
-        el('g-value').textContent = fmt(v);
+        number(v);
         el('g-max').textContent = max ? max + ' ' + unit : '';
       },
       // A sample for the bars; rates arrive many times a second, so at most four bars a second.
       sample: function (v, throttle) {
         this.set(v);
         if (throttle && now() - lastBar < 250) return;
-        lastBar = now(); bars.push(v); if (bars.length > 48) bars.shift(); draw();
+        lastBar = now(); bars.push(v); el('bars').appendChild(document.createElement('span'));
+        if (bars.length > 48) { bars.shift(); el('bars').removeChild(el('bars').firstChild); }
+        heights();
       },
       idle: function (label) { el('g-label').textContent = label; el('g-node').textContent = ' '; this.set(null); el('g-unit').textContent = ' '; }
     };

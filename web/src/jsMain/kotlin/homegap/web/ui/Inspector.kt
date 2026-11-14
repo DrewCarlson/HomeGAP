@@ -45,6 +45,7 @@ fun InspectorHost(
             )
             ToastStack(
                 toasts = toasts,
+                placement = ToastPlacement.BesideInspector,
             )
         }
     } else {

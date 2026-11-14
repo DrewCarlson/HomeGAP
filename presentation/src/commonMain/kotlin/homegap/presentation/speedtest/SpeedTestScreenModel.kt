@@ -41,6 +41,10 @@ data class NodeTestModel(
     /** Ping, jitter, down, up; null before the first result. */
     val metrics: List<MetricModel>?,
     val note: String?,
+    /** When the last test ran and with how many streams: "12h ago · 4 streams". */
+    val summary: String? = null,
+    /** A test of this node runs now. */
+    val running: Boolean = false,
     /** Download and upload as shares of the scale of this node, for the bars. 0 before the first result. */
     val downFraction: Double = 0.0,
     val upFraction: Double = 0.0,
@@ -49,6 +53,22 @@ data class NodeTestModel(
     /** The upload is under half of the fastest node's. */
     val slow: Boolean = false,
     val failed: Boolean = false,
+)
+
+/** Where a test is with one of its phases. */
+enum class PhaseState {
+    Done,
+    Now,
+    Next,
+}
+
+/** One phase of a test in the list of phases: its name, where the test is, and its result. */
+@Immutable
+data class LivePhaseModel(
+    val label: String,
+    val state: PhaseState,
+    /** The result of the phase, or the empty string before it has one. */
+    val value: String,
 )
 
 /**
@@ -62,12 +82,21 @@ data class LiveTestModel(
     /** The test has no figures yet: the gauge shows that it works. */
     val starting: Boolean = false,
     val value: String,
+    /** The value in parts, so the view can count from the last value to this one. */
+    val whole: Int = 0,
+    /** The digit after the point, or null when the value shows none. */
+    val tenths: Int? = null,
+    val hasValue: Boolean = false,
     val unit: String,
     /** How full the gauge is, 0..1. */
     val fraction: Double,
     val scaleMax: String,
-    /** Bar heights, 0..1. */
+    /** Bar heights, 0..1 of the scale of the gauge. */
     val bars: List<Double>,
+    /** The number of the first bar among all samples of the phase: a bar keeps its number when older bars leave. */
+    val barsStart: Int = 0,
+    /** Ping, download and upload, in the order of the test. */
+    val phases: List<LivePhaseModel> = emptyList(),
     val metrics: List<MetricModel>,
     /** White for ping, cyan for download, violet for upload. */
     val tone: homegap.presentation.ui.ChartTone = homegap.presentation.ui.ChartTone.White,
