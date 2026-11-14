@@ -23,8 +23,11 @@ This page defines the terms that the HomeGAP docs use.
 **Exit node**
 : An exit to the internet for the Pangolin apps, through a node or through the homelab. See [Exit nodes](../cluster/exit-nodes.md).
 
+**Extra domain**
+: A domain for services in addition to `domain`, from `extra_domains` in the config file. See [Extra domains](../services/extra-domains.md).
+
 **Front door**
-: The homelab Traefik container with the root domain in `homegap.expose`. It claims the root and, with `homegap.wildcard`, `*.<domain>`. See [Services](../services/index.md).
+: The homelab Traefik container with the root domain in `homegap.expose`. It claims the root and, with `homegap.wildcard`, `*.<domain>`. Each extra domain can have its own front door. See [Services](../services/index.md).
 
 **Geo record set**
 : A set of DNS records for one name, one for each node, with geo routing and a health monitor. See [DNS routing and health checks](../configuration/dns.md#the-records).

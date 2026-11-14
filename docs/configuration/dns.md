@@ -72,6 +72,10 @@ HomeGAP marks each of its records with the comment `managed-by:homegap <purpose>
 
 HomeGAP keeps the records of paused nodes and paused services as they are.
 
+## Extra domains
+
+Each [extra domain](../services/extra-domains.md) has its own zone, or shares a zone with a different domain. HomeGAP writes each record to the zone of its domain, with the same routing, monitor and TTL. If one zone fails, HomeGAP still syncs the other zones, and the activity log names the zone that failed.
+
 ## Reads of the zone
 
 When the desired records do not change, HomeGAP reads the whole zone again every `reconcile.dns_check_interval` (default 5 minutes). Thus it finds edits from the Bunny console. A change to the desired records syncs at once.

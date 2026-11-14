@@ -101,6 +101,7 @@ nav:
       - Traffic paths: services/traffic-paths.md
       - Raw TCP and UDP: services/raw-ports.md
       - Private services: services/private.md
+      - Extra domains: services/extra-domains.md
       - Pangolin sign-in: services/authentication.md
       - Client addresses and private-only services: services/client-addresses.md
       - Examples:

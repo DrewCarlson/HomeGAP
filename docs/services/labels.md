@@ -26,7 +26,7 @@ For a label with a fixed set of values, any other value gives the error `<key> m
 ### Rules for the core labels
 
 - `homegap.expose` must be a valid hostname. It must be inside `domain`, or you get the error "... is outside the managed domain ...".
-- `homegap.wildcard` is valid only when `homegap.expose` is the root domain. It is an error on raw services.
+- `homegap.wildcard` is valid only when `homegap.expose` is the root domain or the root of an [extra domain](extra-domains.md). It is an error on raw services.
 - The node always terminates plain `http`. If you set `homegap.tls: passthrough` on an `http` service, you get the warning `plain-http services cannot be passed through; the node terminates TLS (tls=terminate)`.
 - On raw services, `homegap.tls` has no effect. HomeGAP gives a warning.
 - An unknown node id in `homegap.regions` gives the warning "regions reference unknown node(s): ...".

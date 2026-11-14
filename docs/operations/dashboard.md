@@ -81,6 +81,8 @@ The records that HomeGAP manages, grouped into record sets. A healthy record set
 
 The CAA record sets belong to certificate management. They are read-only, and they link to the **Certificates** tab.
 
+With [extra domains](../services/extra-domains.md), the page also has the **Domains** table. It shows each domain with its DNS zone, its front door and the state of the zone. If HomeGAP cannot sync a zone, the **State** column shows the error.
+
 ### Certificates
 
 A tab of the **DNS** page. It shows the certificate that the nodes share, which node has it, what a visitor gets on each name through each node, the orders, and who can issue for the domain. See [Certificates](../configuration/certificates.md#the-certificates-page).

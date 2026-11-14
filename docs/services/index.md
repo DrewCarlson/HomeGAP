@@ -10,7 +10,7 @@ The orchestrator reads the `homegap.*` labels of your containers from Docker. It
 
 The front door carries the root and every name one label under your domain. The **front door** is the homelab Traefik container with the root domain in `homegap.expose` and `homegap.wildcard: "true"`. To publish a service through the front door, add a normal Traefik router at home.
 
-HomeGAP treats a service as the front door when its `homegap.expose` is equal to `domain` and its access is public. A raw service is never the front door.
+HomeGAP treats a service as the front door when its `homegap.expose` is equal to `domain` and its access is public. A raw service is never the front door. Each extra domain can have a front door of its own. See [Extra domains](extra-domains.md).
 
 ## When a service needs labels
 

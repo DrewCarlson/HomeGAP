@@ -8,6 +8,7 @@ This page lists every key of the config file, with its type and its default. A k
 | --- | --- | --- | --- |
 | `project` | string | `home-gap` | The name of the project. |
 | `domain` | string | None. Necessary. | The base domain that HomeGAP serves, for example `example.net`. |
+| `extra_domains` | list | `[]` | More domains that services can use. See [Extra domains](../services/extra-domains.md). |
 | `data_dir` | string | `/data` | The data directory of the orchestrator. |
 | `reconcile` | object | See below. | The reconcile loop. |
 | `bunny` | object | None. Necessary. | Bunny DNS. |
@@ -32,6 +33,13 @@ This page lists every key of the config file, with its type and its default. A k
 | `node_check_interval` | duration | `5m` | The interval of the SSH drift check on each node. |
 | `removal_grace` | duration | `3m` | How long the services of a container stay after the container is gone. See [When a container is gone](../services/index.md#when-a-container-is-gone). |
 | `dns_check_interval` | duration | `5m` | How often HomeGAP reads the full Bunny zone again when the desired records do not change. Changes to the desired records sync at once. |
+
+## extra_domains[]
+
+| Key | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `domain` | string | None. Necessary. | A domain for services, for example `example.org`. It cannot be inside `domain` or a different extra domain. |
+| `zone` | string | The value of `domain`. | The Bunny DNS zone. It is equal to the domain or a parent of it. It uses the API key of `bunny`. |
 
 ## bunny
 

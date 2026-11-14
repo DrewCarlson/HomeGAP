@@ -64,7 +64,7 @@ A new certificate does not restart the stack of a node. Traefik loads it in a fe
 
 ## The CAA records
 
-HomeGAP publishes two CAA records for `domain`, with the tags `issue` and `issuewild`. Each has this value:
+HomeGAP publishes two CAA records for `domain` and for each [extra domain](../services/extra-domains.md), with the tags `issue` and `issuewild`. Each has this value:
 
 ```text
 letsencrypt.org; validationmethods=dns-01
@@ -109,7 +109,7 @@ The page has these parts:
 - **Delivery to the nodes.** For each node: the version of the certificate that it has, the time of the delivery, and what it serves on its management name.
 - **What a visitor gets.** A TLS probe of each public name through each node, each pass. A name in `passthrough` mode has the tag **Homelab**: the Traefik of the homelab holds its certificate, and HomeGAP does not renew it.
 - **Orders.** The last 20 orders and revocations, with the reason, the result and the duration.
-- **Who can issue.** The CAA records that HomeGAP publishes, and the CAA records that DNS has now.
+- **Who can issue.** The CAA records that HomeGAP publishes, and the CAA records that DNS has now. With [extra domains](../services/extra-domains.md), each record starts with its domain.
 
 The page has four actions:
 
