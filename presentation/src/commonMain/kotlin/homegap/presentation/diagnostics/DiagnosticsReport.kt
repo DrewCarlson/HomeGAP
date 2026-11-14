@@ -82,6 +82,7 @@ private fun verdict(title: String, lines: List<String>): ReportSection {
             }
         }
 
-        else -> section(Health.UNKNOWN, lines.first().take(80))
+        // A section with no rule of its own says how much it holds. Its text is in the output under the report.
+        else -> section(Health.UNKNOWN, if (lines.size == 1) "1 line of output" else "${lines.size} lines of output")
     }
 }

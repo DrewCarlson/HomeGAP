@@ -13,6 +13,9 @@ import homegap.presentation.core.Presenter
 import homegap.presentation.core.runCatchingCancellable
 import homegap.presentation.data.ControllerApi
 import homegap.presentation.format.plural
+import homegap.presentation.routing.Location
+import homegap.presentation.routing.Route
+import homegap.presentation.ui.ActionModel
 import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.ui.ProblemsFilterModel
 import homegap.presentation.ui.Severity
@@ -56,6 +59,12 @@ class ConfigScreenPresenter(private val api: ControllerApi) : Presenter<ConfigSc
         return ConfigScreenModel(
             head = PageHeadModel(
                 caption = "Config",
+                actions = listOf(
+                    ActionModel(
+                        label = "Locations",
+                        location = Location(Route.Locations),
+                    ),
+                ),
                 headline = when (pending) {
                     null -> "Loading the config…"
                     0 -> "Everything matches the config."

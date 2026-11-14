@@ -122,6 +122,13 @@ class PresenterTest {
     }
 
     @Test
+    fun speedBarsScaleToTheNextGigabitOfEachNode() {
+        assertEquals(1000.0, homegap.presentation.speedtest.barScaleMbps(200.0, 180.0))
+        assertEquals(2000.0, homegap.presentation.speedtest.barScaleMbps(1200.0, 900.0))
+        assertEquals(1000.0, homegap.presentation.speedtest.barScaleMbps(null, null))
+    }
+
+    @Test
     fun aWarningOnAnEdgeIsNotAnOutageInTheHeadline() {
         val nodes = listOf(node("a1", Health.DEGRADED), node("b1", Health.DEGRADED))
         assertEquals("2 of 2 nodes serve, 2 with a warning.", edgesSentence(nodes))

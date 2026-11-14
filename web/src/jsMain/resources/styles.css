@@ -394,6 +394,8 @@ table.data tr.empty:hover td { background: none; }
 .log { font-size: 13px; }
 .empty-state { color: var(--muted); text-align: center; padding: 28px; }
 
+/* Log output: long lines wrap, and the box takes what is left of the screen. */
+pre.log-text { white-space: pre-wrap; overflow-wrap: anywhere; max-height: max(320px, calc(100dvh - 260px)); }
 pre { margin: 0; padding: 14px 18px; overflow: auto; font-family: var(--mono); font-size: 12px; line-height: 1.55; max-height: 560px; background: var(--surface-2); }
 /* Container logs: the programs' own terminal colours (see AnsiText). */
 .ansi-fg-0 { color: var(--ansi-0); } .ansi-bg-0 { background: var(--ansi-0); }
@@ -675,6 +677,13 @@ a.status-first:hover, a.status-item:hover { text-decoration: underline; text-und
   .scroll-hint { transition: opacity .2s; }
 }
 .show-all { border-top: 1px solid var(--rule); justify-items: center; }
+/* A panel that opens on request (the config file, the desired state). */
+.code-box > summary { list-style: none; cursor: pointer; border-bottom: 0; }
+.code-box > summary::-webkit-details-marker { display: none; }
+.code-box > summary h2::before { content: "▸ "; color: var(--ink-faint); }
+.code-box[open] > summary h2::before { content: "▾ "; }
+.code-box[open] > summary { border-bottom: 1px solid var(--rule); }
+.code-box .code-text { max-height: 60vh; overflow: auto; }
 .figure-note { padding: 10px 16px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-dim); }
 
 /* ---------------------------------------------------------------- charts */
@@ -1019,7 +1028,9 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
 .app-address { display: flex; gap: 18px; align-items: center; }
 .qr { flex: none; border-radius: 4px; }
 .app-address-text { display: grid; gap: 8px; min-width: 0; }
-.app-address-value { font-size: 18px; color: var(--ink); word-break: break-all; }
+.app-address-value { font-size: 14px; color: var(--ink); word-break: break-all; }
+.qr-details > summary { width: fit-content; color: var(--cyan-soft); font-size: 13px; cursor: pointer; }
+.qr-details .qr { margin-top: 10px; }
 .copy-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .people { list-style: none; margin: 0; padding: 0; }
 .person.invite { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto; }
@@ -1045,6 +1056,11 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
 .speed-track { height: 6px; background: var(--rule); }
 .speed-fill { height: 6px; }
 .bar-down { background: var(--cyan); }
+.speed-scale { text-align: right; }
+/* Before the first figures the arc of the gauge pulses, so the wait shows as work. */
+.gauge.starting .gauge-arc { animation: gauge-wait 1.4s ease-in-out infinite; }
+@keyframes gauge-wait { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .gauge.starting .gauge-arc { animation: none; } }
 .bar-up { background: var(--violet); }
 .bar-slow { background: var(--amber); }
 .speed-values { text-align: right; font-size: 13px; }

@@ -115,6 +115,9 @@ private fun SpeedRow(test: NodeTestModel, canStart: Boolean, onRun: () -> Unit) 
         Div({ classes("speed-bars") }) {
             SpeedBar(label = "down", fraction = test.downFraction, className = "bar-down")
             SpeedBar(label = "up", fraction = test.upFraction, className = if (test.slow) "bar-slow" else "bar-up")
+            if (metrics != null) {
+                Div({ classes("muted", "mono", "small", "speed-scale") }) { Text("of ${test.scale}") }
+            }
         }
         Div({ classes("mono", "speed-values") }) {
             if (metrics != null) {
@@ -157,6 +160,9 @@ private fun LiveTest(live: LiveTestModel) {
         Div({ classes("gauge-box") }) {
             Div({
                 classes("gauge", live.tone.className)
+                if (live.starting) {
+                    classes("starting")
+                }
                 style { property("--p", live.fraction.toString()) }
             }) {
                 Div({ classes("gauge-arc") })

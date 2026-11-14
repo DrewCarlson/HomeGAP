@@ -18,12 +18,10 @@ import org.jetbrains.compose.web.attributes.InputType
 import org.jetbrains.compose.web.attributes.disabled
 import org.jetbrains.compose.web.dom.*
 
-private const val APP_HELP =
-    "In the Pangolin app, choose a self-hosted server and enter this address, or scan the code from a phone. " +
-        "Every node serves it, so devices connect to the nearest one."
+private const val APP_HELP = "Enter this address in the Pangolin app, or scan the code."
 
 private const val INVITE_HELP =
-    "Off: HomeGAP creates an invite link, valid 7 days, for you to send. The person opens it and picks their own password."
+    "Off: HomeGAP creates an invite link, valid 7 days."
 
 /** Who can sign in to the Pangolin apps, their invitations and devices. */
 @Composable
@@ -47,11 +45,6 @@ fun AccessScreen(
         }
 
         is AccessScreenModel.Ready -> {
-            ClientAddress(
-                address = model.clientAddress,
-                via = model.via,
-                qr = model.qr,
-            )
             People(
                 model = model,
                 onOpen = onOpen,
@@ -66,6 +59,11 @@ fun AccessScreen(
             Devices(
                 rows = model.devices,
                 onOpen = onOpen,
+            )
+            ClientAddress(
+                address = model.clientAddress,
+                via = model.via,
+                qr = model.qr,
             )
             if (model.addUserOpen) {
                 AddUser(
@@ -83,23 +81,25 @@ fun AccessScreen(
 @Composable
 private fun ClientAddress(address: String, via: String?, qr: QrCode?) {
     Figure(title = "Pangolin app address", note = via) {
-        Div({ classes("app-address") }) {
-            qr?.let { code ->
-                QrImage(
-                    code = code,
-                    label = "QR code for $address",
+        Div({ classes("app-address-text") }) {
+            Div({ classes("copy-row") }) {
+                Span({ classes("mono", "app-address-value") }) { Text(address) }
+                ActionButton(
+                    text = "Copy",
+                    small = true,
+                    onClick = { window.navigator.clipboard.writeText(address) },
                 )
             }
-            Div({ classes("app-address-text") }) {
-                Div({ classes("copy-row") }) {
-                    Span({ classes("mono", "app-address-value") }) { Text(address) }
-                    ActionButton(
-                        text = "Copy",
-                        small = true,
-                        onClick = { window.navigator.clipboard.writeText(address) },
+            P({ classes("muted", "small") }) { Text(APP_HELP) }
+            // The code opens on request: it is for a phone that is at hand.
+            qr?.let { code ->
+                Details({ classes("qr-details") }) {
+                    Summary { Text("Show QR") }
+                    QrImage(
+                        code = code,
+                        label = "QR code for $address",
                     )
                 }
-                P({ classes("muted") }) { Text(APP_HELP) }
             }
         }
     }

@@ -154,7 +154,7 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
 @Composable
 private fun TerminalText(text: String) {
     val runs = remember(text) { AnsiText.parse(text) }
-    Pre {
+    Pre({ classes("log-text") }) {
         for (run in runs) {
             if (run.plain) {
                 Text(run.text)

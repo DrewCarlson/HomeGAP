@@ -7,21 +7,11 @@ import homegap.presentation.config.ConfigScreenModel
 import homegap.presentation.routing.Route
 import homegap.web.routing.HashRouter
 import homegap.web.ui.*
+import kotlinx.browser.window
 import org.jetbrains.compose.web.dom.*
 
 @Composable
 fun ConfigScreen(model: ConfigScreenModel) {
-    Figure(
-        title = "Locations",
-        actions = {
-            A(
-                href = HashRouter.href(Route.Locations),
-                attrs = { classes("btn", "sm") },
-            ) {
-                Text("Manage locations")
-            }
-        },
-    )
     Figure(
         title = "Differences",
         flush = true,
@@ -53,7 +43,7 @@ fun ConfigScreen(model: ConfigScreenModel) {
         flush = true,
     ) {
         DataTable(
-            headers = remember { listOf("Secret", "Used by", "Source", "Present") },
+            headers = remember { listOf("Secret", "Used by", "Source", "State") },
             emptyText = "The config references no secrets.",
             isEmpty = model.secrets.isEmpty(),
         ) {
@@ -63,30 +53,57 @@ fun ConfigScreen(model: ConfigScreenModel) {
                         Cell("Secret", "mono", "primary-cell") { Text(secret.name) }
                         Cell("Used by") { Text(secret.usedBy) }
                         Cell("Source", "mono") { Text(secret.source) }
-                        Cell("Present") { Pill(secret.present) }
+                        Cell("State") { Pill(secret.present) }
                     }
                 }
             }
         }
     }
-    Figure(title = "Desired state") {
-        Pre({ classes("code-text") }) {
-            ScrollHint()
-            Text(model.desiredState)
-        }
-    }
-    Figure(title = "Config file", note = model.configPath) {
+    CodeBox(
+        title = "Desired state",
+        text = model.desiredState,
+    )
+    CodeBox(
+        title = "Config file",
+        note = model.configPath,
+        text = model.configYaml,
+    ) {
         model.acmeNote?.let { note ->
             P({ classes("small", "muted") }) {
                 Text("$note ")
-                A(href = homegap.web.routing.HashRouter.href(homegap.presentation.routing.Route.Certificates), { classes("link") }) {
+                A(href = HashRouter.href(Route.Certificates), { classes("link") }) {
                     Text("Certificates →")
                 }
             }
         }
-        Pre({ classes("code-text") }) {
-            ScrollHint()
-            Text(model.configYaml)
+    }
+}
+
+/** A long text that stays closed until it is asked for, with a button that copies it. */
+@Composable
+private fun CodeBox(
+    title: String,
+    text: String,
+    note: String? = null,
+    lead: @Composable () -> Unit = {},
+) {
+    Details({ classes("figure", "code-box") }) {
+        Summary({ classes("figure-head") }) {
+            Div({ classes("figure-titles") }) {
+                H2 { Text(title) }
+                note?.let { Div({ classes("figure-sub") }) { Text(it) } }
+            }
+        }
+        Div({ classes("figure-body") }) {
+            lead()
+            Div {
+                ActionButton(
+                    text = "Copy",
+                    small = true,
+                    onClick = { window.navigator.clipboard.writeText(text) },
+                )
+            }
+            Pre({ classes("code-text") }) { Text(text) }
         }
     }
 }

@@ -41,9 +41,11 @@ data class NodeTestModel(
     /** Ping, jitter, down, up; null before the first result. */
     val metrics: List<MetricModel>?,
     val note: String?,
-    /** Download and upload as shares of 1 Gb/s, for the bars; 0 before the first result. */
+    /** Download and upload as shares of the scale of this node, for the bars. 0 before the first result. */
     val downFraction: Double = 0.0,
     val upFraction: Double = 0.0,
+    /** The full scale of the bars of this node: "1 Gb/s". */
+    val scale: String = "",
     /** The upload is under half of the fastest node's. */
     val slow: Boolean = false,
     val failed: Boolean = false,
@@ -57,6 +59,8 @@ data class NodeTestModel(
 data class LiveTestModel(
     val title: String,
     val phase: String,
+    /** The test has no figures yet: the gauge shows that it works. */
+    val starting: Boolean = false,
     val value: String,
     val unit: String,
     /** How full the gauge is, 0..1. */

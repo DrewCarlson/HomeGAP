@@ -1,14 +1,13 @@
 package homegap.presentation.speedtest
 
-import homegap.api.NodeCpuDto
-import kotlin.math.roundToInt
 import androidx.compose.runtime.*
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import homegap.api.NodeCpuDto
 import homegap.api.SpeedTestLinkDto
-import homegap.api.SpeedTestOverview
 import homegap.api.SpeedTestLiveDto
+import homegap.api.SpeedTestOverview
 import homegap.api.SpeedTestResultDto
 import homegap.presentation.core.Presenter
 import homegap.presentation.core.rememberEventTrigger
@@ -24,10 +23,12 @@ import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.ui.Severity
 import homegap.presentation.ui.StatusLineModel
 import homegap.presentation.ui.StatusMessage
+import kotlin.math.ceil
+import kotlin.math.roundToInt
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.seconds
 
 data class SpeedTestScreenProps(val now: Long, val status: homegap.api.StatusSnapshot? = null)
 
@@ -192,6 +193,7 @@ class SpeedTestScreenPresenter(
         val fastestUp = overview.results.filter { it.kind == "tunnel" && it.error == null }.mapNotNull { it.upMbps }.maxOrNull() ?: 0.0
         return overview.nodes.map { nodeId ->
             val latest = overview.results.firstOrNull { it.kind == "tunnel" && it.nodeId == nodeId }
+            val scale = barScaleMbps(latest?.downMbps, latest?.upMbps)
             NodeTestModel(
                 nodeId = nodeId,
                 buttonText = if (running == nodeId) "Testing…" else "Run test",
@@ -204,8 +206,9 @@ class SpeedTestScreenPresenter(
                     )
                 },
                 note = latest?.let { ago(it.at, now) + it.streamsNote() + it.error?.let { e -> " · $e" }.orEmpty() },
-                downFraction = ((latest?.downMbps ?: 0.0) / BAR_SCALE_MBPS).coerceIn(0.0, 1.0),
-                upFraction = ((latest?.upMbps ?: 0.0) / BAR_SCALE_MBPS).coerceIn(0.0, 1.0),
+                downFraction = ((latest?.downMbps ?: 0.0) / scale).coerceIn(0.0, 1.0),
+                upFraction = ((latest?.upMbps ?: 0.0) / scale).coerceIn(0.0, 1.0),
+                scale = "${(scale / BAR_STEP_MBPS).toInt()} Gb/s",
                 slow = latest?.upMbps?.let { it < fastestUp / 2 } == true,
                 failed = latest?.error != null,
             )
@@ -250,7 +253,6 @@ class SpeedTestScreenPresenter(
         val STREAM_CHOICES = listOf(1, 4, 8)
 
         /** The bars' full scale: 1 Gb/s. */
-        const val BAR_SCALE_MBPS = 1000.0
         val REFRESH = 10.seconds
 
         fun SpeedTestResultDto.summary(): String =
@@ -265,6 +267,17 @@ class SpeedTestScreenPresenter(
         }
     }
 }
+
+/**
+ * The full scale of the bars of one node, in Mb/s: the next whole Gb/s at or over its faster
+ * direction. 200 Mb/s gives 1 Gb/s, and 1.2 Gb/s gives 2 Gb/s.
+ */
+internal fun barScaleMbps(downMbps: Double?, upMbps: Double?): Double {
+    val fastest = maxOf(downMbps ?: 0.0, upMbps ?: 0.0)
+    return (ceil(fastest / BAR_STEP_MBPS) * BAR_STEP_MBPS).coerceAtLeast(BAR_STEP_MBPS)
+}
+
+private const val BAR_STEP_MBPS = 1000.0
 
 private val GAUGE_STEPS = listOf(10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0)
 
@@ -281,6 +294,7 @@ internal fun liveTestModel(nodeId: String, live: SpeedTestLiveDto?, all: Pair<In
     val top = samples.maxOrNull()?.takeIf { it > 0 } ?: 1.0
     return LiveTestModel(
         title = title,
+        starting = live == null,
         phase = when (live?.phase) {
             null -> "Starting…"
             "ping" -> "Ping"

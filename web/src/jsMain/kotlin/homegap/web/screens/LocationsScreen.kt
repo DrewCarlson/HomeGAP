@@ -19,106 +19,8 @@ fun LocationsScreen(model: LocationsScreenModel) {
     val send = model.onEvent
     val home = model.homelab
     Panel(
-        title = "Homelab",
-        subtitle = "Where the homelab is: drawn on the maps with its tunnels. The public status page only shows its region.",
-        flush = false
-    ) {
-        Div({ classes("inline-row") }) {
-            Muted("Now")
-            Text(home.current ?: "not set")
-            if (home.current != null) {
-                ActionButton("Clear", small = true) {
-                    send(LocationsEvent.ClearHomelab)
-                }
-            }
-        }
-        LocationSearchBox(
-            query = home.query,
-            matches = home.matches,
-            onQuery = { send(LocationsEvent.SearchHomelab(it)) },
-            onPick = { send(LocationsEvent.HomelabFromCatalog(it)) },
-            placeholder = "Search a nearby city, or click the map below"
-        )
-        home.pending?.let { pending ->
-            Div({ classes("inline-row") }) {
-                Muted("New")
-                Text(pending)
-                ActionButton(
-                    "Save homelab location",
-                    ButtonStyle.Primary,
-                    small = true
-                ) { send(LocationsEvent.SaveHomelab) }
-            }
-        }
-    }
-    Panel(
-        title = "Place the homelab",
-        subtitle = "Click the map to set a point; nearby known cities name it"
-    ) {
-        WorldMap(
-            homegap.presentation.map.MapModel(),
-            heightPx = 280,
-            onPick = { lat, lon ->
-                send(LocationsEvent.HomelabFromMap(lat, lon))
-            },
-            pick = home.pick
-        )
-    }
-
-    model.editor?.let { e ->
-        Panel(
-            title = if (e.isNew) "Add a location" else "Edit ${e[LocationField.Name]}",
-            subtitle = "Click the map to set the coordinates",
-            flush = false
-        ) {
-            Div({ classes("form-grid") }) {
-                LocationField.entries.forEach { f ->
-                    if (f == LocationField.Id && !e.isNew) return@forEach
-                    TextField(
-                        label = f.label,
-                        value = e[f],
-                        placeholder = f.placeholder
-                    ) {
-                        send(LocationsEvent.Change(f, it))
-                    }
-                }
-            }
-            e.error?.let {
-                Div({ classes("banner", "error") }) {
-                    Text(it)
-                }
-            }
-            Div({ classes("inline-row") }) {
-                ActionButton("Save", ButtonStyle.Primary) {
-                    send(LocationsEvent.Save)
-                }
-                ActionButton("Cancel") {
-                    send(LocationsEvent.Cancel)
-                }
-            }
-        }
-        Panel("Coordinates") {
-            WorldMap(
-                homegap.presentation.map.MapModel(),
-                heightPx = 280,
-                onPick = { lat, lon ->
-                    send(LocationsEvent.PickForEditor(lat, lon))
-                },
-                pick = e.pick,
-                fitKey = e.isNew
-            )
-        }
-    }
-
-    Panel(title = "All known locations") {
-        WorldMap(
-            model = model.map,
-            heightPx = 320,
-        )
-    }
-    Panel(
         title = "Known locations",
-        subtitle = "${model.total} data-center cities, offered when adding a node. Shipped ones can be edited or hidden.",
+        subtitle = "${model.total} cities, offered when you add a node.",
         actions = {
             ActionButton(
                 text = "Add location",
@@ -197,6 +99,91 @@ fun LocationsScreen(model: LocationsScreenModel) {
             }
         }
     }
+    model.editor?.let { e ->
+        Panel(
+            title = if (e.isNew) "Add a location" else "Edit ${e[LocationField.Name]}",
+            flush = false
+        ) {
+            Div({ classes("form-grid") }) {
+                LocationField.entries.forEach { f ->
+                    if (f == LocationField.Id && !e.isNew) return@forEach
+                    TextField(
+                        label = f.label,
+                        value = e[f],
+                        placeholder = f.placeholder
+                    ) {
+                        send(LocationsEvent.Change(f, it))
+                    }
+                }
+            }
+            e.error?.let {
+                Div({ classes("banner", "error") }) {
+                    Text(it)
+                }
+            }
+            Div({ classes("inline-row") }) {
+                ActionButton("Save", ButtonStyle.Primary) {
+                    send(LocationsEvent.Save)
+                }
+                ActionButton("Cancel") {
+                    send(LocationsEvent.Cancel)
+                }
+            }
+        }
+    }
+    Panel(
+        title = "Homelab",
+        subtitle = "The public status page shows only its region.",
+        flush = false
+    ) {
+        Div({ classes("inline-row") }) {
+            Muted("Now")
+            Text(home.current ?: "not set")
+            if (home.current != null) {
+                ActionButton("Clear", small = true) {
+                    send(LocationsEvent.ClearHomelab)
+                }
+            }
+        }
+        LocationSearchBox(
+            query = home.query,
+            matches = home.matches,
+            onQuery = { send(LocationsEvent.SearchHomelab(it)) },
+            onPick = { send(LocationsEvent.HomelabFromCatalog(it)) },
+            placeholder = "Search a nearby city, or click the map"
+        )
+        home.pending?.let { pending ->
+            Div({ classes("inline-row") }) {
+                Muted("New")
+                Text(pending)
+                ActionButton(
+                    "Save homelab location",
+                    ButtonStyle.Primary,
+                    small = true
+                ) { send(LocationsEvent.SaveHomelab) }
+            }
+        }
+    }
+    // One map: it takes the point of the location in the editor, or else of the homelab.
+    val editor = model.editor
+    Panel(title = if (editor != null) "Coordinates" else "Map") {
+        if (editor != null) {
+            WorldMap(
+                model = model.map,
+                heightPx = 300,
+                onPick = { lat, lon -> send(LocationsEvent.PickForEditor(lat, lon)) },
+                pick = editor.pick,
+                fitKey = editor.isNew,
+            )
+        } else {
+            WorldMap(
+                model = model.map,
+                heightPx = 300,
+                onPick = { lat, lon -> send(LocationsEvent.HomelabFromMap(lat, lon)) },
+                pick = home.pick,
+            )
+        }
+    }
 }
 
 /** Locations over the Config page: a wide dialog on desktops, a drawer on tablets, full screen on phones. */
@@ -219,8 +206,8 @@ fun LocationsOverlay(
         Div({ classes("overlay-panel", "wide-panel") }) {
             Div({ classes("wizard-head") }) {
                 Div {
-                    Div({ classes("caption") }) { Text("Config › Locations") }
-                    H2({ id("locations-title") }) { Text("Data-center cities and the homelab") }
+                    Div({ classes("caption") }) { Text("Config") }
+                    H2({ id("locations-title") }) { Text("Locations") }
                 }
                 IconButton(
                     iconPath = Icons.CLOSE,
