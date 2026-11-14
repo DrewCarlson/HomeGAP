@@ -77,8 +77,10 @@ button:disabled { opacity: .55; cursor: default; }
 .ms small { color: var(--muted); font-weight: 500; }
 .ms.na { color: var(--faint); font-weight: 500; }
 footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.6; }
-.powered { display: flex; align-items: center; gap: 6px; margin-top: 14px; color: var(--faint); font-size: 12.5px; }
-.hg-mark { width: 14px; height: 14px; flex: none; }
+.powered { display: flex; align-items: center; gap: 8px; margin-top: 16px; color: var(--faint); font-size: 14px; }
+.powered a { color: var(--muted); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.powered a:hover, .powered a:focus-visible { color: var(--fg); }
+.hg-mark { width: 22px; height: 22px; flex: none; }
 .error { padding: 18px 24px; color: var(--bad); }
 .mapcard { margin-bottom: 16px; overflow: hidden; }
 #map { height: 320px; }
@@ -123,7 +125,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
     Lower is better; the node you're connected through is the one DNS picked for your location.
     The home area on the map marks only the region the service runs from.
   </footer>
-  <div class="powered">$${Brand.MARK_SVG}Powered by HomeGAP</div>
+  <div class="powered">$${Brand.MARK_SVG}<span>Powered by <a href="$${Brand.REPOSITORY_URL}" target="_blank" rel="noopener">HomeGAP</a></span></div>
 </main>
 <script>
 (function () {

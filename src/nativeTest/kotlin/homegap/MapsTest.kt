@@ -1,6 +1,7 @@
 package homegap
 
 import homegap.api.LocationDto
+import homegap.brand.Brand
 import homegap.config.ConfigLoader
 import homegap.dashboard.MapFiles
 import homegap.locations.LocationCatalog
@@ -131,7 +132,8 @@ class MapsTest {
 
     @Test
     fun theStatusPageLoadsNothingFromElsewhere() {
-        val html = StatusPage.HTML
+        // The link to the repository loads nothing, so it does not count.
+        val html = StatusPage.HTML.replace("""href="${Brand.REPOSITORY_URL}"""", "")
         assertFalse(Regex("""(src|href)=["']https?://""").containsMatchIn(html), "no external scripts or styles")
         assertTrue("import('/map/homegap-map.js')" in html, "the map comes from this origin")
     }

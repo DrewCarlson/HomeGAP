@@ -2,6 +2,7 @@ package homegap
 
 import homegap.api.Health
 import homegap.api.NodeStatusDto
+import homegap.brand.Brand
 import homegap.config.ConfigLoader
 import homegap.discovery.AuthMode
 import homegap.model.Planner
@@ -9,8 +10,8 @@ import homegap.provision.NodeTemplates
 import homegap.status.PublicStatus
 import homegap.status.PublicStatusDto
 import homegap.status.StatusPage
-import kotlinx.serialization.json.Json
 import kotlin.test.*
+import kotlinx.serialization.json.Json
 
 class StatusPageTest {
     private val config = ConfigLoader.parse("$TEST_CONFIG\nstatus_page:\n  enabled: true\n  title: Example status\n")
@@ -140,7 +141,10 @@ class StatusPageTest {
 
     @Test
     fun pageHasNoExternalAssets() {
-        assertFalse(Regex("""(src|href)=["']https?:""").containsMatchIn(StatusPage.HTML))
+        // The link to the repository is the one address of a different host: a link loads nothing.
+        val link = """href="${Brand.REPOSITORY_URL}""""
+        assertEquals(1, StatusPage.HTML.split(link).size - 1, "one link to the repository")
+        assertFalse(Regex("""(src|href)=["']https?:""").containsMatchIn(StatusPage.HTML.replace(link, "")))
         assertTrue("/status/nodes" in StatusPage.HTML && "/status/ping" !in StatusPage.HTML.substringBefore("<script>"))
     }
 }

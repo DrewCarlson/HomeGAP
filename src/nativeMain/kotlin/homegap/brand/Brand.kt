@@ -22,6 +22,9 @@ object Brand {
             """<path d="M21 41V30L32 20 43 30V41" fill="none" stroke="#fff" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>""" +
             """<circle cx="14" cy="44" r="6.5" fill="#18ffff"/><circle cx="32" cy="53" r="6.5" fill="#18ffff"/><circle cx="50" cy="44" r="6.5" fill="#18ffff"/></svg>"""
 
+    /** The repository of HomeGAP, for the "Powered by HomeGAP" line of a public page. */
+    const val REPOSITORY_URL = "https://github.com/DrewCarlson/HomeGAP"
+
     /** A `<link rel="icon">` for the page, as a data URL so the browser fetches nothing. */
     val FAVICON_LINK: String =
         """<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,${Base64.encode(MARK_SVG.encodeToByteArray())}">"""
