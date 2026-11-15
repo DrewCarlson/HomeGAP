@@ -2,7 +2,6 @@ package homegap.acme
 
 import homegap.config.AppConfig
 import homegap.model.DesiredState
-import homegap.model.ResourceMode
 
 /**
  * The names on the certificate of the nodes: each name for which a node ends TLS itself. A
@@ -34,9 +33,9 @@ object CertNames {
         for (desiredNode in desired.nodes.values) {
             desiredNode.statusRedirect?.let { add(it.first, "status", null) }
             desiredNode.speedtestRedirect?.let { add(it.first, "speedtest", null) }
-            desiredNode.publicResources.forEach { resource ->
+            desiredNode.httpResources.forEach { resource ->
                 val name = resource.fullDomain
-                if (resource.mode == ResourceMode.HTTP && resource.ssl && name != null) {
+                if (resource.ssl && name != null) {
                     val ofFrontDoor = desired.frontDoors.any { it.key == resource.serviceKey }
                     val reason = if (ofFrontDoor) "frontdoor" else "service"
                     add(name, reason, resource.serviceKey)

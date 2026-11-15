@@ -174,7 +174,7 @@ private fun printPlan(configPath: String, line: CommandLine) {
     plan.labelWarnings.forEach { println("WARN  ${it.container}: ${it.message}") }
     for ((id, node) in plan.nodes) {
         println("node $id (${node.managementHost})")
-        node.publicResources.forEach { println(publicLine(it)) }
+        node.resources.forEach { println(publicLine(it)) }
         for (resource in node.privateResources) {
             val ports = "tcp=${resource.tcpPorts} udp=${resource.udpPorts}"
             println("  private ${resource.niceId}: ${resource.alias} -> ${resource.destination} $ports")

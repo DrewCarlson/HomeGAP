@@ -172,19 +172,19 @@ class NodeCertificateTest {
             .jsonObject["targets"]!!
             .jsonArray
             .map { it.jsonObject }
-        // A passthrough name goes over the mesh, so its check has the address. Pangolin has the other.
+        // Each name goes over the mesh, so each check has the address and none goes through Pangolin.
         val frontDoorPort = desired.publicResources.single { it.niceId == Planner.FRONTDOOR_TCP }.proxyPort
-        val overMesh = targets.mapNotNull { it["address"]?.jsonPrimitive?.content }
-        assertTrue("10.77.0.1:$frontDoorPort" in overMesh, targets.toString())
-        assertTrue(
-            targets.any { it["service_suffix"]?.jsonPrimitive?.content == "-hg-wiki-test-example-net-service" },
-            targets.toString(),
-        )
-        // Before Pangolin has a resource, the page covers only the names that go over the mesh.
+        val wikiPort = desired.httpResources.single { it.niceId == "hg-wiki-test-example-net" }.meshPort
+        val overMesh = targets.associate { it["sni"]!!.jsonPrimitive.content to it["address"]?.jsonPrimitive?.content }
+        assertEquals("10.77.0.1:$frontDoorPort", overMesh["test.example.net"], targets.toString())
+        assertEquals("http://10.77.0.1:$wikiPort", overMesh["wiki.test.example.net"], targets.toString())
+        assertTrue(targets.none { "service_suffix" in it }, targets.toString())
+        // The checks do not wait for Pangolin: they are the same before it has a resource.
         val early = Json.parseToJsonElement(MaintenancePage.probes(desired, emptyMap()))
             .jsonObject["targets"]!!
             .jsonArray
-        assertTrue(early.isNotEmpty() && early.all { "address" in it.jsonObject })
+            .map { it.jsonObject }
+        assertEquals(targets, early)
         assertTrue("homegap-frontdoor-unreachable" in MaintenancePage.routes(desired, emptyMap()))
         // With the page off for the only terminated service and no shared name, the page covers nothing.
         val wikiWithoutPage = container(

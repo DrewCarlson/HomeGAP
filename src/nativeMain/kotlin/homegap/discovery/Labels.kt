@@ -313,7 +313,7 @@ private class LabelParser(
         val healthcheck = healthcheck()
 
         val tls = effectiveTls(protocol, declaredTls)
-        checkTlsRules(protocol, tls, auth, wildcard)
+        checkServiceRules(protocol, auth, wildcard)
         val maintenancePage = maintenancePage(protocol, tls)
         checkServiceRules(protocol, auth, wildcard, publicPort)
         checkReservedPorts(access, ports)
@@ -541,7 +541,7 @@ private class LabelParser(
         return TlsMode.TERMINATE
     }
 
-    private fun checkTlsRules(protocol: Protocol, tls: TlsMode, auth: AuthMode, wildcard: Boolean) {
+    private fun checkServiceRules(protocol: Protocol, auth: AuthMode, wildcard: Boolean) {
         if (protocol.isRaw) {
             if (wildcard) {
                 errors += "${Labels.WILDCARD} is only valid for http/https services"
@@ -550,9 +550,9 @@ private class LabelParser(
                 warnings += "${Labels.TLS} has no effect on raw ${protocol.label} services"
             }
         }
-        if (auth != AuthMode.NONE && tls != TlsMode.TERMINATE) {
-            errors += "${Labels.AUTH}=${auth.label} requires ${Labels.TLS}=terminate " +
-                "(the node cannot authenticate encrypted traffic)"
+        if (auth != AuthMode.NONE) {
+            errors += "${Labels.AUTH}=${auth.label} is not available: a node has no sign-in for a service. " +
+                "Use a forward-auth middleware on your Traefik, such as Authelia"
         }
     }
 

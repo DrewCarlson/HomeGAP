@@ -25,10 +25,12 @@ class PlannerTest {
             "pangolin-na1.test.example.net" in route.excludeHosts,
             "management host must not be swallowed by the wildcard",
         )
-        // The health resource probes the front door through the tunnel.
-        val health = node.publicResources.single { it.niceId == Planner.HEALTH }
+        // The health resource probes the front door over the mesh. Pangolin does not get it.
+        val health = node.httpResources.single { it.niceId == Planner.HEALTH }
         assertEquals("https", health.target.method)
         assertEquals("test.example.net", health.hostHeader)
+        assertTrue(health.meshPort!! in 45000 until 50000)
+        assertEquals(listOf(Planner.FRONTDOOR_TCP), node.publicResources.map { it.niceId })
         assertTrue(node.rawPorts.isEmpty())
     }
 
@@ -42,13 +44,13 @@ class PlannerTest {
             "homegap.tls" to "terminate",
         )
         val node = Planner.plan(config, listOf(terminate)).nodes.getValue("na1")
-        val domains = node.publicResources
-            .filter { it.mode == ResourceMode.HTTP && it.niceId != Planner.HEALTH }
-            .map { it.fullDomain }
-            .toSet()
-        assertEquals(setOf("test.example.net", "*.test.example.net"), domains)
+        val resources = node.httpResources.filter { it.niceId != Planner.HEALTH }
+        assertEquals(setOf("test.example.net", "*.test.example.net"), resources.map { it.fullDomain }.toSet())
         assertTrue(node.sniRoutes.isEmpty())
-        assertTrue(node.publicResources.filter { it.niceId != Planner.HEALTH }.all { it.target.method == "https" })
+        assertTrue(resources.all { it.mode == ResourceMode.HTTP && it.target.method == "https" })
+        val meshPorts = node.httpResources.map { it.meshPort }
+        assertTrue(meshPorts.all { it != null } && meshPorts.distinct().size == meshPorts.size, meshPorts.toString())
+        assertTrue(node.publicResources.isEmpty(), "Pangolin gets no HTTP resource")
     }
 
     @Test
@@ -56,9 +58,11 @@ class PlannerTest {
         val wiki = container("wiki", "homegap.expose" to "wiki.test.example.net", "homegap.port" to "8080")
         val node = Planner.plan(config, listOf(TRAEFIK, wiki)).nodes.getValue("na1")
         assertTrue("wiki.test.example.net" in node.sniRoutes.single().excludeHosts)
-        val resource = node.publicResources.single { it.fullDomain == "wiki.test.example.net" }
+        val resource = node.httpResources.single { it.fullDomain == "wiki.test.example.net" }
         assertEquals("http", resource.target.method)
         assertEquals("wiki", resource.target.host)
+        assertTrue(resource.meshPort != null, "the node sends the name over the mesh")
+        assertTrue(node.publicResources.none { it.fullDomain == "wiki.test.example.net" }, "not in Pangolin")
     }
 
     @Test

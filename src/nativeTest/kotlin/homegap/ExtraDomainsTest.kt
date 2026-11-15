@@ -86,8 +86,10 @@ class ExtraDomainsTest {
         assertEquals("homegap.expose 'app.unknown.example' is outside the managed domains $managed", refusal)
 
         val node = plan.nodes.getValue("na1")
-        val resource = node.publicResources.single { it.fullDomain == "shop.other.example.org" }
+        val resource = node.httpResources.single { it.fullDomain == "shop.other.example.org" }
         assertEquals(ResourceMode.HTTP, resource.mode)
+        assertTrue(resource.meshPort != null, "the node sends the name over the mesh")
+        assertTrue(node.publicResources.none { it.fullDomain == "shop.other.example.org" }, "not in Pangolin")
         val records = plan.dns.filter { it.fqdn == "shop.other.example.org" }
         assertEquals(setOf("shop"), records.map { it.name }.toSet(), "the name is relative to the zone of its domain")
         assertTrue("shop.other.example.org" in CertNames.of(config, plan))
@@ -102,7 +104,7 @@ class ExtraDomainsTest {
         assertTrue(plan.labelErrors.isEmpty(), plan.labelErrors.toString())
 
         val node = plan.nodes.getValue("na1")
-        val terminated = node.publicResources.filter { it.mode == ResourceMode.HTTP }.mapNotNull { it.fullDomain }
+        val terminated = node.httpResources.mapNotNull { it.fullDomain }
         assertTrue("other.example.org" in terminated && "*.other.example.org" in terminated, terminated.toString())
 
         val appsRoute = node.sniRoutes.single { it.wildcardOf == "apps.example.io" }

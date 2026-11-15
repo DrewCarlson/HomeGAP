@@ -74,10 +74,10 @@ class TemplatesTest {
     }
 
     @Test
-    fun dynamicRoutesSendPassthroughOverTheMeshAndHealthThroughPangolin() {
+    fun dynamicRoutesSendPassthroughAndHealthOverTheMesh() {
         val plan = Planner.plan(config, listOf(TRAEFIK))
         val desired = plan.nodes.getValue("na1")
-        val ids = mapOf(Planner.FRONTDOOR_TCP to 7, Planner.HEALTH to 9)
+        val ids = mapOf(Planner.FRONTDOOR_TCP to 7)
         val yaml = NodeTemplates.dynamicRoutes(desired, ids)
         val tree = ResourceReconciler.yamlToJson(yaml).jsonObject
         val tcp = tree["tcp"]!!.jsonObject["routers"]!!.jsonObject["homegap-frontdoor"]!!.jsonObject
@@ -88,14 +88,22 @@ class TemplatesTest {
         val service = tree["tcp"]!!.jsonObject["services"]!!.jsonObject["homegap-mesh-hg-frontdoor"]!!.toString()
         assertTrue("10.77.0.1:$port" in service, service)
         val http = tree["http"]!!.jsonObject["routers"]!!.jsonObject
-        assertEquals("9-hg-health-service@http", http["homegap-health"]!!.jsonObject["service"]!!.jsonPrimitive.content)
+        // The health check goes to the port of the health resource on the same address.
+        assertEquals("homegap-mesh-hg-health", http["homegap-health"]!!.jsonObject["service"]!!.jsonPrimitive.content)
+        val healthPort = desired.httpResources.single { it.niceId == Planner.HEALTH }.meshPort
+        val healthService = tree["http"]!!.jsonObject["services"]!!.jsonObject["homegap-mesh-hg-health"]!!.jsonObject
+        val healthServers = healthService["loadBalancer"]!!.jsonObject["servers"]!!.jsonArray
+        val healthUrl = healthServers.single().jsonObject["url"]!!.jsonPrimitive.content
+        assertEquals("https://10.77.0.1:$healthPort", healthUrl)
+        assertFalse("homegap-http-hg-health" in http, "the health resource has no public name")
         assertTrue("homegap-health-fallback" in http)
         assertTrue("homegap-mgmt-api" in http)
         assertFalse("homegap-mgmt-ui" in http, "node dashboards stay private by default")
-        // The passthrough router does not wait for Pangolin. The health router does.
+        // Neither router waits for Pangolin.
         val early = ResourceReconciler.yamlToJson(NodeTemplates.dynamicRoutes(desired, emptyMap())).jsonObject
         assertTrue("homegap-frontdoor" in early["tcp"]!!.jsonObject["routers"]!!.jsonObject)
-        assertFalse("homegap-health" in early["http"]!!.jsonObject["routers"]!!.jsonObject)
+        val earlyHealth = early["http"]!!.jsonObject["routers"]!!.jsonObject["homegap-health"]!!.jsonObject
+        assertEquals("homegap-mesh-hg-health", earlyHealth["service"]!!.jsonPrimitive.content)
     }
 
     @Test

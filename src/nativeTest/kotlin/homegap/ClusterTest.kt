@@ -360,7 +360,11 @@ class ClusterTest {
             .mapKeys { it.key.niceId }
         assertEquals(listOf("homelab-na1", "homelab-as1"), public.getValue(Planner.FRONTDOOR_TCP))
         assertEquals(listOf("homelab-as1"), public.getValue("hg-git-test-example-net"), "regions limit the targets")
-        assertEquals(listOf("homelab-na1"), public.getValue("hg-health-na1"))
+        // The health check of a node goes over the mesh, so Pangolin gets no resource for it.
+        assertFalse("hg-health-na1" in public, public.keys.toString())
+        val health = plan.nodes.getValue("na1").httpResources.single { it.niceId == "hg-health-na1" }
+        assertTrue(health.meshPort != null, "the health resource has a port on the mesh")
+        assertTrue(plan.nodes.getValue("as1").httpResources.none { it.niceId == "hg-health-na1" })
 
         val privateByNode = plan.nodes.mapValues { it.value.privateResources }
         val private = ResourceReconciler.clusterResources(privateByNode, sites) { it.niceId }

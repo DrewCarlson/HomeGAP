@@ -63,7 +63,7 @@ class StatusPageTest {
     }
 
     @Test
-    fun terminateModeGetsAPublicResourcePerNode() {
+    fun terminateModeGetsAnHttpResourcePerNode() {
         val frontDoor = container(
             "traefik",
             "homegap.expose" to "test.example.net",
@@ -71,13 +71,12 @@ class StatusPageTest {
             "homegap.protocol" to "https",
             "homegap.tls" to "terminate",
         )
-        val resource = Planner.plan(config, listOf(frontDoor))
-            .nodes
-            .getValue("na1")
-            .publicResources
-            .single { it.niceId == Planner.STATUS }
+        val node = Planner.plan(config, listOf(frontDoor)).nodes.getValue("na1")
+        val resource = node.httpResources.single { it.niceId == Planner.STATUS }
         assertEquals("status-na1.test.example.net", resource.fullDomain)
         assertEquals(AuthMode.NONE, resource.auth)
+        assertNotNull(resource.meshPort, "the node sends the name over the mesh")
+        assertTrue(node.publicResources.none { it.niceId == Planner.STATUS }, "not in Pangolin")
     }
 
     @Test

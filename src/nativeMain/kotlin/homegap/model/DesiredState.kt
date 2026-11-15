@@ -55,6 +55,11 @@ data class NodeDesired(
      * mesh. Pangolin and the Traefik of the node have no part in them.
      */
     val forwardedResources: List<PublicResource> = emptyList(),
+    /**
+     * The HTTP resources: the names that the node ends TLS for, and the health check. The Traefik
+     * of the node sends each to its [PublicResource.meshPort] on the mesh address of the homelab.
+     */
+    val httpResources: List<PublicResource> = emptyList(),
     /** The SNI passthrough routes of the node's Traefik on :443 (file provider). */
     val sniRoutes: List<SniRoute>,
     /** The hostnames whose plain HTTP (:80) requests the node redirects to HTTPS. */
@@ -96,6 +101,20 @@ data class NodeDesired(
         return resource.proxyPort?.let { MeshTarget("$home:$it", resource.proxyProtocol) }
     }
 
+    /** Each resource that the node serves to the public, in each of the three lists. */
+    val resources: List<PublicResource>
+        get() = buildList {
+            addAll(publicResources)
+            addAll(httpResources)
+            addAll(forwardedResources)
+        }
+
+    /** The URL of [resource] (one of the [httpResources]) on the mesh, or null if it has no port there. */
+    fun meshUrl(resource: PublicResource): String? {
+        val home = meshHome ?: return null
+        return resource.meshPort?.let { "${resource.target.method ?: "http"}://$home:$it" }
+    }
+
     /** The raw ports that the node forwards in the kernel. */
     val forwardedPorts: List<RawPort>
         get() = forwardedResources.mapNotNull { resource ->
@@ -135,6 +154,8 @@ data class PublicResource(
     val paused: Boolean = false,
     /** TCP only: the node prepends a PROXY protocol v2 header with the viewer's address. */
     val proxyProtocol: Boolean = false,
+    /** HTTP only: the port of the mesh address of the homelab that goes to the [target]. */
+    val meshPort: Int? = null,
 )
 
 data class PrivateResource(
@@ -254,7 +275,7 @@ object Planner {
             labelErrors = errors,
             labelWarnings = resolver.warnings,
             frontDoor = doors.primary,
-            nodes = if (config.cluster != null) sharePassthroughPorts(config, planned) else planned,
+            nodes = withMeshPorts(config, sharePassthroughPorts(config, planned)),
             dns = planDns(config, activeNodes, services, doors),
             extraFrontDoors = doors.extras,
         )
@@ -814,10 +835,12 @@ object Planner {
                 ports[resource.niceId]?.let { resource.copy(proxyPort = it) } ?: resource
             }
             val health = healthTarget?.let { healthResource(it) }
+            val (http, streams) = (withPorts + listOfNotNull(health)).partition { it.mode == ResourceMode.HTTP }
             return NodeDesired(
                 node = node,
                 managementHost = managementHost,
-                publicResources = (withPorts + listOfNotNull(health)).sortedBy { it.niceId },
+                publicResources = streams.sortedBy { it.niceId },
+                httpResources = http.sortedBy { it.niceId },
                 privateResources = privateResources.sortedBy { it.niceId },
                 forwardedResources = forwardedResources.sortedBy { it.niceId },
                 sniRoutes = sniRoutes.sortedBy { it.name },
@@ -1083,8 +1106,9 @@ object Planner {
     // ------------------------------------------------------------------ passthrough ports
 
     /**
-     * In a cluster every node serves one shared resource per passthrough service, so its internal
-     * proxy port must be the same on every node: allocated over all nodes' keys and raw ports.
+     * Each node sends the stream of a passthrough service to the same address, the mesh address of
+     * the homelab. So the port of the service must be the same on every node, and two services
+     * must not get one port: allocated over all nodes' keys and raw ports.
      */
     private fun sharePassthroughPorts(config: AppConfig, nodes: Map<String, NodeDesired>): Map<String, NodeDesired> {
         val keys = nodes.values.flatMap { node -> node.sniRoutes.map { it.resourceNiceId } }
@@ -1094,6 +1118,19 @@ object Planner {
             node.copy(publicResources = node.publicResources.map { resource ->
                 ports[resource.niceId]?.let { resource.copy(proxyPort = it) } ?: resource
             })
+        }
+    }
+
+    /**
+     * Gives each HTTP resource its port on the mesh address of the homelab. The ports are in the
+     * window above the passthrough ports, and one allocation covers all the nodes.
+     */
+    private fun withMeshPorts(config: AppConfig, nodes: Map<String, NodeDesired>): Map<String, NodeDesired> {
+        val keys = nodes.values.flatMap { node -> node.httpResources.map { it.niceId } }
+        val avoid = nodes.values.flatMap { node -> node.rawPorts.map { it.port } }.toSet()
+        val ports = allocatePorts(keys, config.pangolin.passthroughPortBase + PORT_WINDOW, avoid)
+        return nodes.mapValues { (_, node) ->
+            node.copy(httpResources = node.httpResources.map { it.copy(meshPort = ports[it.niceId]) })
         }
     }
 

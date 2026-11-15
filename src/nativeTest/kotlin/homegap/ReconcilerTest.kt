@@ -5,6 +5,7 @@ import homegap.clients.BunnyRecord
 import homegap.clients.DnsWire
 import homegap.clients.PangolinClient
 import homegap.clients.SshPool
+import homegap.discovery.AuthMode
 import homegap.model.DesiredDnsRecord
 import homegap.model.Planner
 import homegap.platform.runCatchingCancellable
@@ -205,8 +206,6 @@ class ReconcilerTest {
             "wiki",
             "homegap.expose" to "wiki.test.example.net",
             "homegap.port" to "8080",
-            "homegap.auth" to "sso",
-            "homegap.roles" to "Member",
             "homegap.healthcheck" to "/healthz",
         )
         val ssh = container(
@@ -217,12 +216,18 @@ class ReconcilerTest {
             "homegap.access" to "private",
         )
         val node = Planner.plan(ctx.config, listOf(TRAEFIK, wiki, ssh)).nodes.getValue("na1")
-        val blueprint = ResourceReconciler(ctx).buildBlueprint(node.publicResources, node.privateResources)
+        val reconciler = ResourceReconciler(ctx)
+        val blueprint = reconciler.buildBlueprint(node.publicResources, node.privateResources)
         val publicResources = blueprint["public-resources"]!!.jsonObject
+        assertEquals(setOf("hg-frontdoor"), publicResources.keys, "Pangolin gets no HTTP resource of the plan")
         val frontDoor = publicResources["hg-frontdoor"]!!.jsonObject
         assertEquals("tcp", frontDoor["mode"]!!.jsonPrimitive.content)
         assertNull(frontDoor["targets"]!!.jsonArray[0].jsonObject["method"], "tcp targets must not carry a method")
-        val wikiResource = publicResources["hg-wiki-test-example-net"]!!.jsonObject
+        // The planner makes no HTTP resource with a sign-in for Pangolin. The blueprint still has the shape of one.
+        val planned = node.httpResources.single { it.niceId == "hg-wiki-test-example-net" }
+        val withSignIn = planned.copy(auth = AuthMode.SSO, roles = listOf("Member"))
+        val httpBlueprint = reconciler.buildBlueprint(listOf(withSignIn), emptyList())
+        val wikiResource = httpBlueprint["public-resources"]!!.jsonObject["hg-wiki-test-example-net"]!!.jsonObject
         assertEquals("wiki.test.example.net", wikiResource["full-domain"]!!.jsonPrimitive.content)
         assertEquals(true, wikiResource["auth"]!!.jsonObject["sso-enabled"]!!.jsonPrimitive.boolean)
         val healthcheck = wikiResource["targets"]!!.jsonArray[0].jsonObject["healthcheck"]!!.jsonObject

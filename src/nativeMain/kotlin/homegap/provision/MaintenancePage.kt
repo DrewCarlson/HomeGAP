@@ -2,7 +2,6 @@ package homegap.provision
 
 import homegap.brand.Brand
 import homegap.model.NodeDesired
-import homegap.model.ResourceMode
 import homegap.model.SniRoute
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
@@ -87,11 +86,11 @@ object MaintenancePage {
                 ?: route.wildcardOf?.let { "homegap-probe.$it" }
             sni?.let { Probe(route.resourceNiceId, it, desired.meshTarget(route)?.address) }
         }
-        val terminated = desired.publicResources
-            .filter { it.mode == ResourceMode.HTTP && it.ssl && it.fullDomain != null }
+        val terminated = desired.httpResources
+            .filter { it.ssl && it.fullDomain != null }
             .map { resource ->
                 val sni = resource.tlsServerName ?: resource.fullDomain!!.replace("*.", "homegap-probe.")
-                Probe(resource.niceId, sni, address = null)
+                Probe(resource.niceId, sni, desired.meshUrl(resource))
             }
         return (passthrough + terminated).filter { it.address != null || resourceIds[it.niceId] != null }
     }

@@ -66,20 +66,24 @@ class LabelsTest {
     }
 
     @Test
-    fun authNeedsTerminate() {
+    fun authIsNotAvailableInAnyTlsMode() {
         val passthrough = parse(
             "homegap.expose" to "a.test.example.net",
             "homegap.protocol" to "https",
             "homegap.auth" to "sso",
         )
-        assertTrue(passthrough.errors.any { "requires homegap.tls=terminate" in it })
+        assertTrue(passthrough.errors.any { "homegap.auth=sso is not available" in it }, passthrough.errors.toString())
         val terminate = parse(
             "homegap.expose" to "a.test.example.net",
             "homegap.protocol" to "https",
             "homegap.tls" to "terminate",
             "homegap.auth" to "sso",
         )
-        assertNotNull(terminate.spec)
+        assertTrue(terminate.errors.any { "homegap.auth=sso is not available" in it }, terminate.errors.toString())
+        val pin = parse("homegap.expose" to "a.test.example.net", "homegap.auth" to "pin")
+        assertTrue(pin.errors.any { "homegap.auth=pin is not available" in it }, pin.errors.toString())
+        val none = parse("homegap.expose" to "a.test.example.net", "homegap.auth" to "none")
+        assertTrue(none.errors.isEmpty(), none.errors.toString())
     }
 
     @Test

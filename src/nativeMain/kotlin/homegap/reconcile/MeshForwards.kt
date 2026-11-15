@@ -10,8 +10,8 @@ import homegap.provision.Mesh
 /**
  * What the mesh forwards for the plan.
  *
- * The homelab end has one port of its mesh address for each raw TCP or UDP resource, to the
- * target of the resource. A node sends the traffic of the resource to that port: the Traefik of
+ * The homelab end has one port of its mesh address for each resource, to the target of the
+ * resource. A node sends the traffic of the resource to that port: the Traefik of
  * the node for a resource of Pangolin, and the kernel of the node for a forwarded resource.
  *
  * The target of a forward is an address. The orchestrator knows the address of each container
@@ -30,12 +30,12 @@ object MeshForwards {
 
     fun of(plan: DesiredState, containers: List<DockerContainerSummary>): Result {
         val addresses = addresses(plan, containers)
-        val wanted = plan.nodes.values.flatMap { it.publicResources + it.forwardedResources }
-            .filter { it.mode != ResourceMode.HTTP && it.proxyPort != null && !it.paused }
-            .distinctBy { it.mode to it.proxyPort }
+        val wanted = plan.nodes.values.flatMap { it.resources }
+            .filter { portOf(it) != null && !it.paused }
+            .distinctBy { protocolOf(it) to portOf(it) }
         val forwards = wanted.mapNotNull { resource ->
             addressOf(resource, addresses)?.let { address ->
-                Mesh.Forward(resource.mode.wire, resource.proxyPort!!, "$address:${resource.target.port}")
+                Mesh.Forward(protocolOf(resource), portOf(resource)!!, "$address:${resource.target.port}")
             }
         }
         return Result(
@@ -44,6 +44,13 @@ object MeshForwards {
             unknown = wanted.filter { addressOf(it, addresses) == null }.map { it.target.host }.distinct(),
         )
     }
+
+    private fun portOf(resource: PublicResource): Int? =
+        if (resource.mode == ResourceMode.HTTP) resource.meshPort else resource.proxyPort
+
+    /** An HTTP resource is a TCP forward. */
+    private fun protocolOf(resource: PublicResource): String =
+        if (resource.mode == ResourceMode.UDP) ResourceMode.UDP.wire else ResourceMode.TCP.wire
 
     private fun addressOf(resource: PublicResource, addresses: Map<String, String>): String? {
         val host = resource.target.host

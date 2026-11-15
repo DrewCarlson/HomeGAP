@@ -5,6 +5,7 @@ import homegap.config.NodeConfig
 import homegap.discovery.slug
 import homegap.model.MeshTarget
 import homegap.model.NodeDesired
+import homegap.model.PublicResource
 import homegap.model.RawPort
 import homegap.model.SniRoute
 import homegap.reconcile.TunnelSlots
@@ -62,6 +63,9 @@ object NodeTemplates {
     const val PROXY_PROTOCOL_VERSION = 2
     const val PROXY_PROTOCOL_TRANSPORT = "pp-transport-v$PROXY_PROTOCOL_VERSION"
 
+    private const val HTTPS = "https"
+    private const val WILDCARD = "*."
+
     /** The transport of the streams over the mesh. Pangolin has its own with the other name. */
     private const val MESH_PROXY_TRANSPORT = "homegap-mesh-proxy"
     const val DYNAMIC_TLS = "config/traefik/dynamic/homegap-tls.yml"
@@ -112,6 +116,8 @@ object NodeTemplates {
     // Router priorities. A higher number wins.
     private const val TOP_PRIORITY = 10000
     private const val UI_PRIORITY = 9999
+    private const val RESOURCE_PRIORITY = 100
+    private const val WILDCARD_PRIORITY = 90
     private const val HEALTH_PRIORITY = 60
     private const val HEALTH_FALLBACK_PRIORITY = 50
     private const val HTTPS_REDIRECT_PRIORITY = 10
@@ -656,6 +662,7 @@ object NodeTemplates {
         val misdirected = misdirectedRule(sniRoutes.map { it.route }, ownNames(desired))
         val sharedNames = sharedNamesOf(desired)
         val proxyTransport = !cluster && desired.publicResources.any { it.proxyProtocol }
+        val overMesh = desired.httpResources.filter { desired.meshUrl(it) != null && !it.paused }
         val root = buildJsonObject {
             if (misdirected != null) {
                 putJsonObject("tls") {
@@ -665,25 +672,34 @@ object NodeTemplates {
                 }
             }
             putJsonObject("http") {
-                putJsonObject("middlewares") { httpMiddlewares(desired, sharedNames) }
+                putJsonObject("middlewares") {
+                    httpMiddlewares(desired, sharedNames)
+                    overMesh.forEach { hostHeaderMiddleware(it) }
+                }
                 putJsonObject("routers") {
                     misdirected?.let { misdirectedRouter(it) }
                     pangolinRouters(desired)
                     sharedNames.forEach { sharedNameRouters(it) }
+                    overMesh.forEach { resourceRouter(it) }
                     redirectRouter("homegap-mgmt-redirect", "Host(`${desired.managementHost}`)", TOP_PRIORITY)
                     httpsRedirectRouter(desired)
-                    healthRouters(desired, resourceIds, cluster)
+                    healthRouters(desired, overMesh)
                 }
                 putJsonObject("services") {
                     for (shared in sharedNames) {
                         putJsonObject(shared.key) { selfLoadBalancer(shared.key) }
                     }
+                    for (resource in overMesh) {
+                        putJsonObject(meshService(resource.niceId)) { meshLoadBalancer(desired, resource) }
+                    }
                     putJsonObject(PANGOLIN_API) { loadBalancer("http://pangolin:3000") }
                     putJsonObject(PANGOLIN_NEXT) { loadBalancer("http://pangolin:3002") }
                     putJsonObject(UNAVAILABLE) { loadBalancer("http://127.0.0.1:9") }
                 }
-                if (sharedNames.isNotEmpty()) {
+                val encrypted = overMesh.filter { it.target.method == HTTPS }
+                if (sharedNames.isNotEmpty() || encrypted.isNotEmpty()) {
                     putJsonObject("serversTransports") {
+                        encrypted.forEach { meshTransport(it) }
                         for (shared in sharedNames) {
                             putJsonObject(shared.key) {
                                 put("serverName", shared.own)
@@ -800,20 +816,66 @@ object NodeTemplates {
         }
     }
 
+    /**
+     * The router of an HTTP resource. The node ends TLS for the name and sends the request to the
+     * port of the resource on the mesh. A wildcard has a lower priority, so the service of an exact
+     * name under it answers that name.
+     */
+    private fun JsonObjectBuilder.resourceRouter(resource: PublicResource) {
+        val domain = resource.fullDomain?.takeIf { resource.ssl } ?: return
+        val wildcard = domain.startsWith(WILDCARD)
+        val route = HttpRoute(
+            rule = if (wildcard) "HostRegexp(`${wildcardRegex(domain.removePrefix(WILDCARD))}`)" else "Host(`$domain`)",
+            service = meshService(resource.niceId),
+            priority = if (wildcard) WILDCARD_PRIORITY else RESOURCE_PRIORITY,
+            middlewares = listOfNotNull(hostHeaderName(resource)),
+        )
+        httpsRouter("homegap-http-${resource.niceId}", route)
+    }
+
+    private fun hostHeaderName(resource: PublicResource): String? =
+        resource.hostHeader?.let { "homegap-host-${resource.niceId}" }
+
+    /** The service of the homelab gets the request with the Host header that it expects. */
+    private fun JsonObjectBuilder.hostHeaderMiddleware(resource: PublicResource) {
+        val name = hostHeaderName(resource) ?: return
+        putJsonObject(name) {
+            putJsonObject("headers") { putJsonObject("customRequestHeaders") { put("Host", resource.hostHeader) } }
+        }
+    }
+
+    private fun JsonObjectBuilder.meshLoadBalancer(desired: NodeDesired, resource: PublicResource) {
+        putJsonObject("loadBalancer") {
+            putJsonArray("servers") { addJsonObject { put("url", desired.meshUrl(resource)) } }
+            if (resource.target.method == HTTPS) put("serversTransport", meshService(resource.niceId))
+        }
+    }
+
+    /**
+     * The transport to a service of the homelab that speaks HTTPS. The hop is inside the mesh, and
+     * the service often has a certificate for a different name, so the node does not check it.
+     */
+    private fun JsonObjectBuilder.meshTransport(resource: PublicResource) {
+        putJsonObject(meshService(resource.niceId)) {
+            val name = resource.tlsServerName ?: resource.fullDomain?.takeIf { !it.startsWith(WILDCARD) }
+            name?.let { put("serverName", it) }
+            put("insecureSkipVerify", true)
+        }
+    }
+
     /** The health endpoint on the IP addresses of the node, on port 80. */
-    private fun JsonObjectBuilder.healthRouters(desired: NodeDesired, resourceIds: Map<String, Int>, cluster: Boolean) {
+    private fun JsonObjectBuilder.healthRouters(desired: NodeDesired, overMesh: List<PublicResource>) {
         val node = desired.node
         val ipHosts = listOfNotNull(node.ipv4(), node.publicIpv6?.let { "[$it]" })
         if (ipHosts.isEmpty()) return
         val ipRule = ipHosts.joinToString(" || ") { "Host(`$it`)" }
-        val healthNiceId = desired.healthResourceNiceId
-        val healthId = healthNiceId?.let { resourceIds[it] }
-        if (healthNiceId != null && healthId != null) {
+        val target = overMesh.firstOrNull { it.niceId == desired.healthResourceNiceId }
+        if (target != null) {
             val health = HttpRoute(
                 rule = ipRule,
-                service = pangolinService(healthId, healthNiceId, cluster),
+                service = meshService(target.niceId),
                 priority = HEALTH_PRIORITY,
-                middlewares = listOf(HEALTH_PATH),
+                middlewares = listOfNotNull(HEALTH_PATH, hostHeaderName(target)),
             )
             httpRouter("homegap-health", health)
         }
@@ -825,7 +887,9 @@ object NodeTemplates {
     /** A passthrough route and its service. [mesh] is null for a service that Pangolin makes. */
     private class Stream(val route: SniRoute, val service: String, val mesh: MeshTarget?)
 
-    private fun meshService(route: SniRoute) = "homegap-mesh-${route.resourceNiceId}"
+    private fun meshService(route: SniRoute) = meshService(route.resourceNiceId)
+
+    private fun meshService(niceId: String) = "homegap-mesh-$niceId"
 
     private fun JsonObjectBuilder.tcpRoutes(streams: List<Stream>, proxyTransport: Boolean) {
         val overMesh = streams.filter { it.mesh != null }.distinctBy { it.service }

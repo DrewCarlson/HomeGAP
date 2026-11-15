@@ -1329,7 +1329,12 @@ class Controller(
             val wanted = nodePlan.publicResources
                 .filter { it.serviceKey == service.key && !Planner.isHealth(it.niceId) }
             val privateWanted = nodePlan.privateResources.filter { it.serviceKey == service.key }
-            if (wanted.isEmpty() && privateWanted.isEmpty()) continue
+            if (wanted.isEmpty() && privateWanted.isEmpty()) {
+                val overMesh = (nodePlan.forwardedResources + nodePlan.httpResources)
+                    .any { it.serviceKey == service.key && !Planner.isHealth(it.niceId) }
+                if (overMesh) healthByService[service.key] = meshHealth(nodeId)
+                continue
+            }
             val actual = wanted.mapNotNull { byNiceId[it.niceId] }
             healthByService[service.key] = when {
                 site?.online == false -> ServiceNodeHealthDto(nodeId, Health.DOWN, "tunnel down")
@@ -1345,6 +1350,16 @@ class Controller(
             }
         }
         return healthByService
+    }
+
+    /** The health of a service that reaches the homelab only over the mesh: the state of the mesh of the node. */
+    private fun meshHealth(nodeId: String): ServiceNodeHealthDto {
+        val member = meshStatus?.members?.firstOrNull { it.id == nodeId }
+        return when {
+            member == null -> ServiceNodeHealthDto(nodeId, Health.UNKNOWN, "")
+            member.error != null -> ServiceNodeHealthDto(nodeId, Health.DOWN, "mesh down")
+            else -> ServiceNodeHealthDto(nodeId, Health.OK, "over the mesh")
+        }
     }
 
     /** Reads the state of the controller, so only code on the loop calls it. See [status]. */
@@ -1380,7 +1395,7 @@ class Controller(
                 nodes = stored.pauses.nodes.sorted(),
                 services = stored.pauses.services.sorted(),
             ),
-            mesh = meshStatus.takeIf { cfg.cluster != null },
+            mesh = meshStatus,
             cluster = clusterStatus.takeIf { cfg.cluster != null },
             homelab = cfg.homelab.location?.let { PlaceDto(it.latitude, it.longitude, it.name) },
             homelabIsolation = isolation?.let { (start, end) -> IsolationDto(start, end) },
