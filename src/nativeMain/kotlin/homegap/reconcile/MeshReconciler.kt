@@ -39,7 +39,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         val members: List<NodeConfig>,
         val addresses: Map<String, String>,
         val homelabKey: String?,
-        val forwards: List<Mesh.Forward>,
+        val forwards: MeshForwards.Result,
     ) {
         val homelabAddress = Mesh.homelabAddress(mesh)
         val memberIds = members.map { it.id }.toSet()
@@ -80,7 +80,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         ctx: ReconcileContext,
         nodes: List<NodeConfig>,
         slots: Map<String, Int>,
-        forwards: List<Mesh.Forward>,
+        forwards: MeshForwards.Result,
     ): MeshStatusDto {
         val mesh = ctx.config.mesh
         val members = nodes.filter { ctx.state.node(it.id).teardownError == null && slots[it.id] != null }
@@ -148,12 +148,17 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         val address = layout.addressOf(node)
         val setup = when {
             ctx.nodePaused(node.id) -> READ_ONLY
-            else -> Mesh.nodeScript(
-                mesh = layout.mesh,
-                address = address,
-                config = Mesh.nodeConfig(layout.mesh, address, peersOf(ctx, layout, node.id)),
-                openFirewall = node.firewall,
-            )
+            else -> {
+                val ports = layout.forwards.nodePorts[node.id].orEmpty()
+                val forwards = Mesh.forwardStep(Mesh.forwardScript(layout.homelabAddress, ports))
+                val mesh = Mesh.nodeScript(
+                    mesh = layout.mesh,
+                    address = address,
+                    config = Mesh.nodeConfig(layout.mesh, address, peersOf(ctx, layout, node.id)),
+                    openFirewall = node.firewall,
+                )
+                "$forwards\n$mesh"
+            }
         }
         val probes = listOf(
             "echo $PROBE_BEGIN",
@@ -204,7 +209,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     private suspend fun configureHomelab(ctx: ReconcileContext, layout: Layout): MemberState {
         val peers = runCatchingCancellable {
-            homelab.apply(layout.mesh, layout.homelabAddress, peersOf(ctx, layout, Mesh.HOMELAB), layout.forwards)
+            homelab.apply(layout.mesh, layout.homelabAddress, peersOf(ctx, layout, Mesh.HOMELAB), layout.forwards.homelab)
             homelab.peers()
         }
         val error = peers.exceptionOrNull()?.let { it.message ?: it.toString() }

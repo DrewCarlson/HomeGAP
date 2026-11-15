@@ -620,7 +620,7 @@ class NodeReconciler(
             config = ctx.config,
             node = node,
             secrets = secrets,
-            rawPorts = desired.rawPorts,
+            rawPorts = desired.traefikPorts,
             slot = slot,
             cluster = link,
         )

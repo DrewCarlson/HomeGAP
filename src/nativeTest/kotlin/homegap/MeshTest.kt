@@ -3,6 +3,7 @@ package homegap
 import homegap.config.ClusterConfig
 import homegap.config.ConfigLoader
 import homegap.config.MeshConfig
+import homegap.model.RawPort
 import homegap.config.NodeConfig
 import homegap.provision.FirewallRules
 import homegap.provision.Mesh
@@ -136,5 +137,21 @@ class MeshTest {
     fun aSpecWithNoForwardsKeepsTheNamespaceClosed() {
         val spec = Mesh.AgentSpec("10.77.0.0/24", 51821, "10.77.0.1", emptyList(), emptyList())
         assertFalse("DNAT --to-destination" in Mesh.firewallRules(spec))
+    }
+
+    @Test
+    fun nodeForwardsItsRawPortsToTheHomelabOverTheMesh() {
+        val script = Mesh.forwardScript("10.77.0.1", listOf(RawPort(3478, "udp"), RawPort(22, "tcp")))
+        val toHome = "-A HG-RAW ! -i hg-mesh -p tcp -m addrtype --dst-type LOCAL --dport 22 -j DNAT --to-destination 10.77.0.1:22"
+        assertTrue(toHome in script)
+        assertTrue("-p udp -m addrtype --dst-type LOCAL --dport 3478 -j DNAT --to-destination 10.77.0.1:3478" in script)
+        // The homelab accepts only the mesh address of the node as the source.
+        assertTrue("-A HG-RAW-NAT -o hg-mesh -m conntrack --ctstate DNAT -j MASQUERADE" in script)
+        // Before the rules of Docker and of ufw, and only for a connection that the node changed.
+        assertTrue("iptables -t filter -I FORWARD 1 -j HG-RAW-FWD" in script)
+        assertTrue("-A HG-RAW-FWD -o hg-mesh -m conntrack --ctstate DNAT -j ACCEPT" in script)
+        // A node with no raw port still gets the script, so an old rule does not stay.
+        assertFalse("DNAT --to-destination" in Mesh.forwardScript("10.77.0.1", emptyList()))
+        assertTrue("PostUp = [ ! -x /etc/wireguard/hg-mesh-forwards.sh ]" in Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()))
     }
 }

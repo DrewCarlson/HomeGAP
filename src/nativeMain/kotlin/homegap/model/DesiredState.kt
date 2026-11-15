@@ -49,13 +49,18 @@ data class NodeDesired(
     val managementHost: String,
     val publicResources: List<PublicResource>,
     val privateResources: List<PrivateResource>,
+    /**
+     * The raw TCP and UDP resources that the node forwards in the kernel to the homelab over the
+     * mesh. Pangolin and the Traefik of the node have no part in them.
+     */
+    val forwardedResources: List<PublicResource> = emptyList(),
     /** The SNI passthrough routes of the node's Traefik on :443 (file provider). */
     val sniRoutes: List<SniRoute>,
     /** The hostnames whose plain HTTP (:80) requests the node redirects to HTTPS. */
     val httpsRedirectHosts: List<String>,
     /** The domains whose names one label below also get that redirect. */
     val wildcardRedirectDomains: List<String>,
-    /** The raw TCP/UDP ports that the node must publish (Traefik entrypoints and firewall). */
+    /** Each raw TCP/UDP port that the node serves (firewall). See [forwardedPorts] and [traefikPorts]. */
     val rawPorts: List<RawPort>,
     val healthResourceNiceId: String?,
     val healthPath: String,
@@ -77,6 +82,15 @@ data class NodeDesired(
     val maintenanceHosts: List<String> = emptyList(),
 ) {
     val id: String get() = node.id
+
+    /** The raw ports that the node forwards in the kernel. */
+    val forwardedPorts: List<RawPort>
+        get() = forwardedResources.mapNotNull { resource ->
+            resource.proxyPort?.let { RawPort(it, resource.mode.wire) }
+        }
+
+    /** The raw ports that the Traefik of the node serves: the ports with PROXY protocol. */
+    val traefikPorts: List<RawPort> get() = rawPorts - forwardedPorts.toSet()
 }
 
 data class RawPort(val port: Int, val protocol: String) : Comparable<RawPort> {
@@ -619,6 +633,7 @@ object Planner {
     ) {
         private val managementHost = node.managementHost(config.domain)
         private val publicResources = mutableListOf<PublicResource>()
+        private val forwardedResources = mutableListOf<PublicResource>()
         private val sniRoutes = mutableListOf<SniRoute>()
         private val redirectHosts = mutableListOf<String>()
         private val rawPorts = mutableSetOf<RawPort>()
@@ -753,7 +768,9 @@ object Planner {
                 for (protocol in mapping.protocols.sortedBy { it.ordinal }) {
                     val tcp = protocol == Protocol.TCP
                     rawPorts += RawPort(mapping.publicPort, protocol.label)
-                    publicResources += PublicResource(
+                    // The kernel cannot add a PROXY protocol header, so such a port stays with Traefik.
+                    val resources = if (service.proxyProtocol && tcp) publicResources else forwardedResources
+                    resources += PublicResource(
                         niceId = rawNiceId(service, mapping, protocol),
                         serviceKey = service.key,
                         mode = if (tcp) ResourceMode.TCP else ResourceMode.UDP,
@@ -786,6 +803,7 @@ object Planner {
                 managementHost = managementHost,
                 publicResources = (withPorts + listOfNotNull(health)).sortedBy { it.niceId },
                 privateResources = privateResources.sortedBy { it.niceId },
+                forwardedResources = forwardedResources.sortedBy { it.niceId },
                 sniRoutes = sniRoutes.sortedBy { it.name },
                 httpsRedirectHosts = redirectHosts.distinct().sorted(),
                 wildcardRedirectDomains = wildcardRedirects.sorted(),

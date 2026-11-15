@@ -146,7 +146,7 @@ class PortListsTest {
     }
 
     @Test
-    fun eachPortAndProtocolIsAResourceAndAPublishedPort() {
+    fun eachPortAndProtocolIsAForwardedResourceAndAPublicPort() {
         val voice = container(
             "livekit",
             "homegap.expose" to "voice.test.example.net",
@@ -159,7 +159,7 @@ class PortListsTest {
             "homegap.port" to "27015",
         )
         val node = Planner.plan(testConfig(), listOf(voice, legacy)).nodes.getValue("na1")
-        val resources = node.publicResources.associateBy { it.niceId }
+        val resources = node.forwardedResources.associateBy { it.niceId }
         // A single-port service keeps the id it always had.
         assertEquals(ResourceMode.UDP, resources.getValue("hg-game-test-example-net-udp").mode)
         val voiceId = "hg-voice-test-example-net"
@@ -177,6 +177,24 @@ class PortListsTest {
             RawPort(27015, "udp"),
         )
         assertTrue(published.all { it in node.rawPorts })
+        // The node forwards each of them in the kernel. Pangolin and Traefik get none.
+        assertEquals(published.toSet(), node.forwardedPorts.toSet())
+        assertTrue(node.traefikPorts.isEmpty())
+        assertTrue(node.publicResources.none { it.mode != ResourceMode.HTTP && it.proxyPort in published.map(RawPort::port) })
+    }
+
+    @Test
+    fun aPortWithProxyProtocolStaysWithTraefik() {
+        val git = container(
+            "git",
+            "homegap.expose" to "git.test.example.net",
+            "homegap.port" to "2222/tcp",
+            "homegap.proxy_protocol" to "true",
+        )
+        val node = Planner.plan(testConfig(), listOf(git)).nodes.getValue("na1")
+        assertEquals(listOf(RawPort(2222, "tcp")), node.traefikPorts)
+        assertTrue(node.forwardedResources.isEmpty())
+        assertTrue(node.publicResources.any { it.proxyPort == 2222 && it.proxyProtocol })
     }
 
     @Test

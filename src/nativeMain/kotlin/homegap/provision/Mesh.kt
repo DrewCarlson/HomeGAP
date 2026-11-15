@@ -2,6 +2,7 @@ package homegap.provision
 
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.MeshConfig
+import homegap.model.RawPort
 import homegap.platform.Crypto
 import kotlinx.serialization.Serializable
 
@@ -89,6 +90,7 @@ object Mesh {
         appendLine("PrivateKey = $KEY_PLACEHOLDER")
         // At boot, before Docker starts and makes its rules.
         appendLine("PostUp = $GUARD_COMMAND")
+        appendLine("PostUp = [ ! -x $FORWARDS_FILE ] || $FORWARDS_FILE")
         for (peer in peers.sortedBy { it.id }) {
             appendLine()
             appendLine("# ${peer.id}")
@@ -176,6 +178,73 @@ object Mesh {
         """.trimMargin()
     }
 
+    /**
+     * The script that makes a node forward its raw [ports] in the kernel to the same port of
+     * [homelabAddress], over the mesh. One step replaces the full set of rules. The script also
+     * runs at boot, from the `PostUp` of the interface.
+     * - `HG-RAW` changes the destination of a packet for a public port of the node itself.
+     * - `HG-RAW-FWD` is the first rule of `FORWARD`, before the rules of Docker and of `ufw`. It
+     *   passes only a connection that `HG-RAW` changed, and the answers.
+     * - `HG-RAW-NAT` gives the packet the mesh address of the node, which is the only source
+     *   that the homelab accepts from the node.
+     */
+    fun forwardScript(homelabAddress: String, ports: List<RawPort>): String = buildString {
+        appendLine("#!/bin/sh")
+        appendLine("# Managed by HomeGAP: the raw ports that this node forwards. Changes are overwritten.")
+        appendLine("iptables-restore --noflush <<'HOMEGAP_RULES'")
+        appendLine("*nat")
+        appendLine(":HG-RAW - [0:0]")
+        appendLine(":HG-RAW-NAT - [0:0]")
+        for ((port, protocol) in ports.sorted()) {
+            val match = "! -i $INTERFACE -p $protocol -m addrtype --dst-type LOCAL --dport $port"
+            appendLine("-A HG-RAW $match -j DNAT --to-destination $homelabAddress:$port")
+        }
+        appendLine("-A HG-RAW-NAT -o $INTERFACE -m conntrack --ctstate DNAT -j MASQUERADE")
+        appendLine("COMMIT")
+        appendLine("*filter")
+        appendLine(":HG-RAW-FWD - [0:0]")
+        appendLine("-A HG-RAW-FWD -o $INTERFACE -m conntrack --ctstate DNAT -j ACCEPT")
+        appendLine("-A HG-RAW-FWD -i $INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        appendLine("COMMIT")
+        appendLine("HOMEGAP_RULES")
+        for ((table, chain, target) in NODE_FORWARD_JUMPS) {
+            val iptables = "iptables -t $table"
+            appendLine("$iptables -C $chain -j $target 2>/dev/null || $iptables -I $chain 1 -j $target")
+        }
+    }
+
+    /** Writes [script] (from [forwardScript]) to the node. Runs it after a change, or if a jump is not there. */
+    fun forwardStep(script: String): String {
+        val jumps = NODE_FORWARD_JUMPS.joinToString(" && ") { (table, chain, target) ->
+            "iptables -t $table -C $chain -j $target 2>/dev/null"
+        }
+        return $$"""
+            |FORWARDS=$${shQuote(FORWARDS_FILE)}
+            |install -d -m 0700 /etc/wireguard
+            |(umask 077; cat > "$FORWARDS.new") <<'HOMEGAP_FORWARDS'
+            |$${script.trimEnd()}
+            |HOMEGAP_FORWARDS
+            |chmod 0700 "$FORWARDS.new"
+            |if cmp -s "$FORWARDS.new" "$FORWARDS"; then
+            |  rm -f "$FORWARDS.new"
+            |  { $$jumps; } || { "$FORWARDS" && echo "CHANGED put the forward rules of the raw ports back"; } || exit 1
+            |else
+            |  mv -f "$FORWARDS.new" "$FORWARDS"
+            |  "$FORWARDS" || exit 1
+            |  echo "CHANGED the raw ports that the node forwards to the homelab"
+            |fi
+        """.trimMargin()
+    }
+
+    private const val FORWARDS_FILE = "/etc/wireguard/$INTERFACE-forwards.sh"
+
+    /** The built-in chains of a node that jump to the chains of [forwardScript]: table, chain, target. */
+    private val NODE_FORWARD_JUMPS = listOf(
+        Triple("nat", "PREROUTING", "HG-RAW"),
+        Triple("nat", "POSTROUTING", "HG-RAW-NAT"),
+        Triple("filter", "FORWARD", "HG-RAW-FWD"),
+    )
+
     /** Removes a node from the mesh (decommission). The script does what it can and never fails. */
     val TEARDOWN = $$"""
         |IFACE=$${shQuote(INTERFACE)}
@@ -184,11 +253,17 @@ object Mesh {
         |  if [ -f $${shQuote(DOCKER_DROPIN)} ]; then rm -f $${shQuote(DOCKER_DROPIN)}; systemctl daemon-reload; fi
         |fi
         |ip link show "$IFACE" >/dev/null 2>&1 && { wg-quick down "$IFACE" >/dev/null 2>&1 || ip link del "$IFACE"; }
-        |rm -f "/etc/wireguard/$IFACE.conf"
+        |rm -f "/etc/wireguard/$IFACE.conf" $${shQuote(FORWARDS_FILE)}
+        |$${NODE_FORWARD_JUMPS.joinToString("\n") { (table, chain, target) -> dropChain(table, chain, target) }}
         |true
     """.trimMargin()
 
-    private const val DOCKER_DROPIN = "/etc/systemd/system/docker.service.d/10-homegap-mesh.conf"
+    private fun dropChain(table: String, chain: String, target: String): String {
+        val iptables = "iptables -t $table"
+        return listOf("-D $chain -j $target", "-F $target", "-X $target").joinToString("; ") { "$iptables $it 2>/dev/null" }
+    }
+
+    private const val DOCKER_DROPIN ="/etc/systemd/system/docker.service.d/10-homegap-mesh.conf"
 
     /**
      * Adds the rule of [FirewallRules.containerGuard] if it is not there. Docker keeps the chain.
