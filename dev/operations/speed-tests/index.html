@@ -1801,6 +1801,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#a-pangolin-client-with-no-link" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A Pangolin client with no link
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1918,6 +1929,8 @@
   
     
     
+      
+        
       
         
       
@@ -2071,6 +2084,33 @@
     
   
   Ports and firewall
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/stack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Homelab stack
 
     
   </span>
@@ -2453,6 +2493,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#a-pangolin-client-with-no-link" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A Pangolin client with no link
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2553,6 +2604,10 @@
 <td><code>20</code></td>
 </tr>
 <tr>
+<td><code>speedtest.vpn_access</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
 <td><code>speedtest.streams</code></td>
 <td><code>4</code></td>
 </tr>
@@ -2602,9 +2657,14 @@
 <li>20 saved results for one link.</li>
 </ul>
 <p>The page uses 4 streams. A test from the homelab to a node has no limit.</p>
+<h3 id="a-pangolin-client-with-no-link">A Pangolin client with no link<a class="headerlink" href="#a-pangolin-client-with-no-link" title="Permanent link">&para;</a></h3>
+<p>With <code>speedtest.vpn_access: true</code>, a Pangolin client opens <code>https://speedtest.&lt;domain&gt;/</code> with no link from the dashboard. The front door must have a private path (<code>homegap.private_network</code>). See <a href="../../services/client-addresses/">Client addresses and private-only services</a>.</p>
+<p>HomeGAP then makes a private resource for the name <code>speedtest.&lt;domain&gt;</code>. A Pangolin client resolves that name into the tunnel and gets the page from the homelab, not from a node. The page asks the homelab for a link, and the homelab gives one only to a request from the private network. A visitor who is not a Pangolin client still needs a link from the dashboard.</p>
+<p>On this page, <strong>Start test</strong> measures the path through the tunnel to the homelab. <strong>Test all nodes</strong> and the list of nodes measure the path through each node, on its public name.</p>
+<p>The link of a Pangolin client has the same lifetime and the same limits as a link from the dashboard. Each Pangolin client that can use the private path of the front door can run tests. Enable this key only if you trust those clients with your bandwidth.</p>
 <p><img src="../../img/dashboard/speedtest-results.png" alt="The Speed test page with the homelab to edge results and the device test"></p>
 <h2 id="results">Results<a class="headerlink" href="#results" title="Permanent link">&para;</a></h2>
-<p>HomeGAP keeps the results in <code>&lt;data_dir&gt;/speedtests.json</code>. The <strong>History</strong> panel shows the recent results.</p>
+<p>HomeGAP keeps the results in <code>&lt;data_dir&gt;/speedtests.json</code>. The <strong>History</strong> panel shows the recent results. A result from a Pangolin client with no link has the path <code>VPN device</code>. Its node is <code>homelab</code> if the test went through the tunnel to the homelab. HomeGAP does not know which Pangolin user ran the test, because all Pangolin clients reach the homelab from one address.</p>
 <h2 id="api">API<a class="headerlink" href="#api" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

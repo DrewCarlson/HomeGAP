@@ -1930,6 +1930,8 @@
       
         
       
+        
+      
     
     
     
@@ -2070,6 +2072,33 @@
     
   
   Ports and firewall
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+                
+              
+                
+                  
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/stack/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Homelab stack
 
     
   </span>
@@ -2620,7 +2649,7 @@
 </table>
 <p>If <code>upgrade.sh</code> itself gets a new version, the script starts the new version and continues from there.</p>
 <p>Then the script checks the compose files. A new version of <code>compose.yml</code> can need a variable that your <code>.env</code> does not have. In that case, the script shows the name of the variable and stops before it restarts a container. Set the variable in <code>.env</code> and run the script again.</p>
-<p>To move your changes out of a file that HomeGAP changes, put them in <code>compose.override.yml</code>. See <a href="../../getting-started/install/#your-settings">Your settings</a>.</p>
+<p>To move your changes out of a file that HomeGAP changes, put them in <code>compose.override.yml</code>. See <a href="../../reference/stack/#changes-in-composeoverrideyml">Homelab stack</a>.</p>
 <p>The script skips this step if the folder has no <code>compose.yml</code>, or if you give arguments for <code>docker compose</code>.</p>
 <h2 id="what-the-script-does">What the script does<a class="headerlink" href="#what-the-script-does" title="Permanent link">&para;</a></h2>
 <ol>
