@@ -1,5 +1,8 @@
 package homegap
 
+import homegap.state.StateStore
+import homegap.clients.BunnyZones
+import homegap.clients.BunnyZone
 import homegap.acme.CertNames
 import homegap.acme.CertOrderStore
 import homegap.acme.CertificateStatus
@@ -210,5 +213,31 @@ class ExtraDomainsTest {
 
         assertEquals(listOf(1L to "_acme-challenge.wiki.test", 2L to "_acme-challenge"), added.map { it.first to it.second.name })
         assertFailsWith<IllegalArgumentException> { challenge.present("_acme-challenge.elsewhere.example.com.", value) }
+    }
+
+    @Test
+    fun aNewMainZoneDoesNotUseTheIdOfTheOldZone() = runTest {
+        val ids = mapOf("example.net" to 11L, "example.org" to 22L)
+        val lookups = mutableListOf<String>()
+        val bunny = object : BunnyClient(HttpClient(MockEngine { respond("") }), "https://bunny.invalid", "k") {
+            override suspend fun findZone(domain: String): BunnyZone? {
+                lookups += domain
+                return ids[domain]?.let { BunnyZone(id = it, domain = domain) }
+            }
+        }
+        val state = StateStore(tmpPath("zones-state"))
+
+        assertEquals(11L, BunnyZones(state, "example.net").id(bunny, "example.net"))
+        assertEquals(11L, BunnyZones(state, "example.net").id(bunny, "example.net"))
+        assertEquals(listOf("example.net"), lookups, "the second use reads the id from the state")
+
+        // The config has a new domain, and the state is from the old one.
+        assertEquals(22L, BunnyZones(state, "example.org").id(bunny, "example.org"))
+        assertEquals(22L, state.snapshot().bunnyZoneId)
+        assertEquals("example.org", state.snapshot().bunnyZoneName)
+
+        // A state from before the name was kept has only the id.
+        state.update { it.copy(bunnyZoneId = 11L, bunnyZoneName = null) }
+        assertEquals(22L, BunnyZones(state, "example.org").id(bunny, "example.org"))
     }
 }

@@ -132,6 +132,8 @@ data class ControllerState(
     val pauses: Pauses = Pauses(),
     /** The id of the Bunny zone of the platform domain. */
     val bunnyZoneId: Long? = null,
+    /** The name of the zone that [bunnyZoneId] belongs to. Null in a state from before this field. */
+    val bunnyZoneName: String? = null,
     /** The id of the Bunny zone of each extra domain, by the name of the zone. */
     val bunnyZoneIds: Map<String, Long> = emptyMap(),
     val clusterPangolin: ClusterPangolinState? = null,
