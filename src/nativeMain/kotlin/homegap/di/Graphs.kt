@@ -112,7 +112,11 @@ interface ControllerGraph {
 
     @Provides @SingleIn(AppScope::class)
     fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer {
-        val publicStatus = PublicStatus({ controller.config }, { controller.status.value?.nodes.orEmpty() })
+        val publicStatus = PublicStatus(
+            config = { controller.config },
+            nodes = { controller.status.value?.nodes.orEmpty() },
+            privateRange = { controller.privateSourceRange },
+        )
         return SpeedTestServer({ controller.config }, tokens, store, publicStatus)
     }
 

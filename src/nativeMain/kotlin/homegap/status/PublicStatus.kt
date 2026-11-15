@@ -41,6 +41,8 @@ data class PublicStatusDto(
     val nodes: List<PublicNode>,
     val at: Long,
     val home: PublicHome? = null,
+    /** Where the page asks if the visitor is a Pangolin client. Null without a private path. */
+    @SerialName("clientUrl") val clientUrl: String? = null,
 )
 
 /**
@@ -51,6 +53,7 @@ class PublicStatus(
     private val config: () -> AppConfig,
     private val nodes: () -> List<NodeStatusDto>,
     private val cacheMillis: Long = 5_000,
+    private val privateRange: () -> String? = { null },
 ) {
     @Volatile
     private var cached: Pair<Long, List<NodeStatusDto>>? = null
@@ -70,6 +73,17 @@ class PublicStatus(
         if (!cfg.statusPage.enabled) return false
         return cfg.statusPage.autoHost(cfg.domain).equals(host, ignoreCase = true) || nodeFor(host) != null
     }
+
+    /** Whether [host] answers the question of the page about the visitor: a name of the page, or the private name. */
+    fun servesViewer(host: String): Boolean {
+        val cfg = config()
+        return serves(host) || (cfg.statusPage.enabled && cfg.statusPage.vpnHost(cfg.domain).equals(host, true))
+    }
+
+    /** Whether [origin] is a page of the status page. Such a page can read the answer of the private name. */
+    fun pageOrigin(origin: String): Boolean = origin.startsWith(HTTPS) && serves(origin.removePrefix(HTTPS))
+
+    fun viewer(address: String): PublicViewer = Viewers.of(address, privateRange())
 
     fun build(host: String): PublicStatusDto {
         val cfg = config()
@@ -99,6 +113,7 @@ class PublicStatus(
             nodes = publicNodes,
             at = now,
             home = homeRegion(cfg),
+            clientUrl = privateRange()?.let { "$HTTPS${cfg.statusPage.vpnHost(cfg.domain)}/status/client" },
         )
     }
 
@@ -122,6 +137,7 @@ class PublicStatus(
             "OC" to "Oceania",
         )
 
+        private const val HTTPS = "https://"
         const val ONLINE = "online"
         const val DEGRADED = "degraded"
         const val OFFLINE = "offline"

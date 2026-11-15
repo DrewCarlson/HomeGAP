@@ -85,8 +85,8 @@ object HomelabTraefik {
 
     /**
      * The names of the speed test and the status page that the homelab Traefik sends to the
-     * orchestrator: the name of each node, and the shared name of the speed test. The config
-     * enables each page.
+     * orchestrator: the name of each node, the shared name of the speed test, and the name that
+     * the status page asks to find a Pangolin client. The config enables each page.
      */
     fun pageHosts(config: AppConfig): List<String> = buildList {
         if (config.speedtest.enabled) {
@@ -95,6 +95,7 @@ object HomelabTraefik {
         }
         if (config.statusPage.enabled) {
             config.nodes.forEach { add(config.statusPage.nodeHost(config.domain, it.id)) }
+            add(config.statusPage.vpnHost(config.domain))
         }
     }
 

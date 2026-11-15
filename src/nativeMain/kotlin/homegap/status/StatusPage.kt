@@ -8,6 +8,8 @@ import homegap.brand.Brand
  * the node that it came through. Then it times one request to `/status/ping` of each other online
  * node. Each request crosses that node and its tunnel to the homelab. The round trip comes from
  * Resource Timing (from the sent request to the first byte), so the time to connect does not count.
+ * The page also reads `/status/client`, and shows the address of the visitor or that the visitor
+ * is a Pangolin client.
  */
 object StatusPage {
     val HTML: String = $$"""
@@ -52,6 +54,11 @@ button:disabled { opacity: .55; cursor: default; }
 .eyebrow { color: var(--muted); font-size: 13px; font-weight: 600; }
 .via { font-size: 30px; font-weight: 700; letter-spacing: -.02em; margin-top: 4px; overflow-wrap: anywhere; }
 .where { color: var(--muted); margin-top: 2px; }
+.viewer { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; margin-top: 10px; }
+.viewer[hidden] { display: none; }
+.viewer.vpn { color: var(--ok); font-weight: 600; }
+.viewer svg { width: 16px; height: 16px; flex: none; }
+.viewer .addr { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--fg); overflow-wrap: anywhere; }
 .big { text-align: right; }
 .big .num { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 40px; font-weight: 700; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .big .unit { font-size: 16px; color: var(--muted); font-weight: 500; margin-left: 3px; }
@@ -107,6 +114,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       <div class="eyebrow">You're connected through</div>
       <div class="via" id="via">&hellip;</div>
       <div class="where" id="where">&nbsp;</div>
+      <div class="viewer" id="viewer" hidden></div>
     </div>
     <div class="big">
       <div><span class="num" id="myPing">&ndash;</span><span class="unit">ms</span></div>
@@ -151,6 +159,31 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       if (e && e.requestStart > 0 && e.responseStart > e.requestStart) return e.responseStart - e.requestStart;
       return t1 - t0;
     } finally { clearTimeout(timer); }
+  }
+
+  var SHIELD = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>';
+
+  async function ask(url) {
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 4000);
+    try {
+      var r = await fetch(url, { cache: 'no-store', credentials: 'omit', signal: ctl.signal });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return await r.json();
+    } finally { clearTimeout(timer); }
+  }
+
+  // Only a client of the VPN reaches the private name. Each other visitor gets the answer of this origin.
+  async function viewer(privateUrl) {
+    var v = privateUrl ? await ask(privateUrl).catch(function () { return null; }) : null;
+    if (!v) v = await ask('/status/client').catch(function () { return null; });
+    var box = el('viewer');
+    box.hidden = !v || (!v.vpn && !v.address);
+    if (box.hidden) return;
+    box.className = v.vpn ? 'viewer vpn' : 'viewer';
+    if (v.vpn) { box.innerHTML = SHIELD + '<span>Connected to homelab VPN</span>'; return; }
+    box.innerHTML = '<span>Your address</span><span class="addr"></span>';
+    box.querySelector('.addr').textContent = v.address;
   }
 
   function row(n) {
@@ -203,6 +236,7 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       el('via').textContent = me ? me.id : 'Unknown node';
       el('where').textContent = me ? (me.place ? me.place + ' · ' : '') + region(me.region) : 'Open this page at its main address to see your node.';
       banner(s.nodes);
+      viewer(s.clientUrl);
       var rows = el('rows');
       rows.textContent = '';
       var els = s.nodes.map(function (n) { var x = row(n); rows.appendChild(x); return x; });

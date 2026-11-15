@@ -212,7 +212,7 @@ object Planner {
         }
 
         val claimed = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
-        val published = withPrivateDashboard(config, claimed, errors)
+        val published = withVpnCheck(config, withPrivateDashboard(config, claimed, errors))
         val doors = frontDoors(config, published)
         val services = doors.all.fold(published) { kept, door -> refuseCoveredPassthrough(kept, door, errors) }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
@@ -255,6 +255,19 @@ object Planner {
             errors += LabelIssue(frontDoor?.containerName ?: DASHBOARD, "$reason: the dashboard has no route")
             return services
         }
+        val withHost = frontDoor.copy(privateHosts = (frontDoor.privateHosts + host).distinct())
+        return services.map { if (it == frontDoor) withHost else it }
+    }
+
+    /**
+     * The status page finds a Pangolin client from the network that its request arrives on. So the
+     * front door gets one more private name, which the page asks. Without a private path, the page
+     * has no such name.
+     */
+    private fun withVpnCheck(config: AppConfig, services: List<ServiceSpec>): List<ServiceSpec> {
+        if (!config.statusPage.enabled) return services
+        val frontDoor = frontDoors(config, services).primary?.takeIf { it.privateHost != null } ?: return services
+        val host = config.statusPage.vpnHost(config.domain)
         val withHost = frontDoor.copy(privateHosts = (frontDoor.privateHosts + host).distinct())
         return services.map { if (it == frontDoor) withHost else it }
     }

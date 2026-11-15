@@ -130,6 +130,7 @@ class MisdirectedTest {
             "speedtest-as1.test.example.net",
             "status-na1.test.example.net",
             "status-as1.test.example.net",
+            "status-vpn.test.example.net",
         )
         assertEquals(expected, pageHosts)
 
@@ -151,7 +152,7 @@ class MisdirectedTest {
         assertTrue(HomelabTraefik.pageHosts(testConfig()).isEmpty(), "the two pages are off by default")
         val statusOnly = ConfigLoader.parse("$TEST_CONFIG\nstatus_page:\n  enabled: true\n")
         assertEquals(
-            listOf("status-na1.test.example.net", "status-as1.test.example.net"),
+            listOf("status-na1.test.example.net", "status-as1.test.example.net", "status-vpn.test.example.net"),
             HomelabTraefik.pageHosts(statusOnly),
         )
         val misdirectedOnly = HomelabTraefik.misdirectedConfig(listOf("pangolin.test.example.net"))
@@ -205,6 +206,12 @@ class MisdirectedTest {
         assertTrue("orc.test.example.net" in plan.frontDoor!!.privateHosts)
         val aliases = plan.nodes.getValue("na1").privateResources.map { it.alias }
         assertTrue("orc.test.example.net" in aliases && "wiki.test.example.net" in aliases, aliases.toString())
+
+        assertFalse(aliases.any { it.startsWith("status-vpn.") }, "no status page, so no name for it")
+        val withStatus = ConfigLoader.parse("$TEST_CONFIG\nstatus_page:\n  enabled: true\n")
+        val statusPlan = Planner.plan(withStatus, listOf(frontDoor))
+        assertTrue("status-vpn.test.example.net" in statusPlan.frontDoor!!.privateHosts)
+        assertTrue(Planner.plan(withStatus, listOf(TRAEFIK)).frontDoor!!.privateHosts.isEmpty())
 
         val withoutPath = Planner.plan(private, listOf(TRAEFIK))
         assertTrue(withoutPath.labelErrors.single().message.startsWith("dashboard.access is private"))
