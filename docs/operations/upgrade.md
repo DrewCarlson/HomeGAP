@@ -74,7 +74,7 @@ If `upgrade.sh` itself gets a new version, the script starts the new version and
 
 Then the script checks the compose files. A new version of `compose.yml` can need a variable that your `.env` does not have. In that case, the script shows the name of the variable and stops before it restarts a container. Set the variable in `.env` and run the script again.
 
-To move your changes out of a file that HomeGAP changes, put them in `compose.override.yml`. See [Your settings](../getting-started/install.md#your-settings).
+To move your changes out of a file that HomeGAP changes, put them in `compose.override.yml`. See [Homelab stack](../reference/stack.md#changes-in-composeoverrideyml).
 
 The script skips this step if the folder has no `compose.yml`, or if you give arguments for `docker compose`.
 

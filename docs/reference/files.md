@@ -39,7 +39,7 @@ The config file is `/config/config.yml`. Edits from the dashboard leave backups 
 | `compose.override.yml` | Your changes to the stack. |
 | `.env` | The secrets and the variables of `compose.yml`, with mode 600. |
 | `config/` | The config file and the backups of the edits from the dashboard. |
-| `data/` | All that HomeGAP writes. See [Install on the homelab](../getting-started/install.md#the-data-folder). |
+| `data/` | All that HomeGAP writes. See [Homelab stack](stack.md#the-data-folder). |
 | `backups/` | In cluster mode, the nightly `pg_dump` files. HomeGAP keeps the newest seven. |
 
 ## The image

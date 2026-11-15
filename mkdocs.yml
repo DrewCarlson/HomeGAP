@@ -138,6 +138,7 @@ nav:
       - HTTP API: reference/api.md
       - Security model: reference/security.md
       - Ports and firewall: reference/ports.md
+      - Homelab stack: reference/stack.md
       - Files and state: reference/files.md
       - Glossary: reference/glossary.md
   - Development:
