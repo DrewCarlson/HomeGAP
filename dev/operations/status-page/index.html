@@ -1779,6 +1779,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#the-connection-of-the-visitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The connection of the visitor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#what-the-page-tells-a-visitor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2382,6 +2393,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#the-connection-of-the-visitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The connection of the visitor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#what-the-page-tells-a-visitor" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2505,6 +2527,15 @@
 </table>
 <p>While the page is open, it refreshes every minute.</p>
 <p>The page also has a map of the nodes in their status colors. The node of the visitor is highlighted, with the round trip through each node. The map shows the homelab only as a soft area at the center of its region, for example "Home · North America". HomeGAP never sends the location of the homelab to the page.</p>
+<h3 id="the-connection-of-the-visitor">The connection of the visitor<a class="headerlink" href="#the-connection-of-the-visitor" title="Permanent link">&para;</a></h3>
+<p>Below the node of the visitor, the page shows one of these lines:</p>
+<ul>
+<li><strong>Your address</strong>, with the public address that the request came from.</li>
+<li><strong>Connected to homelab VPN</strong>, for a Pangolin client. The page shows no address, because the request comes from the private network of the homelab.</li>
+</ul>
+<p>The line <strong>Your address</strong> needs <code>homegap.proxy_protocol: "true"</code> on the front door. Without that label, the homelab sees an address of Docker for each visitor, and the page shows no line.</p>
+<p>The line <strong>Connected to homelab VPN</strong> needs a private path on the front door (<code>homegap.private_network</code>). HomeGAP then makes a private resource for the name <code>status-vpn.&lt;domain&gt;</code>. Only a Pangolin client resolves that name into the tunnel. The page sends one request to that name. If the request arrives from the private network, the visitor is a Pangolin client. For each other visitor, the request fails or arrives from the public network, and the page then asks its own name for the address.</p>
+<p>The names of the page itself have no private path. Thus a Pangolin client measures the round trip through each node as each other visitor does. Without a private path on the front door, the page never shows the line <strong>Connected to homelab VPN</strong>. See <a href="../../services/client-addresses/">Client addresses and private-only services</a>.</p>
 <h3 id="what-the-page-tells-a-visitor">What the page tells a visitor<a class="headerlink" href="#what-the-page-tells-a-visitor" title="Permanent link">&para;</a></h3>
 <p>The page and its data are public. For each node, a visitor can read these values:</p>
 <ul>
@@ -2513,7 +2544,7 @@
 <li>The location that you set for the node: its name and its coordinates. The map uses them.</li>
 <li>The name <code>status-&lt;node&gt;.&lt;domain&gt;</code>. The browser measures the round trip through each node on this name. The name resolves to the public address of the node.</li>
 </ul>
-<p>The page does not show IP addresses or the management hosts. But a visitor can find the public address of each node from its <code>status-&lt;node&gt;</code> name. The public DNS records of your services give the same addresses.</p>
+<p>The page does not show the IP addresses of the nodes or the management hosts. Each visitor sees only the address of that visitor. But a visitor can find the public address of each node from its <code>status-&lt;node&gt;</code> name. The public DNS records of your services give the same addresses.</p>
 <h3 id="limits-on-requests">Limits on requests<a class="headerlink" href="#limits-on-requests" title="Permanent link">&para;</a></h3>
 <p>The page needs no token, so HomeGAP limits its requests:</p>
 <ul>
@@ -2552,9 +2583,10 @@
 </tr>
 </tbody>
 </table>
+<p>With the status page on, a node cannot have the id <code>vpn</code>. The page uses the name <code>status-vpn.&lt;domain&gt;</code>.</p>
 <h3 id="routing">Routing<a class="headerlink" href="#routing" title="Permanent link">&para;</a></h3>
 <p>The status page uses the listener of the speed test, <code>speedtest.bind</code>. Your Traefik must send <code>status-&lt;node&gt;.&lt;domain&gt;</code> to the orchestrator on that port (8089). HomeGAP gives Traefik that route through the HTTP provider. You add no labels.</p>
-<p>When <code>status_page.enabled</code> is <code>true</code>, the route <code>homegap-pages</code> has the name <code>status-&lt;node&gt;.&lt;domain&gt;</code> of each node. The shared name <code>status.&lt;domain&gt;</code> is not in the route. Each node answers it. See <a href="../speed-tests/#routing">Speed tests</a> for how the route works and how to check it.</p>
+<p>When <code>status_page.enabled</code> is <code>true</code>, the route <code>homegap-pages</code> has the name <code>status-&lt;node&gt;.&lt;domain&gt;</code> of each node and the name <code>status-vpn.&lt;domain&gt;</code>. The shared name <code>status.&lt;domain&gt;</code> is not in the route. Each node answers it. See <a href="../speed-tests/#routing">Speed tests</a> for how the route works and how to check it.</p>
 <p>To put the homelab on the map, set its location on the <strong>Locations</strong> page. See <a href="../maps/">Maps and locations</a>.</p>
 <p><img src="../../img/status-page/01-page.png" alt="The public status page with the node list and the map"></p>
 
