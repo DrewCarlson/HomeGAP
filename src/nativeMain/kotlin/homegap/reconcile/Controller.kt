@@ -48,6 +48,7 @@ import homegap.platform.queryNameserver
 import homegap.platform.runCatchingCancellable
 import homegap.provision.ClusterProxy
 import homegap.provision.ExitNodes
+import homegap.provision.Mesh
 import homegap.provision.NodeTemplates
 import homegap.provision.TunnelDns
 import homegap.speedtest.SpeedTestStore
@@ -187,6 +188,8 @@ class Controller(
     @Volatile private var dnsObs: List<DnsReconciler.Observed> = emptyList()
 
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
+    /** The forwards of the last pass that had the container list. A pass with no list keeps them. */
+    private var meshForwards: List<Mesh.Forward> = emptyList()
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
 
     @Volatile private var meshStatus: MeshStatusDto? = null
@@ -555,6 +558,9 @@ class Controller(
             val plan = Planner.plan(cfg, planned, pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
+                val forwards = MeshForwards.of(plan, containers)
+                meshForwards = forwards.forwards
+                forwards.unknown.forEach { log.warn("mesh", "no address for the target $it: its ports are closed") }
                 privateSourceRange = privateRangeOf(plan, containers)
                 val doorContainers = plan.frontDoors.map { it.containerName }.toSet()
                 frontDoorAddresses = containers.asSequence()
@@ -814,7 +820,7 @@ class Controller(
                 null
             } else {
                 runDomain("mesh", null) {
-                    meshRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots(), MeshReconciler.forwardsOf(plan))
+                    meshRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots(), meshForwards)
                 } ?: meshStatus
             }
             // The cluster's database layer, over the mesh.

@@ -37,7 +37,6 @@ class MeshAgent(private val dir: String) {
         Files.chmodPath(dir, "700".toInt(8))
         logger.info { "mesh agent started; waiting for the orchestrator's mesh in $specFile" }
         var applied: String? = null
-        var appliedAddresses = emptyMap<String, String>()
         var appliedAt = 0L
         var error: String? = null
         var reported: String? = null
@@ -50,19 +49,15 @@ class MeshAgent(private val dir: String) {
             }
             if (spec != null && key.isSuccess) {
                 val hash = Mesh.specHash(text)
-                // A container gets a new address when it starts again, so the agent looks each time.
-                val addresses = addresses(spec.forwards)
-                val changed = hash != applied || addresses != appliedAddresses
                 // At once after a change. If not, once a minute, to put back anything that drifted.
-                if (changed || error != null || nowMillis() - appliedAt >= REAPPLY_MS) {
-                    val result = runCatchingCancellable { apply(spec, addresses) }
+                if (hash != applied || error != null || nowMillis() - appliedAt >= REAPPLY_MS) {
+                    val result = runCatchingCancellable { apply(spec) }
                     error = result.exceptionOrNull()?.message
                     if (result.isSuccess && hash != applied) {
                         logger.info { "mesh applied: ${spec.address} with ${spec.peers.size} peer(s)" }
                     }
                     if (result.isSuccess) {
                         applied = hash
-                        appliedAddresses = addresses
                     }
                     appliedAt = nowMillis()
                 }
@@ -98,9 +93,9 @@ class MeshAgent(private val dir: String) {
      * Brings the interface to [spec]. Peer changes apply in place. The firewall goes in first,
      * and the interface only comes up behind it: a failure leaves the mesh down, never open.
      */
-    private suspend fun apply(spec: Mesh.AgentSpec, addresses: Map<String, String>) {
+    private suspend fun apply(spec: Mesh.AgentSpec) {
         val subnet = Mesh.parseSubnet(spec.subnet)
-        firewall(spec, addresses)
+        firewall(spec)
         if (!run("ip", "link", "show", Mesh.INTERFACE).ok) {
             val added = run("ip", "link", "add", Mesh.INTERFACE, "type", "wireguard")
             check(added.ok) { explain(added) }
@@ -124,8 +119,8 @@ class MeshAgent(private val dir: String) {
      * chains, such as Docker's for its DNS. Then it makes sure that the built-in chains pass
      * through HomeGAP's chains.
      */
-    private suspend fun firewall(spec: Mesh.AgentSpec, addresses: Map<String, String>) {
-        val restored = run("iptables-restore", "--noflush", stdin = Mesh.firewallRules(spec, addresses))
+    private suspend fun firewall(spec: Mesh.AgentSpec) {
+        val restored = run("iptables-restore", "--noflush", stdin = Mesh.firewallRules(spec))
         check(restored.ok) {
             val detail = restored.stderr.trim().ifEmpty { "iptables-restore exit ${restored.exitCode}" }
             "could not set the mesh firewall: $detail"
@@ -135,20 +130,6 @@ class MeshAgent(private val dir: String) {
             val added = run("iptables", "-t", table, "-I", chain, "1", "-j", target)
             check(added.ok) { "could not set the mesh firewall ($chain -> $target): ${added.stderr.trim()}" }
         }
-    }
-
-    /**
-     * The IPv4 address of each target host of [forwards]. A host that is an address stands for
-     * itself. A name that Docker does not know has no entry.
-     */
-    private suspend fun addresses(forwards: List<Mesh.Forward>): Map<String, String> {
-        val hosts = forwards.map { it.host }.distinct()
-        val (literal, names) = hosts.partition { host -> host.all { it.isDigit() || it == '.' } }
-        val found = names.mapNotNull { name ->
-            val line = run("getent", "ahostsv4", name).takeIf { it.ok }?.stdout?.lineSequence()?.firstOrNull()
-            line?.substringBefore(' ')?.takeIf { it.isNotBlank() }?.let { name to it }
-        }
-        return literal.associateWith { it } + found
     }
 
     /** Current peers, or null when the interface does not exist. */

@@ -114,20 +114,18 @@ class MeshTest {
             peers = emptyList(),
             openPorts = listOf(5432),
             forwards = listOf(
-                Mesh.Forward("tcp", 41554, "traefik:443"),
+                Mesh.Forward("tcp", 41554, "172.20.0.2:443"),
                 Mesh.Forward("udp", 3478, "172.20.0.9:3478"),
-                Mesh.Forward("tcp", 22, "gone:22"),
-                Mesh.Forward("tcp", 5432, "traefik:5432"),
+                Mesh.Forward("tcp", 5432, "172.20.0.2:5432"),
             ),
         )
-        val rules = Mesh.firewallRules(spec, mapOf("traefik" to "172.20.0.2", "172.20.0.9" to "172.20.0.9"))
+        val rules = Mesh.firewallRules(spec)
 
         val toTraefik = "-A HG-DNAT -i hg-mesh -d 10.77.0.1 -p tcp --dport 41554 -j DNAT --to-destination 172.20.0.2:443"
         assertTrue(toTraefik in rules)
         assertTrue("-A HG-FWD -i hg-mesh -d 172.20.0.2 -p tcp --dport 443 -m conntrack --ctstate DNAT -j ACCEPT" in rules)
         assertTrue("-p udp --dport 3478 -j DNAT --to-destination 172.20.0.9:3478" in rules)
-        // A target with no address and a port of the cluster get no rule.
-        assertFalse("--dport 22 " in rules)
+        // A port of the cluster gets no rule.
         assertFalse("--to-destination 172.20.0.2:5432" in rules)
         // The namespace refuses all other traffic of a node.
         assertEquals("-A HG-FWD -j DROP", rules.lines().last { it.startsWith("-A HG-FWD") })

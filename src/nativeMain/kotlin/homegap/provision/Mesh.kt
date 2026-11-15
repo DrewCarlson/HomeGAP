@@ -235,7 +235,7 @@ object Mesh {
 
     /**
      * A port of the mesh address of the homelab that goes to a service of the homelab. [target] is
-     * `host:port`. The host is an address, or a name on a Docker network of the mesh namespace.
+     * `address:port`, on a Docker network of the mesh namespace.
      */
     @Serializable
     data class Forward(val protocol: String, val port: Int, val target: String) {
@@ -290,14 +290,13 @@ object Mesh {
      *   homelab as the source, and the answers. For a node, the namespace forwards only the
      *   [AgentSpec.forwards], each to its one target.
      *
-     * [addresses] has the address of each target host. A forward with no address gets no rule, and
-     * so does a TCP forward on one of the [AgentSpec.openPorts].
+     * A TCP forward on one of the [AgentSpec.openPorts] gets no rule.
      */
-    fun firewallRules(spec: AgentSpec, addresses: Map<String, String> = emptyMap()): String = buildString {
+    fun firewallRules(spec: AgentSpec): String = buildString {
         val ports = spec.openPorts.joinToString(",")
         val forwards = spec.forwards
             .filterNot { it.protocol == TCP && it.port in spec.openPorts }
-            .mapNotNull { forward -> addresses[forward.host]?.let { forward to it } }
+            .map { it to it.host }
         appendLine("*filter")
         appendLine(":HG-IN - [0:0]")
         appendLine(":HG-OUT - [0:0]")

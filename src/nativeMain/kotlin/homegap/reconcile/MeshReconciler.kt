@@ -6,8 +6,6 @@ import homegap.api.MeshProbeDto
 import homegap.api.MeshStatusDto
 import homegap.config.MeshConfig
 import homegap.config.NodeConfig
-import homegap.model.DesiredState
-import homegap.model.ResourceMode
 import homegap.platform.nowMillis
 import homegap.platform.runCatchingCancellable
 import homegap.provision.ClusterTemplates
@@ -306,31 +304,21 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     private fun NodeConfig.endpoint(): String = ipv4() ?: publicIpv6 ?: host
 
-    companion object {
-        /**
-         * The ports of the mesh address of the homelab that the plan needs: one for each raw TCP or
-         * UDP resource, to its target. A node sends the traffic of the resource to that port.
-         */
-        fun forwardsOf(plan: DesiredState): List<Mesh.Forward> =
-            plan.nodes.values.flatMap { it.publicResources }
-                .filter { it.mode != ResourceMode.HTTP && it.proxyPort != null && !it.paused }
-                .map { Mesh.Forward(it.mode.wire, it.proxyPort!!, "${it.target.host}:${it.target.port}") }
-                .distinct()
-
-        private const val DOMAIN = "mesh"
-        private const val SCRIPT_TIMEOUT_SECONDS = 300
-        private const val PROBE_TIMEOUT_MS = 3_000L
-        private const val ERROR_TEXT_LENGTH = 400
+    private companion object {
+        const val DOMAIN = "mesh"
+        const val SCRIPT_TIMEOUT_SECONDS = 300
+        const val PROBE_TIMEOUT_MS = 3_000L
+        const val ERROR_TEXT_LENGTH = 400
 
         /** The script for a paused node. It reads the status and changes nothing. */
-        private const val READ_ONLY = "echo DUMP-BEGIN; wg show ${Mesh.INTERFACE} dump 2>/dev/null || true; echo DUMP-END"
+        const val READ_ONLY = "echo DUMP-BEGIN; wg show ${Mesh.INTERFACE} dump 2>/dev/null || true; echo DUMP-END"
 
         // Lines and sections in the output of the node script.
-        private const val CHANGED = "CHANGED "
-        private const val PUBLIC_KEY = "PUBKEY="
-        private const val PROBE_BEGIN = "PROBE-BEGIN"
-        private const val PROBE_END = "PROBE-END"
-        private const val CONTAINER_PROBE_BEGIN = "CPROBE-BEGIN"
-        private const val CONTAINER_PROBE_END = "CPROBE-END"
+        const val CHANGED = "CHANGED "
+        const val PUBLIC_KEY = "PUBKEY="
+        const val PROBE_BEGIN = "PROBE-BEGIN"
+        const val PROBE_END = "PROBE-END"
+        const val CONTAINER_PROBE_BEGIN = "CPROBE-BEGIN"
+        const val CONTAINER_PROBE_END = "CPROBE-END"
     }
 }
