@@ -920,3 +920,48 @@ data class CaaStatusDto(
     /** False until a DNS pass has read the zone. */
     val known: Boolean = false,
 )
+
+/** Who owns a record of a DNS zone. Only an [OWN] record can change. */
+@Serializable
+enum class ZoneRecordKind { OWN, MANAGED, CHALLENGE }
+
+/**
+ * One record of a DNS zone. [name] is relative to the zone, and `@` is the root. For MX, [value]
+ * is the mail server and [priority] its priority. For CAA, [value] is the authority, with [flags]
+ * and [tag].
+ */
+@Serializable
+data class ZoneRecordDto(
+    val id: String,
+    val name: String,
+    val type: String,
+    val value: String,
+    val kind: ZoneRecordKind,
+    val ttlSeconds: Int? = null,
+    val priority: Int? = null,
+    val flags: Int? = null,
+    val tag: String? = null,
+    /** What a managed record is for ("front door", "service", "CAA"). */
+    val purpose: String? = null,
+    /** The node that a managed record points to. */
+    val nodeId: String? = null,
+)
+
+@Serializable
+data class DnsZoneDto(val name: String, val records: List<ZoneRecordDto>)
+
+/** Every zone with its records. [canEdit] is false for a user who can only look. */
+@Serializable
+data class ZoneRecordsResponse(val canEdit: Boolean, val zones: List<DnsZoneDto>)
+
+/** The fields of a record that the user adds or edits. */
+@Serializable
+data class ZoneRecordRequest(
+    val type: String,
+    val name: String,
+    val value: String,
+    val ttlSeconds: Int,
+    val priority: Int? = null,
+    val flags: Int? = null,
+    val tag: String? = null,
+)

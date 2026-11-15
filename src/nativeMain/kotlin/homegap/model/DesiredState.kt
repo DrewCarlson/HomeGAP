@@ -911,9 +911,7 @@ object Planner {
         val frontDoor = doors.primary
         val frontDoorNodes = if (frontDoor == null) emptyList() else nodes.filter { frontDoor.servesNode(it.id) }
 
-        if (config.acme.caa) {
-            config.serviceDomains.forEach { plan.addCaaRecords(it) }
-        }
+        config.caaDomains.forEach { plan.addCaaRecords(it) }
         for (door in doors.all) {
             val doorNodes = nodes.filter { door.servesNode(it.id) }
             plan.addGeoSet(door.hostname, "root", doorNodes)

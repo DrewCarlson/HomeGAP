@@ -205,14 +205,16 @@ object CertificateStatus {
         )
 
         private fun caa(): CaaStatusDto {
-            val domains = config.serviceDomains
+            // A domain with `caa: false` has the CAA records of the user, which HomeGAP does not judge.
+            val domains = config.caaDomains
             val wanted = when {
                 config.acme.caa ->
                     listOf("issue", "issuewild").map { "0 $it \"${config.acme.caaIssuer}; validationmethods=dns-01\"" }
                 else -> emptyList()
             }
             // With extra domains, each record names its domain.
-            fun shown(domain: String, record: String) = if (domains.size > 1) "$domain $record" else record
+            val several = config.serviceDomains.size > 1
+            fun shown(domain: String, record: String) = if (several) "$domain $record" else record
             val read = inputs.caaLive.orEmpty()
             val desired = domains.flatMap { domain -> wanted.map { shown(domain, it) } }
             val live = domains.flatMap { domain -> read[domain].orEmpty().map { shown(domain, it) } }

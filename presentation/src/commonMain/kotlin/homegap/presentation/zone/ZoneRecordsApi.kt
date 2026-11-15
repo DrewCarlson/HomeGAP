@@ -4,8 +4,10 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
-import homegap.api.StatusSnapshot
-import homegap.presentation.data.ControllerSession
+import homegap.api.ZoneRecordDto
+import homegap.api.ZoneRecordKind
+import homegap.api.ZoneRecordRequest
+import homegap.presentation.data.ControllerApi
 
 /** Who owns a record of a zone. Only [Own] records can change. */
 enum class RecordKind {
@@ -78,76 +80,57 @@ interface ZoneRecordsApi {
     suspend fun delete(zone: String, id: String)
 }
 
-/**
- * TODO(backend): replace this class with a [ZoneRecordsApi] over the orchestrator's API.
- *
- * Until then it shows the records that HomeGAP manages, from the status snapshot, and it keeps
- * the records of the user in memory. It knows no challenge records, no TTL and no read-only role,
- * and it does not apply the rules of the server (a collision with a managed set).
- */
+/** The [ZoneRecordsApi] over the API of the orchestrator. */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
 @Inject
-class StubZoneRecordsApi(
-    private val session: ControllerSession,
+class ControllerZoneRecordsApi(
+    private val api: ControllerApi,
 ) : ZoneRecordsApi {
-    private val own = mutableMapOf<String, List<ZoneRecord>>()
-    private var nextId = 1
-
-    override val canEdit: Boolean = true
-
-    override val notice: String = "Zone records are not connected to the DNS provider yet. A change stays in this browser tab."
+    /** The answer of the last [zones] call. Before the first call, the screen has no records to edit. */
+    override var canEdit: Boolean = true
+        private set
 
     override suspend fun zones(): List<DnsZone> {
-        val status = session.status.value ?: return emptyList()
-        val names = status.domains.map { it.zone }.distinct()
-        return names.map { zone ->
-            DnsZone(
-                name = zone,
-                records = managed(status, zone, names) + own[zone].orEmpty(),
-            )
-        }
+        val response = api.zoneRecords()
+        canEdit = response.canEdit
+        return response.zones.map { zone -> DnsZone(zone.name, zone.records.map { it.toRecord() }) }
     }
 
     override suspend fun add(zone: String, record: RecordDraft) {
-        own[zone] = own[zone].orEmpty() + record.toRecord("own-${nextId++}")
+        api.addZoneRecord(zone, record.toRequest())
     }
 
     override suspend fun update(zone: String, id: String, record: RecordDraft) {
-        own[zone] = own[zone].orEmpty().map { if (it.id == id) record.toRecord(id) else it }
+        api.updateZoneRecord(zone, id, record.toRequest())
     }
 
     override suspend fun delete(zone: String, id: String) {
-        own[zone] = own[zone].orEmpty().filterNot { it.id == id }
+        api.deleteZoneRecord(zone, id)
     }
 
-    private fun managed(status: StatusSnapshot, zone: String, zones: List<String>): List<ZoneRecord> {
-        val services = status.services.map { it.hostname }.toSet()
-        return status.dns
-            .filter { record -> zones.filter { record.name == it || record.name.endsWith(".$it") }.maxByOrNull { it.length } == zone }
-            .map { record ->
-                ZoneRecord(
-                    id = "managed:${record.name}:${record.type}:${record.value}",
-                    name = if (record.name == zone) ROOT else record.name.removeSuffix(".$zone"),
-                    type = record.type,
-                    value = record.value,
-                    kind = RecordKind.Managed,
-                    purpose = when {
-                        record.type == "CAA" -> "CAA"
-                        record.name in services -> "service"
-                        else -> null
-                    },
-                    nodeId = record.nodeId,
-                )
-            }
-    }
-
-    private fun RecordDraft.toRecord(id: String) = ZoneRecord(
+    private fun ZoneRecordDto.toRecord() = ZoneRecord(
         id = id,
-        name = name.ifBlank { ROOT },
+        name = name,
         type = type,
         value = value,
-        kind = RecordKind.Own,
+        kind = when (kind) {
+            ZoneRecordKind.OWN -> RecordKind.Own
+            ZoneRecordKind.MANAGED -> RecordKind.Managed
+            ZoneRecordKind.CHALLENGE -> RecordKind.Challenge
+        },
+        ttlSeconds = ttlSeconds,
+        priority = priority,
+        flags = flags,
+        tag = tag,
+        purpose = purpose,
+        nodeId = nodeId,
+    )
+
+    private fun RecordDraft.toRequest() = ZoneRecordRequest(
+        type = type,
+        name = name,
+        value = value,
         ttlSeconds = ttlSeconds,
         priority = priority,
         flags = flags,

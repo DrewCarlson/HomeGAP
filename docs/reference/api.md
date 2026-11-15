@@ -125,6 +125,17 @@ A new connection first gets the last output of the session, at most 256 KiB.
 | `POST /api/setup/jobs` | Starts a setup job. |
 | `GET /api/setup/jobs/{id}` | Returns the progress of a setup job. |
 
+## Zone records
+
+| Route | What it does |
+| --- | --- |
+| `GET /api/dns/zones` | Returns each DNS zone with every record in it. Each record has its kind: `OWN`, `MANAGED` or `CHALLENGE`. |
+| `POST /api/dns/zones/{zone}/records` | Adds a record of your own to the zone. |
+| `PUT /api/dns/zones/{zone}/records/{id}` | Changes a record of your own. The type of a record does not change. |
+| `DELETE /api/dns/zones/{zone}/records/{id}` | Deletes a record of your own. |
+
+A change to a record that HomeGAP manages gets a 400, as does a record that collides with a managed record set.
+
 ## Locations
 
 | Route | What it does |

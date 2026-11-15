@@ -101,6 +101,24 @@ The front door of an extra domain has these differences from the front door of t
 
 A domain without a front door serves only the services that name a hostname in it.
 
+## Use only the subdomains of a domain
+
+The root of a domain can belong to a service that has no relation to HomeGAP, for example a website at a different host. HomeGAP can still publish services under the subdomains of that domain.
+
+1. Add the domain to `extra_domains`, with `caa: false`:
+    ```yaml
+    extra_domains:
+      - domain: example.org
+        caa: false
+    ```
+2. Do not give the domain a front door. No service has `homegap.expose: "example.org"`.
+3. Publish each service under a subdomain, for example `app.example.org`. See [Publish a service under an extra domain](#publish-a-service-under-an-extra-domain).
+4. Add the records of the root on the **Zone records** tab of the DNS page, for example an A record for `@`.
+
+HomeGAP then writes records only for the subdomains that a service uses. It writes no record at the root and no wildcard record, and it does not change the records that you add there.
+
+With `caa: false`, HomeGAP publishes no CAA records for the domain. Without it, the CAA records of HomeGAP at the root let only Let's Encrypt issue certificates for the domain, and only with the DNS challenge. That stops the certificate of a root service that uses a different authority or a different challenge.
+
 ## What HomeGAP does for each extra domain
 
 | Part | What HomeGAP does |

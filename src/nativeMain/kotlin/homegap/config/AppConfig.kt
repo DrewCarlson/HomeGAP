@@ -42,6 +42,10 @@ data class AppConfig(
     /** Each domain that a service can use: [domain] first, then the extra domains. */
     val serviceDomains: List<String> get() = listOf(domain) + extraDomains.map { it.domain }
 
+    /** The domains that get the CAA records of HomeGAP. Without `acme.caa`, the list is empty. */
+    val caaDomains: List<String>
+        get() = if (acme.caa) listOf(domain) + extraDomains.filter { it.caa }.map { it.domain } else emptyList()
+
     /** Each Bunny zone that HomeGAP writes: the zone of [domain] first. */
     val zones: List<String> get() = (listOf(bunny.zone) + extraDomains.map { it.zoneName }).distinct()
 
@@ -117,6 +121,12 @@ data class ExtraDomain(
     val domain: String,
     /** The Bunny DNS zone, equal to or a parent of [domain]. The default is [domain]. */
     val zone: String? = null,
+    /**
+     * With false, HomeGAP publishes no CAA records for this domain. Use it if the root of the
+     * domain has a service that gets its certificate in a different way. It has no effect
+     * without `acme.caa`.
+     */
+    val caa: Boolean = true,
 ) {
     val zoneName: String get() = zone ?: domain
 }

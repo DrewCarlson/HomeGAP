@@ -109,6 +109,11 @@ class FakeControllerApi(
         LocationDto("in-mumbai", "Mumbai", "India", "IN", "AS", 19.08, 72.88, listOf("AWS", "Vultr"), builtIn = true),
         LocationDto("sg-singapore", "Singapore", "Singapore", "SG", "AS", 1.35, 103.82, listOf("Vultr"), builtIn = true),
     ))
+    var zoneRecordsValue = ZoneRecordsResponse(canEdit = true, zones = emptyList())
+    override suspend fun zoneRecords() = zoneRecordsValue
+    override suspend fun addZoneRecord(zone: String, record: ZoneRecordRequest) = ok("add-record $zone ${record.type} ${record.name}")
+    override suspend fun updateZoneRecord(zone: String, id: String, record: ZoneRecordRequest) = ok("update-record $zone $id")
+    override suspend fun deleteZoneRecord(zone: String, id: String) = ok("delete-record $zone $id")
     override suspend fun locations() = locationsValue
     override suspend fun saveLocation(location: LocationDto) = ok("save-location ${location.id} ${location.name}")
     override suspend fun deleteLocation(id: String, reset: Boolean) = ok("delete-location $id $reset")

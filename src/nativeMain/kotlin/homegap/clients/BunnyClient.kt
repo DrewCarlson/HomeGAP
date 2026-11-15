@@ -52,6 +52,8 @@ data class BunnyRecord(
     /** CAA records only. */
     @SerialName("Flags") val flags: Int? = null,
     @SerialName("Tag") val tag: String? = null,
+    /** The priority of an MX record. */
+    @SerialName("Priority") val priority: Int? = null,
 ) {
     val typeName: String get() = RECORD_TYPES.getOrElse(type) { type.toString() }
 

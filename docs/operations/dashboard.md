@@ -176,6 +176,21 @@ The CAA record sets belong to certificate management. They are read-only, and th
 
 With [extra domains](../services/extra-domains.md), the page also has the **Domains** table. It shows each domain with its DNS zone, its front door and the state of the zone. If HomeGAP cannot sync a zone, the **State** column shows the error.
 
+### Zone records
+
+The **Zone records** tab of the DNS page shows every record of one DNS zone. The zone switcher selects the zone. A record that HomeGAP manages has a lock and shows what it is for. A challenge record of a certificate order has a lock too. You cannot change a locked record.
+
+Each other record is yours. Click **Add record** to add one, or click a record to edit or delete it. You can add and edit the types A, AAAA, CNAME, TXT, MX and CAA. A typical use is a TXT record that a service asks for to verify your domain.
+
+A change goes to Bunny at once, also in dry run and during a pause. The activity log has a line for each change, with "(from the dashboard)".
+
+HomeGAP refuses a record that its DNS pass deletes:
+
+- A record with the name and the type of a record set that HomeGAP manages. The message is "HomeGAP manages A records for app.example.net."
+- A CNAME record at a name where HomeGAP manages records.
+
+See [Ownership of records](../configuration/dns.md#ownership-of-records). A user with read-only access sees the records but cannot change them.
+
 ### Certificates
 
 A tab of the **DNS** page. It shows the certificate that the nodes share, which node has it, what a visitor gets on each name through each node, the orders, and who can issue for the domain. See [Certificates](../configuration/certificates.md#the-certificates-page).

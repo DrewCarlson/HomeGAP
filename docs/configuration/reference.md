@@ -40,6 +40,7 @@ This page lists every key of the config file, with its type and its default. A k
 | --- | --- | --- | --- |
 | `domain` | string | None. Necessary. | A domain for services, for example `example.org`. It cannot be inside `domain` or a different extra domain. |
 | `zone` | string | The value of `domain`. | The Bunny DNS zone. It is equal to the domain or a parent of it. It uses the API key of `bunny`. |
+| `caa` | boolean | `true` | With `false`, HomeGAP publishes no CAA records for this domain. Use it if the root of the domain has a service that gets its certificate in a different way. It has no effect without `acme.caa`. |
 
 ## bunny
 

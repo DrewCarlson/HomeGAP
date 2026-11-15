@@ -72,6 +72,8 @@ HomeGAP marks each of its records with the comment `managed-by:homegap <purpose>
 
 HomeGAP keeps the records of paused nodes and paused services as they are.
 
+To add records of your own, for example a TXT record for a verification, use the **Zone records** tab of the DNS page. It refuses a record that HomeGAP deletes. See [The dashboard](../operations/dashboard.md#zone-records).
+
 ## Extra domains
 
 Each [extra domain](../services/extra-domains.md) has its own zone, or shares a zone with a different domain. HomeGAP writes each record to the zone of its domain, with the same routing, monitor and TTL. If one zone fails, HomeGAP still syncs the other zones, and the activity log names the zone that failed.

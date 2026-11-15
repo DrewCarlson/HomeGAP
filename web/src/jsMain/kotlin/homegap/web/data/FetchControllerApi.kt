@@ -174,6 +174,17 @@ class FetchControllerApi(
             setBody(SetNodeLocationRequest(place))
         }.body()
 
+    override suspend fun zoneRecords(): ZoneRecordsResponse = http.get("/api/dns/zones").body()
+
+    override suspend fun addZoneRecord(zone: String, record: ZoneRecordRequest): ActionResponse =
+        http.post("/api/dns/zones/$zone/records") { setBody(record) }.body()
+
+    override suspend fun updateZoneRecord(zone: String, id: String, record: ZoneRecordRequest): ActionResponse =
+        http.put("/api/dns/zones/$zone/records/$id") { setBody(record) }.body()
+
+    override suspend fun deleteZoneRecord(zone: String, id: String): ActionResponse =
+        http.delete("/api/dns/zones/$zone/records/$id").body()
+
     override suspend fun switchPrimary(to: String): ActionResponse =
         http.post("/api/cluster/switchover") {
             setBody(SwitchoverRequest(to))

@@ -88,6 +88,12 @@ interface ControllerApi {
     /** Moves node [id] on the maps and in geo DNS steering. */
     suspend fun setNodeLocation(id: String, place: PlaceDto): ActionResponse
 
+    /** Every DNS zone with its records, and whether this user can change the records of the user. */
+    suspend fun zoneRecords(): ZoneRecordsResponse
+    suspend fun addZoneRecord(zone: String, record: ZoneRecordRequest): ActionResponse
+    suspend fun updateZoneRecord(zone: String, id: String, record: ZoneRecordRequest): ActionResponse
+    suspend fun deleteZoneRecord(zone: String, id: String): ActionResponse
+
     /** Makes cluster member [to] the database primary now. */
     suspend fun switchPrimary(to: String): ActionResponse
 

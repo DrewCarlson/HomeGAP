@@ -86,7 +86,7 @@ class PresenterTest {
             services = ServicesScreenPresenter(serviceActions),
             dns = DnsScreenPresenter(api, actions),
             certificates = homegap.presentation.certificates.CertificatesScreenPresenter(api, actions, confirmations, FakeTimeFormatter),
-            zoneRecords = homegap.presentation.zone.ZoneRecordsScreenPresenter(homegap.presentation.zone.StubZoneRecordsApi(session), actions, confirmations),
+            zoneRecords = homegap.presentation.zone.ZoneRecordsScreenPresenter(homegap.presentation.zone.ControllerZoneRecordsApi(api), actions, confirmations),
             tunnels = TunnelsScreenPresenter(api, actions, confirmations),
             speedTest = speedTest,
             access = access,
