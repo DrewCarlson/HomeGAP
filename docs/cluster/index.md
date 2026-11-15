@@ -73,7 +73,7 @@ The config has these keys:
 | `cluster.exit_nodes.homelab` | `false` | Offers an exit through the homelab. |
 | `cluster.exit_nodes.roles` | `[]` | The roles that can use the exits. |
 | `cluster.exit_nodes.newt_image` | `docker.io/fosrl/newt:1.20.0` | The connector image for the exit of each node. |
-| `cluster.tunnel_dns.resolvers` | `[8.8.8.8]` | The IP addresses of the DNS servers that the Pangolin apps can reach through the tunnel. An empty list disables this. |
+| `cluster.tunnel_dns.resolvers` | `[8.8.8.8]` | The IP addresses of the DNS servers that the Pangolin apps can reach through the tunnel. Each app must have one of them as its upstream DNS server. An empty list disables this. See [DNS through the tunnel](pangolin-apps.md#dns-through-the-tunnel). |
 | `cluster.tunnel_dns.roles` | `[Member]` | The roles that can use these DNS servers. |
 
 ## The order of first setup

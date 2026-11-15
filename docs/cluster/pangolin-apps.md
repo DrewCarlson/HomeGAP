@@ -32,6 +32,7 @@ The Pangolin app (by Fossorial) connects a device to your private services. This
 
 7. On the **Access** page, find the device in the **Devices** list. Make sure that it shows as `online`, with the node that it relays through.
 8. Optional: if exit nodes are enabled, the person selects an exit in the app. See [Exit nodes](exit-nodes.md).
+9. Optional: to send the DNS queries of the device through the tunnel, the person sets the DNS server in the app. See [DNS through the tunnel](#dns-through-the-tunnel).
 
 ## What the app reaches
 
@@ -42,14 +43,30 @@ A connected app reaches these services:
 
 ## DNS through the tunnel
 
-The Pangolin app has the setting **DNS over tunnel**. With this setting, the app sends its DNS queries through the tunnel to its upstream DNS server. The default upstream server of the app is `8.8.8.8`. The app can send queries only to a server that is a Pangolin resource. Without such a resource, the app resolves only the names of your private services, and other sites do not open.
+The Pangolin app can send its DNS queries through the tunnel. HomeGAP opens the path to the DNS servers in `cluster.tunnel_dns.resolvers` (default `8.8.8.8`). You must set the same server in the app on each device. Pangolin has no setting that gives the server to the app.
 
-HomeGAP makes each server in `cluster.tunnel_dns.resolvers` a private resource on port 53 (TCP and UDP). Its identifier is `hg-dns-<address>`, with `-` in the place of each dot or colon, for example `hg-dns-8-8-8-8`. The default is `8.8.8.8`, the default of the app, so the app needs no change. The roles in `cluster.tunnel_dns.roles` can use it.
+1. Open the settings of the Pangolin app.
+2. Enable **Enable Aliases (Override DNS)**.
+3. Enable **DNS Over Tunnel**.
+4. In **Primary Upstream DNS**, enter an address from `cluster.tunnel_dns.resolvers`.
+5. Disconnect the app.
+6. Connect the app again.
+
+!!! warning "Caution"
+    If **Primary Upstream DNS** is empty, the app uses the DNS server of the network of the device. HomeGAP opens no path to that server. With **DNS Over Tunnel** on, the device then resolves only the names of your private services, and other sites do not open.
+
+With an exit node selected in the app, all traffic of the device uses the tunnel. Names then resolve also with an empty **Primary Upstream DNS**, so the problem shows only with no exit node.
+
+For each setting of the app, see [Shared Preferences](https://docs.pangolin.net/manage/clients/platforms) in the Pangolin docs. On Android, also set **Private DNS** in the system settings to **Automatic** or **Off**. See [Android](https://docs.pangolin.net/manage/clients/platforms/android) in the Pangolin docs.
+
+### The DNS servers that HomeGAP opens
+
+HomeGAP makes each server in `cluster.tunnel_dns.resolvers` a private resource on port 53 (TCP and UDP). Its identifier is `hg-dns-<address>`, with `-` in the place of each dot or colon, for example `hg-dns-8-8-8-8`. The roles in `cluster.tunnel_dns.roles` can use it. A query to a server that is not in the list gets no answer.
 
 - If `cluster.exit_nodes.nodes` is enabled, the resource is on the exit site of each node. The queries leave from the node that the device uses, the nearest node. Thus geo-steered names resolve to locations near the device.
 - If not, the resource is on the homelab site of each node. The queries leave from your homelab.
 
-The resource works without an exit node. If you set another upstream server in the app, add its address to `cluster.tunnel_dns.resolvers`.
+To use a different server, for example `9.9.9.10`, set it in `cluster.tunnel_dns.resolvers` and in the app. See the [Configuration reference](../configuration/reference.md).
 
 ## While the homelab is down
 

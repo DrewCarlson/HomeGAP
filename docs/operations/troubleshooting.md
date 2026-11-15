@@ -57,6 +57,7 @@ With `HOMEGAP_DEBUG=1`, the orchestrator prints stack traces for fatal errors.
 | A node stays in a provisioning phase. | The **Activity** log and the `ssh` check. HomeGAP tries a failed first provisioning again after 5 minutes. |
 | SSH times out, or the server cuts it before login. | A login blocker (fail2ban, sshguard or CrowdSec) can ban the orchestrator. Remove the ban from the console of the provider. Also check `ssh_allow_from` against the public IP address of the orchestrator. |
 | A name does not resolve to the nearest node. | The monitor state on the **DNS** page. Failover takes 1 to 5 minutes. One node cannot fail over. |
+| With the Pangolin app on, only your private services open. | The upstream DNS server in the app. It must be a server in `cluster.tunnel_dns.resolvers`. See [DNS through the tunnel](../cluster/pangolin-apps.md#dns-through-the-tunnel). |
 | A node is not in the wildcard set. | The `ee-license` check. `terminate` on the front door needs an EE license on every node. |
 | `http://<node ip>/` returns 502. | The origin is down. |
 | `http://<node ip>/` times out. | The tunnel is down. Look at the **Tunnels** page. |
