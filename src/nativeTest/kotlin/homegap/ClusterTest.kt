@@ -272,7 +272,7 @@ class ClusterTest {
 
         val desired = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
         val routes = NodeTemplates.dynamicRoutes(desired, mapOf(Planner.FRONTDOOR_TCP to 7), cluster = true)
-        assertTrue("-service@file" in routes && "@http\"" !in routes)
+        assertTrue("homegap-mesh-${Planner.FRONTDOOR_TCP}" in routes && "@http\"" !in routes)
     }
 
     @Test

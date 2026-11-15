@@ -3,6 +3,7 @@ package homegap.provision
 import homegap.config.AppConfig
 import homegap.config.NodeConfig
 import homegap.discovery.slug
+import homegap.model.MeshTarget
 import homegap.model.NodeDesired
 import homegap.model.RawPort
 import homegap.model.SniRoute
@@ -60,6 +61,9 @@ object NodeTemplates {
      */
     const val PROXY_PROTOCOL_VERSION = 2
     const val PROXY_PROTOCOL_TRANSPORT = "pp-transport-v$PROXY_PROTOCOL_VERSION"
+
+    /** The transport of the streams over the mesh. Pangolin has its own with the other name. */
+    private const val MESH_PROXY_TRANSPORT = "homegap-mesh-proxy"
     const val DYNAMIC_TLS = "config/traefik/dynamic/homegap-tls.yml"
     const val DYNAMIC_HEADERS = "config/traefik/dynamic/homegap-headers.yml"
     const val HSTS = "homegap-hsts"
@@ -640,8 +644,16 @@ object NodeTemplates {
      * does not exist yet.
      */
     fun dynamicRoutes(desired: NodeDesired, resourceIds: Map<String, Int>, cluster: Boolean = false): String {
-        val sniRoutes = desired.sniRoutes.mapNotNull { route -> resourceIds[route.resourceNiceId]?.let { route to it } }
-        val misdirected = misdirectedRule(sniRoutes.map { it.first }, ownNames(desired))
+        val sniRoutes = desired.sniRoutes.mapNotNull { route ->
+            val mesh = desired.meshTarget(route)
+            val pangolin = resourceIds[route.resourceNiceId]?.let { pangolinService(it, route.resourceNiceId, cluster) }
+            when {
+                mesh != null -> Stream(route, meshService(route), mesh)
+                pangolin != null -> Stream(route, pangolin, mesh = null)
+                else -> null
+            }
+        }
+        val misdirected = misdirectedRule(sniRoutes.map { it.route }, ownNames(desired))
         val sharedNames = sharedNamesOf(desired)
         val proxyTransport = !cluster && desired.publicResources.any { it.proxyProtocol }
         val root = buildJsonObject {
@@ -686,7 +698,7 @@ object NodeTemplates {
                 }
             }
             if (sniRoutes.isNotEmpty() || proxyTransport) {
-                putJsonObject("tcp") { tcpRoutes(sniRoutes, proxyTransport, cluster) }
+                putJsonObject("tcp") { tcpRoutes(sniRoutes, proxyTransport) }
             }
         }
         return YamlEmitter.emit(root, HEADER)
@@ -810,30 +822,53 @@ object NodeTemplates {
         httpRouter("homegap-health-fallback", fallback)
     }
 
-    private fun JsonObjectBuilder.tcpRoutes(
-        sniRoutes: List<Pair<SniRoute, Int>>,
-        proxyTransport: Boolean,
-        cluster: Boolean,
-    ) {
-        if (proxyTransport) {
+    /** A passthrough route and its service. [mesh] is null for a service that Pangolin makes. */
+    private class Stream(val route: SniRoute, val service: String, val mesh: MeshTarget?)
+
+    private fun meshService(route: SniRoute) = "homegap-mesh-${route.resourceNiceId}"
+
+    private fun JsonObjectBuilder.tcpRoutes(streams: List<Stream>, proxyTransport: Boolean) {
+        val overMesh = streams.filter { it.mesh != null }.distinctBy { it.service }
+        val transports = buildList {
+            if (proxyTransport) add(PROXY_PROTOCOL_TRANSPORT)
+            if (overMesh.any { it.mesh!!.proxyProtocol }) add(MESH_PROXY_TRANSPORT)
+        }
+        if (transports.isNotEmpty()) {
             putJsonObject("serversTransports") {
-                putJsonObject(PROXY_PROTOCOL_TRANSPORT) {
-                    putJsonObject("proxyProtocol") { put("version", PROXY_PROTOCOL_VERSION) }
+                for (transport in transports) {
+                    putJsonObject(transport) {
+                        putJsonObject("proxyProtocol") { put("version", PROXY_PROTOCOL_VERSION) }
+                    }
                 }
             }
         }
-        if (sniRoutes.isNotEmpty()) {
+        if (streams.isNotEmpty()) {
             putJsonObject("routers") {
-                for ((route, resourceId) in sniRoutes) {
-                    putJsonObject(route.name) {
+                for (stream in streams) {
+                    putJsonObject(stream.route.name) {
                         putJsonArray("entryPoints") { add(WEBSECURE) }
-                        put("rule", sniRule(route))
-                        put("service", pangolinService(resourceId, route.resourceNiceId, cluster))
-                        put("priority", route.priority)
+                        put("rule", sniRule(stream.route))
+                        put("service", stream.service)
+                        put("priority", stream.route.priority)
                         putJsonObject("tls") { put("passthrough", true) }
                     }
                 }
             }
+        }
+        if (overMesh.isNotEmpty()) {
+            putJsonObject("services") {
+                for (stream in overMesh) {
+                    putJsonObject(stream.service) { meshLoadBalancer(stream.mesh!!) }
+                }
+            }
+        }
+    }
+
+    /** The stream goes to a port of the mesh address of the homelab, which sends it to the front door. */
+    private fun JsonObjectBuilder.meshLoadBalancer(target: MeshTarget) {
+        putJsonObject("loadBalancer") {
+            putJsonArray("servers") { add(buildJsonObject { put("address", target.address) }) }
+            if (target.proxyProtocol) put("serversTransport", MESH_PROXY_TRANSPORT)
         }
     }
 

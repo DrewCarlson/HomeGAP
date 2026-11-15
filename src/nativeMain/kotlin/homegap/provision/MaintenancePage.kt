@@ -54,17 +54,22 @@ object MaintenancePage {
 
     /**
      * The targets that the service checks: each resource that reaches the homelab, with a name to
-     * send as SNI. The service finds a resource in the generated routes of Pangolin as
-     * `<id>-<niceId>-service`. The list is empty if there is nothing to cover.
+     * send as SNI. A target over the mesh has its address. For a target of Pangolin, the service
+     * finds the resource in the generated routes of Pangolin as `<id>-<niceId>-service`. The list
+     * is empty if there is nothing to cover.
      */
     fun probes(desired: NodeDesired, resourceIds: Map<String, Int>): String = buildJsonObject {
         putJsonArray("targets") {
             if (covers(desired, resourceIds)) {
-                for ((niceId, sni) in targets(desired, resourceIds)) {
+                for (target in targets(desired, resourceIds)) {
                     add(
                         buildJsonObject {
-                            put("service_suffix", "-$niceId-service")
-                            put("sni", sni)
+                            if (target.address != null) {
+                                put("address", target.address)
+                            } else {
+                                put("service_suffix", "-${target.niceId}-service")
+                            }
+                            put("sni", target.sni)
                         },
                     )
                 }
@@ -72,17 +77,23 @@ object MaintenancePage {
         }
     }.toString() + "\n"
 
-    /** The resources that reach the homelab and exist in Pangolin: the niceId, and a name for SNI. */
-    private fun targets(desired: NodeDesired, resourceIds: Map<String, Int>): List<Pair<String, String>> {
+    /** A resource to check, with a name for SNI. [address] is its port on the mesh, or null for Pangolin. */
+    private class Probe(val niceId: String, val sni: String, val address: String?)
+
+    /** The resources that reach the homelab: over the mesh, or through a resource that exists in Pangolin. */
+    private fun targets(desired: NodeDesired, resourceIds: Map<String, Int>): List<Probe> {
         val passthrough = desired.sniRoutes.mapNotNull { route ->
             val sni = route.exactHosts.firstOrNull { it !in route.excludeHosts }
                 ?: route.wildcardOf?.let { "homegap-probe.$it" }
-            sni?.let { route.resourceNiceId to it }
+            sni?.let { Probe(route.resourceNiceId, it, desired.meshTarget(route)?.address) }
         }
         val terminated = desired.publicResources
             .filter { it.mode == ResourceMode.HTTP && it.ssl && it.fullDomain != null }
-            .map { it.niceId to (it.tlsServerName ?: it.fullDomain!!.replace("*.", "homegap-probe.")) }
-        return (passthrough + terminated).filter { resourceIds[it.first] != null }
+            .map { resource ->
+                val sni = resource.tlsServerName ?: resource.fullDomain!!.replace("*.", "homegap-probe.")
+                Probe(resource.niceId, sni, address = null)
+            }
+        return (passthrough + terminated).filter { it.address != null || resourceIds[it.niceId] != null }
     }
 
     private fun covers(desired: NodeDesired, resourceIds: Map<String, Int>): Boolean {
@@ -94,7 +105,9 @@ object MaintenancePage {
     fun routes(desired: NodeDesired, resourceIds: Map<String, Int>): String {
         val hosts = desired.maintenanceHosts
         if (!covers(desired, resourceIds)) return NOTHING_TO_COVER
-        val passthrough = desired.sniRoutes.filter { resourceIds[it.resourceNiceId] != null }
+        val passthrough = desired.sniRoutes.filter {
+            desired.meshTarget(it) != null || resourceIds[it.resourceNiceId] != null
+        }
         val root = buildJsonObject {
             if (hosts.isNotEmpty()) {
                 putJsonObject("http") { putPageRoute(pageRule(desired)) }
@@ -231,7 +244,10 @@ object MaintenancePage {
         |    # Pangolin has dropped (its targets failed their health checks) counts as down.
         |    # The checks run side by side, so an unreachable homelab is noticed in one timeout.
         |    routes = pangolin_routes()
-        |    checks = [(a, t["sni"]) for t in targets for a in addresses(routes, t["service_suffix"])]
+        |    checks = []
+        |    for t in targets:
+        |        found = [t["address"]] if "address" in t else addresses(routes, t["service_suffix"])
+        |        checks += [(a, t["sni"]) for a in found]
         |    if not checks:
         |        return False
         |    with concurrent.futures.ThreadPoolExecutor(len(checks)) as pool:

@@ -74,23 +74,28 @@ class TemplatesTest {
     }
 
     @Test
-    fun dynamicRoutesReferencePangolinServicesById() {
+    fun dynamicRoutesSendPassthroughOverTheMeshAndHealthThroughPangolin() {
         val plan = Planner.plan(config, listOf(TRAEFIK))
         val desired = plan.nodes.getValue("na1")
         val ids = mapOf(Planner.FRONTDOOR_TCP to 7, Planner.HEALTH to 9)
         val yaml = NodeTemplates.dynamicRoutes(desired, ids)
         val tree = ResourceReconciler.yamlToJson(yaml).jsonObject
         val tcp = tree["tcp"]!!.jsonObject["routers"]!!.jsonObject["homegap-frontdoor"]!!.jsonObject
-        assertEquals("7-hg-frontdoor-service@http", tcp["service"]!!.jsonPrimitive.content)
+        assertEquals("homegap-mesh-hg-frontdoor", tcp["service"]!!.jsonPrimitive.content)
         assertEquals(true, tcp["tls"]!!.jsonObject["passthrough"]!!.jsonPrimitive.boolean)
+        // The stream goes to the port of the front door on the mesh address of the homelab.
+        val port = desired.publicResources.single { it.niceId == Planner.FRONTDOOR_TCP }.proxyPort
+        val service = tree["tcp"]!!.jsonObject["services"]!!.jsonObject["homegap-mesh-hg-frontdoor"]!!.toString()
+        assertTrue("10.77.0.1:$port" in service, service)
         val http = tree["http"]!!.jsonObject["routers"]!!.jsonObject
         assertEquals("9-hg-health-service@http", http["homegap-health"]!!.jsonObject["service"]!!.jsonPrimitive.content)
         assertTrue("homegap-health-fallback" in http)
         assertTrue("homegap-mgmt-api" in http)
         assertFalse("homegap-mgmt-ui" in http, "node dashboards stay private by default")
-        // Without resource ids, a passthrough router has no target, so the file has none.
-        val empty = ResourceReconciler.yamlToJson(NodeTemplates.dynamicRoutes(desired, emptyMap())).jsonObject
-        assertNull(empty["tcp"])
+        // The passthrough router does not wait for Pangolin. The health router does.
+        val early = ResourceReconciler.yamlToJson(NodeTemplates.dynamicRoutes(desired, emptyMap())).jsonObject
+        assertTrue("homegap-frontdoor" in early["tcp"]!!.jsonObject["routers"]!!.jsonObject)
+        assertFalse("homegap-health" in early["http"]!!.jsonObject["routers"]!!.jsonObject)
     }
 
     @Test

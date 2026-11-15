@@ -1,5 +1,6 @@
 package homegap.model
 
+import homegap.provision.Mesh
 import homegap.acme.CertNames
 import homegap.config.AppConfig
 import homegap.config.NodeConfig
@@ -80,8 +81,20 @@ data class NodeDesired(
      * domain.
      */
     val maintenanceHosts: List<String> = emptyList(),
+    /**
+     * The mesh address of the homelab. The node sends the streams of its passthrough routes to a
+     * port of this address. With null, the streams go through Pangolin.
+     */
+    val meshHome: String? = null,
 ) {
     val id: String get() = node.id
+
+    /** The port of [meshHome] for the stream of [route], or null if the stream goes through Pangolin. */
+    fun meshTarget(route: SniRoute): MeshTarget? {
+        val home = meshHome ?: return null
+        val resource = publicResources.firstOrNull { it.niceId == route.resourceNiceId } ?: return null
+        return resource.proxyPort?.let { MeshTarget("$home:$it", resource.proxyProtocol) }
+    }
 
     /** The raw ports that the node forwards in the kernel. */
     val forwardedPorts: List<RawPort>
@@ -92,6 +105,9 @@ data class NodeDesired(
     /** The raw ports that the Traefik of the node serves: the ports with PROXY protocol. */
     val traefikPorts: List<RawPort> get() = rawPorts - forwardedPorts.toSet()
 }
+
+/** Where a node sends a stream over the mesh. With [proxyProtocol], it sends a PROXY protocol header first. */
+data class MeshTarget(val address: String, val proxyProtocol: Boolean)
 
 data class RawPort(val port: Int, val protocol: String) : Comparable<RawPort> {
     val entryPoint: String get() = "$protocol-$port"
@@ -815,6 +831,7 @@ object Planner {
                 clientHost = config.clientHost,
                 // The node ends TLS for the shared names in each mode, so they always get the page.
                 maintenanceHosts = (maintenanceHosts + pages.shared).distinct().sorted(),
+                meshHome = Mesh.homelabAddress(config.mesh),
             )
         }
 

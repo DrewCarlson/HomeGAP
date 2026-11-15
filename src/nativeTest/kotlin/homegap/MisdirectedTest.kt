@@ -60,8 +60,8 @@ class MisdirectedTest {
     @Test
     fun noPassthroughMeansNoRoute() {
         assertNull(NodeTemplates.misdirectedRule(emptyList()))
-        // The node writes the passthrough routes only when their resources exist, and this route too.
-        val routes = NodeTemplates.dynamicRoutes(plan.nodes.getValue("na1"), emptyMap(), cluster = true)
+        val noPassthrough = plan.nodes.getValue("na1").copy(sniRoutes = emptyList())
+        val routes = NodeTemplates.dynamicRoutes(noPassthrough, emptyMap(), cluster = true)
         assertFalse(NodeTemplates.MISDIRECTED_ROUTER in routes)
         assertFalse(NodeTemplates.ELSEWHERE_TLS_OPTIONS in routes)
     }

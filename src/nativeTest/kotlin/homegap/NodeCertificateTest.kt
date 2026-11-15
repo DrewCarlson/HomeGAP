@@ -171,15 +171,21 @@ class NodeCertificateTest {
         val targets = Json.parseToJsonElement(MaintenancePage.probes(desired, ids))
             .jsonObject["targets"]!!
             .jsonArray
-            .map { it.jsonObject["service_suffix"]!!.jsonPrimitive.content }
+            .map { it.jsonObject }
+        // A passthrough name goes over the mesh, so its check has the address. Pangolin has the other.
+        val frontDoorPort = desired.publicResources.single { it.niceId == Planner.FRONTDOOR_TCP }.proxyPort
+        val overMesh = targets.mapNotNull { it["address"]?.jsonPrimitive?.content }
+        assertTrue("10.77.0.1:$frontDoorPort" in overMesh, targets.toString())
         assertTrue(
-            "-${Planner.FRONTDOOR_TCP}-service" in targets && "-hg-wiki-test-example-net-service" in targets,
+            targets.any { it["service_suffix"]?.jsonPrimitive?.content == "-hg-wiki-test-example-net-service" },
             targets.toString(),
         )
-        // Before Pangolin has a resource, there is nothing to check and so nothing to cover.
-        assertFalse("routers" in MaintenancePage.routes(desired, emptyMap()))
-        val noProbes = Json.parseToJsonElement(MaintenancePage.probes(desired, emptyMap())).jsonObject
-        assertTrue(noProbes["targets"]!!.jsonArray.isEmpty())
+        // Before Pangolin has a resource, the page covers only the names that go over the mesh.
+        val early = Json.parseToJsonElement(MaintenancePage.probes(desired, emptyMap()))
+            .jsonObject["targets"]!!
+            .jsonArray
+        assertTrue(early.isNotEmpty() && early.all { "address" in it.jsonObject })
+        assertTrue("homegap-frontdoor-unreachable" in MaintenancePage.routes(desired, emptyMap()))
         // With the page off for the only terminated service and no shared name, the page covers nothing.
         val wikiWithoutPage = container(
             "wiki",
