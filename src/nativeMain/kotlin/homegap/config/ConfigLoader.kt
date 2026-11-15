@@ -159,7 +159,24 @@ object ConfigLoader {
         }
     }
 
+    private fun dashboardSsoErrors(dashboard: DashboardConfig): List<String> = buildList {
+        val sso = dashboard.sso ?: return@buildList
+        if (dashboard.hostname == null) {
+            add("dashboard.sso needs dashboard.hostname: the sign-in is on the route of the homelab Traefik")
+        }
+        if (!SSO_MIDDLEWARE.matches(sso.middleware)) {
+            add("dashboard.sso.middleware must be a Traefik middleware with its provider, for example authelia@docker")
+        }
+        if (listOf(sso.userHeader, sso.groupsHeader).any { !HEADER_NAME.matches(it) }) {
+            add("dashboard.sso.user_header and groups_header must be header names")
+        }
+        if ((sso.groups + sso.readOnlyGroups).any { it.isBlank() || ',' in it }) {
+            add("dashboard.sso.groups and read_only_groups must be group names with no comma")
+        }
+    }
+
     private fun publishedDashboardErrors(config: AppConfig): List<String> = buildList {
+        addAll(dashboardSsoErrors(config.dashboard))
         val hostname = config.dashboard.hostname ?: return@buildList
         if (!HOST_LABEL.matches(hostname)) {
             add("dashboard.hostname must be a single lowercase label")
@@ -344,6 +361,8 @@ object ConfigLoader {
     private val HOST_LABEL = Regex("^[a-z][a-z0-9]{0,20}$")
     private const val MAX_PORT = 65535
     private val DASHBOARD_ACCESS = setOf("private", "public")
+    private val SSO_MIDDLEWARE = Regex("^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+$")
+    private val HEADER_NAME = Regex("^[A-Za-z][A-Za-z0-9-]*$")
     private val CAA_ISSUER = Regex("^[a-z0-9.-]+$")
     private val PLAIN_HOSTNAME = Regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 

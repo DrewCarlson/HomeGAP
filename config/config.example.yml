@@ -135,3 +135,7 @@ dashboard:
   # hostname: orc            # your Traefik serves the dashboard at orc.<domain>
   # access: private          # private: Pangolin clients only (needs homegap.private_network on
   #                          # the front door). public: everybody, with only the token as protection.
+  # sso:                     # sign-in through a forward-auth middleware of your Traefik (Authelia)
+  #   middleware: authelia@docker
+  #   groups: [admins]             # full access
+  #   read_only_groups: [family]   # can only look

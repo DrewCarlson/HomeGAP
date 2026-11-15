@@ -481,6 +481,8 @@ data class DashboardConfig(
     val hostname: String? = null,
     /** Who reaches [hostname]: `private` (Pangolin clients only) or `public`. */
     val access: String = "private",
+    /** Sign-in through a forward-auth middleware of the homelab Traefik. It needs [hostname]. */
+    val sso: DashboardSsoConfig? = null,
 ) {
     /** The name of the dashboard at the homelab Traefik, or null without one. */
     fun publishedHost(domain: String): String? = hostname?.let { "$it.$domain" }
@@ -496,6 +498,31 @@ data class DashboardConfig(
 
     val host: String get() = bind.substringBeforeLast(":")
     val port: Int get() = bind.substringAfterLast(":").toInt()
+}
+
+/**
+ * Sign-in to the dashboard through a forward-auth middleware of the homelab Traefik, for example
+ * Authelia. A user who signs in needs no dashboard token.
+ */
+@Serializable
+data class DashboardSsoConfig(
+    /** The middleware as Traefik names it, with its provider: `authelia@docker`. */
+    val middleware: String,
+    /** The header with the name of the user, which the middleware adds to each request. */
+    @SerialName("user_header") val userHeader: String = "Remote-User",
+    /** The header with the groups of the user, with commas between them. */
+    @SerialName("groups_header") val groupsHeader: String = "Remote-Groups",
+    /** The groups with full access. If the list is empty, each user that is not read-only has full access. */
+    val groups: List<String> = emptyList(),
+    /** The groups that can only look: each request that changes something gets a refusal. */
+    @SerialName("read_only_groups") val readOnlyGroups: List<String> = emptyList(),
+) {
+    /** The headers that only the middleware can write. The route removes them from the request of the client. */
+    val trustedHeaders: List<String> get() = (listOf(userHeader, groupsHeader) + EXTRA_HEADERS).distinct()
+
+    private companion object {
+        val EXTRA_HEADERS = listOf("Remote-Name", "Remote-Email")
+    }
 }
 
 /** The approximate center of each region, for a node that gives only a region code. */

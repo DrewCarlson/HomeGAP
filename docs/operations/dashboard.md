@@ -45,6 +45,59 @@ With `access: public`, the name answers on the internet, as each other name of t
 
 HomeGAP still limits wrong tokens: an address that sends 20 wrong tokens in one minute gets a 429 for the remainder of that minute.
 
+## Sign in with a service such as Authelia
+
+If your homelab Traefik has a forward-auth middleware, for example of Authelia, HomeGAP can use it for the dashboard. A user who signs in there needs no dashboard token. The dashboard must have a name at your Traefik (`dashboard.hostname`).
+
+```yaml
+dashboard:
+  bind: 0.0.0.0:8088
+  hostname: orc
+  access: private
+  sso:
+    middleware: authelia@docker
+    groups: [admins]
+    read_only_groups: [family]
+```
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `dashboard.sso.middleware` | None. | The middleware as Traefik names it, with its provider, for example `authelia@docker` or `authelia@file`. |
+| `dashboard.sso.groups` | Empty. | The groups with full access. |
+| `dashboard.sso.read_only_groups` | Empty. | The groups that can only look. A request from such a user that changes something gets a 403. |
+| `dashboard.sso.user_header` | `Remote-User` | The header with the name of the user. |
+| `dashboard.sso.groups_header` | `Remote-Groups` | The header with the groups of the user, with commas between them. |
+
+The middleware must add the two headers to the request. In Traefik, these are the `authResponseHeaders` of the forward-auth middleware. The setup guide of Authelia has them.
+
+The groups give the role of a user:
+
+- A user in a group of `groups` has full access.
+- A user in a group of `read_only_groups` can only look.
+- With no `groups` in the config, each other user has full access.
+- With `groups` in the config, a user in none of the lists gets no access. The dashboard then asks for the token.
+
+### How it works
+
+HomeGAP adds two middlewares to the route `homegap-dashboard`, after the allowlist of private access. The first one removes the sign-in headers from the request of the client, so a client cannot write them. The second one is your middleware. Traefik asks the sign-in service for each request. The orchestrator accepts the headers only from the front door container, and only for the name of the dashboard.
+
+!!! danger "Warning"
+    Do not make a route of your own to the dashboard. On such a route, a client can write the sign-in headers and get full access.
+
+When the session at the sign-in service ends, the dashboard shows the token dialog. Load the page again to sign in.
+
+### When the sign-in service does not work
+
+The sign-in is only on the route of your Traefik. The address of `dashboard.bind`, which the stack publishes on the loopback address of the homelab, never uses it. If the sign-in service or Traefik fails, open that address through an SSH tunnel and use the dashboard token. See [Install on the homelab](../getting-started/install.md#open-the-dashboard).
+
+Three cases are useful to know:
+
+- The sign-in service is down. The name of the dashboard gives an error. Use the SSH tunnel.
+- You publish the sign-in service through HomeGAP and you pause its service. Sessions that exist continue, because Traefik asks the sign-in service on the Docker network. A new sign-in fails. Start the service again through the SSH tunnel.
+- The dashboard has private access. The browser of a Pangolin client must also reach the name of the sign-in service, or the sign-in page does not open.
+
+The token always gives full access. Each script and each API client continues to use it.
+
 ## Access
 
 A bearer token protects the `/api` routes. Two routes have their own check. The terminal WebSocket uses a one-time ticket, which the token gets. The Traefik of the homelab can read `/api/traefik/homelab` from the front door container without the token. Set the token with `dashboard.auth_token_env` or `dashboard.auth_token_file`. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file `dashboard-token` in its data directory, with mode 0600. To read the token, run this command:

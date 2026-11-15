@@ -31,6 +31,13 @@ http:
     private-only:
       ipAllowList:
         sourceRange: ["172.29.0.0/24"]
+    # Stands in for the forward-auth middleware of a sign-in service such as Authelia: it adds the
+    # headers that such a service adds for a user who signed in (dashboard.sso in config.e2e.yml).
+    sign-in:
+      headers:
+        customRequestHeaders:
+          Remote-User: "e2e-user"
+          Remote-Groups: "admins"
   services:
     whoami:
       loadBalancer:

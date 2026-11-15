@@ -122,3 +122,6 @@ v sh -c "curl -s -H 'AccessKey: e2e-bunny-key' http://bunny-mock:8080/dnszone/7"
 import json, sys
 print(sum(1 for r in json.load(sys.stdin)["Records"] if r["Name"].startswith("_acme-challenge")))
 '
+echo "--- the dashboard through the sign-in of the homelab Traefik: a Pangolin client needs no token, and the public gets no access (expect 200 403)"
+docker run --rm --network homegap-e2e_e2e-private --entrypoint sh "$(docker inspect homegap-e2e-viewer-1 --format '{{.Config.Image}}')" -c "curl -sSk --resolve orc.test.example.net:443:172.29.0.3 -o /dev/null -w '%{http_code} ' https://orc.test.example.net/api/status"
+v sh -c "curl -sSk --resolve orc.test.example.net:443:172.30.0.140 -H 'Remote-User: evil' -H 'Remote-Groups: admins' -o /dev/null -w '%{http_code}\n' https://orc.test.example.net/api/status"

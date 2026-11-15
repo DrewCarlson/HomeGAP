@@ -63,6 +63,11 @@ dashboard:
   # The homelab Traefik serves the dashboard at orc.test.example.net, for Pangolin clients only.
   hostname: orc
   access: private
+  # Sign-in through a middleware of the homelab Traefik (sign-in@file stands in for Authelia).
+  sso:
+    middleware: sign-in@file
+    groups: [admins]
+    read_only_groups: [family]
 
 # Where the homelab is, for the maps (the status page shows only its region).
 homelab:

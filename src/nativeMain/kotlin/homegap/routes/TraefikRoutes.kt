@@ -82,7 +82,8 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
             config.dashboard.publishedPrivately -> controller.privateSourceRange ?: return null
             else -> null
         }
-        return HomelabTraefik.Dashboard(host, "http://$orchestratorHost:${config.dashboard.port}", allowFrom)
+        val url = "http://$orchestratorHost:${config.dashboard.port}"
+        return HomelabTraefik.Dashboard(host, url, allowFrom, config.dashboard.sso)
     }
 
     companion object {

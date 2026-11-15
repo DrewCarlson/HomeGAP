@@ -16,6 +16,8 @@ class DashboardAuth(
     val generatedFile: String?,
     /** The addresses of the front door container, the proxy that publishes the dashboard. */
     private val frontDoor: () -> Set<String> = { emptySet() },
+    /** The sign-in through the homelab Traefik, or null if the config has none. */
+    private val sso: () -> DashboardSso? = { null },
 ) {
     private val failures = RateLimiter(MAX_FAILURES, WINDOW_MILLIS)
     private val blocks = RateLimiter(0, WINDOW_MILLIS)
@@ -47,6 +49,22 @@ class DashboardAuth(
         return if (forwarded != null && peer in frontDoor()) forwarded else peer
     }
 
+    /**
+     * The user of a request with the token [candidate] from [address], or null if the request gets
+     * no access. The token gives full access. Without it, the sign-in through the homelab Traefik
+     * ([signIn]) decides. A request with neither counts as a wrong token only if it has a token.
+     */
+    fun user(candidate: String?, address: String, signIn: SsoRequest): DashboardUser? {
+        if (blocked(address)) return null
+        if (matches(candidate)) return DashboardUser(DashboardUser.TOKEN_USER, DashboardRole.ADMIN)
+        sso()?.user(signIn, frontDoor())?.let { return it }
+        if (candidate != null) accepts(candidate, address)
+        return null
+    }
+
+    /** The names of the headers with the user and the groups of the sign-in, or null without a sign-in. */
+    fun signInHeaders(): Pair<String, String>? = sso()?.headers
+
     /** True while [address] is blocked after too many wrong tokens. */
     fun blocked(address: String): Boolean = blocks.seen(address)
 
@@ -58,14 +76,18 @@ class DashboardAuth(
         fun tokenFile(config: AppConfig): String = "${config.dataDir}/dashboard-token"
 
         /** The configured token, else the generated one (created now if there is none yet). */
-        fun resolve(config: AppConfig, frontDoor: () -> Set<String> = { emptySet() }): DashboardAuth {
-            config.dashboard.authToken()?.resolve()?.let { return DashboardAuth(it, null, frontDoor) }
+        fun resolve(
+            config: AppConfig,
+            frontDoor: () -> Set<String> = { emptySet() },
+            sso: () -> DashboardSso? = { null },
+        ): DashboardAuth {
+            config.dashboard.authToken()?.resolve()?.let { return DashboardAuth(it, null, frontDoor, sso) }
             val file = tokenFile(config)
             val kept = stored(file)
-            if (kept != null) return DashboardAuth(kept, file, frontDoor)
+            if (kept != null) return DashboardAuth(kept, file, frontDoor, sso)
             val created = Crypto.token(LENGTH)
             Files.writeAtomic(file, created + "\n", "600".toInt(8))
-            return DashboardAuth(created, file, frontDoor)
+            return DashboardAuth(created, file, frontDoor, sso)
         }
 
         /** The token a running orchestrator uses, without creating one (for the CLI). */

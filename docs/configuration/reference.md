@@ -168,8 +168,13 @@ If a node has a `region` but no `location`, HomeGAP uses a rough center of the r
 | `terminal` | boolean | `true` | Lets the dashboard open a shell on a node. See [Terminal](../operations/dashboard.md#terminal). |
 | `hostname` | string | None. | The first label of the name of the dashboard at your Traefik, `<hostname>.<domain>`. See [Serve the dashboard through your Traefik](../operations/dashboard.md#serve-the-dashboard-through-your-traefik). |
 | `access` | string | `private` | Who reaches `hostname`: `private` (Pangolin clients only) or `public`. |
+| `sso.middleware` | string | None. | A forward-auth middleware of your Traefik, with its provider, for example `authelia@docker`. A user who signs in there needs no token. It needs `hostname`. See [Sign in with a service such as Authelia](../operations/dashboard.md#sign-in-with-a-service-such-as-authelia). |
+| `sso.groups` | list | Empty. | The groups with full access. |
+| `sso.read_only_groups` | list | Empty. | The groups that can only look. |
+| `sso.user_header` | string | `Remote-User` | The header with the name of the user. |
+| `sso.groups_header` | string | `Remote-Groups` | The header with the groups of the user. |
 
-Every `/api` route needs the bearer token, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read `/api/traefik/homelab` without the token. If neither key gives a token, HomeGAP creates one in `<data_dir>/dashboard-token`.
+Every `/api` route needs the bearer token or a sign-in through `sso`, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read `/api/traefik/homelab` without the token. If neither key gives a token, HomeGAP creates one in `<data_dir>/dashboard-token`.
 
 ## speedtest
 

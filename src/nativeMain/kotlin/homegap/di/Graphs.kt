@@ -6,6 +6,7 @@ import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
 import homegap.dashboard.DashboardServer
+import homegap.dashboard.DashboardSso
 import homegap.discovery.DockerClient
 import homegap.platform.env
 import homegap.reconcile.Controller
@@ -108,7 +109,15 @@ interface ControllerGraph {
 
     @Provides @SingleIn(AppScope::class)
     fun dashboardAuth(config: AppConfig, controller: Controller): DashboardAuth =
-        DashboardAuth.resolve(config) { controller.frontDoorAddresses }
+        DashboardAuth.resolve(
+            config = config,
+            frontDoor = { controller.frontDoorAddresses },
+            sso = {
+                val current = controller.config
+                val host = current.dashboard.publishedHost(current.domain)
+                current.dashboard.sso?.takeIf { host != null }?.let { DashboardSso(host!!, it) }
+            },
+        )
 
     @Provides @SingleIn(AppScope::class)
     fun speedTestServer(controller: Controller, tokens: SpeedTestTokens, store: SpeedTestStore): SpeedTestServer {

@@ -1,5 +1,17 @@
 package homegap
 
+import kotlin.test.assertTrue
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
+import io.ktor.http.HttpHeaders
+import io.ktor.client.request.get
+import io.ktor.client.request.header
+import io.ktor.client.request.HttpRequestBuilder
+import homegap.dashboard.SsoRequest
+import homegap.dashboard.DashboardUser
+import homegap.dashboard.DashboardSso
+import homegap.dashboard.DashboardRole
+import homegap.config.DashboardSsoConfig
 import homegap.api.SwitchoverRequest
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
@@ -109,7 +121,7 @@ class RoutingControllersTest {
 
     @Test
     fun theFrontDoorNamesTheClientOfARequest() {
-        val auth = DashboardAuth("s3cret", null) { setOf("172.32.0.2") }
+        val auth = DashboardAuth("s3cret", null, frontDoor = { setOf("172.32.0.2") })
         assertEquals("203.0.113.9", auth.client("172.32.0.2", "203.0.113.9"))
         // A client can write the start of the header, but the front door writes the end.
         assertEquals("203.0.113.9", auth.client("172.32.0.2", "198.51.100.1, 203.0.113.9"))
@@ -121,5 +133,91 @@ class RoutingControllersTest {
         repeat(DashboardAuth.MAX_FAILURES + 1) { auth.accepts("wrong", auth.client("172.32.0.2", "203.0.113.9")) }
         assertEquals(false, auth.accepts("s3cret", auth.client("172.32.0.2", "203.0.113.9")))
         assertEquals(true, auth.accepts("s3cret", auth.client("172.32.0.2", "203.0.113.10")))
+    }
+
+    private val ssoConfig = DashboardSsoConfig(
+        middleware = "authelia@docker",
+        groups = listOf("admins"),
+        readOnlyGroups = listOf("family"),
+    )
+    private val frontDoor = setOf("172.32.0.2")
+
+    private fun signIn(
+        user: String?,
+        groups: String?,
+        peer: String = "172.32.0.2",
+        host: String = "orc.test.example.net",
+    ) = SsoRequest(peer, host, user, groups)
+
+    @Test
+    fun theGroupsOfTheSignInGiveTheRole() {
+        val sso = DashboardSso("orc.test.example.net", ssoConfig)
+        assertEquals(DashboardUser("ada", DashboardRole.ADMIN), sso.user(signIn("ada", "users,admins"), frontDoor))
+        assertEquals(DashboardUser("bo", DashboardRole.READ_ONLY), sso.user(signIn("bo", "family, users"), frontDoor))
+        assertNull(sso.user(signIn("cy", "users"), frontDoor), "in no group of the config")
+        assertNull(sso.user(signIn(null, "admins"), frontDoor), "no user")
+        assertNull(sso.user(signIn(" ", "admins"), frontDoor))
+        // Only the front door, and only for the name of the dashboard, sends a sign-in that counts.
+        assertNull(sso.user(signIn("ada", "admins", peer = "172.32.0.9"), frontDoor))
+        assertNull(sso.user(signIn("ada", "admins", host = "wiki.test.example.net"), frontDoor))
+        assertEquals("ada", sso.user(signIn("ada", "admins", host = "ORC.test.example.net:443"), frontDoor)?.name)
+
+        val open = DashboardSso("orc.test.example.net", DashboardSsoConfig("authelia@docker"))
+        assertEquals(DashboardRole.ADMIN, open.user(signIn("cy", null), frontDoor)?.role, "no groups in the config")
+        val readers = DashboardSsoConfig("a@b", readOnlyGroups = listOf("family"))
+        val onlyReaders = DashboardSso("orc.test.example.net", readers)
+        assertEquals(DashboardRole.READ_ONLY, onlyReaders.user(signIn("bo", "family"), frontDoor)?.role)
+        assertEquals(DashboardRole.ADMIN, onlyReaders.user(signIn("ada", "users"), frontDoor)?.role)
+    }
+
+    @Test
+    fun theTokenOrTheSignInGivesAUser() {
+        val sso = DashboardSso("orc.test.example.net", ssoConfig)
+        val auth = DashboardAuth("s3cret", null, { frontDoor }, { sso })
+        val none = signIn(null, null)
+        assertEquals(DashboardUser.TOKEN_USER, auth.user("s3cret", "203.0.113.9", none)?.name)
+        assertEquals(DashboardRole.READ_ONLY, auth.user(null, "203.0.113.9", signIn("bo", "family"))?.role)
+        // The token gives full access, also to a user who can only look.
+        assertEquals(DashboardRole.ADMIN, auth.user("s3cret", "203.0.113.9", signIn("bo", "family"))?.role)
+        // An old token in the browser does not count against a user who signed in.
+        repeat(DashboardAuth.MAX_FAILURES + 5) { auth.user("old", "203.0.113.9", signIn("ada", "admins")) }
+        assertFalse(auth.blocked("203.0.113.9"))
+        // A request with no token and no sign-in is not a wrong token.
+        repeat(DashboardAuth.MAX_FAILURES + 5) { assertNull(auth.user(null, "203.0.113.10", none)) }
+        assertFalse(auth.blocked("203.0.113.10"))
+        repeat(DashboardAuth.MAX_FAILURES + 1) { auth.user("wrong", "203.0.113.11", none) }
+        assertTrue(auth.blocked("203.0.113.11"))
+        val tokenOnly = DashboardAuth("s3cret", null)
+        assertNull(tokenOnly.user(null, "203.0.113.9", signIn("ada", "admins")), "no sign-in in the config")
+    }
+
+    @Test
+    fun aUserWhoCanOnlyLookGetsNoChange() = testApplication {
+        val echo = object : RoutingController {
+            override fun init(parent: Route) {
+                parent.get("/look") { call.respond(HttpStatusCode.OK) }
+                parent.post("/change") { call.respond(HttpStatusCode.OK) }
+            }
+        }
+        // The test host gives its own address as the sender, so each address is the front door here.
+        val everyone = object : AbstractSet<String>() {
+            override val size = 1
+            override fun contains(element: String) = true
+            override fun iterator() = listOf("any").iterator()
+        }
+        val sso = DashboardSso("orc.test.example.net", ssoConfig)
+        val routes = RoutingControllers(setOf(echo), DashboardAuth("s3cret", null, { everyone }, { sso }), emptySet())
+        application { with(DashboardServer(routes, testConfig())) { module() } }
+        fun HttpRequestBuilder.as_(user: String, groups: String) {
+            header(HttpHeaders.Host, "orc.test.example.net")
+            header("Remote-User", user)
+            header("Remote-Groups", groups)
+        }
+        assertEquals(HttpStatusCode.OK, client.get("/api/look") { as_("bo", "family") }.status)
+        assertEquals(HttpStatusCode.Forbidden, client.post("/api/change") { as_("bo", "family") }.status)
+        assertEquals(HttpStatusCode.OK, client.post("/api/change") { as_("ada", "admins") }.status)
+        assertEquals(HttpStatusCode.Unauthorized, client.post("/api/change") { as_("cy", "users") }.status)
+        assertEquals(HttpStatusCode.Unauthorized, client.get("/api/look").status)
+        assertEquals(HttpStatusCode.OK, client.post("/api/change") { bearerAuth("s3cret") }.status)
     }
 }

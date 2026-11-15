@@ -1,5 +1,7 @@
 package homegap
 
+import kotlinx.serialization.json.jsonArray
+import homegap.config.DashboardSsoConfig
 import homegap.config.ClusterConfig
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
@@ -146,6 +148,30 @@ class MisdirectedTest {
         assertEquals("""[{"url":"http://orchestrator:8089"}]""", servers.toString())
         assertNull(http["routers"]!!.jsonObject[HomelabTraefik.MISDIRECTED_ROUTER], "no name of the nodes only")
         assertNull(answer["tls"])
+    }
+
+    @Test
+    fun theSignInMiddlewareComesAfterTheHeadersOfTheClientAreGone() {
+        val sso = DashboardSsoConfig("authelia@docker")
+        val url = "http://orchestrator:8088"
+        val dashboard = HomelabTraefik.Dashboard("orc.test.example.net", url, "172.29.0.3/24", sso)
+        val noPages = HomelabTraefik.Pages(emptyList(), "")
+        val http = HomelabTraefik.dynamicConfig(emptyList(), noPages, dashboard)["http"]!!.jsonObject
+        val router = http["routers"]!!.jsonObject[HomelabTraefik.DASHBOARD]!!.jsonObject
+        val order = router["middlewares"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf(HomelabTraefik.PRIVATE_ONLY, HomelabTraefik.SIGN_IN_HEADERS, "authelia@docker"), order)
+        val removed = http["middlewares"]!!.jsonObject[HomelabTraefik.SIGN_IN_HEADERS]!!
+            .jsonObject["headers"]!!.jsonObject["customRequestHeaders"]!!.jsonObject
+        assertEquals(setOf("Remote-User", "Remote-Groups", "Remote-Name", "Remote-Email"), removed.keys)
+        assertTrue(removed.values.all { it.jsonPrimitive.content.isEmpty() }, "an empty value removes the header")
+
+        val needsHost = "$TEST_CONFIG\ndashboard:\n  sso:\n    middleware: authelia@docker\n"
+        assertFailsWith<Exception> { ConfigLoader.parse(needsHost) }
+        val withHost = "$TEST_CONFIG\ndashboard:\n  hostname: orc\n  sso:\n"
+        val noProvider = "$withHost    middleware: authelia\n"
+        assertFailsWith<Exception> { ConfigLoader.parse(noProvider) }
+        val good = "$withHost    middleware: authelia@docker\n    groups: [admins]\n"
+        assertEquals(listOf("admins"), ConfigLoader.parse(good).dashboard.sso!!.groups)
     }
 
     @Test

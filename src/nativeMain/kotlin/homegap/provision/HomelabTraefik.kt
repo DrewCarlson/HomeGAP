@@ -1,6 +1,7 @@
 package homegap.provision
 
 import homegap.config.AppConfig
+import homegap.config.DashboardSsoConfig
 import homegap.discovery.TraefikRouter
 import homegap.model.DesiredState
 import kotlinx.serialization.json.JsonObject
@@ -35,6 +36,9 @@ object HomelabTraefik {
 
     /** The middleware that admits only the private path of Pangolin clients. */
     const val PRIVATE_ONLY = "homegap-private-only"
+
+    /** The middleware that removes the sign-in headers from the request of the client. */
+    const val SIGN_IN_HEADERS = "homegap-sign-in-headers"
     private const val PRIORITY = 100000
 
     /** Above the route that answers 421, which has the same name. */
@@ -111,7 +115,7 @@ object HomelabTraefik {
      * The route of the dashboard: its name, the address of the dashboard, and the source range
      * that can use it. A null range gives the route to each source.
      */
-    class Dashboard(val host: String, val url: String, val allowFrom: String?)
+    class Dashboard(val host: String, val url: String, val allowFrom: String?, val sso: DashboardSsoConfig? = null)
 
     /**
      * The pages that the orchestrator serves: the speed test and the status page. The route of
@@ -149,12 +153,8 @@ object HomelabTraefik {
                         dashboard?.let { putService(DASHBOARD, it.url) }
                     }
                 }
-                dashboard?.allowFrom?.let { range ->
-                    putJsonObject("middlewares") {
-                        putJsonObject(PRIVATE_ONLY) {
-                            putJsonObject("ipAllowList") { putJsonArray("sourceRange") { add(range) } }
-                        }
-                    }
+                if (dashboard?.allowFrom != null || dashboard?.sso != null) {
+                    putJsonObject("middlewares") { putDashboardMiddlewares(dashboard) }
                 }
             }
             if (misdirected.isNotEmpty() || pages.privateStatus != null) {
@@ -175,14 +175,40 @@ object HomelabTraefik {
         }
     }
 
+    private fun JsonObjectBuilder.putDashboardMiddlewares(dashboard: Dashboard) {
+        dashboard.allowFrom?.let { range ->
+            putJsonObject(PRIVATE_ONLY) {
+                putJsonObject("ipAllowList") { putJsonArray("sourceRange") { add(range) } }
+            }
+        }
+        dashboard.sso?.let { sso ->
+            // An empty value removes the header. Only the sign-in middleware, which is next, writes it.
+            putJsonObject(SIGN_IN_HEADERS) {
+                putJsonObject("headers") {
+                    putJsonObject("customRequestHeaders") { sso.trustedHeaders.forEach { put(it, "") } }
+                }
+            }
+        }
+    }
+
+    /** The middlewares of the dashboard route, in their order: the source range, then the sign-in. */
+    private fun middlewaresOf(dashboard: Dashboard): List<String> = buildList {
+        if (dashboard.allowFrom != null) add(PRIVATE_ONLY)
+        dashboard.sso?.let {
+            add(SIGN_IN_HEADERS)
+            add(it.middleware)
+        }
+    }
+
     private fun JsonObjectBuilder.putDashboardRouter(dashboard: Dashboard) {
         putJsonObject(DASHBOARD) {
             put("rule", hostRule(listOf(dashboard.host)))
             put("priority", PAGES_PRIORITY)
             put("service", DASHBOARD)
             putJsonObject("tls") {}
-            if (dashboard.allowFrom != null) {
-                putJsonArray("middlewares") { add(PRIVATE_ONLY) }
+            val middlewares = middlewaresOf(dashboard)
+            if (middlewares.isNotEmpty()) {
+                putJsonArray("middlewares") { middlewares.forEach { add(it) } }
             }
         }
     }
