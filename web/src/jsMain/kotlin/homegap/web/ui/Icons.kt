@@ -33,6 +33,7 @@ object Icons {
     const val PAUSE = "M9 5v14M15 5v14"
     const val PLAY = "M8 5l11 7-11 7z"
     const val RESYNC = "M20 11a8 8 0 0 0-14.9-4M4 4v4h4M4 13a8 8 0 0 0 14.9 4M20 20v-4h-4"
+    const val LOCK = "M7 11V8a5 5 0 0 1 10 0v3M6 11h12v9H6z"
     const val CLOSE = "M6 6l12 12M18 6L6 18"
     const val CHECK = "M5 12.5l4.5 4.5L19 7"
     const val COPY = "M8 8h11v11H8zM5 16V5h11"

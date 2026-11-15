@@ -85,6 +85,7 @@ class AppPresenter(
     private val services: ServicesScreenPresenter,
     private val dns: DnsScreenPresenter,
     private val certificates: homegap.presentation.certificates.CertificatesScreenPresenter,
+    private val zoneRecords: homegap.presentation.zone.ZoneRecordsScreenPresenter,
     private val tunnels: TunnelsScreenPresenter,
     private val speedTest: SpeedTestScreenPresenter,
     private val access: AccessScreenPresenter,
@@ -363,6 +364,16 @@ class AppPresenter(
                 selection = props.selection,
             )
         )
+        Route.ZoneRecords -> {
+            val currentRouter by rememberUpdatedState(props.router)
+            zoneRecords.model(
+                homegap.presentation.zone.ZoneRecordsScreenProps(
+                    status = status,
+                    selection = props.selection,
+                    onOpen = remember { { location: Location -> currentRouter.open(location) } },
+                )
+            )
+        }
         Route.Tunnels -> tunnels.model(
             TunnelsScreenProps(
                 status = status,

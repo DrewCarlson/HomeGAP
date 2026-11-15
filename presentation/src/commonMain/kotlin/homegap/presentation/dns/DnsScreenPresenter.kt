@@ -99,7 +99,7 @@ class DnsScreenPresenter(
                     DomainRowModel(
                         domain = domain.domain,
                         zone = domain.zone,
-                        frontDoor = domain.frontDoor ?: "none",
+                        frontDoor = domain.frontDoor ?: "none (subdomains only)",
                         health = if (error == null) Health.OK else Health.DEGRADED,
                         state = if (error == null) "healthy" else "warning · $error",
                     )
@@ -215,7 +215,7 @@ private fun DnsRecordStatusDto.health(): Health = when {
     else -> Health.OK
 }
 
-/** The tabs of DNS: its records and its certificates, each marked when something on it needs attention. */
+/** The tabs of DNS: its records, its certificates and its zones, each marked when something on it needs attention. */
 fun dnsTabs(current: Route, status: StatusSnapshot): List<homegap.presentation.ui.PageTabModel> = Route.Dns.tabs.map { route ->
     val items = status.attention.filter { it.location.route == route }
     homegap.presentation.ui.PageTabModel(

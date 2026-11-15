@@ -242,6 +242,11 @@ private fun Screen(
             model = screen,
             onOpen = onOpen,
         )
+        is homegap.presentation.zone.ZoneRecordsScreenModel -> ZoneRecordsScreen(
+            model = screen,
+            viewport = viewport,
+            onOpen = onOpen,
+        )
         is TunnelsScreenModel -> TunnelsScreen(
             model = screen,
             onOpen = onOpen,

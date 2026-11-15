@@ -7,6 +7,7 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     Services("services", "Services", "Containers published through homegap.* labels"),
     Dns("dns", "DNS", "Bunny DNS records managed by HomeGAP"),
     Certificates("certificates", "Certificates", "The certificate of the nodes, who has it, and what visitors get"),
+    ZoneRecords("zone", "Zone records", "Every record of a DNS zone, and the records that you add"),
     Tunnels("tunnels", "Tunnels", "The tunnels from the homelab to each node"),
     Access("access", "Access", "Who can sign in to the Pangolin apps, and their devices"),
     SpeedTest("speedtest", "Speed test", "Latency and throughput through the real traffic path"),
@@ -22,17 +23,17 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
         get() = when (this) {
             AddNode -> Nodes
             Locations -> Config
-            Certificates -> Dns
+            Certificates, ZoneRecords -> Dns
             else -> this
         }
 
     /** Opens over its section's page, which stays the screen behind it. */
     val isOverlay: Boolean get() = this == AddNode || this == Locations
 
-    /** The tabs of a section: DNS has its records and its certificates. */
+    /** The tabs of a section: DNS has its records, its certificates and its zones. */
     val tabs: List<Route>
         get() = when (navSection) {
-            Dns -> listOf(Dns, Certificates)
+            Dns -> listOf(Dns, Certificates, ZoneRecords)
             else -> emptyList()
         }
 

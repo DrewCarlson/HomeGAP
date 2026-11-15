@@ -86,6 +86,7 @@ class PresenterTest {
             services = ServicesScreenPresenter(serviceActions),
             dns = DnsScreenPresenter(api, actions),
             certificates = homegap.presentation.certificates.CertificatesScreenPresenter(api, actions, confirmations, FakeTimeFormatter),
+            zoneRecords = homegap.presentation.zone.ZoneRecordsScreenPresenter(homegap.presentation.zone.StubZoneRecordsApi(session), actions, confirmations),
             tunnels = TunnelsScreenPresenter(api, actions, confirmations),
             speedTest = speedTest,
             access = access,
@@ -635,8 +636,8 @@ class PresenterTest {
         val model = present(presenter, homegap.presentation.certificates.CertificatesScreenProps(status, NOW, selection = "certificate")).value
         assertTrue(model.head.headline.startsWith("The last order failed 12m ago."), model.head.headline)
         assertTrue("Next try in 48 min." in model.head.headline, model.head.headline)
-        assertEquals(listOf("Records", "Certificates"), model.head.tabs.map { it.label })
-        assertEquals(Health.DOWN, model.head.tabs.last().attention)
+        assertEquals(listOf("Records", "Certificates", "Zone records"), model.head.tabs.map { it.label })
+        assertEquals(Health.DOWN, model.head.tabs[1].attention)
         assertEquals("Order now", model.head.actions.single().label)
         assertEquals("waiting for its name", model.delivery.first { it.node == "b1" }.state)
         assertEquals(listOf("pangolin-b1.example.net"), model.certificate?.pending?.add?.map { it.name })

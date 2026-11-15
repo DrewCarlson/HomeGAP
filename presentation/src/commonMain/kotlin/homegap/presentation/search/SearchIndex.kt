@@ -121,7 +121,7 @@ fun searchIndex(
             )
         }
     }
-    (Route.NAV + Route.Certificates + Route.Locations + Route.AddNode).forEach { route ->
+    (Route.NAV + Route.Certificates + Route.ZoneRecords + Route.Locations + Route.AddNode).forEach { route ->
         add(
             SearchHit(
                 kind = SearchKind.Page,
@@ -244,6 +244,7 @@ private val PAGE_WORDS = mapOf(
     Route.Nodes to "edge fleet mesh cluster database primary replica homelab",
     Route.Tunnels to "newt connector site",
     Route.Certificates to "tls acme caa renew",
+    Route.ZoneRecords to "dns record txt mx cname add edit",
     Route.Access to "users people roles devices invite",
     Route.Config to "secrets yaml diff",
     Route.Activity to "log events",
