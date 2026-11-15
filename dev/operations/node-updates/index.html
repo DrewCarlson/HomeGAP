@@ -1643,6 +1643,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#move-the-ssh-port-of-a-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Move the SSH port of a node
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2452,6 +2463,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#move-the-ssh-port-of-a-node" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Move the SSH port of a node
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2512,6 +2534,21 @@
 <p>To see the stack that HomeGAP writes to a node, run this command. The output does not show the secrets. It reads only the config file, so it has no services from labels. In cluster mode, it does not show the cluster settings of the stack.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>render-node<span class="w"> </span>na1
 </code></pre></div>
+<h2 id="move-the-ssh-port-of-a-node">Move the SSH port of a node<a class="headerlink" href="#move-the-ssh-port-of-a-node" title="Permanent link">&para;</a></h2>
+<p>To move the SSH server of a node to a different port, change <code>nodes[].ssh_port</code> in the config. HomeGAP moves the server in the next pass. A reason to do this is a service that needs port 22 on the nodes. See <a href="../../services/raw-ports/#use-port-22-for-a-service">Use port 22 for a service</a>.</p>
+<p>HomeGAP keeps a way in at each step:</p>
+<ol>
+<li>Over the old port, it makes the SSH server listen on the old port and on the new port. It opens the new port in the firewall.</li>
+<li>It logs in on the new port.</li>
+<li>Over the new port, it makes the SSH server drop the old port. The firewall closes the old port in the same pass.</li>
+</ol>
+<p>If the login on the new port fails, HomeGAP puts the old ports back. The activity log has the error "the SSH port stays N", and HomeGAP tries the move again in each pass. Until the move is complete, HomeGAP uses the old port for the node. A cause of a failed login is a firewall of your provider that does not have the new port open.</p>
+<p>HomeGAP does not move the port during a dry run, a pause of all changes or a pause of the node.</p>
+<p>The ports are in the file <code>/etc/ssh/sshd_config.d/00-homegap-port.conf</code> on the node. If a different file of the SSH server has a <code>Port</code> line, HomeGAP does not move the port. Remove that line first.</p>
+<div class="admonition warning">
+<p class="admonition-title">Caution</p>
+<p>Keep the console of your provider at hand for the first move of a node. It is the way in if the SSH server and HomeGAP disagree about the port.</p>
+</div>
 
 
 

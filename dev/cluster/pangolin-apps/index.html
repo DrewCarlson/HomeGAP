@@ -1209,6 +1209,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="DNS through the tunnel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-dns-servers-that-homegap-opens" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The DNS servers that HomeGAP opens
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2417,6 +2434,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="DNS through the tunnel">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-dns-servers-that-homegap-opens" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        The DNS servers that HomeGAP opens
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2487,6 +2521,7 @@
 <ol>
 <li>On the <strong>Access</strong> page, find the device in the <strong>Devices</strong> list. Make sure that it shows as <code>online</code>, with the node that it relays through.</li>
 <li>Optional: if exit nodes are enabled, the person selects an exit in the app. See <a href="../exit-nodes/">Exit nodes</a>.</li>
+<li>Optional: to send the DNS queries of the device through the tunnel, the person sets the DNS server in the app. See <a href="#dns-through-the-tunnel">DNS through the tunnel</a>.</li>
 </ol>
 <h2 id="what-the-app-reaches">What the app reaches<a class="headerlink" href="#what-the-app-reaches" title="Permanent link">&para;</a></h2>
 <p>A connected app reaches these services:</p>
@@ -2495,13 +2530,28 @@
 <li>The private paths of public services. See <a href="../../services/client-addresses/">Client addresses and private-only services</a>.</li>
 </ul>
 <h2 id="dns-through-the-tunnel">DNS through the tunnel<a class="headerlink" href="#dns-through-the-tunnel" title="Permanent link">&para;</a></h2>
-<p>The Pangolin app has the setting <strong>DNS over tunnel</strong>. With this setting, the app sends its DNS queries through the tunnel to its upstream DNS server. The default upstream server of the app is <code>8.8.8.8</code>. The app can send queries only to a server that is a Pangolin resource. Without such a resource, the app resolves only the names of your private services, and other sites do not open.</p>
-<p>HomeGAP makes each server in <code>cluster.tunnel_dns.resolvers</code> a private resource on port 53 (TCP and UDP). Its identifier is <code>hg-dns-&lt;address&gt;</code>, with <code>-</code> in the place of each dot or colon, for example <code>hg-dns-8-8-8-8</code>. The default is <code>8.8.8.8</code>, the default of the app, so the app needs no change. The roles in <code>cluster.tunnel_dns.roles</code> can use it.</p>
+<p>The Pangolin app can send its DNS queries through the tunnel. HomeGAP opens the path to the DNS servers in <code>cluster.tunnel_dns.resolvers</code> (default <code>8.8.8.8</code>). You must set the same server in the app on each device. Pangolin has no setting that gives the server to the app.</p>
+<ol>
+<li>Open the settings of the Pangolin app.</li>
+<li>Enable <strong>Enable Aliases (Override DNS)</strong>.</li>
+<li>Enable <strong>DNS Over Tunnel</strong>.</li>
+<li>In <strong>Primary Upstream DNS</strong>, enter an address from <code>cluster.tunnel_dns.resolvers</code>.</li>
+<li>Disconnect the app.</li>
+<li>Connect the app again.</li>
+</ol>
+<div class="admonition warning">
+<p class="admonition-title">Caution</p>
+<p>If <strong>Primary Upstream DNS</strong> is empty, the app uses the DNS server of the network of the device. HomeGAP opens no path to that server. With <strong>DNS Over Tunnel</strong> on, the device then resolves only the names of your private services, and other sites do not open.</p>
+</div>
+<p>With an exit node selected in the app, all traffic of the device uses the tunnel. Names then resolve also with an empty <strong>Primary Upstream DNS</strong>, so the problem shows only with no exit node.</p>
+<p>For each setting of the app, see <a href="https://docs.pangolin.net/manage/clients/platforms">Shared Preferences</a> in the Pangolin docs. On Android, also set <strong>Private DNS</strong> in the system settings to <strong>Automatic</strong> or <strong>Off</strong>. See <a href="https://docs.pangolin.net/manage/clients/platforms/android">Android</a> in the Pangolin docs.</p>
+<h3 id="the-dns-servers-that-homegap-opens">The DNS servers that HomeGAP opens<a class="headerlink" href="#the-dns-servers-that-homegap-opens" title="Permanent link">&para;</a></h3>
+<p>HomeGAP makes each server in <code>cluster.tunnel_dns.resolvers</code> a private resource on port 53 (TCP and UDP). Its identifier is <code>hg-dns-&lt;address&gt;</code>, with <code>-</code> in the place of each dot or colon, for example <code>hg-dns-8-8-8-8</code>. The roles in <code>cluster.tunnel_dns.roles</code> can use it. A query to a server that is not in the list gets no answer.</p>
 <ul>
 <li>If <code>cluster.exit_nodes.nodes</code> is enabled, the resource is on the exit site of each node. The queries leave from the node that the device uses, the nearest node. Thus geo-steered names resolve to locations near the device.</li>
 <li>If not, the resource is on the homelab site of each node. The queries leave from your homelab.</li>
 </ul>
-<p>The resource works without an exit node. If you set another upstream server in the app, add its address to <code>cluster.tunnel_dns.resolvers</code>.</p>
+<p>To use a different server, for example <code>9.9.9.10</code>, set it in <code>cluster.tunnel_dns.resolvers</code> and in the app. See the <a href="../../configuration/reference/">Configuration reference</a>.</p>
 <h2 id="while-the-homelab-is-down">While the homelab is down<a class="headerlink" href="#while-the-homelab-is-down" title="Permanent link">&para;</a></h2>
 <p>The apps that are connected stay connected. New sign-ins work approximately 30 seconds later, when the nodes elect a database primary. Only the services on the homelab are not reachable.</p>
 

@@ -3218,7 +3218,7 @@
 <td><code>tunnel_dns.resolvers</code></td>
 <td>list</td>
 <td><code>["8.8.8.8"]</code></td>
-<td>The DNS servers that the Pangolin apps can use through the tunnel, as IP addresses. An empty list disables them. See <a href="../../cluster/pangolin-apps/#dns-through-the-tunnel">DNS through the tunnel</a>.</td>
+<td>The DNS servers that the Pangolin apps can use through the tunnel, as IP addresses. Each app must have one of them as its upstream DNS server. An empty list disables them. See <a href="../../cluster/pangolin-apps/#dns-through-the-tunnel">DNS through the tunnel</a>.</td>
 </tr>
 <tr>
 <td><code>tunnel_dns.roles</code></td>
@@ -3291,7 +3291,7 @@
 <td><code>ssh_port</code></td>
 <td>integer</td>
 <td><code>22</code></td>
-<td>The SSH port.</td>
+<td>The SSH port. If you change it for a node that HomeGAP manages, HomeGAP moves the SSH server of the node to the new port. See <a href="../../operations/node-updates/#move-the-ssh-port-of-a-node">Move the SSH port of a node</a>.</td>
 </tr>
 <tr>
 <td><code>ssh_key_file</code></td>

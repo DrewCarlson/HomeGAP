@@ -785,6 +785,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#use-port-22-for-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Use port 22 for a service
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#resource-ids" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2438,6 +2449,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#use-port-22-for-a-service" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Use port 22 for a service
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#resource-ids" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2538,6 +2560,20 @@
 <h3 id="public-ports">Public ports<a class="headerlink" href="#public-ports" title="Permanent link">&para;</a></h3>
 <p>The public port of an entry is its <code>public:</code> part. Without it, the public port is the same as the container port. For a service with a single port, <code>homegap.public_port</code> also sets the public port.</p>
 <p>HomeGAP refuses public ports that the node uses itself. For the list, see the <a href="../labels/#rules-for-the-extension-labels">Label reference</a>.</p>
+<h3 id="use-port-22-for-a-service">Use port 22 for a service<a class="headerlink" href="#use-port-22-for-a-service" title="Permanent link">&para;</a></h3>
+<p>A node uses its SSH port itself, so a service cannot have it as a public TCP port. The default SSH port is 22. To give port 22 to a service, for example the SSH of a git server, first move the SSH server of each node that serves the service.</p>
+<ol>
+<li>Set <code>ssh_port</code> of each node to a different port, for example <code>2222</code>. See <a href="../../operations/node-updates/#move-the-ssh-port-of-a-node">Move the SSH port of a node</a>.</li>
+<li>Wait until the activity log has the line "moved the SSH server from port 22 to port 2222" for each node.</li>
+<li>Add the labels to the service:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">forgejo</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"git.example.net"</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"22/tcp"</span>
+</code></pre></div></li>
+</ol>
+<p>If a node still has port 22 as its SSH port, HomeGAP refuses the service with the error <code>public port 22/tcp is the SSH port of node &lt;id&gt;</code>. Web traffic for the same hostname does not change. It uses the front door, as before.</p>
+<p>Port 22 on the nodes then goes to this service for each hostname, because TCP carries no hostname.</p>
 <h3 id="resource-ids">Resource ids<a class="headerlink" href="#resource-ids" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
@@ -2574,35 +2610,35 @@
 <p>With <code>homegap.access: private</code>, a raw service gets no public port and no DNS record. Only Pangolin clients can reach it. The private resource lists the container ports by protocol, as <code>tcp-ports</code> and <code>udp-ports</code>. A <code>public:</code> part has no effect there. See <a href="../private/">Private services</a>.</p>
 <h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
 <p>A public game server on UDP port 27015, only on <code>eu1</code>:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">game</span><span class="p">:</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"game.example.net"</span>
-<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">homegap.protocol</span><span class="p">:</span><span class="w"> </span><span class="s">"udp"</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"27015"</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">homegap.regions</span><span class="p">:</span><span class="w"> </span><span class="s">"eu1"</span>
-</code></pre></div>
-<p>A private SSH jump host on TCP port 22. Port 22 is reserved on the nodes, but a private service has no public port, so HomeGAP accepts it:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">ssh-jump</span><span class="p">:</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">game</span><span class="p">:</span>
 <a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
-<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"ssh.example.net"</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"22"</span>
-<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">homegap.protocol</span><span class="p">:</span><span class="w"> </span><span class="s">"tcp"</span>
-<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">homegap.access</span><span class="p">:</span><span class="w"> </span><span class="s">"private"</span>
-<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">homegap.regions</span><span class="p">:</span><span class="w"> </span><span class="s">"na1,as1"</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"game.example.net"</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">homegap.protocol</span><span class="p">:</span><span class="w"> </span><span class="s">"udp"</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"27015"</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">homegap.regions</span><span class="p">:</span><span class="w"> </span><span class="s">"eu1"</span>
+</code></pre></div>
+<p>A private SSH jump host on TCP port 22. A private service has no public port, so the SSH port of the nodes does not matter:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">ssh-jump</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"ssh.example.net"</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"22"</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">homegap.protocol</span><span class="p">:</span><span class="w"> </span><span class="s">"tcp"</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">homegap.access</span><span class="p">:</span><span class="w"> </span><span class="s">"private"</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">homegap.regions</span><span class="p">:</span><span class="w"> </span><span class="s">"na1,as1"</span>
 </code></pre></div>
 <p>A public SSH server on public port 2222, to port 22 of the container:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">git-ssh</span><span class="p">:</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"git.example.net"</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"2222:22/tcp"</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">git-ssh</span><span class="p">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"git.example.net"</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"2222:22/tcp"</span>
 </code></pre></div>
 <p>A voice server with several ports, and a named service on the same hostname:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">rtc</span><span class="p">:</span>
-<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
-<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"rtc.example.net"</span>
-<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"7881/tcp,</span><span class="nv"> </span><span class="s">7882/udp,</span><span class="nv"> </span><span class="s">3478/tcp+udp"</span>
-<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">homegap.services.alt.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"rtc.example.net"</span>
-<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">homegap.services.alt.port</span><span class="p">:</span><span class="w"> </span><span class="s">"17000:7000/udp"</span>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">rtc</span><span class="p">:</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">labels</span><span class="p">:</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">homegap.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"rtc.example.net"</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">homegap.port</span><span class="p">:</span><span class="w"> </span><span class="s">"7881/tcp,</span><span class="nv"> </span><span class="s">7882/udp,</span><span class="nv"> </span><span class="s">3478/tcp+udp"</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">homegap.services.alt.expose</span><span class="p">:</span><span class="w"> </span><span class="s">"rtc.example.net"</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">homegap.services.alt.port</span><span class="p">:</span><span class="w"> </span><span class="s">"17000:7000/udp"</span>
 </code></pre></div>
 <p>For a full example with a chat app and its voice server, see <a href="../examples/fluxer/">Fluxer</a>.</p>
 
