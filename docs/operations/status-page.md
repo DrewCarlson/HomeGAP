@@ -18,7 +18,7 @@ With `status_page.enabled: true`, anybody can open `https://status.<domain>/`. T
 
 While the page is open, it refreshes every minute.
 
-The page also has a map of the nodes in their status colors. The node of the visitor is highlighted, with the round trip through each node. The map shows the homelab only as a soft area at the center of its region, for example "Home · North America". HomeGAP never sends the location of the homelab to the page.
+The page also has a map of the nodes in their status colors. The node of the visitor is highlighted, with the round trip through each node. The map shows the homelab only as a soft area at the center of its region, for example "Home · North America". HomeGAP sends the location of the homelab only to a Pangolin client. See [The page for a Pangolin client](#the-page-for-a-pangolin-client).
 
 ### The connection of the visitor
 
@@ -29,9 +29,17 @@ Below the node of the visitor, the page shows one of these lines:
 
 The line **Your address** needs `homegap.proxy_protocol: "true"` on the front door. Without that label, the homelab sees an address of Docker for each visitor, and the page shows no line.
 
-The line **Connected to homelab VPN** needs a private path on the front door (`homegap.private_network`). HomeGAP then makes a private resource for the name `status-vpn.<domain>`. Only a Pangolin client resolves that name into the tunnel. The page sends one request to that name. If the request arrives from the private network, the visitor is a Pangolin client. For each other visitor, the request fails or arrives from the public network, and the page then asks its own name for the address.
+### The page for a Pangolin client
 
-The names of the page itself have no private path. Thus a Pangolin client measures the round trip through each node as each other visitor does. Without a private path on the front door, the page never shows the line **Connected to homelab VPN**. See [Client addresses and private-only services](../services/client-addresses.md).
+The line **Connected to homelab VPN** needs a private path on the front door (`homegap.private_network`). HomeGAP then makes a private resource for the name `status.<domain>`. A Pangolin client resolves that name into the tunnel and gets the page from the homelab, not from a node. See [Client addresses and private-only services](../services/client-addresses.md).
+
+For such a client, the page is different in these ways:
+
+- The page shows **Homelab** in the place of a node. The round trip at the top is the round trip to the homelab through the tunnel.
+- The map shows the homelab at the location that you set, with a line to each node that serves.
+- The round trip through each node does not change. The browser sends those requests to the public names of the nodes.
+
+Without a private path on the front door, a Pangolin client gets the page as each other visitor does.
 
 ### What the page tells a visitor
 
@@ -69,13 +77,11 @@ The status page needs a front door. The status page and the speed test share one
 | `status_page.hostname` | `status` | A single lowercase label. |
 | `status_page.title` | `Status` | 60 characters or fewer. |
 
-With the status page on, a node cannot have the id `vpn`. The page uses the name `status-vpn.<domain>`.
-
 ### Routing
 
 The status page uses the listener of the speed test, `speedtest.bind`. Your Traefik must send `status-<node>.<domain>` to the orchestrator on that port (8089). HomeGAP gives Traefik that route through the HTTP provider. You add no labels.
 
-When `status_page.enabled` is `true`, the route `homegap-pages` has the name `status-<node>.<domain>` of each node and the name `status-vpn.<domain>`. The shared name `status.<domain>` is not in the route. Each node answers it. See [Speed tests](speed-tests.md#routing) for how the route works and how to check it.
+When `status_page.enabled` is `true`, the route `homegap-pages` has the name `status-<node>.<domain>` of each node. The shared name `status.<domain>` is not in the route. Each node answers it. With a private path on the front door, the route `homegap-status-private` gives the shared name to Pangolin clients only. It accepts only the source range of the private network. See [Speed tests](speed-tests.md#routing) for how the route works and how to check it.
 
 To put the homelab on the map, set its location on the **Locations** page. See [Maps and locations](maps.md).
 

@@ -9,7 +9,8 @@ import homegap.brand.Brand
  * node. Each request crosses that node and its tunnel to the homelab. The round trip comes from
  * Resource Timing (from the sent request to the first byte), so the time to connect does not count.
  * The page also reads `/status/client`, and shows the address of the visitor or that the visitor
- * is a Pangolin client.
+ * is a Pangolin client. Such a client gets the page from the homelab, with no node in between.
+ * Its round trip is to the homelab, and the map shows where the homelab is.
  */
 object StatusPage {
     val HTML: String = $$"""
@@ -173,10 +174,8 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
     } finally { clearTimeout(timer); }
   }
 
-  // Only a client of the VPN reaches the private name. Each other visitor gets the answer of this origin.
-  async function viewer(privateUrl) {
-    var v = privateUrl ? await ask(privateUrl).catch(function () { return null; }) : null;
-    if (!v) v = await ask('/status/client').catch(function () { return null; });
+  async function viewer() {
+    var v = await ask('/status/client').catch(function () { return null; });
     var box = el('viewer');
     box.hidden = !v || (!v.vpn && !v.address);
     if (box.hidden) return;
@@ -233,10 +232,11 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       document.title = s.title;
       el('title').textContent = s.title;
       var me = s.nodes.filter(function (n) { return n.current; })[0];
-      el('via').textContent = me ? me.id : 'Unknown node';
-      el('where').textContent = me ? (me.place ? me.place + ' · ' : '') + region(me.region) : 'Open this page at its main address to see your node.';
+      el('via').textContent = me ? me.id : s.vpn ? 'Homelab' : 'Unknown node';
+      el('where').textContent = me ? (me.place ? me.place + ' · ' : '') + region(me.region)
+        : s.vpn ? 'Over the VPN' : 'Open this page at its main address to see your node.';
       banner(s.nodes);
-      viewer(s.clientUrl);
+      viewer();
       var rows = el('rows');
       rows.textContent = '';
       var els = s.nodes.map(function (n) { var x = row(n); rows.appendChild(x); return x; });
@@ -247,8 +247,8 @@ footer { color: var(--faint); font-size: 13px; margin-top: 18px; line-height: 1.
       }));
       var max = Math.max.apply(null, [150].concat(results.filter(function (x) { return x != null; })));
       s.nodes.forEach(function (n, i) { if (n.pingUrl) show(els[i], results[i], max * 1.15); });
-      if (me) {
-        var mine = results[s.nodes.indexOf(me)];
+      if (me || s.vpn) {
+        var mine = me ? results[s.nodes.indexOf(me)] : await measure('/status/ping').catch(function () { return null; });
         el('myPing').textContent = mine != null ? fmt(mine) : '–';
         el('myQuality').textContent = mine != null ? quality(mine) : '';
         el('myQuality').style.color = mine != null ? color(mine) : '';
@@ -279,7 +279,10 @@ function draw(d) {
   last = d;
   if (!map) return;
   const s = d.s, placed = s.nodes.filter((n) => n.lat != null && n.lon != null);
-  map.setMarkers(placed.map((n) => {
+  const exact = s.home && s.home.exact;
+  const homeMarker = exact ? [{ id: 'home', lat: s.home.lat, lng: s.home.lon, health: 'OK', kind: 'homelab', label: s.home.label, highlight: true,
+    info: { title: s.home.label, subtitle: 'The homelab', rows: [] } }] : [];
+  map.setMarkers(homeMarker.concat(placed.map((n) => {
     const i = s.nodes.indexOf(n), ms = d.results ? d.results[i] : null;
     const ping = ms != null ? (ms < 10 ? ms.toFixed(1) : Math.round(ms)) + ' ms' : n.pingUrl ? (d.results ? 'no reply' : 'measuring…') : '–';
     return {
@@ -287,10 +290,11 @@ function draw(d) {
       info: { title: n.id, subtitle: n.current ? 'You’re connected through this node' : (n.place || null),
               rows: [['Status', n.state, HEALTH[n.state]], ['Your round trip', ping]].concat(n.current && n.place ? [['Place', n.place]] : []) },
     };
-  }));
-  map.setAreas(s.home ? [{ id: 'home', lat: s.home.lat, lng: s.home.lon, radiusKm: 1300, label: s.home.label }] : []);
+  })));
+  map.setAreas(s.home && !exact ? [{ id: 'home', lat: s.home.lat, lng: s.home.lon, radiusKm: 1300, label: s.home.label }] : []);
   const me = placed.find((n) => n.current);
-  map.setLines(me && s.home ? [{ id: 'path', from: [me.lon, me.lat], to: [s.home.lon, s.home.lat], health: HEALTH[me.state] || 'UNKNOWN' }] : []);
+  const linked = exact ? placed.filter((n) => n.state !== 'offline') : me ? [me] : [];
+  map.setLines(s.home ? linked.map((n) => ({ id: 'path-' + n.id, from: [n.lon, n.lat], to: [s.home.lon, s.home.lat], health: HEALTH[n.state] || 'UNKNOWN' })) : []);
   if (!fitted) {
     const pts = placed.map((n) => [n.lon, n.lat]).concat(s.home ? [[s.home.lon, s.home.lat]] : []);
     if (pts.length) { map.fit(pts, 3); fitted = true; }

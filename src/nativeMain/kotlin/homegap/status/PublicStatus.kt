@@ -27,11 +27,18 @@ data class PublicNode(
 )
 
 /**
- * The homelab on the public map: only its region (that region's centre and name), never where
- * it actually is.
+ * The homelab on the map. A public visitor gets only its region (the centre and the name of that
+ * region), never where it is. A Pangolin client gets the location from the config, and [exact]
+ * is true.
  */
 @Serializable
-data class PublicHome(val region: String, val label: String, val lat: Double, val lon: Double)
+data class PublicHome(
+    val region: String,
+    val label: String,
+    val lat: Double,
+    val lon: Double,
+    val exact: Boolean = false,
+)
 
 @Serializable
 data class PublicStatusDto(
@@ -41,8 +48,8 @@ data class PublicStatusDto(
     val nodes: List<PublicNode>,
     val at: Long,
     val home: PublicHome? = null,
-    /** Where the page asks if the visitor is a Pangolin client. Null without a private path. */
-    @SerialName("clientUrl") val clientUrl: String? = null,
+    /** True if the visitor is a Pangolin client, who gets the page from the homelab and not from a node. */
+    val vpn: Boolean = false,
 )
 
 /**
@@ -74,18 +81,11 @@ class PublicStatus(
         return cfg.statusPage.autoHost(cfg.domain).equals(host, ignoreCase = true) || nodeFor(host) != null
     }
 
-    /** Whether [host] answers the question of the page about the visitor: a name of the page, or the private name. */
-    fun servesViewer(host: String): Boolean {
-        val cfg = config()
-        return serves(host) || (cfg.statusPage.enabled && cfg.statusPage.vpnHost(cfg.domain).equals(host, true))
-    }
-
-    /** Whether [origin] is a page of the status page. Such a page can read the answer of the private name. */
-    fun pageOrigin(origin: String): Boolean = origin.startsWith(HTTPS) && serves(origin.removePrefix(HTTPS))
-
+    /** The view of the visitor whose request the proxy of the homelab got from [address]. */
     fun viewer(address: String): PublicViewer = Viewers.of(address, privateRange())
 
-    fun build(host: String): PublicStatusDto {
+    /** The data of the page at [host]. With [vpn], the visitor is a Pangolin client. */
+    fun build(host: String, vpn: Boolean = false): PublicStatusDto {
         val cfg = config()
         val now = nowMillis()
         val statuses = cached?.takeIf { now - it.first < cacheMillis }?.second
@@ -112,8 +112,8 @@ class PublicStatus(
             via = via,
             nodes = publicNodes,
             at = now,
-            home = homeRegion(cfg),
-            clientUrl = privateRange()?.let { "$HTTPS${cfg.statusPage.vpnHost(cfg.domain)}/status/client" },
+            home = if (vpn) homeLocation(cfg) else homeRegion(cfg),
+            vpn = vpn,
         )
     }
 
@@ -127,6 +127,13 @@ class PublicStatus(
             return PublicHome(code, "Home · ${REGION_NAMES[code] ?: code}", centre.latitude, centre.longitude)
         }
 
+        /** The homelab where the config puts it, for a Pangolin client. */
+        fun homeLocation(cfg: AppConfig): PublicHome? {
+            val home = cfg.homelab.location ?: return null
+            val region = homeRegion(cfg)?.region.orEmpty()
+            return PublicHome(region, home.name ?: HOME, home.latitude, home.longitude, exact = true)
+        }
+
         private val REGION_NAMES = mapOf(
             "NA" to "North America",
             "SA" to "South America",
@@ -137,7 +144,7 @@ class PublicStatus(
             "OC" to "Oceania",
         )
 
-        private const val HTTPS = "https://"
+        private const val HOME = "Home"
         const val ONLINE = "online"
         const val DEGRADED = "degraded"
         const val OFFLINE = "offline"

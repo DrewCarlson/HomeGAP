@@ -376,13 +376,6 @@ data class StatusPageConfig(
 ) {
     fun autoHost(domain: String) = "$hostname.$domain"
     fun nodeHost(domain: String, nodeId: String) = "$hostname-$nodeId.$domain"
-
-    /** The name that only Pangolin clients reach over the private path. The page uses it to find such a client. */
-    fun vpnHost(domain: String) = "$hostname-$VPN_LABEL.$domain"
-
-    companion object {
-        const val VPN_LABEL = "vpn"
-    }
 }
 
 @Serializable

@@ -7,6 +7,7 @@ import homegap.config.ConfigLoader
 import homegap.discovery.AuthMode
 import homegap.model.Planner
 import homegap.provision.NodeTemplates
+import homegap.status.PublicHome
 import homegap.status.PublicStatus
 import homegap.status.PublicStatusDto
 import homegap.status.PublicViewer
@@ -136,16 +137,24 @@ class StatusPageTest {
     }
 
     @Test
-    fun thePageAsksThePrivateNameOnlyWithAPrivatePath() {
-        val private = PublicStatus({ config }, { emptyList() }, privateRange = { "172.29.0.3/24" })
-        val page = private.build("status-na1.test.example.net")
-        assertEquals("https://status-vpn.test.example.net/status/client", page.clientUrl)
-        assertTrue(private.servesViewer("status-vpn.test.example.net"))
-        assertFalse(private.serves("status-vpn.test.example.net"), "the private name has no page")
-        assertTrue(private.pageOrigin("https://status-na1.test.example.net"))
-        assertFalse(private.pageOrigin("https://other.example.org"))
-        assertEquals(PublicViewer(vpn = true), private.viewer("172.29.0.9"))
-        assertNull(PublicStatus({ config }, { emptyList() }).build("status.test.example.net").clientUrl)
+    fun onlyAPangolinClientGetsTheLocationOfTheHomelab() {
+        val located = ConfigLoader.parse(
+            "$TEST_CONFIG\nstatus_page:\n  enabled: true\nhomelab:\n" +
+                "  location: { latitude: 32.78, longitude: -96.8, name: \"Dallas, Texas\" }\n"
+        )
+        val status = PublicStatus({ located }, { emptyList() }, privateRange = { "172.29.0.3/24" })
+        val public = status.build("status-na1.test.example.net")
+        assertFalse(public.vpn)
+        assertFalse(public.home!!.exact)
+        assertFalse(public.home.lat == 32.78, "the centre of the region, not the homelab")
+        val publicJson = Json.encodeToString(PublicStatusDto.serializer(), public)
+        assertFalse("Dallas" in publicJson || "32.78" in publicJson, publicJson)
+
+        assertEquals(PublicViewer(vpn = true), status.viewer("172.29.0.9"))
+        val private = status.build("status.test.example.net", vpn = true)
+        assertTrue(private.vpn)
+        assertNull(private.via)
+        assertEquals(PublicHome("NA", "Dallas, Texas", 32.78, -96.8, exact = true), private.home)
     }
 
     @Test
@@ -165,8 +174,6 @@ class StatusPageTest {
         val hostnameOfSpeedtest =
             "$TEST_CONFIG\nspeedtest:\n  enabled: true\nstatus_page:\n  enabled: true\n  hostname: speedtest\n"
         assertFailsWith<Exception> { ConfigLoader.parse(hostnameOfSpeedtest) }
-        val nodeWithTheNameOfThePage = "$TEST_CONFIG\nstatus_page:\n  enabled: true\n".replace("id: as1", "id: vpn")
-        assertFailsWith<Exception> { ConfigLoader.parse(nodeWithTheNameOfThePage) }
     }
 
     @Test

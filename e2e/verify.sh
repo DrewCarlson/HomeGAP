@@ -28,7 +28,7 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
     v sh -c "curl -sS --cacert /certs/trust.pem --resolve pangolin.test.example.net:443:$ip -o /dev/null -w 'api %{http_code}\n' https://pangolin.test.example.net/api/v1/"
   fi
   echo "--- the status page tells a public visitor that it is no Pangolin client (expect {\"vpn\":false})"
-  v sh -c "curl -sS --cacert /certs/trust.pem --resolve status-vpn.test.example.net:443:$ip https://status-vpn.test.example.net/status/client; echo"
+  v sh -c "curl -sS --cacert /certs/trust.pem --resolve status.test.example.net:443:$ip https://status.test.example.net/status/client; echo"
   echo "--- the shared status and speed test names name this node, with no redirect (expect 200 \"via\":\"$id\" 200 \"node\":\"$id\")"
   v sh -c "curl -sS --cacert /certs/trust.pem --resolve status.test.example.net:443:$ip -o /dev/null -w '%{http_code} ' https://status.test.example.net/; curl -sS --cacert /certs/trust.pem --resolve status.test.example.net:443:$ip https://status.test.example.net/status/nodes | grep -o '\"via\":\"[^\"]*\"'"
   v sh -c "curl -sS --cacert /certs/trust.pem --resolve speedtest.test.example.net:443:$ip -o /dev/null -w '%{http_code} ' https://speedtest.test.example.net/; curl -sS --cacert /certs/trust.pem --resolve speedtest.test.example.net:443:$ip -H 'X-HomeGAP-Token: $TOKEN' https://speedtest.test.example.net/speedtest/info | grep -o '\"node\":\"[^\"]*\"'"

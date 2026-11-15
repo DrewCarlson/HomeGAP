@@ -10,6 +10,7 @@ import homegap.model.Planner
 import homegap.provision.HomelabTraefik
 import homegap.provision.NodeTemplates
 import homegap.routes.TraefikRoutes
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
@@ -130,11 +131,11 @@ class MisdirectedTest {
             "speedtest-as1.test.example.net",
             "status-na1.test.example.net",
             "status-as1.test.example.net",
-            "status-vpn.test.example.net",
         )
         assertEquals(expected, pageHosts)
 
-        val answer = HomelabTraefik.dynamicConfig(emptyList(), pageHosts, origin = "http://orchestrator:8089")
+        val pages = HomelabTraefik.Pages(pageHosts, "http://orchestrator:8089")
+        val answer = HomelabTraefik.dynamicConfig(emptyList(), pages)
         val http = answer["http"]!!.jsonObject
         val router = http["routers"]!!.jsonObject[HomelabTraefik.PAGES]!!.jsonObject
         assertEquals(expected.joinToString(" || ") { "Host(`$it`)" }, router["rule"]!!.jsonPrimitive.content)
@@ -148,11 +149,27 @@ class MisdirectedTest {
     }
 
     @Test
+    fun pangolinClientsGetTheSharedStatusNameFromTheHomelab() {
+        val status = HomelabTraefik.PrivateStatus("status.test.example.net", "172.29.0.3/24")
+        val pages = HomelabTraefik.Pages(listOf("status-na1.test.example.net"), "http://orchestrator:8089", status)
+        val answer = HomelabTraefik.dynamicConfig(listOf("status.test.example.net"), pages)
+        val routers = answer["http"]!!.jsonObject["routers"]!!.jsonObject
+        val private = routers[HomelabTraefik.PRIVATE_STATUS]!!.jsonObject
+        val misdirected = routers[HomelabTraefik.MISDIRECTED_ROUTER]!!.jsonObject
+        val rule = "Host(`status.test.example.net`) && ClientIP(`172.29.0.3/24`)"
+        assertEquals(rule, private["rule"]!!.jsonPrimitive.content)
+        assertEquals(HomelabTraefik.PAGES, private["service"]!!.jsonPrimitive.content)
+        assertTrue(private["priority"]!!.jsonPrimitive.int > misdirected["priority"]!!.jsonPrimitive.int)
+        assertEquals(misdirected["tls"], private["tls"], "one name, one set of TLS options")
+        assertTrue(HomelabTraefik.isOwn("websecure-${HomelabTraefik.PRIVATE_STATUS}@http"))
+    }
+
+    @Test
     fun aPageThatIsOffHasNoRoute() {
         assertTrue(HomelabTraefik.pageHosts(testConfig()).isEmpty(), "the two pages are off by default")
         val statusOnly = ConfigLoader.parse("$TEST_CONFIG\nstatus_page:\n  enabled: true\n")
         assertEquals(
-            listOf("status-na1.test.example.net", "status-as1.test.example.net", "status-vpn.test.example.net"),
+            listOf("status-na1.test.example.net", "status-as1.test.example.net"),
             HomelabTraefik.pageHosts(statusOnly),
         )
         val misdirectedOnly = HomelabTraefik.misdirectedConfig(listOf("pangolin.test.example.net"))
@@ -167,7 +184,8 @@ class MisdirectedTest {
             url = "http://orchestrator:8088",
             allowFrom = "172.29.0.3/24",
         )
-        val http = HomelabTraefik.dynamicConfig(emptyList(), emptyList(), origin = "", dashboard)["http"]!!.jsonObject
+        val noPages = HomelabTraefik.Pages(emptyList(), "")
+        val http = HomelabTraefik.dynamicConfig(emptyList(), noPages, dashboard)["http"]!!.jsonObject
 
         val router = http["routers"]!!.jsonObject[HomelabTraefik.DASHBOARD]!!.jsonObject
         assertEquals("Host(`orc.test.example.net`)", router["rule"]!!.jsonPrimitive.content)
@@ -182,7 +200,8 @@ class MisdirectedTest {
     @Test
     fun aPublicDashboardRouteHasNoAllowList() {
         val dashboard = HomelabTraefik.Dashboard("orc.test.example.net", "http://orchestrator:8088", allowFrom = null)
-        val http = HomelabTraefik.dynamicConfig(emptyList(), emptyList(), origin = "", dashboard)["http"]!!.jsonObject
+        val noPages = HomelabTraefik.Pages(emptyList(), "")
+        val http = HomelabTraefik.dynamicConfig(emptyList(), noPages, dashboard)["http"]!!.jsonObject
 
         assertNull(http["routers"]!!.jsonObject[HomelabTraefik.DASHBOARD]!!.jsonObject["middlewares"])
         assertNull(http["middlewares"])
@@ -207,10 +226,10 @@ class MisdirectedTest {
         val aliases = plan.nodes.getValue("na1").privateResources.map { it.alias }
         assertTrue("orc.test.example.net" in aliases && "wiki.test.example.net" in aliases, aliases.toString())
 
-        assertFalse(aliases.any { it.startsWith("status-vpn.") }, "no status page, so no name for it")
+        assertFalse("status.test.example.net" in aliases, "no status page, so no private name for it")
         val withStatus = ConfigLoader.parse("$TEST_CONFIG\nstatus_page:\n  enabled: true\n")
         val statusPlan = Planner.plan(withStatus, listOf(frontDoor))
-        assertTrue("status-vpn.test.example.net" in statusPlan.frontDoor!!.privateHosts)
+        assertTrue("status.test.example.net" in statusPlan.frontDoor!!.privateHosts)
         assertTrue(Planner.plan(withStatus, listOf(TRAEFIK)).frontDoor!!.privateHosts.isEmpty())
 
         val withoutPath = Planner.plan(private, listOf(TRAEFIK))

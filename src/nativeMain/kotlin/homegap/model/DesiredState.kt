@@ -212,7 +212,7 @@ object Planner {
         }
 
         val claimed = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
-        val published = withVpnCheck(config, withPrivateDashboard(config, claimed, errors))
+        val published = withPrivateStatusPage(config, withPrivateDashboard(config, claimed, errors))
         val doors = frontDoors(config, published)
         val services = doors.all.fold(published) { kept, door -> refuseCoveredPassthrough(kept, door, errors) }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
@@ -260,14 +260,15 @@ object Planner {
     }
 
     /**
-     * The status page finds a Pangolin client from the network that its request arrives on. So the
-     * front door gets one more private name, which the page asks. Without a private path, the page
-     * has no such name.
+     * A Pangolin client gets the status page from the homelab, not from a node: the shared name of
+     * the page is one more private name of the front door. The request then arrives on the private
+     * network, and the page knows that the visitor is a Pangolin client. Without a private path,
+     * such a client gets the page as each other visitor does.
      */
-    private fun withVpnCheck(config: AppConfig, services: List<ServiceSpec>): List<ServiceSpec> {
+    private fun withPrivateStatusPage(config: AppConfig, services: List<ServiceSpec>): List<ServiceSpec> {
         if (!config.statusPage.enabled) return services
         val frontDoor = frontDoors(config, services).primary?.takeIf { it.privateHost != null } ?: return services
-        val host = config.statusPage.vpnHost(config.domain)
+        val host = config.statusPage.autoHost(config.domain)
         val withHost = frontDoor.copy(privateHosts = (frontDoor.privateHosts + host).distinct())
         return services.map { if (it == frontDoor) withHost else it }
     }

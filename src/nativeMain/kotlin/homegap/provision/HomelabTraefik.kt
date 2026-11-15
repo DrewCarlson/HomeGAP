@@ -27,12 +27,21 @@ object HomelabTraefik {
     /** The router and the service of the speed test and the status page. */
     const val PAGES = "homegap-pages"
 
+    /** The router that gives the shared name of the status page to Pangolin clients. */
+    const val PRIVATE_STATUS = "homegap-status-private"
+
     /** The router and the service of the dashboard. */
     const val DASHBOARD = "homegap-dashboard"
 
     /** The middleware that admits only the private path of Pangolin clients. */
     const val PRIVATE_ONLY = "homegap-private-only"
     private const val PRIORITY = 100000
+
+    /** Above the route that answers 421, which has the same name. */
+    private const val PRIVATE_STATUS_PRIORITY = PRIORITY + 1
+
+    /** The routes that are not routes of the homelab, although they have a name of the nodes. */
+    private val OWN_ROUTERS = listOf(MISDIRECTED_ROUTER, PRIVATE_STATUS)
 
     /** Above a catch-all route of the homelab, and below the route that answers 421. */
     private const val PAGES_PRIORITY = 50000
@@ -70,7 +79,7 @@ object HomelabTraefik {
      */
     fun isOwn(routerName: String): Boolean {
         val name = routerName.substringBefore('@')
-        return name == MISDIRECTED_ROUTER || name.endsWith("-$MISDIRECTED_ROUTER")
+        return OWN_ROUTERS.any { name == it || name.endsWith("-$it") }
     }
 
     /** The plain `Host(...)` names in a Traefik rule. */
@@ -85,8 +94,8 @@ object HomelabTraefik {
 
     /**
      * The names of the speed test and the status page that the homelab Traefik sends to the
-     * orchestrator: the name of each node, the shared name of the speed test, and the name that
-     * the status page asks to find a Pangolin client. The config enables each page.
+     * orchestrator: the name of each node, and the shared name of the speed test. The config
+     * enables each page.
      */
     fun pageHosts(config: AppConfig): List<String> = buildList {
         if (config.speedtest.enabled) {
@@ -95,7 +104,6 @@ object HomelabTraefik {
         }
         if (config.statusPage.enabled) {
             config.nodes.forEach { add(config.statusPage.nodeHost(config.domain, it.id)) }
-            add(config.statusPage.vpnHost(config.domain))
         }
     }
 
@@ -105,31 +113,39 @@ object HomelabTraefik {
      */
     class Dashboard(val host: String, val url: String, val allowFrom: String?)
 
+    /**
+     * The pages that the orchestrator serves: the speed test and the status page. The route of
+     * [hosts] goes to the listener at [origin]. With [privateStatus], the shared name of the status
+     * page has a route too, only for the source range of Pangolin clients.
+     */
+    class Pages(val hosts: List<String>, val origin: String, val privateStatus: PrivateStatus? = null) {
+        val isEmpty: Boolean get() = hosts.isEmpty() && privateStatus == null
+    }
+
+    /** The shared name of the status page, and the source range of Pangolin clients that can use it. */
+    class PrivateStatus(val host: String, val allowFrom: String)
+
+    private val NO_PAGES = Pages(emptyList(), origin = "")
+
     /** The configuration for [names]. It is empty if there are no names. */
-    fun misdirectedConfig(names: List<String>): JsonObject =
-        dynamicConfig(names, pageHosts = emptyList(), origin = "")
+    fun misdirectedConfig(names: List<String>): JsonObject = dynamicConfig(names, NO_PAGES)
 
     /**
-     * The full configuration: the route that answers 421 for [misdirected], and the route that
-     * sends [pageHosts] to the listener of the speed test and the status page at [origin]. With
-     * [dashboard], it also has the route of the dashboard. Each route is there only if it has a name.
+     * The full configuration: the route that answers 421 for [misdirected], and the routes of
+     * [pages]. With [dashboard], it also has the route of the dashboard. Each route is there only
+     * if it has a name.
      */
-    fun dynamicConfig(
-        misdirected: List<String>,
-        pageHosts: List<String>,
-        origin: String,
-        dashboard: Dashboard? = null,
-    ): JsonObject {
-        if (misdirected.isEmpty() && pageHosts.isEmpty() && dashboard == null) return JsonObject(emptyMap())
+    fun dynamicConfig(misdirected: List<String>, pages: Pages, dashboard: Dashboard? = null): JsonObject {
+        if (misdirected.isEmpty() && pages.isEmpty && dashboard == null) return JsonObject(emptyMap())
         return buildJsonObject {
             putJsonObject("http") {
                 putJsonObject("routers") {
-                    putRouters(misdirected, pageHosts)
+                    putRouters(misdirected, pages)
                     dashboard?.let { putDashboardRouter(it) }
                 }
-                if (pageHosts.isNotEmpty() || dashboard != null) {
+                if (!pages.isEmpty || dashboard != null) {
                     putJsonObject("services") {
-                        if (pageHosts.isNotEmpty()) putService(PAGES, origin)
+                        if (!pages.isEmpty) putService(PAGES, pages.origin)
                         dashboard?.let { putService(DASHBOARD, it.url) }
                     }
                 }
@@ -141,7 +157,7 @@ object HomelabTraefik {
                     }
                 }
             }
-            if (misdirected.isNotEmpty()) {
+            if (misdirected.isNotEmpty() || pages.privateStatus != null) {
                 putJsonObject("tls") {
                     putJsonObject("options") {
                         putJsonObject(NodeTemplates.ELSEWHERE_TLS_OPTIONS) { put("minVersion", "VersionTLS12") }
@@ -171,7 +187,7 @@ object HomelabTraefik {
         }
     }
 
-    private fun JsonObjectBuilder.putRouters(misdirected: List<String>, pageHosts: List<String>) {
+    private fun JsonObjectBuilder.putRouters(misdirected: List<String>, pages: Pages) {
         if (misdirected.isNotEmpty()) {
             putJsonObject(MISDIRECTED_ROUTER) {
                 put("rule", hostRule(misdirected))
@@ -181,13 +197,23 @@ object HomelabTraefik {
                 putJsonObject("tls") { put("options", NodeTemplates.ELSEWHERE_TLS_OPTIONS) }
             }
         }
-        if (pageHosts.isNotEmpty()) {
+        if (pages.hosts.isNotEmpty()) {
             putJsonObject(PAGES) {
-                put("rule", hostRule(pageHosts))
+                put("rule", hostRule(pages.hosts))
                 put("priority", PAGES_PRIORITY)
                 put("service", PAGES)
                 // The certificate comes from the TLS settings of the homelab Traefik.
                 putJsonObject("tls") {}
+            }
+        }
+        pages.privateStatus?.let { status ->
+            putJsonObject(PRIVATE_STATUS) {
+                put("rule", "${hostRule(listOf(status.host))} && ClientIP(`${status.allowFrom}`)")
+                put("priority", PRIVATE_STATUS_PRIORITY)
+                put("service", PAGES)
+                // The route that answers 421 has the same name. Traefik uses the TLS options of a
+                // name only if each of its routes has the same options.
+                putJsonObject("tls") { put("options", NodeTemplates.ELSEWHERE_TLS_OPTIONS) }
             }
         }
     }

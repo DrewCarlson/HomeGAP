@@ -58,8 +58,16 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
             .filter { it !in pageHosts }
         // Traefik reads this configuration from the orchestrator, so the same host has the pages.
         val origin = "http://${request.host()}:${config.speedtest.port}"
-        val answer = HomelabTraefik.dynamicConfig(misdirected, pageHosts, origin, dashboardRoute(request.host()))
+        val pages = HomelabTraefik.Pages(pageHosts, origin, privateStatus())
+        val answer = HomelabTraefik.dynamicConfig(misdirected, pages, dashboardRoute(request.host()))
         call.respondText(answer.toString(), ContentType.Application.Json)
+    }
+
+    /** The route of the status page for Pangolin clients. The pass finds the private network of the front door. */
+    private fun privateStatus(): HomelabTraefik.PrivateStatus? {
+        val config = controller.config
+        val range = controller.privateSourceRange?.takeIf { config.statusPage.enabled } ?: return null
+        return HomelabTraefik.PrivateStatus(config.statusPage.autoHost(config.domain), range)
     }
 
     /**

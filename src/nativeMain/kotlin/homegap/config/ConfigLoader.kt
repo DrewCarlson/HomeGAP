@@ -202,10 +202,6 @@ object ConfigLoader {
         if (speedtest.enabled && statusPage.hostname == speedtest.hostname) {
             add("status_page.hostname must differ from speedtest.hostname")
         }
-        if (config.nodes.any { it.id == StatusPageConfig.VPN_LABEL }) {
-            val label = StatusPageConfig.VPN_LABEL
-            add("with status_page.enabled, a node cannot have the id '$label': the page uses that name")
-        }
         if (statusPage.title.length > STATUS_TITLE_MAX) {
             add("status_page.title must be at most 60 characters")
         }

@@ -11,6 +11,7 @@ import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.nowMillis
 import homegap.status.PublicStatus
+import homegap.status.PublicViewer
 import homegap.status.Viewers
 import homegap.status.StatusPage
 import io.ktor.http.*
@@ -407,7 +408,7 @@ class SpeedTestServer(
         if (!status.serves(host)) {
             return call.respond(HttpStatusCode.NotFound)
         }
-        call.respond(status.build(host))
+        call.respond(status.build(host, viewer().vpn))
     }
 
     /** One round trip. The browser of the visitor times it from the status page of a different node (CORS). */
@@ -420,21 +421,18 @@ class SpeedTestServer(
         call.respond(HttpStatusCode.NoContent)
     }
 
-    /**
-     * Tells the visitor the own address, or that the request came from a Pangolin client. The
-     * page of a node reads the answer of the private name, which is a different origin (CORS).
-     */
+    /** Tells the visitor the own address, or that the request came from a Pangolin client. */
     private suspend fun RoutingContext.statusClient() {
-        if (!status.servesViewer(call.request.host())) {
+        if (!status.serves(call.request.host())) {
             return call.respond(HttpStatusCode.NotFound)
         }
-        val origin = call.request.header(HttpHeaders.Origin)
-        if (origin != null && status.pageOrigin(origin)) {
-            call.response.header(HttpHeaders.AccessControlAllowOrigin, origin)
-            call.response.header(HttpHeaders.Vary, HttpHeaders.Origin)
-        }
+        call.respond(viewer())
+    }
+
+    /** The visitor, from the address that the proxy of the homelab got the request from. */
+    private fun RoutingContext.viewer(): PublicViewer {
         val forwardedFor = call.request.header(HttpHeaders.XForwardedFor)
-        call.respond(status.viewer(Viewers.address(call.request.local.remoteAddress, forwardedFor)))
+        return status.viewer(Viewers.address(call.request.local.remoteAddress, forwardedFor))
     }
 
     private suspend fun RoutingContext.receiveUpload() {
