@@ -30,8 +30,8 @@ networks:
   # Only the orchestrator and the Docker socket proxy: nothing else reaches the proxy.
   homegap-docker:
     internal: true
-  # Between the orchestrator and the cluster's own network namespace (homegap-mesh), and that
-  # namespace's way out to the nodes (WireGuard). Nothing else joins it.
+  # Between the orchestrator and the network namespace of the mesh (homegap-mesh), and the way
+  # of that namespace out to the nodes (WireGuard). Nothing else joins it.
   homegap-cluster:
 
 # Everything that HomeGAP writes is in folders below HOMEGAP_DATA_DIR (default ./data, next to this
@@ -49,34 +49,33 @@ networks:
 # never see the orchestrator's data.
 
 # The services with `profiles: [cluster]` are the homelab's part of cluster mode. They run only
-# with COMPOSE_PROFILES=cluster in .env. Without it, the stack has three containers.
+# with COMPOSE_PROFILES=cluster in .env. The mesh containers run in each mode.
 
 services:
-  # Holds the cluster's own network namespace: the mesh interface (hg-mesh, see `cluster:` in the
-  # config) and the homelab's cluster member live here, and nothing else does. Every node is a
-  # member of the cluster database, so this namespace is treated as reachable from the nodes: the
+  # Holds the network namespace of the mesh: the mesh interface (hg-mesh, see `mesh:` in the
+  # config) and the homelab's cluster member live here, and nothing else does. Each node is a
+  # member of the mesh, so this namespace is treated as reachable from the nodes: the
   # orchestrator is not in it, and the mesh agent's firewall lets nothing in it open a connection
-  # to the orchestrator, to another container or to your home network.
+  # to the orchestrator, to another container or to your home network. For a node, the namespace
+  # forwards only the ports of the published services, each to its one container on the Traefik
+  # network.
   homegap-mesh:
     # A fixed image, never the HomeGAP one: recreating this container replaces the namespace
     # (and drops the mesh), so it must not change with HomeGAP updates. Everything sharing the
     # namespace restarts with it if it ever is recreated (depends_on restart: true).
     image: docker.io/library/busybox:1.37
-    profiles: [cluster]
     entrypoint: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait; done"]
     restart: unless-stopped
     logging: *logging
     # The orchestrator reaches the nodes' members through this namespace.
     sysctls:
       net.ipv4.ip_forward: "1"
-    networks: [homegap-cluster]
+    networks: [homegap-cluster, traefik]
 
-  # Keeps the mesh interface and the namespace's firewall as the orchestrator describes them
-  # (only used when `cluster:` is configured; until then it waits). The only container in the
-  # namespace that can change its network.
+  # Keeps the mesh interface and the namespace's firewall as the orchestrator describes them.
+  # The only container in the namespace that can change its network.
   homegap-mesh-agent:
     image: ghcr.io/drewcarlson/homegap:${HOMEGAP_VERSION:-latest}
-    profiles: [cluster]
     command: ["mesh"]
     restart: unless-stopped
     logging: *logging
@@ -141,7 +140,6 @@ services:
   # namespace of the orchestrator. DAC_READ_SEARCH lets it read the mesh description of that user.
   homegap-mesh-route:
     image: ghcr.io/drewcarlson/homegap:${HOMEGAP_VERSION:-latest}
-    profiles: [cluster]
     command: ["mesh-route"]
     restart: unless-stopped
     logging: *logging

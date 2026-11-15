@@ -6,6 +6,8 @@ import homegap.api.MeshProbeDto
 import homegap.api.MeshStatusDto
 import homegap.config.MeshConfig
 import homegap.config.NodeConfig
+import homegap.model.DesiredState
+import homegap.model.ResourceMode
 import homegap.platform.nowMillis
 import homegap.platform.runCatchingCancellable
 import homegap.provision.ClusterTemplates
@@ -39,6 +41,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         val members: List<NodeConfig>,
         val addresses: Map<String, String>,
         val homelabKey: String?,
+        val forwards: List<Mesh.Forward>,
     ) {
         val homelabAddress = Mesh.homelabAddress(mesh)
         val memberIds = members.map { it.id }.toSet()
@@ -74,9 +77,14 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         )
     }
 
-    /** Returns the status of the mesh, or null if the config has no cluster. */
-    suspend fun reconcile(ctx: ReconcileContext, nodes: List<NodeConfig>, slots: Map<String, Int>): MeshStatusDto? {
-        val mesh = ctx.config.cluster?.mesh ?: return null
+    /** Returns the status of the mesh. */
+    suspend fun reconcile(
+        ctx: ReconcileContext,
+        nodes: List<NodeConfig>,
+        slots: Map<String, Int>,
+        forwards: List<Mesh.Forward>,
+    ): MeshStatusDto {
+        val mesh = ctx.config.mesh
         val members = nodes.filter { ctx.state.node(it.id).teardownError == null && slots[it.id] != null }
         val homelabKey = runCatchingCancellable { homelab.publicKey() }
         val layout = Layout(
@@ -84,6 +92,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             members = members,
             addresses = members.associate { it.id to Mesh.nodeAddress(mesh, slots.getValue(it.id)) },
             homelabKey = homelabKey.getOrNull(),
+            forwards = forwards,
         )
 
         val nodeStates = ctx.times.measure("mesh.nodes") { configureNodes(ctx, layout) }
@@ -197,7 +206,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     private suspend fun configureHomelab(ctx: ReconcileContext, layout: Layout): MemberState {
         val peers = runCatchingCancellable {
-            homelab.apply(layout.mesh, layout.homelabAddress, peersOf(ctx, layout, Mesh.HOMELAB))
+            homelab.apply(layout.mesh, layout.homelabAddress, peersOf(ctx, layout, Mesh.HOMELAB), layout.forwards)
             homelab.peers()
         }
         val error = peers.exceptionOrNull()?.let { it.message ?: it.toString() }
@@ -297,21 +306,31 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     private fun NodeConfig.endpoint(): String = ipv4() ?: publicIpv6 ?: host
 
-    private companion object {
-        const val DOMAIN = "mesh"
-        const val SCRIPT_TIMEOUT_SECONDS = 300
-        const val PROBE_TIMEOUT_MS = 3_000L
-        const val ERROR_TEXT_LENGTH = 400
+    companion object {
+        /**
+         * The ports of the mesh address of the homelab that the plan needs: one for each raw TCP or
+         * UDP resource, to its target. A node sends the traffic of the resource to that port.
+         */
+        fun forwardsOf(plan: DesiredState): List<Mesh.Forward> =
+            plan.nodes.values.flatMap { it.publicResources }
+                .filter { it.mode != ResourceMode.HTTP && it.proxyPort != null && !it.paused }
+                .map { Mesh.Forward(it.mode.wire, it.proxyPort!!, "${it.target.host}:${it.target.port}") }
+                .distinct()
+
+        private const val DOMAIN = "mesh"
+        private const val SCRIPT_TIMEOUT_SECONDS = 300
+        private const val PROBE_TIMEOUT_MS = 3_000L
+        private const val ERROR_TEXT_LENGTH = 400
 
         /** The script for a paused node. It reads the status and changes nothing. */
-        const val READ_ONLY = "echo DUMP-BEGIN; wg show ${Mesh.INTERFACE} dump 2>/dev/null || true; echo DUMP-END"
+        private const val READ_ONLY = "echo DUMP-BEGIN; wg show ${Mesh.INTERFACE} dump 2>/dev/null || true; echo DUMP-END"
 
         // Lines and sections in the output of the node script.
-        const val CHANGED = "CHANGED "
-        const val PUBLIC_KEY = "PUBKEY="
-        const val PROBE_BEGIN = "PROBE-BEGIN"
-        const val PROBE_END = "PROBE-END"
-        const val CONTAINER_PROBE_BEGIN = "CPROBE-BEGIN"
-        const val CONTAINER_PROBE_END = "CPROBE-END"
+        private const val CHANGED = "CHANGED "
+        private const val PUBLIC_KEY = "PUBKEY="
+        private const val PROBE_BEGIN = "PROBE-BEGIN"
+        private const val PROBE_END = "PROBE-END"
+        private const val CONTAINER_PROBE_BEGIN = "CPROBE-BEGIN"
+        private const val CONTAINER_PROBE_END = "CPROBE-END"
     }
 }

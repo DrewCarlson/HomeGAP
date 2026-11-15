@@ -23,6 +23,7 @@ object Mesh {
     private const val NODE_HOST_BASE = 10
     private const val KEEPALIVE_SECONDS = 25
     private const val IPV4_BITS = 32
+    private const val TCP = "tcp"
     private const val MIN_PREFIX = 16
     private const val MAX_PREFIX = 28
 
@@ -232,7 +233,20 @@ object Mesh {
     /** The file that the mesh agent writes: its key, the spec that it applied and the peers that it sees. */
     const val STATUS_FILE = "status.json"
 
-    /** The mesh of the homelab, as the agent applies it. Other members can reach the [openPorts] of the member. */
+    /**
+     * A port of the mesh address of the homelab that goes to a service of the homelab. [target] is
+     * `host:port`. The host is an address, or a name on a Docker network of the mesh namespace.
+     */
+    @Serializable
+    data class Forward(val protocol: String, val port: Int, val target: String) {
+        val host: String get() = target.substringBeforeLast(':')
+        val targetPort: Int get() = target.substringAfterLast(':').toInt()
+    }
+
+    /**
+     * The mesh of the homelab, as the agent applies it. Other members can reach the [openPorts]
+     * of the member and the [forwards], and nothing else.
+     */
     @Serializable
     data class AgentSpec(
         val subnet: String,
@@ -240,6 +254,7 @@ object Mesh {
         val address: String,
         val peers: List<Peer>,
         val openPorts: List<Int>,
+        val forwards: List<Forward> = emptyList(),
     )
 
     @Serializable
@@ -260,6 +275,7 @@ object Mesh {
         Triple("filter", "OUTPUT", "HG-OUT"),
         Triple("filter", "FORWARD", "HG-FWD"),
         Triple("nat", "POSTROUTING", "HG-NAT"),
+        Triple("nat", "PREROUTING", "HG-DNAT"),
     )
 
     /**
@@ -271,10 +287,17 @@ object Mesh {
      * - Out: the mesh, answers, and WireGuard itself to the nodes. Nothing in the namespace can
      *   open a connection to the orchestrator, another container or the home network.
      * - Through: the orchestrator to the members over the mesh, with the mesh address of the
-     *   homelab as the source, and the answers. The namespace forwards nothing for a node.
+     *   homelab as the source, and the answers. For a node, the namespace forwards only the
+     *   [AgentSpec.forwards], each to its one target.
+     *
+     * [addresses] has the address of each target host. A forward with no address gets no rule, and
+     * so does a TCP forward on one of the [AgentSpec.openPorts].
      */
-    fun firewallRules(spec: AgentSpec): String = buildString {
+    fun firewallRules(spec: AgentSpec, addresses: Map<String, String> = emptyMap()): String = buildString {
         val ports = spec.openPorts.joinToString(",")
+        val forwards = spec.forwards
+            .filterNot { it.protocol == TCP && it.port in spec.openPorts }
+            .mapNotNull { forward -> addresses[forward.host]?.let { forward to it } }
         appendLine("*filter")
         appendLine(":HG-IN - [0:0]")
         appendLine(":HG-OUT - [0:0]")
@@ -290,12 +313,23 @@ object Mesh {
         appendLine("-A HG-OUT -p udp --dport ${spec.port} -j ACCEPT")
         appendLine("-A HG-OUT -j DROP")
         appendLine("-A HG-FWD ! -i $INTERFACE -o $INTERFACE -j ACCEPT")
+        for ((forward, address) in forwards) {
+            val match = "-d $address -p ${forward.protocol} --dport ${forward.targetPort}"
+            appendLine("-A HG-FWD -i $INTERFACE $match -m conntrack --ctstate DNAT -j ACCEPT")
+        }
         appendLine("-A HG-FWD -i $INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
         appendLine("-A HG-FWD -j DROP")
         appendLine("COMMIT")
         appendLine("*nat")
         appendLine(":HG-NAT - [0:0]")
+        appendLine(":HG-DNAT - [0:0]")
         appendLine("-A HG-NAT -o $INTERFACE -j MASQUERADE")
+        // The target sees the namespace as the client, so its answers come back here.
+        appendLine("-A HG-NAT ! -o $INTERFACE -m conntrack --ctstate DNAT -j MASQUERADE")
+        for ((forward, address) in forwards) {
+            val match = "-i $INTERFACE -d ${spec.address} -p ${forward.protocol} --dport ${forward.port}"
+            appendLine("-A HG-DNAT $match -j DNAT --to-destination $address:${forward.targetPort}")
+        }
         appendLine("COMMIT")
     }
 

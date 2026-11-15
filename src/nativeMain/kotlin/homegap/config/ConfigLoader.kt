@@ -60,7 +60,7 @@ object ConfigLoader {
             addAll(publishedDashboardErrors(config))
             addAll(speedtestErrors(config))
             addAll(dashboardErrors(config.dashboard))
-            addAll(meshErrors(config.cluster?.mesh))
+            addAll(meshErrors(config.mesh))
             addAll(clusterErrors(config.cluster))
         }
         require(errors.isEmpty()) {
@@ -268,26 +268,23 @@ object ConfigLoader {
         }
     }
 
-    private fun meshErrors(mesh: MeshConfig?): List<String> = buildList {
-        if (mesh == null) {
-            return@buildList
-        }
+    private fun meshErrors(mesh: MeshConfig): List<String> = buildList {
         val subnet = runCatching { Mesh.parseSubnet(mesh.subnet) }
-            .onFailure { add("cluster.mesh.subnet: ${it.message}") }
+            .onFailure { add("mesh.subnet: ${it.message}") }
             .getOrNull()
         if (subnet != null) {
             if (subnet.overlapsCgnat()) {
-                add("cluster.mesh.subnet must not overlap 100.64.0.0/10 (Pangolin's tunnel ranges)")
+                add("mesh.subnet must not overlap 100.64.0.0/10 (Pangolin's tunnel ranges)")
             }
             if (!subnet.fits(TunnelSlots.MAX)) {
-                add("cluster.mesh.subnet is too small for ${TunnelSlots.MAX} nodes (use /26 or larger)")
+                add("mesh.subnet is too small for ${TunnelSlots.MAX} nodes (use /26 or larger)")
             }
         }
         if (mesh.port !in 1..65535) {
-            add("cluster.mesh.port must be 1-65535")
+            add("mesh.port must be 1-65535")
         }
         if (mesh.port in GERBIL_PORTS) {
-            add("cluster.mesh.port must differ from Gerbil's ports (51820, 21820)")
+            add("mesh.port must differ from Gerbil's ports (51820, 21820)")
         }
     }
 

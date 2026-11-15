@@ -176,8 +176,8 @@ class ClusterReconciler(
         val pass = Pass(
             ctx = ctx,
             cluster = cluster,
-            homelab = Member(Mesh.HOMELAB, Mesh.homelabAddress(cluster.mesh)),
-            nodeMembers = nodeMembers(ctx, cluster, nodes, slots),
+            homelab = Member(Mesh.HOMELAB, Mesh.homelabAddress(ctx.config.mesh)),
+            nodeMembers = nodeMembers(ctx, nodes, slots),
             secrets = secrets,
             image = image,
         )
@@ -230,14 +230,13 @@ class ClusterReconciler(
      */
     private fun nodeMembers(
         ctx: ReconcileContext,
-        cluster: ClusterConfig,
         nodes: List<NodeConfig>,
         slots: Map<String, Int>,
     ): List<NodeMember> =
         nodes
             .filter { ctx.state.node(it.id).teardownError == null && ctx.state.node(it.id).meshPublicKey != null }
             .mapNotNull { node ->
-                slots[node.id]?.let { slot -> NodeMember(node, Member(node.id, Mesh.nodeAddress(cluster.mesh, slot))) }
+                slots[node.id]?.let { slot -> NodeMember(node, Member(node.id, Mesh.nodeAddress(ctx.config.mesh, slot))) }
             }
 
     /** Returns whether the database of the cluster exists, and records the first time it has a leader. */
@@ -752,7 +751,7 @@ class ClusterReconciler(
         // Before patroni.yml: the db container starts when that file is there, and needs this one.
         write("$configDir/roles.sql", ClusterTemplates.rolesSql(secrets))
         // The db container of the homelab sees a change of patroni.yml itself. Patroni then reads it again.
-        if (write("$configDir/patroni.yml", ClusterTemplates.patroni(homelab, pass.cluster.mesh, secrets))) {
+        if (write("$configDir/patroni.yml", ClusterTemplates.patroni(homelab, pass.ctx.config.mesh, secrets))) {
             ctx.log.change(DOMAIN, "updated Patroni settings (applied by reload within seconds)", Mesh.HOMELAB)
         }
         val valkeyEnv = ClusterTemplates.valkeyEnv(
@@ -862,7 +861,7 @@ class ClusterReconciler(
         // Where Valkey starts when no Sentinel knows a primary yet: the homelab, or the first node
         // when the homelab only votes.
         val initialMaster = data(members).first().meshIp
-        val patroniYml = ClusterTemplates.patroni(member, pass.cluster.mesh, secrets)
+        val patroniYml = ClusterTemplates.patroni(member, pass.ctx.config.mesh, secrets)
         val valkeyEnv = ClusterTemplates.valkeyEnv(
             member = member,
             secrets = secrets,
@@ -1039,10 +1038,10 @@ class ClusterReconciler(
      * to remove a member, and with two members the stop of one leaves no majority.
      */
     suspend fun dropMember(ctx: ReconcileContext, nodeId: String) {
-        val cluster = ctx.config.cluster ?: return
+        if (ctx.config.cluster == null) return
         val etcd = EtcdClient(
             http = http,
-            base = etcdUrl(Mesh.homelabAddress(cluster.mesh)),
+            base = etcdUrl(Mesh.homelabAddress(ctx.config.mesh)),
             user = ClusterTemplates.ETCD_USER,
             password = secrets().etcd,
         )

@@ -809,11 +809,13 @@ class Controller(
                 }
             }
 
-            // The cluster mesh (host-level, independent of each node's stack).
-            meshStatus = if (cfg.cluster == null || dryRun) {
+            // The mesh (host-level, independent of each node's stack).
+            meshStatus = if (dryRun) {
                 null
             } else {
-                runDomain("mesh", null) { meshRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots()) } ?: meshStatus
+                runDomain("mesh", null) {
+                    meshRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots(), MeshReconciler.forwardsOf(plan))
+                } ?: meshStatus
             }
             // The cluster's database layer, over the mesh.
             clusterStatus = if (cfg.cluster == null || dryRun) {

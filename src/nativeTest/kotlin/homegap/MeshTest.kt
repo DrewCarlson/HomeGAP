@@ -32,7 +32,7 @@ class MeshTest {
     fun rejectsUnsafeMeshSettings() {
         val config = ConfigLoader.parse(TEST_CONFIG)
         fun errorFor(candidate: MeshConfig) = assertFailsWith<IllegalArgumentException> {
-            ConfigLoader.validate(config.copy(cluster = ClusterConfig(candidate)))
+            ConfigLoader.validate(config.copy(mesh = candidate))
         }.message!!
         assertTrue("100.64.0.0/10" in errorFor(MeshConfig(subnet = "100.89.0.0/24")))
         assertTrue("Gerbil" in errorFor(MeshConfig(port = 51820)))
@@ -99,9 +99,44 @@ class MeshTest {
     }
 
     @Test
-    fun firewallOpensTheMeshPortOnlyWithACluster() {
+    fun firewallOpensTheMeshPortOnlyWhenItGetsOne() {
         val node = NodeConfig(id = "eu1", host = "203.0.113.30", sshKeyFile = "/k")
         assertTrue("allow 51821/udp" in FirewallRules.specs(node, meshPort = 51821))
         assertFalse(FirewallRules.specs(node).any { "51821" in it })
+    }
+
+    @Test
+    fun homelabForwardsOnlyTheListedPortsToTheirTargets() {
+        val spec = Mesh.AgentSpec(
+            subnet = "10.77.0.0/24",
+            port = 51821,
+            address = "10.77.0.1",
+            peers = emptyList(),
+            openPorts = listOf(5432),
+            forwards = listOf(
+                Mesh.Forward("tcp", 41554, "traefik:443"),
+                Mesh.Forward("udp", 3478, "172.20.0.9:3478"),
+                Mesh.Forward("tcp", 22, "gone:22"),
+                Mesh.Forward("tcp", 5432, "traefik:5432"),
+            ),
+        )
+        val rules = Mesh.firewallRules(spec, mapOf("traefik" to "172.20.0.2", "172.20.0.9" to "172.20.0.9"))
+
+        val toTraefik = "-A HG-DNAT -i hg-mesh -d 10.77.0.1 -p tcp --dport 41554 -j DNAT --to-destination 172.20.0.2:443"
+        assertTrue(toTraefik in rules)
+        assertTrue("-A HG-FWD -i hg-mesh -d 172.20.0.2 -p tcp --dport 443 -m conntrack --ctstate DNAT -j ACCEPT" in rules)
+        assertTrue("-p udp --dport 3478 -j DNAT --to-destination 172.20.0.9:3478" in rules)
+        // A target with no address and a port of the cluster get no rule.
+        assertFalse("--dport 22 " in rules)
+        assertFalse("--to-destination 172.20.0.2:5432" in rules)
+        // The namespace refuses all other traffic of a node.
+        assertEquals("-A HG-FWD -j DROP", rules.lines().last { it.startsWith("-A HG-FWD") })
+        assertEquals("-A HG-IN -j DROP", rules.lines().last { it.startsWith("-A HG-IN") })
+    }
+
+    @Test
+    fun aSpecWithNoForwardsKeepsTheNamespaceClosed() {
+        val spec = Mesh.AgentSpec("10.77.0.0/24", 51821, "10.77.0.1", emptyList(), emptyList())
+        assertFalse("DNAT --to-destination" in Mesh.firewallRules(spec))
     }
 }

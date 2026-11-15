@@ -612,9 +612,9 @@ class NodeReconciler(
     }
 
     fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, slot: Int): List<RenderedFile> {
-        val link = ctx.config.cluster?.let { clusterConfig ->
+        val link = ctx.config.cluster?.let {
             val database = if (ctx.dryRun || cluster == null) placeholderClusterSecrets() else cluster.secrets()
-            ClusterLink(Mesh.nodeAddress(clusterConfig.mesh, slot), database)
+            ClusterLink(Mesh.nodeAddress(ctx.config.mesh, slot), database)
         }
         return NodeTemplates.staticFiles(
             config = ctx.config,
@@ -731,7 +731,7 @@ class NodeReconciler(
     }
 
     private fun firewallScript(node: NodeConfig, desired: NodeDesired): String =
-        FirewallRules.script(FirewallRules.specs(node, desired.rawPorts, ctx.config.cluster?.mesh?.port))
+        FirewallRules.script(FirewallRules.specs(node, desired.rawPorts, ctx.config.mesh.port))
 
     private fun stackScript(files: List<RenderedFile>): String = buildString {
         val installDir = shQuote(dir)

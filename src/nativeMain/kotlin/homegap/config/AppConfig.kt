@@ -29,6 +29,8 @@ data class AppConfig(
     val pangolin: PangolinNodeDefaults = PangolinNodeDefaults(),
     val acme: AcmeConfig = AcmeConfig(),
     val tunnels: TunnelsConfig = TunnelsConfig(),
+    /** The private WireGuard mesh between the homelab and each node. It is always on. */
+    val mesh: MeshConfig = MeshConfig(),
     /** One Pangolin cluster across the nodes. With null, each node has its own Pangolin. */
     val cluster: ClusterConfig? = null,
     val nodes: List<NodeConfig> = emptyList(),
@@ -244,7 +246,6 @@ data class AcmeConfig(
 /** The cluster: what the nodes and the homelab share. */
 @Serializable
 data class ClusterConfig(
-    val mesh: MeshConfig = MeshConfig(),
     val primary: PrimaryConfig = PrimaryConfig(),
     /**
      * What the homelab is in the cluster. With `database` (the default), it is a full member: it

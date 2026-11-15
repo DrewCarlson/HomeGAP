@@ -48,13 +48,14 @@ acme:
   # to the Traefik of your homelab. Set false if it uses another authority or challenge.
   caa: true
 
-# Optional: clustered Pangolin's private WireGuard mesh and its shared database (PostgreSQL and
-# Valkey on the homelab and every node). The orchestrator needs NET_ADMIN; see
-# compose.yml of the stack.
+# The private WireGuard mesh between the homelab and each node. It is always on.
+# mesh:
+#   subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
+#   port: 51821            # udp, opened in each node's firewall
+
+# Optional: clustered Pangolin and its shared database (PostgreSQL and Valkey on the homelab and
+# every node), over the mesh.
 # cluster:
-#   mesh:
-#     subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
-#     port: 51821            # udp, opened in each node's firewall
 #   # The tag of the default image is the value of HOMEGAP_VERSION. Without that variable, the tag is
 #   # the version of the orchestrator.
 #   # image: ghcr.io/drewcarlson/homegap-cluster:0.1

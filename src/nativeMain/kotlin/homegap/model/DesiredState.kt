@@ -211,7 +211,7 @@ object Planner {
             }
         }
 
-        val claims = Claims(config.reservedHosts(), config.cluster?.mesh?.port, config.nodes)
+        val claims = Claims(config.reservedHosts(), config.mesh.port, config.nodes)
         val claimed = claim(parsed, errors, claims)
         val published = withPrivatePages(config, withPrivateDashboard(config, claimed, errors))
         val doors = frontDoors(config, published)
