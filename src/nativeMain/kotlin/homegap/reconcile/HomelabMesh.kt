@@ -98,7 +98,7 @@ class HomelabMesh(
     }
 
     private companion object {
-        /** The agent reports every few seconds. If the report is older than this, the agent does not run. */
+        /** The agent reports four times a minute, and after each change. If the report is older than this, the agent does not run. */
         const val MAX_AGE_MS = 45_000L
         const val ROUTE_POLLS = 15
         val ROUTE_POLL = 1.seconds

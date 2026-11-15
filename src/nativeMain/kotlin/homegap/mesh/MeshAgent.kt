@@ -6,9 +6,13 @@ import homegap.platform.ProcessResult
 import homegap.platform.Subprocess
 import homegap.platform.nowMillis
 import homegap.platform.runCatchingCancellable
+import homegap.platform.watchDirectory
 import homegap.provision.Mesh
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
 
@@ -32,7 +36,7 @@ class MeshAgent(private val dir: String) {
     private val specFile = "$dir/${Mesh.SPEC_FILE}"
     private val statusFile = "$dir/${Mesh.STATUS_FILE}"
 
-    suspend fun run() {
+    suspend fun run(): Unit = coroutineScope {
         Files.mkdirs(dir)
         Files.chmodPath(dir, "700".toInt(8))
         logger.info { "mesh agent started; waiting for the orchestrator's mesh in $specFile" }
@@ -40,6 +44,10 @@ class MeshAgent(private val dir: String) {
         var appliedAt = 0L
         var error: String? = null
         var reported: String? = null
+        // A change of the mesh description starts the loop at once. With no change, the loop runs
+        // at an interval, to report the peers and to put back anything that drifted.
+        val changes = Channel<Unit>(Channel.CONFLATED)
+        launch { watchDirectory(dir) { it == Mesh.SPEC_FILE }.collect { changes.trySend(Unit) } }
         while (true) {
             val key = runCatchingCancellable { publicKey() }
             val text = Files.readTextOrNull(specFile)
@@ -76,7 +84,7 @@ class MeshAgent(private val dir: String) {
             )
             // The orchestrator is a different user, and the status holds no secret.
             runCatchingCancellable { Files.writeAtomic(statusFile, json.encodeToString(status), READABLE) }
-            delay(INTERVAL)
+            withTimeoutOrNull(INTERVAL) { changes.receive() }
         }
     }
 
@@ -166,7 +174,7 @@ class MeshAgent(private val dir: String) {
     }
 
     private companion object {
-        val INTERVAL = 3.seconds
+        val INTERVAL = 15.seconds
         val COMMAND_TIMEOUT = 15.seconds
         const val REAPPLY_MS = 60_000L
 
