@@ -53,7 +53,7 @@ The config file is `/config/config.yml`. Edits from the dashboard leave backups 
 | `/usr/share/homegap/tunnels-version` | The tunnels version, for `upgrade.sh`. |
 | `/usr/share/homegap/deploy` | The files of the homelab stack, for `homegap init`. |
 
-The image creates the system user `homegap` (uid 10001), with the home directory `/data`. The Dockerfile has no `USER` line, so the container runs as root by default.
+The image creates the system user `homegap` (uid 10001), with the home directory `/data`. The Dockerfile has no `USER` line, so a container runs as root unless the compose file sets a user. The shipped compose file runs the orchestrator as the owner of the stack folder.
 
 ## The node
 

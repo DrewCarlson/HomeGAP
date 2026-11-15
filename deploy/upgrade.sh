@@ -57,6 +57,7 @@ done
 
 ORCHESTRATOR=orchestrator
 MESH_AGENT=homegap-mesh-agent
+MESH_ROUTE=homegap-mesh-route
 TUNNELS=tunnels
 # The cluster services with their roles, in the order of the restarts.
 CLUSTER="homegap-etcd:etcd homegap-sentinel:sentinel homegap-valkey:valkey homegap-db:patroni"
@@ -208,6 +209,11 @@ if ! wait_until 120 dx "$ORCHESTRATOR" homegap version; then
     die "the orchestrator did not start with the new image. It runs the previous image again, and nothing else changed."
   fi
   die "the orchestrator did not start; see: docker compose logs $ORCHESTRATOR"
+fi
+if has "$MESH_ROUTE"; then
+  # It is in the network namespace of the orchestrator, which is new with the new container.
+  say "Updating the mesh route"
+  dc up -d --no-deps --force-recreate "$MESH_ROUTE"
 fi
 if has "$MESH_AGENT"; then
   say "Updating the mesh agent"

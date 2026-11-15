@@ -38,7 +38,9 @@ class StackFiles(
         val outcomes = refresh().toMutableList()
         for ((path, template) in OWN_FILES) {
             if (Files.exists("$target/$path") || !Files.exists("$source/$template")) continue
-            write(path, Files.readBytes("$source/$template"), OWN_MODES.getValue(path))
+            val content = Files.readBytes("$source/$template")
+            val extra = if (path == ENV) ownerLines().encodeToByteArray() else ByteArray(0)
+            write(path, content + extra, OWN_MODES.getValue(path))
             outcomes += FileOutcome(path, FileResult.CREATED)
         }
         for ((path, mode) in OWN_FOLDERS) {
@@ -48,6 +50,16 @@ class StackFiles(
         }
         giveToOwner()
         return outcomes
+    }
+
+    /**
+     * The lines of `.env` that give the orchestrator the user of [target]. The compose file has
+     * [DEFAULT_ID] for the two values, so the lines are empty for that user.
+     */
+    private fun ownerLines(): String {
+        val (uid, gid) = Files.owner(target) ?: return ""
+        if (uid == DEFAULT_ID && gid == DEFAULT_ID) return ""
+        return "\n# The user of the orchestrator: the owner of this folder.\nHOMEGAP_UID=$uid\nHOMEGAP_GID=$gid\n"
     }
 
     private fun refreshFile(path: String): FileResult {
@@ -125,10 +137,27 @@ class StackFiles(
         private val EXECUTABLE = "755".toInt(8)
         private val FOLDER = "755".toInt(8)
         private val SECRET = "600".toInt(8)
+        private val PRIVATE_FOLDER = "700".toInt(8)
+
+        private const val ENV = ".env"
+
+        /** The user id and the group id of the orchestrator in the compose file, if `.env` sets none. */
+        private const val DEFAULT_ID = 1000u
 
         /** Each file of the user, with the file in the source that is its first content. */
-        private val OWN_FILES = mapOf(".env" to ".env.example", "config/config.yml" to "$STARTERS/config.yml")
-        private val OWN_MODES = mapOf(".env" to SECRET, "config/config.yml" to PLAIN)
-        private val OWN_FOLDERS = mapOf("backups" to FOLDER)
+        private val OWN_FILES = mapOf(ENV to ".env.example", "config/config.yml" to "$STARTERS/config.yml")
+        private val OWN_MODES = mapOf(ENV to SECRET, "config/config.yml" to PLAIN)
+
+        /**
+         * The folders that the orchestrator writes. Docker makes a missing folder as root, and the
+         * orchestrator runs as the owner of [target], so the folders must be there before the start.
+         */
+        private val OWN_FOLDERS = mapOf(
+            "backups" to FOLDER,
+            "data/orchestrator" to PRIVATE_FOLDER,
+            "data/tunnels" to FOLDER,
+            "data/mesh" to FOLDER,
+            "data/cluster/config" to FOLDER,
+        )
     }
 }

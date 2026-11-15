@@ -32,7 +32,6 @@ volumes:
   cluster-valkey:
   cluster-sentinel:
   cluster-backups:
-  mesh-state:
 
 services:
   node-na1:
@@ -221,10 +220,24 @@ services:
     restart: unless-stopped
     network_mode: service:mesh
     cap_drop: [ALL]
-    cap_add: [NET_ADMIN, NET_RAW]
+    cap_add: [NET_ADMIN, NET_RAW, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     depends_on: { mesh: { condition: service_started, restart: true } }
-    volumes: ["mesh-state:/mesh"]
+    volumes: ["./work/mesh:/mesh"]
+
+  # Keeps the route of the orchestrator to the mesh subnet, as in deploy/compose.yml.
+  mesh-route:
+    image: homegap:e2e
+    command: ["mesh-route"]
+    restart: unless-stopped
+    network_mode: service:orchestrator
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, DAC_READ_SEARCH]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      HOMEGAP_MESH_HOST: mesh
+    depends_on: { orchestrator: { condition: service_started, restart: true } }
+    volumes: ["./work/mesh:/mesh:ro"]
 
   # The homelab's cluster member (etcd, PostgreSQL with Patroni, Valkey, Sentinel) in the mesh
   # namespace, reading the config the orchestrator writes for it. As in deploy/compose.yml,
@@ -285,9 +298,9 @@ services:
     networks:
       e2e: {}
       e2e-docker: {}
-    # The same privileges as deploy/compose.yml, so the harness proves they are enough.
+    # The same user and privileges as deploy/compose.yml, so the harness proves they are enough.
+    user: "1000:1000"
     cap_drop: [ALL]
-    cap_add: [NET_ADMIN, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     depends_on:
       docker-proxy: { condition: service_started }
@@ -311,7 +324,7 @@ services:
       - ./work/data:/data
       - ./work/cluster-config:/cluster-config
       - ./work/tunnels:/tunnels
-      - mesh-state:/mesh
+      - ./work/mesh:/mesh
 
   tunnels:
     image: homegap:e2e

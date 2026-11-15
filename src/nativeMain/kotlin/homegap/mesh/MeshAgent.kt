@@ -74,7 +74,8 @@ class MeshAgent(private val dir: String) {
                 error = problem,
                 at = nowMillis(),
             )
-            runCatchingCancellable { Files.writeAtomic(statusFile, json.encodeToString(status), OWNER_ONLY) }
+            // The orchestrator is a different user, and the status holds no secret.
+            runCatchingCancellable { Files.writeAtomic(statusFile, json.encodeToString(status), READABLE) }
             delay(INTERVAL)
         }
     }
@@ -174,6 +175,7 @@ class MeshAgent(private val dir: String) {
 
         /** The mode of the key, config and status files: only the owner can read and write them. */
         val OWNER_ONLY = "600".toInt(8)
+        val READABLE = "644".toInt(8)
         val json = Json { ignoreUnknownKeys = true }
     }
 }

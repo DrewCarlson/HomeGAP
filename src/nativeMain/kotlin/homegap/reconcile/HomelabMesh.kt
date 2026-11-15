@@ -2,14 +2,13 @@ package homegap.reconcile
 
 import homegap.config.MeshConfig
 import homegap.config.SharedDirs
+import homegap.mesh.MeshRoute
 import homegap.platform.Files
-import homegap.platform.ProcessResult
-import homegap.platform.Subprocess
 import homegap.platform.env
 import homegap.platform.nowMillis
-import homegap.platform.runCatchingCancellable
 import homegap.provision.ClusterTemplates
 import homegap.provision.Mesh
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
 
@@ -21,8 +20,8 @@ import kotlin.time.Duration.Companion.seconds
  *
  * The mesh agent (`homegap mesh`, in that namespace) owns the interface, its key and its firewall.
  * The orchestrator tells it what the mesh is through [dir] ([Mesh.SPEC_FILE]) and reads back what
- * it did ([Mesh.STATUS_FILE]). To reach the members itself (etcd, Patroni, Valkey), it routes the
- * mesh subnet through that namespace over the network the two share.
+ * it did ([Mesh.STATUS_FILE]). To reach the members itself (etcd, Patroni, Valkey), the mesh
+ * subnet goes through that namespace over the network that the two share ([MeshRoute]).
  */
 class HomelabMesh(
     private val dir: String,
@@ -32,7 +31,6 @@ class HomelabMesh(
 ) {
     private val specFile = "$dir/${Mesh.SPEC_FILE}"
     private val statusFile = "$dir/${Mesh.STATUS_FILE}"
-    private var routed: String? = null
 
     /** The last report of the agent, or null if there is none or if it is older than [MAX_AGE_MS]. */
     fun status(): Mesh.AgentStatus? {
@@ -81,45 +79,32 @@ class HomelabMesh(
     }
 
     /**
-     * Sends the mesh subnet through the mesh namespace. Each call finds the address of the
-     * namespace again, because the address changes when that container is recreated.
+     * Waits until the mesh subnet goes through the mesh namespace. The orchestrator is an ordinary
+     * user and cannot change a route: the `homegap-mesh-route` container sets it. Each call finds
+     * the address of the namespace again, because the address changes when that container is
+     * recreated.
      */
     private suspend fun route(subnet: String) {
-        val resolved = run("getent", "ahostsv4", gateway).stdout.lineSequence()
-            .map { it.substringBefore(' ').trim() }
-            .firstOrNull { it.isNotEmpty() }
+        val resolved = MeshRoute.gatewayAddress(gateway)
             ?: error("the mesh namespace ($gateway) is not on a network of the orchestrator. $CLUSTER_SERVICES_HINT")
-        val wanted = "$subnet via $resolved"
-        if (routed == wanted && run("ip", "-4", "route", "show", subnet).stdout.contains("via $resolved ")) return
-        val result = run("ip", "-4", "route", "replace", subnet, "via", resolved)
-        check(result.ok) {
-            val reason = when {
-                "Operation not permitted" in result.stderr -> NEEDS_NET_ADMIN
-                else -> result.stderr.trim().ifEmpty { "exit ${result.exitCode}" }
-            }
-            "could not route $subnet through $gateway: $reason"
+        repeat(ROUTE_POLLS) {
+            if (MeshRoute.present(subnet, resolved)) return
+            delay(ROUTE_POLL)
         }
-        routed = wanted
+        check(MeshRoute.present(subnet, resolved)) {
+            "no route to $subnet through $gateway: the homegap-mesh-route container sets it. $CLUSTER_SERVICES_HINT"
+        }
     }
-
-    /** Subprocess reports a missing binary as an [IllegalStateException]. The result is exit code 127. */
-    private suspend fun run(vararg argv: String): ProcessResult =
-        runCatchingCancellable { Subprocess.run(argv.toList(), "", COMMAND_TIMEOUT) }.getOrElse { e ->
-            // Subprocess reports a missing binary this way.
-            if (e !is IllegalStateException) throw e
-            ProcessResult(COMMAND_NOT_FOUND, "", e.message ?: "not found")
-        }
 
     private companion object {
         /** The agent reports every few seconds. If the report is older than this, the agent does not run. */
         const val MAX_AGE_MS = 45_000L
-        const val COMMAND_NOT_FOUND = 127
+        const val ROUTE_POLLS = 15
+        val ROUTE_POLL = 1.seconds
         /** The cluster services of the shipped compose file run only with the profile `cluster`. */
         const val CLUSTER_SERVICES_HINT =
             "If the cluster services of the stack do not run, add COMPOSE_PROFILES=cluster to .env " +
                 "and run `docker compose up -d`."
-        const val NEEDS_NET_ADMIN = "the orchestrator needs NET_ADMIN to route the mesh subnet (cap_add: [NET_ADMIN])"
-        val COMMAND_TIMEOUT = 15.seconds
         val json = Json { ignoreUnknownKeys = true }
     }
 }

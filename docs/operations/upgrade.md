@@ -97,7 +97,7 @@ When the script stops early, it ends the hold. The primaries then return to the 
 
 ## The mesh container
 
-The script never recreates `homegap-mesh`. The mesh and every container in its network namespace restart with it. The script does recreate `homegap-mesh-agent`. The mesh interface stays up without the agent.
+The script never recreates `homegap-mesh`. The mesh and every container in its network namespace restart with it. The script does recreate `homegap-mesh-agent` and `homegap-mesh-route`. The mesh interface stays up without the agent.
 
 ## The tunnels container
 

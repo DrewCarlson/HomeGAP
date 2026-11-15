@@ -35,7 +35,8 @@ networks:
   homegap-cluster:
 
 # Everything that HomeGAP writes is in folders below HOMEGAP_DATA_DIR (default ./data, next to this
-# file). Docker makes each folder at the first start.
+# file). `homegap init` makes the folders of the orchestrator, with you as their owner. Docker makes
+# the folders of the cluster member at the first start.
 #   orchestrator/     the orchestrator's own data: the state cache (every credential), its SSH keys
 #                     and the dashboard token. No other container mounts it.
 #   tunnels/          connector specs, status and logs, shared with the tunnels container.
@@ -80,8 +81,9 @@ services:
     restart: unless-stopped
     logging: *logging
     network_mode: service:homegap-mesh
+    # DAC_OVERRIDE: the agent runs as root, and the folder belongs to the user of the orchestrator.
     cap_drop: [ALL]
-    cap_add: [NET_ADMIN, NET_RAW]
+    cap_add: [NET_ADMIN, NET_RAW, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     volumes:
@@ -99,10 +101,11 @@ services:
     # Speed tests and the status page (speedtest.enabled, status_page.enabled) need no labels here.
     # Traefik gets their route to port 8089 from the HTTP provider of the orchestrator
     # (providers.http.endpoint: http://orchestrator:8088/api/traefik/homelab).
-    # Only what it needs: NET_ADMIN for its route to the mesh, and DAC_OVERRIDE to read the
-    # mounted keys and config whoever owns them.
+    # The orchestrator is not root: it runs as the owner of this folder, so the files that it
+    # writes in config/ and data/ belong to you. It has no capability. `homegap init` sets the two
+    # variables in .env if the owner is not 1000:1000.
+    user: "${HOMEGAP_UID:-1000}:${HOMEGAP_GID:-1000}"
     cap_drop: [ALL]
-    cap_add: [NET_ADMIN, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     depends_on:
       docker-proxy: { condition: service_started }
@@ -132,6 +135,23 @@ services:
       - "${HOMEGAP_DATA_DIR:-./data}/cluster/config:/cluster-config"   # written here, read by the cluster containers
       - "${HOMEGAP_DATA_DIR:-./data}/tunnels:/tunnels"                 # connector specs, shared with the tunnels container
       - "${HOMEGAP_DATA_DIR:-./data}/mesh:/mesh"                       # the mesh description, shared with the mesh agent
+
+  # Keeps the route of the orchestrator to the mesh subnet. The orchestrator cannot change a
+  # route as an ordinary user, so this container does it: root with only NET_ADMIN, in the network
+  # namespace of the orchestrator. DAC_READ_SEARCH lets it read the mesh description of that user.
+  homegap-mesh-route:
+    image: ghcr.io/drewcarlson/homegap:${HOMEGAP_VERSION:-latest}
+    profiles: [cluster]
+    command: ["mesh-route"]
+    restart: unless-stopped
+    logging: *logging
+    network_mode: service:orchestrator
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, DAC_READ_SEARCH]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: { orchestrator: { condition: service_started, restart: true } }
+    volumes:
+      - "${HOMEGAP_DATA_DIR:-./data}/mesh:/mesh:ro"
 
   # A filtering proxy in front of the Docker socket. A socket mount gives the whole Docker API
   # whatever its mount mode, and with it control of this host. The orchestrator only needs to

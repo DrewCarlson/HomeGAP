@@ -42,11 +42,17 @@ class StackFilesTest {
         assertEquals(created, outcomes.keys)
         assertTrue(outcomes.values.all { it == FileResult.CREATED }, outcomes.toString())
         assertEquals("services: one\n", text("compose.yml"))
-        assertEquals("BUNNY_API_KEY=\n", text(".env"))
+        val (uid, gid) = Files.owner(target)!!
+        val ownerLines = if (uid == 1000u && gid == 1000u) "" else "HOMEGAP_UID=$uid\nHOMEGAP_GID=$gid\n"
+        assertTrue(text(".env")!!.startsWith("BUNNY_API_KEY=\n"))
+        assertTrue(text(".env")!!.endsWith(ownerLines), "the orchestrator runs as the owner of the folder")
+        assertEquals(ownerLines.isEmpty(), "HOMEGAP_UID" !in text(".env")!!)
         assertEquals("domain: example.net\n", text("config/config.yml"))
         assertTrue(Files.isExecutable("$target/upgrade.sh"))
         assertFalse(Files.isExecutable("$target/compose.yml"))
         assertTrue(Files.isDirectory("$target/backups"))
+        val folders = listOf("data/orchestrator", "data/tunnels", "data/mesh", "data/cluster/config")
+        assertTrue(folders.all { Files.isDirectory("$target/$it") }, "the folders of the orchestrator")
         assertFalse(Files.exists("$target/${StackFiles.STARTERS}"), "the starter files stay in the image")
         assertTrue(asked.isEmpty())
     }

@@ -36,7 +36,7 @@ Each node is a member of the cluster database, so HomeGAP treats the namespace o
 
 Thus a container in that namespace cannot open a connection to the orchestrator, to your other containers or to your home network. The agent installs the firewall before it starts the interface. If the firewall fails, the mesh stays down.
 
-The orchestrator reaches the members through this namespace. It adds a route for `cluster.mesh.subnet` through `homegap-mesh` on the `homegap-cluster` network. For that route it needs `NET_ADMIN`.
+The orchestrator reaches the members through this namespace. For this, a route sends `cluster.mesh.subnet` through `homegap-mesh` on the `homegap-cluster` network. The orchestrator is not root and cannot change a route. The `homegap-mesh-route` container sets the route in the network namespace of the orchestrator.
 
 ## What a container on a node can reach
 

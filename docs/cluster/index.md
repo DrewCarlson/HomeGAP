@@ -32,8 +32,7 @@ Read the pages in this order. Each part builds on the part before it.
 - Two or more nodes. The vote needs a majority. With the homelab and only one node, the loss of either one stops all writes.
 - A decision about the role of the homelab, before the first start. The homelab can hold a copy of the database (the default) or only vote. See [The homelab as a vote only](database.md#the-homelab-as-a-vote-only).
 - WireGuard in the kernel of the homelab host. It is part of Linux 5.6 and later.
-- The cluster services of the shipped compose file: `homegap-mesh`, `homegap-mesh-agent`, `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. They start only with the profile `cluster`.
-- `cap_add: [NET_ADMIN]` on the orchestrator, for its route to the mesh. The shipped compose file has it.
+- The cluster services of the shipped compose file: `homegap-mesh`, `homegap-mesh-agent`, `homegap-mesh-route`, `homegap-etcd`, `homegap-db`, `homegap-valkey` and `homegap-sentinel`. They start only with the profile `cluster`.
 
 ## Enable cluster mode
 

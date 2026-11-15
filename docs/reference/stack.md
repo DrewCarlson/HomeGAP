@@ -12,6 +12,7 @@ This page describes the stack that `homegap init` writes to the homelab: the var
 | `TRAEFIK_NETWORK` | `traefik` | The name of the Docker network of your Traefik. |
 | `COMPOSE_PROFILES` | Empty. | With `cluster`, Docker Compose also starts the cluster services of the homelab. Cluster mode needs it. |
 | `HOMEGAP_DATA_DIR` | `./data` | The folder of all that HomeGAP writes. |
+| `HOMEGAP_UID`, `HOMEGAP_GID` | `1000` | The user and the group of the orchestrator: the owner of the stack folder. |
 | `HOMEGAP_VERSION` | `latest` | The tag of the HomeGAP images. See [The image tags](#the-image-tags). |
 | `HOMEGAP_DASHBOARD_PUBLISH` | `127.0.0.1:8088` | The address and the port of the host that publish the dashboard. |
 | `HOMEGAP_DRY_RUN` | Empty. | With `true`, the orchestrator runs in dry run. |
@@ -63,13 +64,14 @@ To keep the data in a different place, for example on a different disk, set `HOM
 
 ## The services
 
-In standalone mode, the stack has three containers: `orchestrator`, `docker-proxy` and `tunnels`. The other six services are the part of the homelab in cluster mode. They have the profile `cluster` in `compose.yml`, and Docker Compose starts them only with `COMPOSE_PROFILES=cluster` in `.env`.
+In standalone mode, the stack has three containers: `orchestrator`, `docker-proxy` and `tunnels`. The other seven services are the part of the homelab in cluster mode. They have the profile `cluster` in `compose.yml`, and Docker Compose starts them only with `COMPOSE_PROFILES=cluster` in `.env`.
 
 | Service | What it does |
 | --- | --- |
 | `homegap-mesh` | A busybox container that holds the network namespace of the cluster. The mesh interface (`hg-mesh`) and the cluster containers of the homelab are in it. It has the profile `cluster`. |
 | `homegap-mesh-agent` | The same image as the orchestrator, with the command `mesh`. It keeps the mesh interface and the firewall of that namespace. It has the profile `cluster`. |
-| `orchestrator` | The HomeGAP image with the command `run`. It drops all capabilities except `NET_ADMIN` and `DAC_OVERRIDE`. |
+| `orchestrator` | The HomeGAP image with the command `run`. It runs as the owner of the stack folder, with no capability. |
+| `homegap-mesh-route` | The same image with the command `mesh-route`. It keeps the route of the orchestrator to the mesh. It has the profile `cluster`. |
 | `docker-proxy` | A filter in front of the Docker socket. The orchestrator reads the container list, the events and the image data through it. |
 | `homegap-etcd`, `homegap-db`, `homegap-valkey`, `homegap-sentinel` | The cluster member of the homelab. They have the profile `cluster`. |
 | `tunnels` | The same image with the command `tunnels`. Its directory is `/tunnels`. It keeps one Newt connector for each node. |
@@ -82,9 +84,11 @@ The service uses a fixed image. Do not recreate it when you update HomeGAP. A ne
 
 ### `homegap-mesh-agent`
 
-The agent is the only container in the namespace of `homegap-mesh` that can change the network. It has `NET_ADMIN` and `NET_RAW`. It shares the folder `data/mesh` with the orchestrator.
+The agent is the only container in the namespace of `homegap-mesh` that can change the network. It has `NET_ADMIN` and `NET_RAW`. It shares the folder `data/mesh` with the orchestrator. It runs as root and the folder belongs to the user of the orchestrator, so it also has `DAC_OVERRIDE`.
 
 ### `orchestrator`
+
+The orchestrator is not root. It runs as the user `HOMEGAP_UID:HOMEGAP_GID`, which is `1000:1000` without the two variables. Thus the files that it writes in `config/` and `data/` belong to you. If the owner of the stack folder is a different user, `homegap init` writes the two variables to `.env`. The user must own `config/` and the folders `data/orchestrator`, `data/tunnels`, `data/mesh` and `data/cluster/config`. `homegap init` makes these folders with the correct owner.
 
 The service publishes the dashboard on the loopback address of the host. To change the address, set `HOMEGAP_DASHBOARD_PUBLISH`. It is on three networks: `traefik`, `homegap-docker` (where it reaches `docker-proxy`) and `homegap-cluster` (where it reaches the cluster).
 
@@ -110,6 +114,10 @@ The paths `/cluster-config`, `/tunnels` and `/mesh` are fixed in the HomeGAP ima
 If a shared directory is not a mount, the other container cannot see it. Then the orchestrator writes an error with the path and the name of the folder to its log at start.
 
 The orchestrator does not mount the Docker socket. See [Security model](security.md#the-homelab).
+
+### `homegap-mesh-route`
+
+An ordinary user cannot change a route, and the orchestrator needs a route to the mesh subnet. This service sets that route. It is in the network namespace of the orchestrator, as root with only `NET_ADMIN` and `DAC_READ_SEARCH`. It mounts `data/mesh` read-only, to read the subnet. See [Cluster mesh](../cluster/mesh.md#the-interfaces).
 
 ### `docker-proxy`
 

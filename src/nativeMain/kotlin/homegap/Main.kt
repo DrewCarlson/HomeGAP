@@ -12,6 +12,8 @@ import homegap.di.TunnelOptions
 import homegap.di.TunnelsGraph
 import homegap.discovery.DockerContainerSummary
 import homegap.mesh.MeshAgent
+import homegap.platform.Identity
+import homegap.mesh.MeshRoute
 import homegap.model.HomelabServices
 import homegap.model.Planner
 import homegap.model.PublicResource
@@ -47,6 +49,7 @@ private const val EXIT_USAGE = 2
 private const val DEFAULT_CONFIG = "/config/config.yml"
 private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
+private const val DEFAULT_MESH_HOST = "homegap-mesh"
 private const val DEFAULT_MAINTENANCE_MINUTES = 30
 private const val DEFAULT_STACK_FILES = "/usr/share/homegap/deploy"
 private const val DEFAULT_STACK_FOLDER = "/work"
@@ -75,6 +78,7 @@ Usage:
   homegap [run] [--config PATH] [--dry-run] [--once]   Run the controller (default)
   homegap tunnels [--dir PATH] [--newt PATH]           Run the Newt tunnel supervisor
   homegap mesh [--dir PATH]                            Run the homelab's mesh agent (cluster mode)
+  homegap mesh-route [--dir PATH]                      Keep the orchestrator's route to the mesh (cluster mode)
   homegap validate [--config PATH]                     Validate the config file
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
@@ -118,6 +122,10 @@ fun main(args: Array<String>) {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
                 runMesh(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
             }
+            "mesh-route" -> {
+                val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
+                runMeshRoute(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
+            }
             "tunnels" -> {
                 val dir = line.option("--dir") ?: SharedDirs.tunnels(DEFAULT_DATA_DIR)
                 val shared = sharedDir(dir, folder = "data/tunnels", other = "orchestrator")
@@ -125,6 +133,7 @@ fun main(args: Array<String>) {
             }
             "run" -> {
                 val dryRun = line.flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in TRUE_VALUES
+                Identity.ensureKnown(home = DEFAULT_DATA_DIR)
                 runController(configPath, dryRun = dryRun, once = line.flag("--once"))
             }
             else -> {
@@ -305,6 +314,11 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
 
 private fun runMesh(dir: String) = runBlocking {
     MeshAgent(dir).run()
+}
+
+private fun runMeshRoute(dir: String) = runBlocking {
+    val gateway = env("HOMEGAP_MESH_HOST")?.takeIf { it.isNotBlank() } ?: DEFAULT_MESH_HOST
+    MeshRoute(dir, gateway).run()
 }
 
 private fun runTunnels(dir: String, newt: String) = runBlocking {

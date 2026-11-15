@@ -37,7 +37,7 @@ The dashboard can open a shell on a node. See [Terminal](../operations/dashboard
 
 The orchestrator has no Docker socket. It reads Docker through the `docker-proxy` service, which accepts only `GET` requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries the traffic of your services.
 
-The orchestrator runs with two capabilities: `NET_ADMIN` for its route to the mesh, and `DAC_OVERRIDE` to read the mounted keys and config.
+The orchestrator is not root. It runs as the owner of the stack folder and has no capability. In cluster mode, the `homegap-mesh-route` container sets its route to the mesh, as root with only `NET_ADMIN` and `DAC_READ_SEARCH`.
 
 !!! danger "Warning"
     Do not mount the Docker socket in the orchestrator. A socket mount gives the full Docker API, also with `:ro`. A person who controls that container then controls the Docker host.

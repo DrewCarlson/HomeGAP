@@ -43,6 +43,18 @@ Runs the mesh agent of the homelab. It keeps the mesh interface and the firewall
 | --- | --- | --- |
 | `--dir PATH` | `/mesh` | `HOMEGAP_MESH_DIR` |
 
+## mesh-route
+
+```text
+homegap mesh-route [--dir PATH]
+```
+
+Keeps the route of the orchestrator to the mesh subnet. It runs in the network namespace of the orchestrator, as root with `NET_ADMIN`. It reads the subnet from the description of the mesh in the folder. The variable `HOMEGAP_MESH_HOST` gives the name of the mesh namespace (default `homegap-mesh`). See [Cluster mesh](../cluster/mesh.md#the-interfaces).
+
+| Option | Default | Environment variable |
+| --- | --- | --- |
+| `--dir PATH` | `/mesh` | `HOMEGAP_MESH_DIR` |
+
 ## validate
 
 ```text
@@ -100,7 +112,7 @@ Writes the files of the homelab stack to a folder. Run it in a container of its 
 docker run --rm -it -v "$PWD:/work" ghcr.io/drewcarlson/homegap init
 ```
 
-The command writes `compose.yml`, `upgrade.sh` and the example files. If they are missing, it also makes `.env`, `config/config.yml` and `backups/`. It never changes a file of your own. See [Install on the homelab](../getting-started/install.md#the-folder).
+The command writes `compose.yml`, `upgrade.sh` and the example files. If they are missing, it also makes `.env`, `config/config.yml`, `backups/` and the folders of the orchestrator in `data/`. If the owner of the folder is not the user `1000:1000`, it writes `HOMEGAP_UID` and `HOMEGAP_GID` to the new `.env`. It never changes a file of your own. See [Install on the homelab](../getting-started/install.md#the-folder).
 
 If a file of the stack has changes from you, the command asks before it replaces the file. Each line of the output has a result and a path:
 

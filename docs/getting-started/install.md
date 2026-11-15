@@ -51,7 +51,7 @@ The archive has the same `config/config.yml` as the command writes.
 
     | Path | Content |
     | --- | --- |
-    | `data/` | The state of HomeGAP, the SSH keys of the nodes and the cluster database. Docker makes it at the first start. |
+    | `data/` | The state of HomeGAP, the SSH keys of the nodes and the cluster database. |
     | `backups/` | In cluster mode, the nightly dumps of the cluster database. |
     | `.homegap/` | A copy of each file of the stack, as HomeGAP wrote it. With the copies, HomeGAP finds the files that you changed. |
 
