@@ -2521,7 +2521,7 @@
 <li>Through the namespace: the orchestrator to the members on the mesh, and the replies.</li>
 </ul>
 <p>Thus a container in that namespace cannot open a connection to the orchestrator, to your other containers or to your home network. The agent installs the firewall before it starts the interface. If the firewall fails, the mesh stays down.</p>
-<p>The orchestrator reaches the members through this namespace. It adds a route for <code>cluster.mesh.subnet</code> through <code>homegap-mesh</code> on the <code>homegap-cluster</code> network. For that route it needs <code>NET_ADMIN</code>.</p>
+<p>The orchestrator reaches the members through this namespace. For this, a route sends <code>cluster.mesh.subnet</code> through <code>homegap-mesh</code> on the <code>homegap-cluster</code> network. The orchestrator is not root and cannot change a route. The <code>homegap-mesh-route</code> container sets the route in the network namespace of the orchestrator.</p>
 <h2 id="what-a-container-on-a-node-can-reach">What a container on a node can reach<a class="headerlink" href="#what-a-container-on-a-node-can-reach" title="Permanent link">&para;</a></h2>
 <p>Pangolin on a node faces the internet. HomeGAP keeps the containers of a node away from the services that control the cluster:</p>
 <ul>

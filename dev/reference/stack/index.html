@@ -2093,6 +2093,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#homegap-mesh-route" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>homegap-mesh-route</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#docker-proxy" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2537,6 +2548,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#homegap-mesh-route" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>homegap-mesh-route</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#docker-proxy" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2642,6 +2664,11 @@
 <td>The folder of all that HomeGAP writes.</td>
 </tr>
 <tr>
+<td><code>HOMEGAP_UID</code>, <code>HOMEGAP_GID</code></td>
+<td><code>1000</code></td>
+<td>The user and the group of the orchestrator: the owner of the stack folder.</td>
+</tr>
+<tr>
 <td><code>HOMEGAP_VERSION</code></td>
 <td><code>latest</code></td>
 <td>The tag of the HomeGAP images. See <a href="#the-image-tags">The image tags</a>.</td>
@@ -2734,7 +2761,7 @@
 </table>
 <p>To keep the data in a different place, for example on a different disk, set <code>HOMEGAP_DATA_DIR</code> in <code>.env</code>. For each file in <code>data/orchestrator/</code>, see <a href="../files/#the-data-directory-of-the-orchestrator">Files and state</a>.</p>
 <h2 id="the-services">The services<a class="headerlink" href="#the-services" title="Permanent link">&para;</a></h2>
-<p>In standalone mode, the stack has three containers: <code>orchestrator</code>, <code>docker-proxy</code> and <code>tunnels</code>. The other six services are the part of the homelab in cluster mode. They have the profile <code>cluster</code> in <code>compose.yml</code>, and Docker Compose starts them only with <code>COMPOSE_PROFILES=cluster</code> in <code>.env</code>.</p>
+<p>In standalone mode, the stack has three containers: <code>orchestrator</code>, <code>docker-proxy</code> and <code>tunnels</code>. The other seven services are the part of the homelab in cluster mode. They have the profile <code>cluster</code> in <code>compose.yml</code>, and Docker Compose starts them only with <code>COMPOSE_PROFILES=cluster</code> in <code>.env</code>.</p>
 <table>
 <thead>
 <tr>
@@ -2753,7 +2780,11 @@
 </tr>
 <tr>
 <td><code>orchestrator</code></td>
-<td>The HomeGAP image with the command <code>run</code>. It drops all capabilities except <code>NET_ADMIN</code> and <code>DAC_OVERRIDE</code>.</td>
+<td>The HomeGAP image with the command <code>run</code>. It runs as the owner of the stack folder, with no capability.</td>
+</tr>
+<tr>
+<td><code>homegap-mesh-route</code></td>
+<td>The same image with the command <code>mesh-route</code>. It keeps the route of the orchestrator to the mesh. It has the profile <code>cluster</code>.</td>
 </tr>
 <tr>
 <td><code>docker-proxy</code></td>
@@ -2773,8 +2804,9 @@
 <p>The service holds a network namespace for the cluster only. The orchestrator is not in it. It is on one network, <code>homegap-cluster</code>, which it shares with the orchestrator. See <a href="../../cluster/mesh/#the-interfaces">Cluster mesh</a>.</p>
 <p>The service uses a fixed image. Do not recreate it when you update HomeGAP. A new container replaces the namespace and drops the mesh.</p>
 <h3 id="homegap-mesh-agent"><code>homegap-mesh-agent</code><a class="headerlink" href="#homegap-mesh-agent" title="Permanent link">&para;</a></h3>
-<p>The agent is the only container in the namespace of <code>homegap-mesh</code> that can change the network. It has <code>NET_ADMIN</code> and <code>NET_RAW</code>. It shares the folder <code>data/mesh</code> with the orchestrator.</p>
+<p>The agent is the only container in the namespace of <code>homegap-mesh</code> that can change the network. It has <code>NET_ADMIN</code> and <code>NET_RAW</code>. It shares the folder <code>data/mesh</code> with the orchestrator. It runs as root and the folder belongs to the user of the orchestrator, so it also has <code>DAC_OVERRIDE</code>.</p>
 <h3 id="orchestrator"><code>orchestrator</code><a class="headerlink" href="#orchestrator" title="Permanent link">&para;</a></h3>
+<p>The orchestrator is not root. It runs as the user <code>HOMEGAP_UID:HOMEGAP_GID</code>, which is <code>1000:1000</code> without the two variables. Thus the files that it writes in <code>config/</code> and <code>data/</code> belong to you. If the owner of the stack folder is a different user, <code>homegap init</code> writes the two variables to <code>.env</code>. The user must own <code>config/</code> and the folders <code>data/orchestrator</code>, <code>data/tunnels</code>, <code>data/mesh</code> and <code>data/cluster/config</code>. <code>homegap init</code> makes these folders with the correct owner.</p>
 <p>The service publishes the dashboard on the loopback address of the host. To change the address, set <code>HOMEGAP_DASHBOARD_PUBLISH</code>. It is on three networks: <code>traefik</code>, <code>homegap-docker</code> (where it reaches <code>docker-proxy</code>) and <code>homegap-cluster</code> (where it reaches the cluster).</p>
 <p>The orchestrator reads these environment variables:</p>
 <ul>
@@ -2796,6 +2828,8 @@
 <p>The paths <code>/cluster-config</code>, <code>/tunnels</code> and <code>/mesh</code> are fixed in the HomeGAP image. You set no variable for them.</p>
 <p>If a shared directory is not a mount, the other container cannot see it. Then the orchestrator writes an error with the path and the name of the folder to its log at start.</p>
 <p>The orchestrator does not mount the Docker socket. See <a href="../security/#the-homelab">Security model</a>.</p>
+<h3 id="homegap-mesh-route"><code>homegap-mesh-route</code><a class="headerlink" href="#homegap-mesh-route" title="Permanent link">&para;</a></h3>
+<p>An ordinary user cannot change a route, and the orchestrator needs a route to the mesh subnet. This service sets that route. It is in the network namespace of the orchestrator, as root with only <code>NET_ADMIN</code> and <code>DAC_READ_SEARCH</code>. It mounts <code>data/mesh</code> read-only, to read the subnet. See <a href="../../cluster/mesh/#the-interfaces">Cluster mesh</a>.</p>
 <h3 id="docker-proxy"><code>docker-proxy</code><a class="headerlink" href="#docker-proxy" title="Permanent link">&para;</a></h3>
 <p>The service mounts the Docker socket and accepts only <code>GET</code> requests for containers, images and events. It is only on the <code>homegap-docker</code> network, so no other container can reach it.</p>
 <h3 id="the-cluster-member">The cluster member<a class="headerlink" href="#the-cluster-member" title="Permanent link">&para;</a></h3>

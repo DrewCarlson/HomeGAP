@@ -2394,8 +2394,7 @@
 <li>Two or more nodes. The vote needs a majority. With the homelab and only one node, the loss of either one stops all writes.</li>
 <li>A decision about the role of the homelab, before the first start. The homelab can hold a copy of the database (the default) or only vote. See <a href="database/#the-homelab-as-a-vote-only">The homelab as a vote only</a>.</li>
 <li>WireGuard in the kernel of the homelab host. It is part of Linux 5.6 and later.</li>
-<li>The cluster services of the shipped compose file: <code>homegap-mesh</code>, <code>homegap-mesh-agent</code>, <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. They start only with the profile <code>cluster</code>.</li>
-<li><code>cap_add: [NET_ADMIN]</code> on the orchestrator, for its route to the mesh. The shipped compose file has it.</li>
+<li>The cluster services of the shipped compose file: <code>homegap-mesh</code>, <code>homegap-mesh-agent</code>, <code>homegap-mesh-route</code>, <code>homegap-etcd</code>, <code>homegap-db</code>, <code>homegap-valkey</code> and <code>homegap-sentinel</code>. They start only with the profile <code>cluster</code>.</li>
 </ul>
 <h2 id="enable-cluster-mode">Enable cluster mode<a class="headerlink" href="#enable-cluster-mode" title="Permanent link">&para;</a></h2>
 <p>Cluster mode has two switches. The config tells the orchestrator to build the cluster. The profile tells Docker Compose to start the cluster services of the homelab. The orchestrator has no control of Docker, so it cannot start them.</p>

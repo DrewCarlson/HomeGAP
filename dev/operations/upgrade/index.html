@@ -2665,7 +2665,7 @@
 <p>If the service does not serve with its previous image either, the script stops and shows the last lines of its log.</p>
 <p>When the script stops early, it ends the hold. The primaries then return to the homelab when its member is healthy again. If the start of the maintenance fails, HomeGAP removes the hold at once.</p>
 <h2 id="the-mesh-container">The mesh container<a class="headerlink" href="#the-mesh-container" title="Permanent link">&para;</a></h2>
-<p>The script never recreates <code>homegap-mesh</code>. The mesh and every container in its network namespace restart with it. The script does recreate <code>homegap-mesh-agent</code>. The mesh interface stays up without the agent.</p>
+<p>The script never recreates <code>homegap-mesh</code>. The mesh and every container in its network namespace restart with it. The script does recreate <code>homegap-mesh-agent</code> and <code>homegap-mesh-route</code>. The mesh interface stays up without the agent.</p>
 <h2 id="the-tunnels-container">The tunnels container<a class="headerlink" href="#the-tunnels-container" title="Permanent link">&para;</a></h2>
 <p>The <code>tunnels</code> container restarts every Newt connector at once. Thus every node loses the homelab for a few seconds.</p>
 <p>The script recreates it only when the tunnels version of the new image is different. This version covers the code of the tunnel supervisor, its platform layer, the dependency versions and Newt. The script also recreates it when it does not run, or with <code>--tunnels</code>.</p>

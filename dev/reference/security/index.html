@@ -2568,7 +2568,7 @@
 <p><code>ufw</code> on the node opens only the ports in <a href="../ports/">Ports and firewall</a>. HomeGAP adds new rules before it removes its old rules. It never touches rules that it did not add.</p>
 <h2 id="the-homelab">The homelab<a class="headerlink" href="#the-homelab" title="Permanent link">&para;</a></h2>
 <p>The orchestrator has no Docker socket. It reads Docker through the <code>docker-proxy</code> service, which accepts only <code>GET</code> requests for the container list, the events and the image data. Only the orchestrator can reach the proxy. The tunnels run in a separate container. Thus the orchestrator never carries the traffic of your services.</p>
-<p>The orchestrator runs with two capabilities: <code>NET_ADMIN</code> for its route to the mesh, and <code>DAC_OVERRIDE</code> to read the mounted keys and config.</p>
+<p>The orchestrator is not root. It runs as the owner of the stack folder and has no capability. In cluster mode, the <code>homegap-mesh-route</code> container sets its route to the mesh, as root with only <code>NET_ADMIN</code> and <code>DAC_READ_SEARCH</code>.</p>
 <div class="admonition danger">
 <p class="admonition-title">Warning</p>
 <p>Do not mount the Docker socket in the orchestrator. A socket mount gives the full Docker API, also with <code>:ro</code>. A person who controls that container then controls the Docker host.</p>

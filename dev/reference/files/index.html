@@ -2613,7 +2613,7 @@
 </tr>
 </tbody>
 </table>
-<p>The image creates the system user <code>homegap</code> (uid 10001), with the home directory <code>/data</code>. The Dockerfile has no <code>USER</code> line, so the container runs as root by default.</p>
+<p>The image creates the system user <code>homegap</code> (uid 10001), with the home directory <code>/data</code>. The Dockerfile has no <code>USER</code> line, so a container runs as root unless the compose file sets a user. The shipped compose file runs the orchestrator as the owner of the stack folder.</p>
 <h2 id="the-node">The node<a class="headerlink" href="#the-node" title="Permanent link">&para;</a></h2>
 <p>The stack is in <code>install_dir</code> (default <code>/opt/homegap</code>):</p>
 <table>
