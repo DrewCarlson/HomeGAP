@@ -3449,9 +3449,39 @@
 <td><code>private</code></td>
 <td>Who reaches <code>hostname</code>: <code>private</code> (Pangolin clients only) or <code>public</code>.</td>
 </tr>
+<tr>
+<td><code>sso.middleware</code></td>
+<td>string</td>
+<td>None.</td>
+<td>A forward-auth middleware of your Traefik, with its provider, for example <code>authelia@docker</code>. A user who signs in there needs no token. It needs <code>hostname</code>. See <a href="../../operations/dashboard/#sign-in-with-a-service-such-as-authelia">Sign in with a service such as Authelia</a>.</td>
+</tr>
+<tr>
+<td><code>sso.groups</code></td>
+<td>list</td>
+<td>Empty.</td>
+<td>The groups with full access.</td>
+</tr>
+<tr>
+<td><code>sso.read_only_groups</code></td>
+<td>list</td>
+<td>Empty.</td>
+<td>The groups that can only look.</td>
+</tr>
+<tr>
+<td><code>sso.user_header</code></td>
+<td>string</td>
+<td><code>Remote-User</code></td>
+<td>The header with the name of the user.</td>
+</tr>
+<tr>
+<td><code>sso.groups_header</code></td>
+<td>string</td>
+<td><code>Remote-Groups</code></td>
+<td>The header with the groups of the user.</td>
+</tr>
 </tbody>
 </table>
-<p>Every <code>/api</code> route needs the bearer token, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read <code>/api/traefik/homelab</code> without the token. If neither key gives a token, HomeGAP creates one in <code>&lt;data_dir&gt;/dashboard-token</code>.</p>
+<p>Every <code>/api</code> route needs the bearer token or a sign-in through <code>sso</code>, with two exceptions. The terminal WebSocket uses a one-time ticket. The Traefik of the homelab can read <code>/api/traefik/homelab</code> without the token. If neither key gives a token, HomeGAP creates one in <code>&lt;data_dir&gt;/dashboard-token</code>.</p>
 <h2 id="speedtest">speedtest<a class="headerlink" href="#speedtest" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

@@ -2550,7 +2550,7 @@
 <ul>
 <li>Run it on a minimal host.</li>
 <li>Mount the secrets. Do not put them in the image.</li>
-<li>Keep the dashboard private. Every <code>/api</code> route needs the dashboard token, except the terminal WebSocket (a one-time ticket) and <code>/api/traefik/homelab</code>, which the Traefik of the homelab reads from the front door container. Set your own token with <code>dashboard.auth_token_env</code>. An address that sends more than 20 wrong tokens in one minute gets the answer <code>429</code> until that minute ends. For a request that the front door forwards, the address is the address of the viewer, so one viewer cannot lock a different viewer out. The dashboard loads only its own files, and no other page can show it in a frame.</li>
+<li>Keep the dashboard private. Every <code>/api</code> route needs the dashboard token or a sign-in through <code>dashboard.sso</code>, except the terminal WebSocket (a one-time ticket) and <code>/api/traefik/homelab</code>, which the Traefik of the homelab reads from the front door container. Set your own token with <code>dashboard.auth_token_env</code>. An address that sends more than 20 wrong tokens in one minute gets the answer <code>429</code> until that minute ends. For a request that the front door forwards, the address is the address of the viewer, so one viewer cannot lock a different viewer out. The dashboard loads only its own files, and no other page can show it in a frame.</li>
 </ul>
 <div class="admonition danger">
 <p class="admonition-title">Warning</p>

@@ -1590,6 +1590,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sign-in-with-a-service-such-as-authelia" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sign in with a service such as Authelia
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sign in with a service such as Authelia">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        How it works
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-the-sign-in-service-does-not-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When the sign-in service does not work
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#access" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2603,6 +2642,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#sign-in-with-a-service-such-as-authelia" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sign in with a service such as Authelia
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sign in with a service such as Authelia">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-it-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        How it works
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-the-sign-in-service-does-not-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        When the sign-in service does not work
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#access" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2882,9 +2960,80 @@
 <p>A public dashboard has only the token between the internet and your nodes. A person who gets the token can change the config, remove nodes and open a shell on a node. Use a long token that nothing else uses, and set <code>dashboard.terminal: false</code> if you do not need the terminal.</p>
 </div>
 <p>HomeGAP still limits wrong tokens: an address that sends 20 wrong tokens in one minute gets a 429 for the remainder of that minute.</p>
+<h2 id="sign-in-with-a-service-such-as-authelia">Sign in with a service such as Authelia<a class="headerlink" href="#sign-in-with-a-service-such-as-authelia" title="Permanent link">&para;</a></h2>
+<p>If your homelab Traefik has a forward-auth middleware, for example of Authelia, HomeGAP can use it for the dashboard. A user who signs in there needs no dashboard token. The dashboard must have a name at your Traefik (<code>dashboard.hostname</code>).</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">dashboard</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">bind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0:8088</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">orc</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">access</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">private</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">sso</span><span class="p">:</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">middleware</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">authelia@docker</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">admins</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">read_only_groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">family</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dashboard.sso.middleware</code></td>
+<td>None.</td>
+<td>The middleware as Traefik names it, with its provider, for example <code>authelia@docker</code> or <code>authelia@file</code>.</td>
+</tr>
+<tr>
+<td><code>dashboard.sso.groups</code></td>
+<td>Empty.</td>
+<td>The groups with full access.</td>
+</tr>
+<tr>
+<td><code>dashboard.sso.read_only_groups</code></td>
+<td>Empty.</td>
+<td>The groups that can only look. A request from such a user that changes something gets a 403.</td>
+</tr>
+<tr>
+<td><code>dashboard.sso.user_header</code></td>
+<td><code>Remote-User</code></td>
+<td>The header with the name of the user.</td>
+</tr>
+<tr>
+<td><code>dashboard.sso.groups_header</code></td>
+<td><code>Remote-Groups</code></td>
+<td>The header with the groups of the user, with commas between them.</td>
+</tr>
+</tbody>
+</table>
+<p>The middleware must add the two headers to the request. In Traefik, these are the <code>authResponseHeaders</code> of the forward-auth middleware. The setup guide of Authelia has them.</p>
+<p>The groups give the role of a user:</p>
+<ul>
+<li>A user in a group of <code>groups</code> has full access.</li>
+<li>A user in a group of <code>read_only_groups</code> can only look.</li>
+<li>With no <code>groups</code> in the config, each other user has full access.</li>
+<li>With <code>groups</code> in the config, a user in none of the lists gets no access. The dashboard then asks for the token.</li>
+</ul>
+<h3 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
+<p>HomeGAP adds two middlewares to the route <code>homegap-dashboard</code>, after the allowlist of private access. The first one removes the sign-in headers from the request of the client, so a client cannot write them. The second one is your middleware. Traefik asks the sign-in service for each request. The orchestrator accepts the headers only from the front door container, and only for the name of the dashboard.</p>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p>Do not make a route of your own to the dashboard. On such a route, a client can write the sign-in headers and get full access.</p>
+</div>
+<p>When the session at the sign-in service ends, the dashboard shows the token dialog. Load the page again to sign in.</p>
+<h3 id="when-the-sign-in-service-does-not-work">When the sign-in service does not work<a class="headerlink" href="#when-the-sign-in-service-does-not-work" title="Permanent link">&para;</a></h3>
+<p>The sign-in is only on the route of your Traefik. The address of <code>dashboard.bind</code>, which the stack publishes on the loopback address of the homelab, never uses it. If the sign-in service or Traefik fails, open that address through an SSH tunnel and use the dashboard token. See <a href="../../getting-started/install/#open-the-dashboard">Install on the homelab</a>.</p>
+<p>Three cases are useful to know:</p>
+<ul>
+<li>The sign-in service is down. The name of the dashboard gives an error. Use the SSH tunnel.</li>
+<li>You publish the sign-in service through HomeGAP and you pause its service. Sessions that exist continue, because Traefik asks the sign-in service on the Docker network. A new sign-in fails. Start the service again through the SSH tunnel.</li>
+<li>The dashboard has private access. The browser of a Pangolin client must also reach the name of the sign-in service, or the sign-in page does not open.</li>
+</ul>
+<p>The token always gives full access. Each script and each API client continues to use it.</p>
 <h2 id="access">Access<a class="headerlink" href="#access" title="Permanent link">&para;</a></h2>
 <p>A bearer token protects the <code>/api</code> routes. Two routes have their own check. The terminal WebSocket uses a one-time ticket, which the token gets. The Traefik of the homelab can read <code>/api/traefik/homelab</code> from the front door container without the token. Set the token with <code>dashboard.auth_token_env</code> or <code>dashboard.auth_token_file</code>. If the config names no token, or the token is not available, HomeGAP creates one. It keeps that token in the file <code>dashboard-token</code> in its data directory, with mode 0600. To read the token, run this command:</p>
-<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>cat<span class="w"> </span>/data/dashboard-token
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>cat<span class="w"> </span>/data/dashboard-token
 </code></pre></div>
 <p>The dashboard asks for the token in a sign-in dialog and keeps it in the browser. A change of the token needs a restart of the orchestrator.</p>
 <p>To remove the token from the browser, click <strong>Sign out</strong> at the bottom of the menu, or search for "Sign out". Do this on a computer that other people use.</p>
