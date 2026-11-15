@@ -212,7 +212,7 @@ object Planner {
         }
 
         val claimed = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
-        val published = withPrivateStatusPage(config, withPrivateDashboard(config, claimed, errors))
+        val published = withPrivatePages(config, withPrivateDashboard(config, claimed, errors))
         val doors = frontDoors(config, published)
         val services = doors.all.fold(published) { kept, door -> refuseCoveredPassthrough(kept, door, errors) }
         val activeNodes = config.nodes.filter { it.id !in excludedNodes }
@@ -260,17 +260,21 @@ object Planner {
     }
 
     /**
-     * A Pangolin client gets the status page from the homelab, not from a node: the shared name of
-     * the page is one more private name of the front door. The request then arrives on the private
-     * network, and the page knows that the visitor is a Pangolin client. Without a private path,
-     * such a client gets the page as each other visitor does.
+     * A Pangolin client gets the pages of HomeGAP from the homelab, not from a node: the shared
+     * name of each page is one more private name of the front door. The request then arrives on
+     * the private network, and the page knows that the visitor is a Pangolin client. The status
+     * page always has this name. The speed test has it with `speedtest.vpn_access`. Without a
+     * private path, such a client gets each page as each other visitor does.
      */
-    private fun withPrivateStatusPage(config: AppConfig, services: List<ServiceSpec>): List<ServiceSpec> {
-        if (!config.statusPage.enabled) return services
+    private fun withPrivatePages(config: AppConfig, services: List<ServiceSpec>): List<ServiceSpec> {
+        val hosts = listOfNotNull(
+            config.statusPage.takeIf { it.enabled }?.autoHost(config.domain),
+            config.speedtest.takeIf { it.enabled && it.vpnAccess }?.autoHost(config.domain),
+        )
+        if (hosts.isEmpty()) return services
         val frontDoor = frontDoors(config, services).primary?.takeIf { it.privateHost != null } ?: return services
-        val host = config.statusPage.autoHost(config.domain)
-        val withHost = frontDoor.copy(privateHosts = (frontDoor.privateHosts + host).distinct())
-        return services.map { if (it == frontDoor) withHost else it }
+        val withHosts = frontDoor.copy(privateHosts = (frontDoor.privateHosts + hosts).distinct())
+        return services.map { if (it == frontDoor) withHosts else it }
     }
 
     private fun frontDoors(config: AppConfig, services: List<ServiceSpec>): FrontDoors {

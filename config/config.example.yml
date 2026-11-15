@@ -108,6 +108,7 @@ speedtest:
   hostname: speedtest
   bind: 0.0.0.0:8089
   link_ttl: 2h
+  # vpn_access: true        # Pangolin clients open the page with no link (needs homegap.private_network)
   streams: 4                # parallel streams for homelab <-> node tests
 
 # A public status page at status.<domain>: the visitor's node, every node's state and the visitor's

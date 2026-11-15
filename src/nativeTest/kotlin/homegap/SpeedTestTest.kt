@@ -243,4 +243,16 @@ class SpeedTestTest {
         assertEquals(0.0, up?.busyPct)
         assertEquals(null to null, live.hostCpu("other"))
     }
+
+    @Test
+    fun onlyTheLinkOfAPangolinClientIsAVpnLink() {
+        val tokens = SpeedTestTokens()
+        val (invited, _) = tokens.issue(60_000)
+        val (client, _) = tokens.issue(60_000, vpn = true)
+        assertFalse(tokens.vpn(invited))
+        assertTrue(tokens.vpn(client))
+        assertTrue(tokens.valid(client))
+        assertFalse(tokens.vpn("unknown"))
+        assertFalse(tokens.vpn(null))
+    }
 }

@@ -181,6 +181,7 @@ Every `/api` route needs the bearer token, with two exceptions. The terminal Web
 | `link_ttl` | duration | `2h` | The lifetime of the test links for devices. |
 | `phase_seconds` | integer | `8` | The duration of each download and upload phase, from 2 to 30. |
 | `link_budget_gb` | integer | `20` | The data that one device link can download and upload in total, in GiB, from 1 to 1000. |
+| `vpn_access` | boolean | `false` | With `true`, a Pangolin client opens the test page with no link from the dashboard. The front door needs `homegap.private_network`. |
 | `streams` | integer | `4` | The number of parallel TCP streams for tests between the homelab and a node, from 1 to 16. |
 
 ## status_page

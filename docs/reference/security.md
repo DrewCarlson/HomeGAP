@@ -101,7 +101,7 @@ Your own Traefik on the homelab is configured by you. Set `global.checkNewVersio
 ## What the public can see
 
 - The public status page shows the id, the region, the state and the location of each node. It also uses the name `status-<node>.<domain>` of each node, which resolves to the public address of that node. It shows the homelab only as its region. Only a Pangolin client, who gets the page over the private path, sees the location of the homelab. Each visitor sees only the address of that visitor. See [Status page](../operations/status-page.md#what-the-page-tells-a-visitor).
-- The token of a speed test link for a device is in the fragment of the URL. Thus it is never part of a request URL, and no access log contains it. The test page sends it in a header. See [Speed tests](../operations/speed-tests.md).
+- The token of a speed test link for a device is in the fragment of the URL. Thus it is never part of a request URL, and no access log contains it. The test page sends it in a header. With `speedtest.vpn_access: true`, each Pangolin client that can use the private path of the front door gets a link with no action from you. See [Speed tests](../operations/speed-tests.md).
 - The nodes end TLS for the shared names `status.<domain>` and `speedtest.<domain>`, which serve only these HomeGAP pages. A node then sends each request back into its own port 443 under its own name, and the front door carries it home still encrypted. On that inner connection the node does not check the certificate, because the connection does not leave the node before it enters the tunnel.
 
 ## Report a security issue

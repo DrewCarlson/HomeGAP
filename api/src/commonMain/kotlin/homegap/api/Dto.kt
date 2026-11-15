@@ -438,6 +438,8 @@ data class SpeedTestResultDto(
     val pingSamples: Int = 0,
     val error: String? = null,
     val client: String? = null,
+    /** A device test of a Pangolin client, who got the test page with no link from the dashboard. */
+    val vpn: Boolean = false,
     /** Parallel TCP streams (tunnel tests). Rates are the sum over all streams. */
     val streams: Int? = null,
     /** Per-stream rates, in stream order. */

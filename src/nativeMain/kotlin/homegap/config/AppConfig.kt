@@ -353,6 +353,8 @@ data class SpeedtestConfig(
     @SerialName("link_budget_gb") val linkBudgetGb: Int = 20,
     /** The parallel TCP streams of a homelab <-> node test. The dashboard can set a different number for a run. */
     val streams: Int = 4,
+    /** Pangolin clients open the test page with no link from the dashboard. The front door needs a private path. */
+    @SerialName("vpn_access") val vpnAccess: Boolean = false,
 ) {
     val host: String get() = bind.substringBeforeLast(":")
     val linkBudgetBytes: Long get() = linkBudgetGb * 1024L * 1024 * 1024

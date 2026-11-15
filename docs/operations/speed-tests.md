@@ -14,6 +14,7 @@ With `speedtest.enabled: true`, the orchestrator serves a speed test origin on `
 | `speedtest.link_ttl` | `2h` |
 | `speedtest.phase_seconds` | `8` |
 | `speedtest.link_budget_gb` | `20` |
+| `speedtest.vpn_access` | `false` |
 | `speedtest.streams` | `4` |
 
 The speed test and the status page share one listener, which starts only with the orchestrator. If neither was on at the start, the first activation needs a restart of the orchestrator. A change of `speedtest.bind` also needs a restart.
@@ -80,11 +81,21 @@ A test link has these limits, so that a person with the link cannot use your ban
 
 The page uses 4 streams. A test from the homelab to a node has no limit.
 
+### A Pangolin client with no link
+
+With `speedtest.vpn_access: true`, a Pangolin client opens `https://speedtest.<domain>/` with no link from the dashboard. The front door must have a private path (`homegap.private_network`). See [Client addresses and private-only services](../services/client-addresses.md).
+
+HomeGAP then makes a private resource for the name `speedtest.<domain>`. A Pangolin client resolves that name into the tunnel and gets the page from the homelab, not from a node. The page asks the homelab for a link, and the homelab gives one only to a request from the private network. A visitor who is not a Pangolin client still needs a link from the dashboard.
+
+On this page, **Start test** measures the path through the tunnel to the homelab. **Test all nodes** and the list of nodes measure the path through each node, on its public name.
+
+The link of a Pangolin client has the same lifetime and the same limits as a link from the dashboard. Each Pangolin client that can use the private path of the front door can run tests. Enable this key only if you trust those clients with your bandwidth.
+
 <img src="../img/dashboard/speedtest-results.png" alt="The Speed test page with the homelab to edge results and the device test">
 
 ## Results
 
-HomeGAP keeps the results in `<data_dir>/speedtests.json`. The **History** panel shows the recent results.
+HomeGAP keeps the results in `<data_dir>/speedtests.json`. The **History** panel shows the recent results. A result from a Pangolin client with no link has the path `VPN device`. Its node is `homelab` if the test went through the tunnel to the homelab. HomeGAP does not know which Pangolin user ran the test, because all Pangolin clients reach the homelab from one address.
 
 ## API
 

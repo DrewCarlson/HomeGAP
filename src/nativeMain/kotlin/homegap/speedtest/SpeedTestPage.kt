@@ -189,7 +189,7 @@ td .reason { display:block; font-size:13px; font-weight:400; }
 
   async function info() {
     var r = await fetch('/speedtest/info', { headers: H, cache: 'no-store' });
-    if (r.status === 401) throw new Error('This test link has expired. Create a new one from the HomeGAP dashboard.');
+    if (r.status === 401) { var x = new Error('This test link has expired. Create a new one from the HomeGAP dashboard.'); x.expired = true; throw x; }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   }
@@ -352,13 +352,13 @@ td .reason { display:block; font-size:13px; font-weight:400; }
   el('all').onclick = runAll;
   // A new link opened in the same tab only changes the fragment: reload to pick up its token.
   window.addEventListener('hashchange', function () { if (location.hash.indexOf('t=') >= 0) location.reload(); });
-  if (!token) { status('Missing test token. Open this page from a link created in the HomeGAP dashboard.', true); el('via').textContent = ''; return; }
-  info().then(function (i) {
+  function show(i) {
     phase = i.phaseSeconds || 8;
     nodes = i.nodes; here = i.node;
     if (!Object.keys(i.nodes).some(function (id) { return i.nodes[id].indexOf('//' + location.host + '/') >= 0; })) auto = true;
     el('via').textContent = i.node
       ? 'Connected through node ' + i.node + (auto ? ' (chosen by DNS for your location)' : '') + '.'
+      : i.vpn ? 'Connected to the homelab over the VPN. To test through a node, pick it below.'
       : 'Connected through the node DNS chose for you (this address does not name it; pick a node below).';
     var ul = el('others');
     Object.keys(i.nodes).forEach(function (id) {
@@ -368,7 +368,25 @@ td .reason { display:block; font-size:13px; font-weight:400; }
       li.appendChild(a); ul.appendChild(li);
     });
     busy(false);
-  }).catch(function (e) { status(String(e.message || e), true); });
+  }
+  // A Pangolin client reaches this page over the private path, and gets a link with no invite.
+  function vpnLink(otherwise) {
+    return fetch('/speedtest/vpn-link', { method: 'POST', cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error(otherwise);
+      return r.json();
+    }, function () { throw new Error(otherwise); }).then(function (l) {
+      token = l.token; H['X-HomeGAP-Token'] = token; sessionStorage.setItem('homegap.st', token);
+      return info().then(show);
+    });
+  }
+  var start = token
+    ? info().then(show).catch(function (e) {
+        if (!e.expired) throw e;
+        sessionStorage.removeItem('homegap.st');
+        return vpnLink(e.message);
+      })
+    : vpnLink('Missing test token. Open this page from a link created in the HomeGAP dashboard.');
+  start.catch(function (e) { status(String(e.message || e), true); el('via').textContent = ''; });
 })();
 </script>
 </body>

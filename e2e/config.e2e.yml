@@ -23,6 +23,8 @@ tunnels:
   native: true
 speedtest:
   enabled: true
+  # Pangolin clients open the test page with no link from the dashboard.
+  vpn_access: true
 status_page:
   enabled: true
   title: HomeGAP e2e status

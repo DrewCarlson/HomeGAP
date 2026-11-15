@@ -231,6 +231,11 @@ class MisdirectedTest {
         val statusPlan = Planner.plan(withStatus, listOf(frontDoor))
         assertTrue("status.test.example.net" in statusPlan.frontDoor!!.privateHosts)
         assertTrue(Planner.plan(withStatus, listOf(TRAEFIK)).frontDoor!!.privateHosts.isEmpty())
+        val speedtest = "$TEST_CONFIG\nspeedtest:\n  enabled: true\n"
+        val invited = Planner.plan(ConfigLoader.parse(speedtest), listOf(frontDoor)).frontDoor!!.privateHosts
+        assertFalse("speedtest.test.example.net" in invited, "a link from the dashboard is the default")
+        val open = Planner.plan(ConfigLoader.parse("$speedtest  vpn_access: true\n"), listOf(frontDoor))
+        assertTrue("speedtest.test.example.net" in open.frontDoor!!.privateHosts)
 
         val withoutPath = Planner.plan(private, listOf(TRAEFIK))
         assertTrue(withoutPath.labelErrors.single().message.startsWith("dashboard.access is private"))

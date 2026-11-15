@@ -226,9 +226,13 @@ class SpeedTestScreenPresenter(
     private fun SpeedTestResultDto.toHistoryRow(now: Long) = HistoryRowModel(
         id = id,
         time = ago(at, now),
-        path = if (kind == "tunnel") "homelab ↔ node" else "device",
+        path = when {
+            kind == "tunnel" -> "homelab ↔ node"
+            vpn -> "VPN device"
+            else -> "device"
+        },
         streams = streams?.takeIf { it > 1 }?.let { "$it streams" },
-        node = (nodeId ?: "unknown") + if (auto) " (auto)" else "",
+        node = (nodeId ?: if (vpn) "homelab" else "unknown") + if (auto) " (auto)" else "",
         ping = formatMillis(pingMs),
         jitter = formatMillis(jitterMs),
         down = formatMbps(downMbps),

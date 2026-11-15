@@ -4,6 +4,7 @@ import homegap.api.DeviceResultRequest
 import homegap.api.NodeCpuDto
 import homegap.api.SpeedTestResultDto
 import homegap.config.AppConfig
+import homegap.config.parseDuration
 import homegap.dashboard.MapFiles
 import homegap.dashboard.WebAssets
 import homegap.dashboard.respondAsset
@@ -38,7 +39,7 @@ class SpeedTestTokens {
     private val tokens = mutableMapOf<String, Grant>()
     private var limitedStreams = 0
 
-    private class Grant(val expiresAt: Long, val limited: Boolean) {
+    private class Grant(val expiresAt: Long, val limited: Boolean, val vpn: Boolean) {
         var streams = 0
         var bytes = 0L
         var results = 0
@@ -46,21 +47,29 @@ class SpeedTestTokens {
 
     /**
      * A new token. A [limited] token is for a device link, which leaves the homelab. It has a cap
-     * on streams, bytes and saved results. The token of a homelab-to-node test has no cap.
+     * on streams, bytes and saved results. The token of a homelab-to-node test has no cap. A [vpn]
+     * token is the link of a Pangolin client.
      */
-    fun issue(ttlMillis: Long, limited: Boolean = true): Pair<String, Long> = synchronized(lock) {
+    fun issue(ttlMillis: Long, limited: Boolean = true, vpn: Boolean = false): Pair<String, Long> {
+        return synchronized(lock) { issueLocked(ttlMillis, limited, vpn) }
+    }
+
+    private fun issueLocked(ttlMillis: Long, limited: Boolean, vpn: Boolean): Pair<String, Long> {
         val now = nowMillis()
         tokens.entries.removeAll { it.value.expiresAt < now && it.value.streams == 0 }
         val token = Crypto.token(TOKEN_LENGTH)
         val expiresAt = now + ttlMillis
-        tokens[token] = Grant(expiresAt, limited)
-        token to expiresAt
+        tokens[token] = Grant(expiresAt, limited, vpn)
+        return token to expiresAt
     }
 
     fun valid(token: String?): Boolean {
         if (token.isNullOrEmpty()) return false
         return synchronized(lock) { (tokens[token]?.expiresAt ?: 0) > nowMillis() }
     }
+
+    /** Whether [token] is the link of a Pangolin client. */
+    fun vpn(token: String?): Boolean = synchronized(lock) { tokens[token]?.vpn == true }
 
     fun revoke(token: String): Unit = synchronized(lock) { tokens.remove(token) }
 
@@ -293,6 +302,7 @@ class SpeedTestServer(
                     call.response.header(HttpHeaders.AccessControlMaxAge, "600")
                     call.respond(HttpStatusCode.NoContent)
                 }
+                post("/vpn-link") { vpnLink() }
                 authenticate(LINK_AUTH) { measurementRoutes() }
             }
         }
@@ -310,11 +320,30 @@ class SpeedTestServer(
         post("/result") { saveResult() }
     }
 
+    /**
+     * Gives a Pangolin client a link, with no link from the dashboard. Only the shared name has a
+     * private path, and only a request from the private network of the front door gets a link.
+     */
+    private suspend fun RoutingContext.vpnLink() {
+        val cfg = config()
+        val shared = cfg.speedtest.autoHost(cfg.domain).equals(call.request.host(), ignoreCase = true)
+        if (!cfg.speedtest.vpnAccess || !shared || !viewer().vpn) {
+            return call.respond(HttpStatusCode.Forbidden)
+        }
+        val ttl = parseDuration(cfg.speedtest.linkTtl).inWholeMilliseconds
+        val (token, expiresAt) = tokens.issue(ttl, vpn = true)
+        call.respond(buildJsonObject {
+            put("token", token)
+            put("expiresAt", expiresAt)
+        })
+    }
+
     /** The node that serves this page, the length of a phase and the test URL of each node. */
     private suspend fun RoutingContext.info() {
         val cfg = config()
         val info = buildJsonObject {
             put("node", nodeFor(call.request.host()))
+            put("vpn", tokens.vpn(call.request.header(TOKEN_HEADER)))
             put("phaseSeconds", cfg.speedtest.phaseSeconds)
             putJsonObject("nodes") {
                 cfg.nodes.forEach {
@@ -372,6 +401,7 @@ class SpeedTestServer(
                 pingSamples = request.pingSamples,
                 error = request.error?.take(MAX_ERROR_LENGTH),
                 client = call.request.header(HttpHeaders.UserAgent)?.take(MAX_CLIENT_LENGTH),
+                vpn = tokens.vpn(call.request.header(TOKEN_HEADER)),
             ),
         )
         call.respond(HttpStatusCode.NoContent)
