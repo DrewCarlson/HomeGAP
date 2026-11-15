@@ -183,6 +183,8 @@ After the end, the usual switch-back applies. `deploy/upgrade.sh` uses these com
 
 After an upgrade of the homelab, the members on the nodes follow the image of the homelab. HomeGAP pins the image to its registry digest. It updates one node in each pass, and only while every member serves and no maintenance runs.
 
+HomeGAP asks Docker on the homelab for the image in `cluster.image`. Without `HOMEGAP_VERSION`, the stack pulls the tag `latest`. Then the homelab has no image with the tag of the default `cluster.image`. In that case, HomeGAP uses the image that the `homegap-etcd` container runs. For an image that you set in `cluster.image`, HomeGAP has no such fallback.
+
 Each node does these steps:
 
 1. It pulls the image.

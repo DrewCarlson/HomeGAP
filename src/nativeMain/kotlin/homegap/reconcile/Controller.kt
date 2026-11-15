@@ -14,6 +14,7 @@ import homegap.api.*
 import homegap.clients.*
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.AppConfig
+import homegap.config.ClusterConfig
 import homegap.config.ConfigLoader
 import homegap.config.GeoLocation
 import homegap.config.NodeConfig
@@ -28,6 +29,7 @@ import homegap.di.RunOptions
 import homegap.discovery.DiscoveryMemory
 import homegap.discovery.DockerClient
 import homegap.discovery.DockerContainerSummary
+import homegap.discovery.DockerImage
 import homegap.discovery.ServiceSpec
 import homegap.discovery.TraefikApi
 import homegap.discovery.TraefikRouter
@@ -818,14 +820,7 @@ class Controller(
                 null
             } else {
                 runDomain("cluster", null) {
-                    // Nodes follow the cluster image the homelab has (pinned to its registry digest).
-                    val image = cfg.cluster.image.let { ref ->
-                        runCatchingCancellable { docker.image(ref) }
-                            .getOrNull()
-                            ?.takeIf { it.created.isNotEmpty() }
-                            ?.let { MemberImage(it.pinned(ref), it.created) }
-                    }
-                    clusterRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots(), image)
+                    clusterRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots(), homelabClusterImage(cfg))
                 } ?: clusterStatus
             }
             clusterStatus = clusterStatus?.let { current ->
@@ -1085,6 +1080,29 @@ class Controller(
 
     /** A node in one pass, with its API client and its site when the pass has them. */
     private class ObservedEdge(val node: NodeConfig, val ready: ReadyNode?, val site: PangolinSite?)
+
+    /**
+     * The cluster image of the homelab, with its registry digest in the reference, or null if HomeGAP
+     * cannot read it. The nodes follow this image. Without `HOMEGAP_VERSION`, the stack pulls the tag
+     * `latest`. Then the homelab has no image with the release tag of the default image. For the
+     * default image, the image of the etcd container of the homelab counts.
+     */
+    private suspend fun homelabClusterImage(cfg: AppConfig): MemberImage? {
+        val ref = cfg.cluster?.image ?: return null
+        val local = runCatchingCancellable {
+            docker.image(ref) ?: if (ref == ClusterConfig.defaultImage()) runningEtcdImage() else null
+        }.getOrNull()
+        return local?.takeIf { it.created.isNotEmpty() }?.let { MemberImage(it.pinned(ref), it.created) }
+    }
+
+    private suspend fun runningEtcdImage(): DockerImage? {
+        val filters = mapOf(
+            "status" to listOf("running"),
+            "label" to listOf("$COMPOSE_SERVICE_LABEL=$HOMELAB_ETCD_SERVICE"),
+        )
+        val imageId = docker.listContainers(filters).singleOrNull()?.imageId?.ifEmpty { null } ?: return null
+        return docker.image(imageId)
+    }
 
     /** The names that the observe script requests through the proxy of the node. */
     private class ProbeTargets(val serviceHosts: List<String>, val certNames: List<String>)
@@ -2216,6 +2234,10 @@ private val STATUS_SETTLE = 100.milliseconds
 private val DOCKER_RECONNECT_DELAY = 5.seconds
 private const val TEARDOWN_STARTED = "the teardown did not finish"
 
+private const val COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
+
+/** The service of the homelab's etcd member in `deploy/compose.yml`. It runs in both homelab roles. */
+private const val HOMELAB_ETCD_SERVICE = "homegap-etcd"
 private const val OBSERVE_TIMEOUT_SECONDS = 60
 private const val SSH_ERROR_LENGTH = 200
 private const val DAY_MS = 86_400_000L

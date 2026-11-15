@@ -63,7 +63,7 @@ The add-node wizard sends a password only to a host key that you confirmed. Afte
 
 ## Images
 
-The default images of Pangolin, Gerbil, Traefik and CrowdSec have a version tag. A node gets a new version of them only when the default or your config changes. The default cluster image has the tag `latest`, and the cluster member of a node follows the image of the homelab. See [Node updates and rollback](../operations/node-updates.md).
+The default images of Pangolin, Gerbil, Traefik and CrowdSec have a version tag. A node gets a new version of them only when the default or your config changes. The tag of the default cluster image is the value of `HOMEGAP_VERSION`. Without that variable, the tag is the version of the orchestrator. The cluster member of a node follows the image of the homelab. See [Node updates and rollback](../operations/node-updates.md).
 
 The release build signs the HomeGAP images. HomeGAP does not check a signature before it uses an image. To check the images yourself, see [Check the image signatures](../operations/upgrade.md#check-the-image-signatures).
 

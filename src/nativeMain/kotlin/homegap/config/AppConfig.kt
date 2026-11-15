@@ -1,5 +1,7 @@
 package homegap.config
 
+import homegap.VERSION
+import homegap.platform.env
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
@@ -252,7 +254,7 @@ data class ClusterConfig(
      */
     @SerialName("homelab_role") val homelabRole: String = "database",
     /** The cluster image every member runs (PostgreSQL with Patroni, etcd, Valkey, HAProxy). */
-    val image: String = "ghcr.io/drewcarlson/homegap-cluster:latest",
+    val image: String = defaultImage(),
     /**
      * `<client_hostname>.<domain>` is the address that Pangolin clients and the login pages use.
      * Each node serves it, and DNS sends a client to the nearest healthy node.
@@ -262,7 +264,18 @@ data class ClusterConfig(
     @SerialName("exit_nodes") val exitNodes: ExitNodesConfig = ExitNodesConfig(),
     /** The DNS resolvers that the Pangolin apps can reach through the tunnel, without an exit node. */
     @SerialName("tunnel_dns") val tunnelDns: TunnelDnsConfig = TunnelDnsConfig(),
-)
+) {
+    companion object {
+        const val IMAGE_REPOSITORY = "ghcr.io/drewcarlson/homegap-cluster"
+
+        /**
+         * The cluster image with the tag of the homelab's stack, the value of `HOMEGAP_VERSION`. Without
+         * that variable, the tag is the version of this release.
+         */
+        fun defaultImage(stackTag: String? = env("HOMEGAP_VERSION")): String =
+            "$IMAGE_REPOSITORY:${stackTag?.trim()?.ifEmpty { null } ?: VERSION}"
+    }
+}
 
 /** The homelab only votes: it runs no PostgreSQL and no Valkey (`cluster.homelab_role: vote`). */
 val ClusterConfig.homelabVotesOnly: Boolean get() = homelabRole == "vote"

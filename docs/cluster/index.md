@@ -65,7 +65,7 @@ The config has these keys:
 | `cluster.mesh.subnet` | `10.77.0.0/24` | A network address with a prefix from /16 to /26. Must not overlap `100.64.0.0/10`, the tunnel ranges of Pangolin. Must have space for the maximum of 32 nodes. |
 | `cluster.mesh.port` | `51821` | A UDP port. Must be different from 51820 and 21820. |
 | `cluster.homelab_role` | `database` | `database` or `vote`. See [The homelab as a vote only](database.md#the-homelab-as-a-vote-only). |
-| `cluster.image` | `ghcr.io/drewcarlson/homegap-cluster:latest` | Must not be empty. |
+| `cluster.image` | `ghcr.io/drewcarlson/homegap-cluster:<tag>`. The tag is the value of `HOMEGAP_VERSION`. Without that variable, the tag is the version of the orchestrator. | Must not be empty. |
 | `cluster.primary.preferred` | `homelab` | `homelab` is the only accepted value. |
 | `cluster.primary.switch_back_after` | `10m` | The time that the homelab must stay caught up before it becomes the primary again. |
 | `cluster.client_hostname` | `pangolin` | The first label of the client address, `<client_hostname>.<domain>`. |

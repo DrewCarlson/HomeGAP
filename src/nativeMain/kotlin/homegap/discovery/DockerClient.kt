@@ -99,6 +99,7 @@ data class DockerContainerSummary(
     @SerialName("Id") val id: String,
     @SerialName("Names") val names: List<String> = emptyList(),
     @SerialName("Labels") val labels: Map<String, String> = emptyMap(),
+    @SerialName("ImageID") val imageId: String = "",
     @SerialName("State") val state: String = "",
     @SerialName("NetworkSettings") val networkSettings: ContainerNetworkSettings = ContainerNetworkSettings(),
 ) {

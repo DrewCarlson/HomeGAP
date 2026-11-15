@@ -1,6 +1,7 @@
 package homegap
 
 import homegap.config.AcmeConfig
+import homegap.config.ClusterConfig
 import homegap.config.ConfigLoader
 import homegap.config.parseDuration
 import homegap.platform.Files
@@ -49,6 +50,14 @@ class ConfigTest {
         val path = tmpPath("cfg") + ".yml"
         ConfigLoader.save(path, config)
         assertEquals(config, ConfigLoader.load(path))
+    }
+
+    @Test
+    fun theDefaultClusterImageHasTheTagOfTheStack() {
+        val repository = ClusterConfig.IMAGE_REPOSITORY
+        assertEquals("$repository:0.1", ClusterConfig.defaultImage("0.1"))
+        assertEquals("$repository:$VERSION", ClusterConfig.defaultImage(null))
+        assertEquals("$repository:$VERSION", ClusterConfig.defaultImage(" "))
     }
 
     @Test

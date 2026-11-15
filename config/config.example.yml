@@ -55,7 +55,9 @@ acme:
 #   mesh:
 #     subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
 #     port: 51821            # udp, opened in each node's firewall
-#   image: ghcr.io/drewcarlson/homegap-cluster:latest
+#   # The tag of the default image is the value of HOMEGAP_VERSION. Without that variable, the tag is
+#   # the version of the orchestrator.
+#   # image: ghcr.io/drewcarlson/homegap-cluster:0.1
 #   # What the homelab is in the cluster. Set it before the cluster first starts; it does not change later.
 #   #   database (default): the homelab holds a copy of the database and is the primary whenever it can.
 #   #   vote: the homelab only votes. The database lives on the nodes, with a daily dump kept at home.
