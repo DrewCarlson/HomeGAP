@@ -2858,6 +2858,12 @@
 <td>The value of <code>domain</code>.</td>
 <td>The Bunny DNS zone. It is equal to the domain or a parent of it. It uses the API key of <code>bunny</code>.</td>
 </tr>
+<tr>
+<td><code>caa</code></td>
+<td>boolean</td>
+<td><code>true</code></td>
+<td>With <code>false</code>, HomeGAP publishes no CAA records for this domain. Use it if the root of the domain has a service that gets its certificate in a different way. It has no effect without <code>acme.caa</code>.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="bunny">bunny<a class="headerlink" href="#bunny" title="Permanent link">&para;</a></h2>

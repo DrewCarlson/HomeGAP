@@ -877,6 +877,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-only-the-subdomains-of-a-domain" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Use only the subdomains of a domain
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-homegap-does-for-each-extra-domain" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2487,6 +2498,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-only-the-subdomains-of-a-domain" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Use only the subdomains of a domain
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-homegap-does-for-each-extra-domain" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2616,6 +2638,20 @@
 <li>The health resource that Bunny probes uses the front door of the base domain, if there is one.</li>
 </ul>
 <p>A domain without a front door serves only the services that name a hostname in it.</p>
+<h2 id="use-only-the-subdomains-of-a-domain">Use only the subdomains of a domain<a class="headerlink" href="#use-only-the-subdomains-of-a-domain" title="Permanent link">&para;</a></h2>
+<p>The root of a domain can belong to a service that has no relation to HomeGAP, for example a website at a different host. HomeGAP can still publish services under the subdomains of that domain.</p>
+<ol>
+<li>Add the domain to <code>extra_domains</code>, with <code>caa: false</code>:
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">extra_domains</span><span class="p">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">domain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">example.org</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">caa</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div></li>
+<li>Do not give the domain a front door. No service has <code>homegap.expose: "example.org"</code>.</li>
+<li>Publish each service under a subdomain, for example <code>app.example.org</code>. See <a href="#publish-a-service-under-an-extra-domain">Publish a service under an extra domain</a>.</li>
+<li>Add the records of the root on the <strong>Zone records</strong> tab of the DNS page, for example an A record for <code>@</code>.</li>
+</ol>
+<p>HomeGAP then writes records only for the subdomains that a service uses. It writes no record at the root and no wildcard record, and it does not change the records that you add there.</p>
+<p>With <code>caa: false</code>, HomeGAP publishes no CAA records for the domain. Without it, the CAA records of HomeGAP at the root let only Let's Encrypt issue certificates for the domain, and only with the DNS challenge. That stops the certificate of a root service that uses a different authority or a different challenge.</p>
 <h2 id="what-homegap-does-for-each-extra-domain">What HomeGAP does for each extra domain<a class="headerlink" href="#what-homegap-does-for-each-extra-domain" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

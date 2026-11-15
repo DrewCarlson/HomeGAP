@@ -1707,6 +1707,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#zone-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Zone records
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#certificates" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2759,6 +2770,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#zone-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Zone records
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#certificates" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -3077,6 +3099,16 @@
 <p><img src="../../img/dashboard/dns.png" alt="The DNS page with the record sets"></p>
 <p>The CAA record sets belong to certificate management. They are read-only, and they link to the <strong>Certificates</strong> tab.</p>
 <p>With <a href="../../services/extra-domains/">extra domains</a>, the page also has the <strong>Domains</strong> table. It shows each domain with its DNS zone, its front door and the state of the zone. If HomeGAP cannot sync a zone, the <strong>State</strong> column shows the error.</p>
+<h3 id="zone-records">Zone records<a class="headerlink" href="#zone-records" title="Permanent link">&para;</a></h3>
+<p>The <strong>Zone records</strong> tab of the DNS page shows every record of one DNS zone. The zone switcher selects the zone. A record that HomeGAP manages has a lock and shows what it is for. A challenge record of a certificate order has a lock too. You cannot change a locked record.</p>
+<p>Each other record is yours. Click <strong>Add record</strong> to add one, or click a record to edit or delete it. You can add and edit the types A, AAAA, CNAME, TXT, MX and CAA. A typical use is a TXT record that a service asks for to verify your domain.</p>
+<p>A change goes to Bunny at once, also in dry run and during a pause. The activity log has a line for each change, with "(from the dashboard)".</p>
+<p>HomeGAP refuses a record that its DNS pass deletes:</p>
+<ul>
+<li>A record with the name and the type of a record set that HomeGAP manages. The message is "HomeGAP manages A records for app.example.net."</li>
+<li>A CNAME record at a name where HomeGAP manages records.</li>
+</ul>
+<p>See <a href="../../configuration/dns/#ownership-of-records">Ownership of records</a>. A user with read-only access sees the records but cannot change them.</p>
 <h3 id="certificates">Certificates<a class="headerlink" href="#certificates" title="Permanent link">&para;</a></h3>
 <p>A tab of the <strong>DNS</strong> page. It shows the certificate that the nodes share, which node has it, what a visitor gets on each name through each node, the orders, and who can issue for the domain. See <a href="../../configuration/certificates/#the-certificates-page">Certificates</a>.</p>
 <h3 id="tunnels">Tunnels<a class="headerlink" href="#tunnels" title="Permanent link">&para;</a></h3>

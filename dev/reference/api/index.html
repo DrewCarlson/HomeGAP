@@ -2022,6 +2022,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#zone-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Zone records
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#locations" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2563,6 +2574,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#zone-records" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Zone records
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#locations" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2986,6 +3008,34 @@
 </tr>
 </tbody>
 </table>
+<h2 id="zone-records">Zone records<a class="headerlink" href="#zone-records" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Route</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET /api/dns/zones</code></td>
+<td>Returns each DNS zone with every record in it. Each record has its kind: <code>OWN</code>, <code>MANAGED</code> or <code>CHALLENGE</code>.</td>
+</tr>
+<tr>
+<td><code>POST /api/dns/zones/{zone}/records</code></td>
+<td>Adds a record of your own to the zone.</td>
+</tr>
+<tr>
+<td><code>PUT /api/dns/zones/{zone}/records/{id}</code></td>
+<td>Changes a record of your own. The type of a record does not change.</td>
+</tr>
+<tr>
+<td><code>DELETE /api/dns/zones/{zone}/records/{id}</code></td>
+<td>Deletes a record of your own.</td>
+</tr>
+</tbody>
+</table>
+<p>A change to a record that HomeGAP manages gets a 400, as does a record that collides with a managed record set.</p>
 <h2 id="locations">Locations<a class="headerlink" href="#locations" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
