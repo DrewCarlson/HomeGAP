@@ -1,0 +1,30 @@
+/*
+ * The "Edit this page" button stays in the top-right corner of the content, but out of the flow:
+ * floated, it pushed the top of the page aside, so a centered header was no longer centered.
+ * The block below it keeps clear of it instead, so it never covers text: a centered block on both
+ * sides (it stays centered), a page title on the right (a long one wraps before the button).
+ */
+.md-content__inner {
+  position: relative;
+}
+
+.md-content__inner > .md-content__button {
+  position: absolute;
+  top: 0.6rem;
+  right: 0;
+  margin: 0;
+  float: none;
+}
+
+.md-content__inner > .md-content__button ~ [align="center"]:first-of-type {
+  padding-inline: 2rem;
+}
+
+/* A heading's permalink, hidden until hovered, still took its width: centered content sat left. */
+[align="center"] :is(h1, h2, h3, h4, h5, h6) > .headerlink {
+  position: absolute;
+}
+
+.md-content__inner > .md-content__button + h1 {
+  padding-right: 2rem;
+}
