@@ -15,19 +15,31 @@ import kotlin.time.Duration.Companion.seconds
  * runs as an ordinary user, and such a user cannot change a route. This helper runs as root with
  * only `NET_ADMIN`, in the network namespace of the orchestrator. It reads the subnet from
  * [Mesh.SPEC_FILE] in [dir] and sends the subnet through the mesh namespace ([gateway]).
+ *
+ * A container that starts again gets a new network namespace. This helper then stays in the old
+ * one, which has no network. [run] ends in that case, so that Docker starts the helper again, in
+ * the namespace that the orchestrator has now.
  */
 class MeshRoute(private val dir: String, private val gateway: String) {
     private val logger = KotlinLogging.logger("homegap.mesh-route")
     private var reported: String? = null
 
+    /** Keeps the route until the namespace of this helper has no network. */
     suspend fun run() {
-        while (true) {
+        var withoutNetwork = 0
+        while (withoutNetwork < STALE_CHECKS) {
+            withoutNetwork = if (hasNetwork()) 0 else withoutNetwork + 1
             val problem = runCatchingCancellable { keep() }.exceptionOrNull()?.message
             if (problem != null && problem != reported) logger.error { problem }
             reported = problem
             delay(INTERVAL)
         }
+        logger.warn { "this network namespace has no network: the orchestrator started again. The helper stops." }
     }
+
+    /** Whether the namespace has an address that is not loopback. The orchestrator always has one. */
+    private suspend fun hasNetwork(): Boolean =
+        run("ip", "-o", "-4", "addr", "show", "scope", "global").stdout.isNotBlank()
 
     private suspend fun keep() {
         val text = Files.readTextOrNull("$dir/${Mesh.SPEC_FILE}") ?: return
@@ -41,6 +53,9 @@ class MeshRoute(private val dir: String, private val gateway: String) {
 
     companion object {
         private val INTERVAL = 5.seconds
+
+        /** After this number of checks in a row with no network, the namespace is the old one. */
+        private const val STALE_CHECKS = 3
         private val COMMAND_TIMEOUT = 15.seconds
         private const val COMMAND_NOT_FOUND = 127
         private val json = Json { ignoreUnknownKeys = true }

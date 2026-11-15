@@ -46,6 +46,7 @@ const val VERSION = "0.1.0"
 
 private const val EXIT_FAILURE = 1
 private const val EXIT_USAGE = 2
+private const val EXIT_STALE_NAMESPACE = 3
 private const val DEFAULT_CONFIG = "/config/config.yml"
 private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
@@ -316,9 +317,11 @@ private fun runMesh(dir: String) = runBlocking {
     MeshAgent(dir).run()
 }
 
-private fun runMeshRoute(dir: String) = runBlocking {
+private fun runMeshRoute(dir: String) {
     val gateway = env("HOMEGAP_MESH_HOST")?.takeIf { it.isNotBlank() } ?: DEFAULT_MESH_HOST
-    MeshRoute(dir, gateway).run()
+    runBlocking { MeshRoute(dir, gateway).run() }
+    // The helper is in a namespace with no network. Docker starts it again in the new one.
+    exitProcess(EXIT_STALE_NAMESPACE)
 }
 
 private fun runTunnels(dir: String, newt: String) = runBlocking {
