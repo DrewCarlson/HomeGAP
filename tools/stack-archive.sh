@@ -14,5 +14,7 @@ mkdir -p "$stage/homegap/config"
 cp "$root/deploy/compose.yml" "$root/deploy/upgrade.sh" "$root/deploy/.env.example" \
   "$root/deploy/compose.override.example.yml" "$stage/homegap/"
 cp "$root/config/config.example.yml" "$stage/homegap/config/"
+# The archive has the starter config as config.yml, as `homegap init` writes it.
+cp "$root/config/config.starter.yml" "$stage/homegap/config/config.yml"
 chmod 755 "$stage/homegap/upgrade.sh"
 tar -czf "$out" -C "$stage" homegap

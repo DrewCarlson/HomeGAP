@@ -20,5 +20,6 @@ ARG BINARY=build/bin/linuxArm64/releaseExecutable/homegap.kexe
 COPY ${BINARY} /usr/local/bin/homegap
 COPY deploy/compose.yml deploy/upgrade.sh deploy/.env.example deploy/compose.override.example.yml /usr/share/homegap/deploy/
 COPY config/config.example.yml /usr/share/homegap/deploy/config/config.example.yml
+COPY config/config.starter.yml /usr/share/homegap/deploy/starter/config.yml
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/homegap"]
 CMD ["run"]

@@ -19,7 +19,8 @@ class StackFilesTest {
         ship("upgrade.sh", "#!/bin/sh\n")
         Files.chmodPath("$source/upgrade.sh", "755".toInt(8))
         ship(".env.example", "BUNNY_API_KEY=\n")
-        ship("config/config.example.yml", "domain: example.net\n")
+        ship("config/config.example.yml", "domain: example.net\nproject: home-gap\n")
+        ship("${StackFiles.STARTERS}/config.yml", "domain: example.net\n")
         Files.mkdirs(target)
     }
 
@@ -46,6 +47,7 @@ class StackFilesTest {
         assertTrue(Files.isExecutable("$target/upgrade.sh"))
         assertFalse(Files.isExecutable("$target/compose.yml"))
         assertTrue(Files.isDirectory("$target/backups"))
+        assertFalse(Files.exists("$target/${StackFiles.STARTERS}"), "the starter files stay in the image")
         assertTrue(asked.isEmpty())
     }
 

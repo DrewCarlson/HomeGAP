@@ -14,6 +14,9 @@ data class FileOutcome(val path: String, val result: FileResult)
  * for example `compose.yml`. The folder [COPIES] in [target] holds a copy of each shipped file as
  * HomeGAP wrote it. If a file is equal to its copy, the user did not change it, and the file of a
  * new version replaces it with no question. If it is different, [confirm] decides.
+ *
+ * The folder [STARTERS] of [source] has the first content of the files of the user. It is not a
+ * shipped file, and [target] gets no copy of it.
  */
 class StackFiles(
     private val source: String,
@@ -73,7 +76,11 @@ class StackFiles(
     /** The files below [folder] of [source], as paths relative to [source]. */
     private fun shippedPaths(folder: String): List<String> = Files.list("$source/$folder").flatMap { name ->
         val path = if (folder.isEmpty()) name else "$folder/$name"
-        if (Files.isDirectory("$source/$path")) shippedPaths(path) else listOf(path)
+        when {
+            path == STARTERS -> emptyList()
+            Files.isDirectory("$source/$path") -> shippedPaths(path)
+            else -> listOf(path)
+        }
     }
 
     private fun readOrNull(path: String): ByteArray? = if (Files.exists(path)) Files.readBytes(path) else null
@@ -111,13 +118,16 @@ class StackFiles(
         const val NEW_SUFFIX = ".new"
         const val PREVIOUS_SUFFIX = ".previous"
 
+        /** The folder in the source that holds the first content of the files of the user. */
+        const val STARTERS = "starter"
+
         private val PLAIN = "644".toInt(8)
         private val EXECUTABLE = "755".toInt(8)
         private val FOLDER = "755".toInt(8)
         private val SECRET = "600".toInt(8)
 
-        /** Each file of the user, with the shipped file that is its first content. */
-        private val OWN_FILES = mapOf(".env" to ".env.example", "config/config.yml" to "config/config.example.yml")
+        /** Each file of the user, with the file in the source that is its first content. */
+        private val OWN_FILES = mapOf(".env" to ".env.example", "config/config.yml" to "$STARTERS/config.yml")
         private val OWN_MODES = mapOf(".env" to SECRET, "config/config.yml" to PLAIN)
         private val OWN_FOLDERS = mapOf("backups" to FOLDER)
     }

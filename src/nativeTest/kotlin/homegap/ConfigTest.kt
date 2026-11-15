@@ -22,6 +22,15 @@ class ConfigTest {
     }
 
     @Test
+    fun theStarterConfigIsValidAndStartsInDryRun() {
+        val path = listOf("config/config.starter.yml", "../config/config.starter.yml").first { Files.exists(it) }
+        val config = ConfigLoader.load(path)
+        assertTrue(config.nodes.isEmpty())
+        assertTrue(config.reconcile.dryRun)
+        assertEquals("HOMEGAP_DASHBOARD_TOKEN", config.dashboard.authTokenEnv)
+    }
+
+    @Test
     fun validationCatchesMistakes() {
         val bad = TEST_CONFIG.replace("zone: example.net", "zone: other.invalid")
         val wrongZone = assertFailsWith<IllegalArgumentException> { ConfigLoader.parse(bad) }
