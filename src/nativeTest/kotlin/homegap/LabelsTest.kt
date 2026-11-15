@@ -45,7 +45,7 @@ class LabelsTest {
         val reserved = parse(
             "homegap.expose" to "x.test.example.net",
             "homegap.protocol" to "tcp",
-            "homegap.port" to "22",
+            "homegap.port" to "8080",
         )
         assertTrue(reserved.errors.any { "reserved" in it })
         val ok = parse(

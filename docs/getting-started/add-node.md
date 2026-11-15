@@ -82,7 +82,8 @@ The **Management user** is "The account HomeGAP manages the node with."
 5. Under **SSH hardening**, **Disable root login** is selected by default. Clear it to keep root login. This option needs a management user other than root. If the initial login is not root, and root login is off already or the server keeps it on, setup writes a note in the step and continues.
 6. **Disable password login** is selected by default. Then SSH accepts keys only, for every user. Clear it to keep password login.
 7. Optional: if the initial login is not root and HomeGAP creates a management user, select **Disable SSH login for** the initial user. Then that user cannot log in over SSH. The console of your provider still works.
-8. Click **Continue**.
+8. Optional: in **New SSH port**, type a port for the SSH server of the node. Leave the field empty to keep the port. HomeGAP moves the SSH server after setup, in its first pass for the node. See [Move the SSH port of a node](../operations/node-updates.md#move-the-ssh-port-of-a-node).
+9. Click **Continue**.
 
 A generated key is an ed25519 key. HomeGAP keeps it in `<data dir>/ssh/` on the orchestrator.
 

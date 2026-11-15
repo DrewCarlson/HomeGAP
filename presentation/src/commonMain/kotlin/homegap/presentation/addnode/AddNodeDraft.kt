@@ -47,6 +47,7 @@ enum class WizardField(val label: String, val placeholder: String = "", val kind
     ImportKey("Private key", "-----BEGIN OPENSSH PRIVATE KEY-----"),
     ExistingKey("Key file on the orchestrator", "/data/ssh/eu1", FieldKind.Identifier),
     AllowFrom("Allowed sources", "203.0.113.7, 198.51.100.0/24", FieldKind.Identifier),
+    NewPort("New SSH port", "keep the port", FieldKind.Number),
 }
 
 /** On/off choices of the wizard. */

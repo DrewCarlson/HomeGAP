@@ -211,7 +211,8 @@ object Planner {
             }
         }
 
-        val claimed = claim(parsed, errors, config.reservedHosts(), config.cluster?.mesh?.port)
+        val claims = Claims(config.reservedHosts(), config.cluster?.mesh?.port, config.nodes)
+        val claimed = claim(parsed, errors, claims)
         val published = withPrivatePages(config, withPrivateDashboard(config, claimed, errors))
         val doors = frontDoors(config, published)
         val services = doors.all.fold(published) { kept, door -> refuseCoveredPassthrough(kept, door, errors) }
@@ -453,15 +454,19 @@ object Planner {
      * - One service for each key.
      * - On the nodes that two public services share, one service for each public port and protocol.
      */
-    private fun claim(
-        parsed: List<ServiceSpec>,
-        errors: MutableList<LabelIssue>,
-        reserved: Set<String>,
-        meshPort: Int?,
-    ): List<ServiceSpec> {
+    /** What a service cannot claim: the hostnames of HomeGAP, the mesh port, and the SSH port of each node. */
+    private class Claims(val hosts: Set<String>, val meshPort: Int?, val nodes: List<NodeConfig>) {
+        /** The node that serves [service] and has one of its public TCP ports as its SSH port, or null. */
+        fun sshClash(service: ServiceSpec): NodeConfig? {
+            val tcp = service.publicPorts().filter { it.protocol == "tcp" }.map { it.port }.toSet()
+            return nodes.firstOrNull { it.sshPort in tcp && service.servesNode(it.id) }
+        }
+    }
+
+    private fun claim(parsed: List<ServiceSpec>, errors: MutableList<LabelIssue>, claims: Claims): List<ServiceSpec> {
         val kept = mutableListOf<ServiceSpec>()
         for (service in parsed) {
-            val refusal = refusal(service, kept, reserved, meshPort)
+            val refusal = refusal(service, kept, claims)
             if (refusal == null) {
                 kept += service
             } else {
@@ -472,9 +477,9 @@ object Planner {
     }
 
     /** Returns why [service] cannot keep its claims beside the services in [kept], or null if it can. */
-    private fun refusal(service: ServiceSpec, kept: List<ServiceSpec>, reserved: Set<String>, meshPort: Int?): String? {
+    private fun refusal(service: ServiceSpec, kept: List<ServiceSpec>, claims: Claims): String? {
         val hostname = service.hostname
-        if (hostname.lowercase() in reserved) {
+        if (hostname.lowercase() in claims.hosts) {
             return "hostname $hostname is reserved for HomeGAP"
         }
         val httpOwner = kept.firstOrNull { it.hostname == hostname && !it.protocol.isRaw }
@@ -490,8 +495,12 @@ object Planner {
             return null
         }
         val ports = service.publicPorts()
-        if (ports.any { it.port == meshPort && it.protocol == "udp" }) {
-            return "public port $meshPort/udp is the port of the cluster mesh"
+        if (ports.any { it.port == claims.meshPort && it.protocol == "udp" }) {
+            return "public port ${claims.meshPort}/udp is the port of the cluster mesh"
+        }
+        claims.sshClash(service)?.let { node ->
+            val remedy = "move the SSH server with nodes[].ssh_port, or publish the service on a different port"
+            return "public port ${node.sshPort}/tcp is the SSH port of node ${node.id}; $remedy"
         }
         val (owner, port) = kept
             .filter { other -> other.access == Access.PUBLIC && overlaps(other.regions, service.regions) }

@@ -127,14 +127,14 @@ class PortListsTest {
             "homegap.services.ok.expose" to "ok.test.example.net",
             "homegap.services.ok.port" to "9000/udp",
             "homegap.services.bad.expose" to "bad.test.example.net",
-            "homegap.services.bad.port" to "22/tcp",
+            "homegap.services.bad.port" to "8080/tcp",
             "homegap.services.nohost.port" to "1/tcp",
             "homegap.services.Up.expose" to "x.test.example.net",
             "homegap.services.ok.colour" to "red",
         )
         assertEquals(setOf(null, "ok"), parsed.specs.map { it.name }.toSet(), "the others still publish")
         assertTrue(
-            parsed.errors.any { it.startsWith("services.bad: public port 22 is reserved") },
+            parsed.errors.any { it.startsWith("services.bad: public port 8080 is reserved") },
             parsed.errors.toString(),
         )
         assertTrue(parsed.errors.any { it.startsWith("services.nohost: homegap.expose is required") })

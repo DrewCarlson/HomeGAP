@@ -453,6 +453,22 @@ class PresenterTest {
     }
 
     @Test
+    fun wizardTakesANewSshPortThatIsNotThePortOfTheLogin() {
+        fun access(port: String) = AddNodeValidation.problems(
+            draft = AddNodeDraft(values = mapOf(WizardField.Port to "22", WizardField.NewPort to port)),
+            step = WizardStep.Access,
+            existingNodeIds = emptySet(),
+        ).filter { it.field == WizardField.NewPort }
+        assertEquals(emptyList(), access(""), "an empty field keeps the port")
+        assertEquals(emptyList(), access("2222"))
+        assertEquals(1, access("22").size, "the server already uses this port")
+        assertEquals(1, access("70000").size)
+        assertEquals(1, access("ssh").size)
+        assertEquals(2222, AddNodeValidation.newPort(AddNodeDraft(values = mapOf(WizardField.NewPort to " 2222 "))))
+        assertEquals(null, AddNodeValidation.newPort(AddNodeDraft()))
+    }
+
+    @Test
     fun wizardRefusesToDisableRootLoginForRoot() = runTest {
         val draft = AddNodeDraft(toggles = setOf(WizardToggle.DisableRootLogin), values = mapOf(WizardField.LoginUser to "root"))
         assertTrue(AddNodeValidation.errors(draft, WizardStep.Access, emptySet()).any { "Root login" in it })

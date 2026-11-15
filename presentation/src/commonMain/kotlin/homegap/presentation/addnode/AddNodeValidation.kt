@@ -15,6 +15,9 @@ internal object AddNodeValidation {
 
     fun port(draft: AddNodeDraft): Int? = draft[WizardField.Port].trim().toIntOrNull()?.takeIf { it in 1..65535 }
 
+    /** The port that the SSH server moves to after the setup, or null to keep the port of the login. */
+    fun newPort(draft: AddNodeDraft): Int? = draft[WizardField.NewPort].trim().toIntOrNull()?.takeIf { it in 1..65535 }
+
     fun targetUser(draft: AddNodeDraft): String =
         if (draft.has(WizardToggle.CreateUser)) draft[WizardField.NewUser].trim() else draft[WizardField.LoginUser].trim()
 
@@ -91,6 +94,11 @@ internal object AddNodeValidation {
                     add("Root login can only be disabled when the node is managed as another user; create one.")
                 }
                 if (draft.key == null || draft.keyFor != draft[WizardField.NodeId].trim()) add("Create or choose the node's SSH key.")
+                if (draft[WizardField.NewPort].isNotBlank()) {
+                    val moved = newPort(draft)
+                    if (moved == null) add("New SSH port must be a number from 1 to 65535.", WizardField.NewPort)
+                    if (moved != null && moved == port(draft)) add("The server already uses this port.", WizardField.NewPort)
+                }
             }
             WizardStep.Firewall -> if (draft.has(WizardToggle.Firewall) && draft.has(WizardToggle.RestrictSsh)) {
                 val sources = sources(draft)

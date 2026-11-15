@@ -38,6 +38,24 @@ The public port of an entry is its `public:` part. Without it, the public port i
 
 HomeGAP refuses public ports that the node uses itself. For the list, see the [Label reference](labels.md#rules-for-the-extension-labels).
 
+### Use port 22 for a service
+
+A node uses its SSH port itself, so a service cannot have it as a public TCP port. The default SSH port is 22. To give port 22 to a service, for example the SSH of a git server, first move the SSH server of each node that serves the service.
+
+1. Set `ssh_port` of each node to a different port, for example `2222`. See [Move the SSH port of a node](../operations/node-updates.md#move-the-ssh-port-of-a-node).
+2. Wait until the activity log has the line "moved the SSH server from port 22 to port 2222" for each node.
+3. Add the labels to the service:
+    ```yaml
+    forgejo:
+      labels:
+        homegap.expose: "git.example.net"
+        homegap.port: "22/tcp"
+    ```
+
+If a node still has port 22 as its SSH port, HomeGAP refuses the service with the error `public port 22/tcp is the SSH port of node <id>`. Web traffic for the same hostname does not change. It uses the front door, as before.
+
+Port 22 on the nodes then goes to this service for each hostname, because TCP carries no hostname.
+
 ### Resource ids
 
 | Service | niceId |
@@ -76,7 +94,7 @@ game:
     homegap.regions: "eu1"
 ```
 
-A private SSH jump host on TCP port 22. Port 22 is reserved on the nodes, but a private service has no public port, so HomeGAP accepts it:
+A private SSH jump host on TCP port 22. A private service has no public port, so the SSH port of the nodes does not matter:
 
 ```yaml
 ssh-jump:

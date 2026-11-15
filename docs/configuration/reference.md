@@ -134,7 +134,7 @@ The `cluster` section is optional. Without it, HomeGAP runs in standalone mode. 
 | `public_ipv6` | string | None. | The public IPv6 address in DNS. |
 | `os` | string | `""` | The OS of the node, for example `ubuntu-24.04`. |
 | `ssh_user` | string | `root` | The SSH user. |
-| `ssh_port` | integer | `22` | The SSH port. |
+| `ssh_port` | integer | `22` | The SSH port. If you change it for a node that HomeGAP manages, HomeGAP moves the SSH server of the node to the new port. See [Move the SSH port of a node](../operations/node-updates.md#move-the-ssh-port-of-a-node). |
 | `ssh_key_file` | string | None. Necessary. | The private SSH key, as a path in the orchestrator container. |
 | `location` | object | None. | `{ latitude, longitude, name }`. The `name` shows on the maps. |
 | `latency_zone` | string | None. | The Bunny latency zone, for `latency` routing. |

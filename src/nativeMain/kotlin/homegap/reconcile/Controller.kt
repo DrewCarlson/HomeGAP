@@ -102,6 +102,7 @@ class Controller(
     @Volatile var config: AppConfig = initialConfig
         private set
     private val passMutex = Mutex()
+    private val sshPortMove = SshPortMove(state, ssh, log)
     private val passTimes = PassTimes()
 
     /**
@@ -483,9 +484,10 @@ class Controller(
         passTimes.drain()
         try {
             reloadConfig()
-            val cfg = config
             val diff = DiffCollector()
             val applyOnce = APPLY_ONCE in trigger.split(',')
+            // Each node at the port where its SSH server listens. A changed ssh_port moves the server first.
+            val cfg = sshPortMove.settle(config) { nodeId -> sshPortHold(nodeId, applyOnce) }
             val ctx = ReconcileContext(
                 config = cfg,
                 state = state,
@@ -907,6 +909,17 @@ class Controller(
             )
             log.pass = null
             log.save()
+        }
+    }
+
+    /** Why the SSH port of [nodeId] cannot move in this pass, or null if it can. */
+    private fun sshPortHold(nodeId: String, applyOnce: Boolean): String? {
+        val pauses = state.snapshot().pauses
+        return when {
+            dryRun -> "the dry run"
+            pauses.global && !applyOnce -> "the pause"
+            nodeId in pauses.nodes -> "the pause of the node"
+            else -> null
         }
     }
 

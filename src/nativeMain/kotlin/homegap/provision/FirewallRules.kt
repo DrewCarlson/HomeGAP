@@ -9,18 +9,19 @@ import homegap.model.RawPort
  * only rules with that comment.
  */
 object FirewallRules {
+    /** The rules for SSH: from each address (key-only after the hardening) or only from the listed sources. */
+    fun sshSpecs(node: NodeConfig): List<String> = when {
+        node.sshAllowFrom.isEmpty() -> listOf("allow ${node.sshPort}/tcp")
+        else -> node.sshAllowFrom.map { "allow from ${canonical(it)} to any port ${node.sshPort} proto tcp" }
+    }
+
     /** The `ufw` rule specs (the arguments after `ufw`) for [node]. [meshPort] opens the cluster mesh. */
     fun specs(
         node: NodeConfig,
         rawPorts: List<RawPort> = emptyList(),
         meshPort: Int? = null,
     ): List<String> = buildList {
-        // SSH: from each address (key-only after the hardening) or only from the listed sources.
-        if (node.sshAllowFrom.isEmpty()) {
-            add("allow ${node.sshPort}/tcp")
-        } else {
-            node.sshAllowFrom.forEach { add("allow from ${canonical(it)} to any port ${node.sshPort} proto tcp") }
-        }
+        addAll(sshSpecs(node))
         add("allow 80/tcp")
         add("allow 443/tcp")
         add("allow 443/udp")

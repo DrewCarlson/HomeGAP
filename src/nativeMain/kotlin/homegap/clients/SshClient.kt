@@ -242,4 +242,15 @@ class SshPool(private val controlDir: String, private val knownHostsFile: String
         host == other.host && sshUser == other.sshUser && sshPort == other.sshPort && sshKeyFile == other.sshKeyFile
 
     suspend fun drop(nodeId: String) = lock.withLock { sessions.remove(nodeId)?.close() }
+
+    /**
+     * A second connection to [node], next to its session in the pool. The move of an SSH port uses
+     * it to try the new port while the session on the old port stays open. Close it after use.
+     */
+    fun probe(node: NodeConfig): SshSession =
+        SshSession(node.copy(id = "${node.id}$PROBE_SUFFIX"), controlDir, knownHostsFile)
+
+    private companion object {
+        const val PROBE_SUFFIX = "-probe"
+    }
 }

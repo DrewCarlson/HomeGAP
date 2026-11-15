@@ -435,6 +435,10 @@ private fun AccessStep(model: AddNodeScreenModel) {
                 description = "$login was only for setup. ${model.targetUser} runs the node from now on; the provider's console still works.",
             )
         }
+        Field(model, WizardField.NewPort)
+        P({ classes("muted", "small") }) {
+            Text("Leave empty to keep the port. HomeGAP moves the SSH server after setup, and keeps the old port open until the new one works.")
+        }
     }
 }
 

@@ -92,6 +92,11 @@ data class NodeSetupRequestDto(
      */
     val disableLoginUser: Boolean = false,
     val configureFirewall: Boolean = true,
+    /**
+     * The port that the SSH server of the node moves to after the setup. Null keeps the port of
+     * [login]. The orchestrator moves the server in its first pass for the node.
+     */
+    val newSshPort: Int? = null,
     /** The sources that can reach SSH (IPs/CIDRs). Empty means each source. */
     val sshAllowFrom: List<String> = emptyList(),
     /**

@@ -47,3 +47,23 @@ To see the stack that HomeGAP writes to a node, run this command. The output doe
 ```bash
 docker compose exec orchestrator homegap render-node na1
 ```
+
+## Move the SSH port of a node
+
+To move the SSH server of a node to a different port, change `nodes[].ssh_port` in the config. HomeGAP moves the server in the next pass. A reason to do this is a service that needs port 22 on the nodes. See [Use port 22 for a service](../services/raw-ports.md#use-port-22-for-a-service).
+
+HomeGAP keeps a way in at each step:
+
+1. Over the old port, it makes the SSH server listen on the old port and on the new port. It opens the new port in the firewall.
+2. It logs in on the new port.
+3. Over the new port, it makes the SSH server drop the old port. The firewall closes the old port in the same pass.
+
+If the login on the new port fails, HomeGAP puts the old ports back. The activity log has the error "the SSH port stays N", and HomeGAP tries the move again in each pass. Until the move is complete, HomeGAP uses the old port for the node. A cause of a failed login is a firewall of your provider that does not have the new port open.
+
+HomeGAP does not move the port during a dry run, a pause of all changes or a pause of the node.
+
+The ports are in the file `/etc/ssh/sshd_config.d/00-homegap-port.conf` on the node. If a different file of the SSH server has a `Port` line, HomeGAP does not move the port. Remove that line first.
+
+!!! warning "Caution"
+    Keep the console of your provider at hand for the first move of a node. It is the way in if the SSH server and HomeGAP disagree about the port.
+

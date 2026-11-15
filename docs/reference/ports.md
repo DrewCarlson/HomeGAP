@@ -43,7 +43,7 @@ In cluster mode, HomeGAP also opens these TCP ports in `ufw`, but only on the in
 
 ## Node: reserved ports
 
-The node uses these ports itself: `22`, `80`, `443`, `2379`, `2380`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `5432`, `5433`, `6379`, `6380`, `8008`, `8080`, `8082`, `8090`, `21820`, `26379` and `51820`. A public raw service cannot use them. In cluster mode, it also cannot use `cluster.mesh.port`/udp.
+The node uses these ports itself: its SSH port (`ssh_port`, default 22), `80`, `443`, `2379`, `2380`, `3000`, `3001`, `3002`, `3003`, `3004`, `3005`, `5432`, `5433`, `6379`, `6380`, `8008`, `8080`, `8082`, `8090`, `21820`, `26379` and `51820`. A public raw service cannot use them. In cluster mode, it also cannot use `cluster.mesh.port`/udp.
 
 ## Node: internal ports
 

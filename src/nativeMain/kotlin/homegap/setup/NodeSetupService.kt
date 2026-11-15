@@ -1,5 +1,7 @@
 package homegap.setup
 
+import homegap.reconcile.SshPortMove
+import homegap.discovery.RESERVED_NODE_PORTS
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -223,6 +225,12 @@ class NodeSetupService(private val controller: Controller) {
 
         val hardenSsh get() = request.disableRootLogin || request.disablePasswordLogin || lockedUser != null
 
+        /**
+         * The node as the config gets it. With a new SSH port, the config has that port, and the
+         * state has the port of the setup. The first pass then moves the SSH server ([SshPortMove]).
+         */
+        val added: NodeConfig get() = node.copy(sshPort = request.newSshPort ?: node.sshPort)
+
         fun steps(): List<SetupStepDto> {
             val userTitle = if (request.createUser != null) "Create user $target" else "Authorize the key for $target"
             val firewallStatus = if (request.configureFirewall) "pending" else "skipped"
@@ -234,8 +242,13 @@ class NodeSetupService(private val controller: Controller) {
                 SetupStepDto("firewall", "Configure the firewall", firewallStatus),
                 SetupStepDto("ssh", "Harden SSH", sshStatus),
                 SetupStepDto("verify", "Reconnect from the orchestrator with the node key"),
-                SetupStepDto("add", "Add ${node.id} and start provisioning"),
+                SetupStepDto("add", addTitle()),
             )
+        }
+
+        private fun addTitle(): String = when (val port = request.newSshPort) {
+            null -> "Add ${node.id} and start provisioning"
+            else -> "Add ${node.id}, move SSH to port $port and start provisioning"
         }
 
         companion object {
@@ -257,9 +270,15 @@ class NodeSetupService(private val controller: Controller) {
                     sshAllowFrom = if (request.configureFirewall) request.sshAllowFrom else emptyList(),
                 ).toConfig().copy(firewall = request.configureFirewall)
                 require(config.node(node.id) == null) { "node ${node.id} already exists" }
+                request.newSshPort?.let { port ->
+                    val free = port in 1..65535 && port !in RESERVED_NODE_PORTS
+                    require(free) { "the new SSH port $port is not free on a node" }
+                    require(port != node.sshPort) { "the new SSH port is the port of the login" }
+                }
+                val plan = SetupPlan(request, node, initialLogin(request, node), target)
                 // Fail now, not after the server work, if the result would not be a valid config.
-                ConfigLoader.validate(config.copy(nodes = config.nodes + node))
-                return SetupPlan(request, node, initialLogin(request, node), target)
+                ConfigLoader.validate(config.copy(nodes = config.nodes + plan.added))
+                return plan
             }
 
             private fun initialLogin(request: NodeSetupRequestDto, node: NodeConfig): SetupLogin {
@@ -328,9 +347,19 @@ class NodeSetupService(private val controller: Controller) {
                 step("ssh") { hardenSsh(admin) }
             }
             step("verify") { verifyFromOutside(admin) }
-            step("add") { controller.addNode(node) }
+            step("add") { addNode() }
             state.update { it.copy(state = "succeeded", finishedAt = nowMillis()) }
             log("setup finished; provisioning starts on the next pass")
+        }
+
+        /** Adds the node to the config. With a new SSH port, the state first gets the port of the server now. */
+        private suspend fun addNode(): String {
+            val added = plan.added
+            if (added.sshPort != node.sshPort) {
+                val current = SshPortMove.FACT to node.sshPort.toString()
+                controller.state.updateNode(node.id) { it.copy(facts = it.facts + current) }
+            }
+            return controller.addNode(added)
         }
 
         private fun fail(e: Throwable) {

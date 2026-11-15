@@ -335,6 +335,7 @@ class AddNodeScreenPresenter(
             disableLoginUser = draft.has(WizardToggle.DisableLoginUser) && AddNodeValidation.lockableLogin(draft) != null,
             configureFirewall = draft.has(WizardToggle.Firewall),
             sshAllowFrom = if (restrict) AddNodeValidation.sources(draft) else emptyList(),
+            newSshPort = AddNodeValidation.newPort(draft),
         )
     }
 
@@ -469,6 +470,7 @@ class AddNodeScreenPresenter(
             "no root login".takeIf { draft.has(WizardToggle.DisableRootLogin) },
             "no password login".takeIf { draft.has(WizardToggle.DisablePasswordLogin) },
             AddNodeValidation.lockableLogin(draft)?.takeIf { draft.has(WizardToggle.DisableLoginUser) }?.let { "no SSH login for $it" },
+            AddNodeValidation.newPort(draft)?.let { "moves to port $it after setup" },
         )
         add(ReviewLine("SSH", ssh.joinToString(", ").ifEmpty { "unchanged" }))
         add(

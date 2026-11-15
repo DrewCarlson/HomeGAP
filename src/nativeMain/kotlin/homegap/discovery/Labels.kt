@@ -716,9 +716,12 @@ private fun namedServiceLabels(labels: Map<String, String>): Map<String, Map<Str
                 .associate { Labels.PREFIX + it.removePrefix(prefix) to labels.getValue(it) }
         }
 
-/** Ports a regional node already uses for itself (SSH, web, tunnels, Pangolin internals). */
+/**
+ * Ports a regional node already uses for itself (web, tunnels, Pangolin internals). The SSH port
+ * of a node is not here: the planner refuses it for each node, from `nodes[].ssh_port`.
+ */
 val RESERVED_NODE_PORTS = setOf(
-    22, 80, 443, 3000, 3001, 3002, 3003, 3004, 3005, 8080, 21820, 51820,
+    80, 443, 3000, 3001, 3002, 3003, 3004, 3005, 8080, 21820, 51820,
     // The cluster services, the Traefik metrics and the maintenance page of the node.
     2379, 2380, 5432, 5433, 6379, 6380, 8008, 8082, 8090, 26379,
 )
