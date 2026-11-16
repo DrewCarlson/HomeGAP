@@ -28,6 +28,7 @@ class IdentityStore(
         val machines: List<Machine> = emptyList(),
         val resources: List<Resource> = emptyList(),
         val vpn: VpnAccess = VpnAccess(),
+        val nodeNames: Map<String, NodeNames> = emptyMap(),
         val blockedDevices: List<String> = emptyList(),
         val removedDevices: List<String> = emptyList(),
         val issuers: Map<String, String> = emptyMap(),
@@ -160,6 +161,11 @@ class IdentityStore(
         if (load().vpn != access) save { it.copy(vpn = access) }
     }
 
+    /** Sets the public names that each node serves, by the id of the node. */
+    fun setNodeNames(names: Map<String, NodeNames>): Unit = synchronized(lock) {
+        if (load().nodeNames != names) save { it.copy(nodeNames = names) }
+    }
+
     /** Sets the public key [publicKey] of the session issuer [name]. Returns true if that is a change. */
     fun setIssuer(name: String, publicKey: String): Boolean = synchronized(lock) {
         if (load().issuers[name] == publicKey) return@synchronized false
@@ -219,6 +225,7 @@ class IdentityStore(
             machines = state.machines.sortedBy { it.name },
             resources = state.resources,
             vpn = state.vpn,
+            nodeNames = state.nodeNames,
             blockedDevices = state.blockedDevices,
             removedDevices = state.removedDevices,
             issuers = state.issuers,

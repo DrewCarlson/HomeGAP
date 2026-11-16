@@ -70,7 +70,7 @@ class ControlSocket(
                     )
                     // The app sends this form first, for old servers. The real one comes after the list of nodes.
                     "olm/wg/register" -> if ((data["backwardsCompatible"] as? JsonPrimitive)?.booleanOrNull != true) {
-                        val admitted = register(device, data, chain)
+                        val admitted = register(device, data, chain, node)
                         devices.seen(device.id, agentOf(data), node)
                         if (admitted != null) {
                             sites = admitted.second
@@ -94,13 +94,14 @@ class ControlSocket(
         device: Device,
         data: JsonObject,
         chain: String?,
+        node: String?,
     ): Pair<String, List<Site>>? {
         val key = data.text("publicKey")?.takeIf { KEY.matches(it) }
         if (key == null) {
             send("olm/error", reason("INVALID_REQUEST", "The device sent no valid key."))
             return null
         }
-        val connection = runCatchingCancellable { gateway.admit(device, key) }.getOrElse { e ->
+        val connection = runCatchingCancellable { gateway.admit(device, key, node) }.getOrElse { e ->
             logger.error { "could not admit the device '${device.name}': ${e.message}" }
             send("olm/error", reason("SERVER_ERROR", "HomeGAP could not start the tunnel. Try again."))
             return null

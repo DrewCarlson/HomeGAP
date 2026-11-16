@@ -1,6 +1,7 @@
 package homegap.signin
 
 import homegap.identity.Directory
+import homegap.identity.NodeNames
 import homegap.identity.Signed
 import homegap.platform.Files
 import homegap.platform.watchDirectory
@@ -38,7 +39,7 @@ class HomeTunnel(
 
     override fun exitNodes(): List<ExitNode> = listOf(ExitNode(SITE_ID, SITE_NAME, host))
 
-    override suspend fun admit(device: Device, publicKey: String): Connection {
+    override suspend fun admit(device: Device, publicKey: String, node: String?): Connection {
         val roles = rolesOf(device) ?: error("the device has no access")
         synchronized(lock) {
             connected[device.id] = device to publicKey
@@ -54,6 +55,7 @@ class HomeTunnel(
         val aliases = users?.resources.orEmpty()
             .filter { it.allows(roles) }
             .map { Alias(it.name, it.address) }
+        val public = publicAliases(users?.nodeNames.orEmpty(), node).filter { it.alias !in aliases.map(Alias::alias) }
         // The app sends the lookups for these servers to this peer, which sends them on.
         val resolvers = users?.vpn?.resolversFor(roles).orEmpty()
         val site = Site(
@@ -64,7 +66,7 @@ class HomeTunnel(
             serverIP = status.address,
             serverPort = status.port,
             remoteSubnets = resolvers.map { "$it/32" },
-            aliases = aliases,
+            aliases = aliases + public,
         )
         val dns = DnsConfig(resolvers.map { "$it:$DNS_PORT" }, overrideDns = true, tunnelDns = true)
         // The exit of each node that has the key of the device. The app must have the site to select its exit.
@@ -120,4 +122,17 @@ class HomeTunnel(
         const val DNS_PORT = 53
         val ADMIT_TIMEOUT = 10.seconds
     }
+}
+
+/**
+ * The public names for a device that connects through [node]. Each name of that node answers
+ * with that node, whatever public DNS says. A name that only other nodes serve answers with
+ * one of them, because a wildcard name of [node] must not take it.
+ */
+internal fun publicAliases(nodeNames: Map<String, NodeNames>, node: String?): List<Alias> {
+    val own = nodeNames[node] ?: return emptyList()
+    val others = nodeNames.entries.filter { it.key != node }.sortedBy { it.key }.flatMap { (_, other) ->
+        other.names.filter { it !in own.names }.map { Alias(it, other.address) }
+    }
+    return own.names.map { Alias(it, own.address) } + others.distinctBy { it.alias }
 }

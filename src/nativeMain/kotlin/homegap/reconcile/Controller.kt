@@ -35,6 +35,7 @@ import homegap.discovery.declaresService
 import homegap.discovery.traefikApiUrls
 import homegap.identity.IdentityStore
 import homegap.provision.Mesh
+import homegap.identity.NodeNames
 import homegap.identity.VpnAccess
 import homegap.model.DesiredState
 import homegap.model.HomelabServices
@@ -184,6 +185,12 @@ class Controller(
 
     /** The forwards of the last pass that had the container list. A pass with no list keeps them. */
     private var meshForwards = MeshForwards.Result()
+
+    /** The names with an A record of each node in [plan], with the address of the node. */
+    private fun nodeNames(plan: DesiredState): Map<String, NodeNames> =
+        plan.dns.filter { it.type == "A" }.groupBy { it.nodeId }.mapValues { (_, records) ->
+            NodeNames(records.first().value, records.map { it.fqdn }.distinct().sorted())
+        }
 
     /** The exit at the homelab and the DNS servers of the tunnel, from the config. The tunnel has no IPv6. */
     private fun vpnAccess(cfg: AppConfig): VpnAccess {
@@ -517,6 +524,7 @@ class Controller(
                 val resources = identity.setResources(names, cfg.vpn.utilitySubnet)
                 val access = vpnAccess(cfg)
                 identity.setVpnAccess(access)
+                identity.setNodeNames(nodeNames(plan))
                 meshForwards = MeshForwards.of(plan, containers).withVpn(cfg.vpn, privateTargets, resources, access)
                 meshForwards.unknown.forEach { log.warn("mesh", "no address for the target $it: its ports are closed") }
                 unreachable.forEach {

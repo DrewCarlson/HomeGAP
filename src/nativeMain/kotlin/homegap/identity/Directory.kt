@@ -64,6 +64,14 @@ data class VpnAccess(
 }
 
 /**
+ * The public names that a node serves, with the public IPv4 address of the node. A device that
+ * connects through the node gets this address for each name, so its traffic for the names
+ * stays on that node.
+ */
+@Serializable
+data class NodeNames(val address: String, val names: List<String> = emptyList())
+
+/**
  * What the homelab says about who can sign in. The homelab signs it ([Signed]), and each part
  * that checks a user or a session trusts only a directory with that signature.
  */
@@ -76,6 +84,8 @@ data class Directory(
     val machines: List<Machine> = emptyList(),
     val resources: List<Resource> = emptyList(),
     val vpn: VpnAccess = VpnAccess(),
+    /** The public names of each node, by the id of the node. */
+    val nodeNames: Map<String, NodeNames> = emptyMap(),
     /** The ids of the devices that cannot connect until the block ends. */
     val blockedDevices: List<String> = emptyList(),
     /** The ids of the devices that the admin removed. Each server that has such a device removes it. */

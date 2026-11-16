@@ -118,7 +118,7 @@ class NodeControlService(
             return listOf(ExitResource(siteId, "exit-$name", "Exit via $name", listOf(siteId), listOf(name)))
         }
 
-        override suspend fun admit(device: Device, publicKey: String): Connection {
+        override suspend fun admit(device: Device, publicKey: String, node: String?): Connection {
             val users = directory() ?: error("the node has no directory")
             val roles = users.rolesOf(device.id, device.userId) ?: error("the device has no access")
             check(users.vpn.nodeExitFor(roles)) { "the device has no role of the exits" }

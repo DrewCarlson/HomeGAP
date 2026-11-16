@@ -105,6 +105,8 @@ HomeGAP denies everything else. A device does not reach your home network, anoth
 
 The app answers the names of your private services itself. HomeGAP gives it the names and their addresses when the device connects.
 
+The app also answers the public names of your services itself. A device connects through one node, and each public name that this node serves gets the address of this node. The traffic of the device for your services then stays on the node that carries its VPN, whatever public DNS answers. A name that only a different node serves, such as `status-na1.example.net`, gets the address of that node. A private name that the user can reach keeps its private address.
+
 For other names, HomeGAP gives the app the DNS servers of `vpn.tunnel_dns.resolvers` (default `8.8.8.8`) and enables DNS through the tunnel. These values override the DNS settings of the app. The lookups then leave from your homelab. A user without a role of `vpn.tunnel_dns.roles` gets no DNS settings from HomeGAP.
 
 <!-- FACT-CHECK: the labels of the DNS settings in each app, and whether a user must change one. PLAN.md says that the values of the server override the settings of the app. The comment in config/config.example.yml says to set the same address as the upstream DNS in each app. -->

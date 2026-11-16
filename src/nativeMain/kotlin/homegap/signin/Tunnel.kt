@@ -70,8 +70,11 @@ interface TunnelGateway {
     /** The exits for a device with [roles]. */
     fun exits(roles: List<String>): List<ExitResource> = emptyList()
 
-    /** Admits [publicKey] as the key of [device] and returns the peers for it. */
-    suspend fun admit(device: Device, publicKey: String): Connection
+    /**
+     * Admits [publicKey] as the key of [device] and returns the peers for it. [node] is the id of
+     * the node that the control connection came through, or null.
+     */
+    suspend fun admit(device: Device, publicKey: String, node: String? = null): Connection
 
     /** Removes the key [publicKey] of [device]: its control connection ended, or it lost its access. */
     suspend fun remove(device: Device, publicKey: String) {}
@@ -84,5 +87,6 @@ interface TunnelGateway {
 class NoTunnels(private val host: String) : TunnelGateway {
     override fun exitNodes(): List<ExitNode> = listOf(ExitNode(1, "homelab", host))
 
-    override suspend fun admit(device: Device, publicKey: String): Connection = Connection(emptyList())
+    override suspend fun admit(device: Device, publicKey: String, node: String?): Connection =
+        Connection(emptyList())
 }
