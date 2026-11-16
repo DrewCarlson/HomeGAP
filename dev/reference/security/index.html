@@ -2657,7 +2657,7 @@
 <ul>
 <li><strong>Passwords:</strong> HomeGAP stores a password as a PBKDF2-SHA256 hash with 600,000 iterations and its own salt. A password has 12 characters or more.</li>
 <li><strong>Secrets of machines and devices:</strong> HomeGAP stores only the SHA-256 of each secret.</li>
-<li><strong>Sessions:</strong> the sign-in signs each session token with its own key. The directory names that key, and only such a session gives access to the homelab. A session of a user lasts 30 days. The token for the control connection of a device lasts 7 days.</li>
+<li><strong>Sessions:</strong> the sign-in signs each session token with its own key. The directory names that key, and only such a session gives access to the homelab. A session of a user lasts 30 days. The token for the control connection of a device lasts 7 days. The peer of the homelab keeps the key of a device that has no control connection for the same time.</li>
 <li><strong>Limits:</strong> after five wrong passwords in 15 minutes, the sign-in refuses the address of the browser and the email address. A sign-in code lasts 10 minutes.</li>
 <li><strong>Blocks:</strong> a block of a user or a device goes into the signed directory. The session of a blocked user gives no access, and the device loses its connection.</li>
 </ul>
