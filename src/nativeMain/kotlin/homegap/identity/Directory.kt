@@ -31,6 +31,16 @@ data class Machine(
 )
 
 /**
+ * A private name that a device can reach through the VPN. The app gives the name the [address],
+ * and the homelab sends that address to the service. A device needs one of the [roles]. An admin
+ * needs none.
+ */
+@Serializable
+data class Resource(val name: String, val address: String, val roles: List<String> = emptyList()) {
+    fun allows(roles: List<String>): Boolean = IdentityStore.ADMIN_ROLE in roles || roles.any { it in this.roles }
+}
+
+/**
  * What the homelab says about who can sign in. The homelab signs it ([Signed]), and each part
  * that checks a user or a session trusts only a directory with that signature.
  */
@@ -41,6 +51,7 @@ data class Directory(
     val issuedAt: Long = 0,
     val users: List<User> = emptyList(),
     val machines: List<Machine> = emptyList(),
+    val resources: List<Resource> = emptyList(),
     /**
      * The public keys that can sign a session with access to the homelab: name to key. Only the
      * sign-in server of the homelab is here. A node signs sessions that give its exit only.

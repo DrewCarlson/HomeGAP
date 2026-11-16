@@ -357,11 +357,14 @@ private fun runSignIn(configPath: String, line: CommandLine) = runBlocking {
     val identity = line.option("--identity") ?: SharedDirs.identity(DEFAULT_DATA_DIR)
     val port = line.option("--port")?.toIntOrNull() ?: DEFAULT_SIGN_IN_PORT
     val options = SignInPage.Options(settings.passwords, settings.oidc?.name)
-    SignInServer(dir, identity, options, oidc, config?.vpn ?: VpnConfig()).run(host = "0.0.0.0", port = port)
+    // The devices reach the VPN at the name of the sign-in, which goes to a node.
+    val tunnel = settings.url?.let { SharedDirs.vpn(DEFAULT_DATA_DIR) to it.removePrefix("https://").substringBefore('/') }
+    val setup = SignInServer.Setup(options, oidc, config?.vpn ?: VpnConfig(), tunnel)
+    SignInServer(dir, identity, setup).run(host = "0.0.0.0", port = port)
 }
 
 private fun runMesh(dir: String) = runBlocking {
-    MeshAgent(dir).run()
+    MeshAgent(dir, SharedDirs.vpn(DEFAULT_DATA_DIR)).run()
 }
 
 private fun runMeshRoute(dir: String) {

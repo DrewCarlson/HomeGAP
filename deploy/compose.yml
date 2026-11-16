@@ -87,6 +87,8 @@ services:
     depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     volumes:
       - "${HOMEGAP_DATA_DIR:-./data}/mesh:/mesh"
+      # The devices of the VPN that are connected, from the sign-in.
+      - "${HOMEGAP_DATA_DIR:-./data}/vpn:/vpn"
 
   orchestrator:
     image: ghcr.io/drewcarlson/homegap:${HOMEGAP_VERSION:-latest}
@@ -174,6 +176,7 @@ services:
       - ./config:/config:ro
       - "${HOMEGAP_DATA_DIR:-./data}/identity:/identity:ro"
       - "${HOMEGAP_DATA_DIR:-./data}/sign-in:/sign-in"
+      - "${HOMEGAP_DATA_DIR:-./data}/vpn:/vpn"
 
   # A filtering proxy in front of the Docker socket. A socket mount gives the whole Docker API
   # whatever its mount mode, and with it control of this host. The orchestrator only needs to

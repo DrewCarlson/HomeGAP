@@ -26,6 +26,7 @@ class IdentityStore(
         val version: Long = 0,
         val users: List<User> = emptyList(),
         val machines: List<Machine> = emptyList(),
+        val resources: List<Resource> = emptyList(),
         val issuers: Map<String, String> = emptyMap(),
     )
 
@@ -102,6 +103,26 @@ class IdentityStore(
         machine
     }
 
+    /**
+     * Sets the private names of the VPN: name to the roles that can reach it. A name keeps its
+     * address for as long as it exists, and a new name gets a free address of [subnet]
+     * (`a.b.c.0/24`). Returns the resources, in the order of their names.
+     */
+    fun setResources(wanted: Map<String, List<String>>, subnet: String): List<Resource> = synchronized(lock) {
+        val current = load().resources.associateBy { it.name }
+        val base = subnet.substringBefore('/').substringBeforeLast('.')
+        val used = current.filterKeys { it in wanted }.values.map { it.address }.toMutableSet()
+        val next = wanted.keys.sorted().map { name ->
+            val kept = current[name]?.address?.takeIf { it.startsWith("$base.") }
+            val address = kept ?: (FIRST_ALIAS_HOST..LAST_ALIAS_HOST).map { "$base.$it" }.firstOrNull { it !in used }
+                ?: error("the subnet $subnet has no free address for the private name $name")
+            used += address
+            Resource(name, address, wanted.getValue(name).sorted())
+        }
+        if (next != load().resources) save { it.copy(resources = next) }
+        next
+    }
+
     /** Sets the public key [publicKey] of the session issuer [name]. Returns true if that is a change. */
     fun setIssuer(name: String, publicKey: String): Boolean = synchronized(lock) {
         if (load().issuers[name] == publicKey) return@synchronized false
@@ -154,6 +175,7 @@ class IdentityStore(
             issuedAt = now(),
             users = state.users.sortedBy { it.email },
             machines = state.machines.sortedBy { it.name },
+            resources = state.resources,
             issuers = state.issuers,
         )
         return Signed.seal(key, Signed.JSON.encodeToString(directory))
@@ -186,6 +208,10 @@ class IdentityStore(
         private const val KEY_FILE = "authority.key"
         private const val USERS_FILE = "users.json"
         private const val MACHINE_SECRET_LENGTH = 48
+
+        /** The low addresses of the subnet belong to the apps, which run their DNS proxy on the first one. */
+        private const val FIRST_ALIAS_HOST = 10
+        private const val LAST_ALIAS_HOST = 254
         private val MACHINE_NAME = Regex("^[A-Za-z0-9 ._-]{1,60}$")
         private const val ID_LENGTH = 15
         private const val ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"

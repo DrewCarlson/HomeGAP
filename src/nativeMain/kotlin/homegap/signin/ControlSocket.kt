@@ -10,6 +10,8 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -46,6 +48,7 @@ class ControlSocket(
         }
         logger.info { "device '${device.name}' (${device.id}) connected" }
         var sites: List<Site> = emptyList()
+        var key: String? = null
         try {
             for (frame in incoming) {
                 val message = (frame as? Frame.Text)?.let { parse(it.readText()) } ?: continue
@@ -53,7 +56,6 @@ class ControlSocket(
                 val chain = data.text("chainId")
                 // A block of the user, or the end of the token, ends the connection at the next message.
                 if (signIn.tunnelClaims(token) == null) {
-                    runCatchingCancellable { gateway.remove(device) }
                     send(TERMINATE, reason("UNAUTHORIZED", "Your access ended. Sign in again."))
                     return close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "unauthorized"))
                 }
@@ -67,7 +69,11 @@ class ControlSocket(
                     )
                     // The app sends this form first, for old servers. The real one comes after the list of nodes.
                     "olm/wg/register" -> if ((data["backwardsCompatible"] as? JsonPrimitive)?.booleanOrNull != true) {
-                        sites = register(device, data, chain) ?: sites
+                        val admitted = register(device, data, chain)
+                        if (admitted != null) {
+                            sites = admitted.second
+                            key = admitted.first
+                        }
                     }
                     "olm/wg/relay" -> relay(sites, data, chain)
                     "olm/ping" -> send("pong", JsonObject(emptyMap()))
@@ -75,16 +81,17 @@ class ControlSocket(
                 }
             }
         } finally {
+            key?.let { withContext(NonCancellable) { runCatchingCancellable { gateway.remove(device, it) } } }
             logger.info { "device '${device.name}' (${device.id}) disconnected" }
         }
     }
 
-    /** Admits the key of the device and sends it its peers. Returns the peers, or null after a failure. */
+    /** Admits the key of the device and sends it its peers. Returns the key and the peers, or null after a failure. */
     private suspend fun DefaultWebSocketServerSession.register(
         device: Device,
         data: JsonObject,
         chain: String?,
-    ): List<Site>? {
+    ): Pair<String, List<Site>>? {
         val key = data.text("publicKey")?.takeIf { KEY.matches(it) }
         if (key == null) {
             send("olm/error", reason("INVALID_REQUEST", "The device sent no valid key."))
@@ -105,7 +112,7 @@ class ControlSocket(
                 chain?.let { put("chainId", it) }
             },
         )
-        return connection.sites
+        return key to connection.sites
     }
 
     /** The direct path to a peer failed. Each peer has one public endpoint, so the relay is that endpoint. */

@@ -5,6 +5,7 @@ import homegap.identity.Signed
 import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.nowMillis
+import homegap.provision.Mesh
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.serialization.Serializable
@@ -106,10 +107,7 @@ class Devices(private val dir: String, private val subnet: String, private val n
 
     companion object {
         /** The address of the homelab in [subnet]: the first one. */
-        fun serverAddress(subnet: String): String {
-            val parts = subnet.substringBefore('/').split('.')
-            return (parts.dropLast(1) + (parts.last().toInt() + 1).toString()).joinToString(".")
-        }
+        fun serverAddress(subnet: String): String = Mesh.vpnAddress(subnet)
 
         private const val FILE = "devices.json"
         private const val MAX_PER_USER = 50

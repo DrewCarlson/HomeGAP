@@ -9,6 +9,9 @@ import homegap.platform.runCatchingCancellable
 import homegap.platform.watchDirectory
 import homegap.provision.Mesh
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.IO
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -29,18 +32,24 @@ import kotlin.time.Duration.Companion.seconds
  *
  * The agent creates the private key once in [dir] (mode 0600), and the key never leaves it.
  */
-class MeshAgent(private val dir: String) {
+class MeshAgent(private val dir: String, private val vpnDir: String) {
     private val logger = KotlinLogging.logger("mesh")
     private val keyFile = "$dir/${Mesh.INTERFACE}.key"
     private val confFile = "$dir/${Mesh.INTERFACE}.conf"
     private val specFile = "$dir/${Mesh.SPEC_FILE}"
     private val statusFile = "$dir/${Mesh.STATUS_FILE}"
+    private val vpnKeyFile = "$dir/${Mesh.VPN_INTERFACE}.key"
+    private val vpnConfFile = "$dir/${Mesh.VPN_INTERFACE}.conf"
+    private val vpnPeersFile = "$vpnDir/${Mesh.VPN_PEERS_FILE}"
+    private val vpnStatusFile = "$vpnDir/${Mesh.VPN_STATUS_FILE}"
+    private var livenessPort: Int? = null
 
     suspend fun run(): Unit = coroutineScope {
         Files.mkdirs(dir)
         Files.chmodPath(dir, "700".toInt(8))
         logger.info { "mesh agent started; waiting for the orchestrator's mesh in $specFile" }
         var applied: String? = null
+        var appliedAll: String? = null
         var appliedAt = 0L
         var error: String? = null
         var reported: String? = null
@@ -48,6 +57,8 @@ class MeshAgent(private val dir: String) {
         // at an interval, to report the peers and to put back anything that drifted.
         val changes = Channel<Unit>(Channel.CONFLATED)
         launch { watchDirectory(dir) { it == Mesh.SPEC_FILE }.collect { changes.trySend(Unit) } }
+        // The sign-in server writes the devices of the VPN that are connected.
+        launch { watchDirectory(vpnDir) { it == Mesh.VPN_PEERS_FILE }.collect { changes.trySend(Unit) } }
         while (true) {
             val key = runCatchingCancellable { publicKey() }
             val text = Files.readTextOrNull(specFile)
@@ -56,16 +67,20 @@ class MeshAgent(private val dir: String) {
                 error = "the mesh description $specFile is not readable"
             }
             if (spec != null && key.isSuccess) {
-                val hash = Mesh.specHash(text)
+                val peersText = Files.readTextOrNull(vpnPeersFile).orEmpty()
+                val vpnPeers = vpnPeers(spec, peersText)
+                val hash = Mesh.specHash(text + peersText)
                 // At once after a change. If not, once a minute, to put back anything that drifted.
-                if (hash != applied || error != null || nowMillis() - appliedAt >= REAPPLY_MS) {
-                    val result = runCatchingCancellable { apply(spec) }
+                if (hash != appliedAll || error != null || nowMillis() - appliedAt >= REAPPLY_MS) {
+                    val result = runCatchingCancellable { apply(spec, vpnPeers) }
+                    if (result.isSuccess) serveLiveness(spec.vpn)
                     error = result.exceptionOrNull()?.message
-                    if (result.isSuccess && hash != applied) {
+                    if (result.isSuccess && Mesh.specHash(text) != applied) {
                         logger.info { "mesh applied: ${spec.address} with ${spec.peers.size} peer(s)" }
                     }
                     if (result.isSuccess) {
-                        applied = hash
+                        applied = Mesh.specHash(text)
+                        appliedAll = hash
                     }
                     appliedAt = nowMillis()
                 }
@@ -101,9 +116,9 @@ class MeshAgent(private val dir: String) {
      * Brings the interface to [spec]. Peer changes apply in place. The firewall goes in first,
      * and the interface only comes up behind it: a failure leaves the mesh down, never open.
      */
-    private suspend fun apply(spec: Mesh.AgentSpec) {
+    private suspend fun apply(spec: Mesh.AgentSpec, vpnPeers: List<Mesh.VpnPeer>) {
         val subnet = Mesh.parseSubnet(spec.subnet)
-        firewall(spec)
+        firewall(spec, vpnPeers)
         if (!run("ip", "link", "show", Mesh.INTERFACE).ok) {
             val added = run("ip", "link", "add", Mesh.INTERFACE, "type", "wireguard")
             check(added.ok) { explain(added) }
@@ -120,6 +135,71 @@ class MeshAgent(private val dir: String) {
             }
         }
         check(run("ip", "link", "set", Mesh.INTERFACE, "up").ok) { "could not bring ${Mesh.INTERFACE} up" }
+        applyVpn(spec.vpn, vpnPeers)
+    }
+
+    /**
+     * The devices in [text] (the file of the sign-in server) that the VPN can admit: a real key,
+     * and an address of a device in the subnet of the VPN. Each other entry is left out.
+     */
+    private fun vpnPeers(spec: Mesh.AgentSpec, text: String): List<Mesh.VpnPeer> {
+        val vpn = spec.vpn ?: return emptyList()
+        val peers = runCatching { json.decodeFromString<List<Mesh.VpnPeer>>(text) }.getOrDefault(emptyList())
+        val network = vpn.subnet.substringBefore('/').split('.')
+        val fixed = vpn.subnet.substringAfter('/').toInt() / BYTE_BITS
+        return peers
+            .filter { WIREGUARD_KEY.matches(it.publicKey) && ADDRESS.matches(it.address) && it.address != vpn.address }
+            .filter { it.address.split('.').take(fixed) == network.take(fixed) }
+            .distinctBy { it.address }
+            .distinctBy { it.publicKey }
+    }
+
+    /** Brings the interface of the VPN to [vpn] and [peers], and says so to the sign-in server. With null, no interface. */
+    private suspend fun applyVpn(vpn: Mesh.Vpn?, peers: List<Mesh.VpnPeer>) {
+        if (vpn == null) {
+            if (run("ip", "link", "show", Mesh.VPN_INTERFACE).ok) run("ip", "link", "del", Mesh.VPN_INTERFACE)
+            return
+        }
+        if (Files.readTextOrNull(vpnKeyFile).isNullOrBlank()) {
+            Files.writeAtomic(vpnKeyFile, wg("genkey").stdout.trim() + "\n", OWNER_ONLY)
+        }
+        val privateKey = Files.readTextOrNull(vpnKeyFile)?.trim().orEmpty()
+        if (!run("ip", "link", "show", Mesh.VPN_INTERFACE).ok) {
+            val added = run("ip", "link", "add", Mesh.VPN_INTERFACE, "type", "wireguard")
+            check(added.ok) { explain(added) }
+        }
+        Files.writeAtomic(vpnConfFile, Mesh.vpnConfig(vpn, privateKey, peers), OWNER_ONLY)
+        wg("syncconf", Mesh.VPN_INTERFACE, vpnConfFile)
+        val address = "${vpn.address}/${vpn.subnet.substringAfter('/')}"
+        if ("inet $address " !in run("ip", "-4", "addr", "show", "dev", Mesh.VPN_INTERFACE).stdout) {
+            run("ip", "-4", "addr", "flush", "dev", Mesh.VPN_INTERFACE)
+            val added = run("ip", "addr", "add", address, "dev", Mesh.VPN_INTERFACE)
+            check(added.ok) { "could not set the address of the VPN" }
+        }
+        check(run("ip", "link", "set", Mesh.VPN_INTERFACE, "up").ok) { "could not bring ${Mesh.VPN_INTERFACE} up" }
+        val status = Mesh.VpnStatus(
+            publicKey = wg("pubkey", stdin = privateKey + "\n").stdout.trim(),
+            port = vpn.port,
+            address = vpn.address,
+            peers = peers.map { it.publicKey },
+        )
+        runCatchingCancellable { Files.writeAtomic(vpnStatusFile, json.encodeToString(status), READABLE) }
+    }
+
+    /** Starts the answers to the liveness probe of the apps, on the port after the port of the VPN. */
+    private fun CoroutineScope.serveLiveness(vpn: Mesh.Vpn?) {
+        val port = vpn?.port?.plus(1) ?: return
+        if (livenessPort == port) return
+        if (livenessPort != null) {
+            logger.error { "the port of the VPN changed: start the mesh agent again" }
+            return
+        }
+        livenessPort = port
+        launch(Dispatchers.IO) {
+            val failure = runCatchingCancellable { LivenessResponder.serve(port) }.exceptionOrNull()
+            logger.error { "the liveness probe of the VPN has no answer: ${failure?.message}" }
+            livenessPort = null
+        }
     }
 
     /**
@@ -127,8 +207,8 @@ class MeshAgent(private val dir: String) {
      * chains, such as Docker's for its DNS. Then it makes sure that the built-in chains pass
      * through HomeGAP's chains.
      */
-    private suspend fun firewall(spec: Mesh.AgentSpec) {
-        val restored = run("iptables-restore", "--noflush", stdin = Mesh.firewallRules(spec))
+    private suspend fun firewall(spec: Mesh.AgentSpec, vpnPeers: List<Mesh.VpnPeer>) {
+        val restored = run("iptables-restore", "--noflush", stdin = Mesh.firewallRules(spec, vpnPeers))
         check(restored.ok) {
             val detail = restored.stderr.trim().ifEmpty { "iptables-restore exit ${restored.exitCode}" }
             "could not set the mesh firewall: $detail"
@@ -185,5 +265,8 @@ class MeshAgent(private val dir: String) {
         val OWNER_ONLY = "600".toInt(8)
         val READABLE = "644".toInt(8)
         val json = Json { ignoreUnknownKeys = true }
+        const val BYTE_BITS = 8
+        val WIREGUARD_KEY = Regex("^[A-Za-z0-9+/]{43}=$")
+        val ADDRESS = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
     }
 }

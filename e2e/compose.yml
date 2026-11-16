@@ -223,8 +223,9 @@ services:
     sysctls:
       net.ipv4.ip_forward: "1"
     # The e2e network is where the fake nodes are, so it is this namespace's way out to them
-    # (WireGuard) as well as its link to the orchestrator.
-    networks: [e2e]
+    # (WireGuard) as well as its link to the orchestrator. The private network is the one that
+    # the front door serves VPN devices on (homegap.private_network).
+    networks: [e2e, e2e-private]
 
   # The homelab's mesh agent, as in deploy/compose.yml.
   mesh-agent:
@@ -236,7 +237,7 @@ services:
     cap_add: [NET_ADMIN, NET_RAW, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     depends_on: { mesh: { condition: service_started, restart: true } }
-    volumes: ["./work/mesh:/mesh"]
+    volumes: ["./work/mesh:/mesh", "./work/vpn:/vpn"]
 
   # Keeps the route of the orchestrator to the mesh subnet, as in deploy/compose.yml.
   mesh-route:
@@ -363,6 +364,7 @@ services:
       - ./work/certs:/certs:ro
       - ./work/identity:/identity:ro
       - ./work/sign-in:/sign-in
+      - ./work/vpn:/vpn
     networks: [e2e]
 
   # The OpenID Connect provider of the sign-in: a real Authelia, with its own TLS.

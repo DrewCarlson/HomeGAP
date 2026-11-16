@@ -36,6 +36,7 @@ import homegap.discovery.TraefikRouter
 import homegap.discovery.concernsHomegap
 import homegap.discovery.declaresService
 import homegap.discovery.traefikApiUrls
+import homegap.identity.IdentityStore
 import homegap.model.DesiredDnsRecord
 import homegap.model.DesiredState
 import homegap.model.HomelabServices
@@ -97,6 +98,7 @@ class Controller(
     private val ssh: SshPool,
     val speedTokens: SpeedTestTokens,
     val speedStore: SpeedTestStore,
+    private val identity: IdentityStore,
 ) {
     private val configPath = options.configPath
     private val dryRunOverride = options.dryRun
@@ -557,8 +559,14 @@ class Controller(
             val plan = Planner.plan(cfg, planned, pauses.services, traefikRouters = routers.orEmpty())
             if (containers != null && routers != null) {
                 desired = plan
-                meshForwards = MeshForwards.of(plan, containers)
+                val (privateTargets, unreachable) = MeshForwards.privateTargets(plan, containers)
+                val names = privateTargets.associate { it.name to it.roles }
+                val resources = identity.setResources(names, cfg.vpn.utilitySubnet)
+                meshForwards = MeshForwards.of(plan, containers).withVpn(cfg.vpn, privateTargets, resources)
                 meshForwards.unknown.forEach { log.warn("mesh", "no address for the target $it: its ports are closed") }
+                unreachable.forEach {
+                    log.warn("mesh", "no address for the private target $it: the VPN does not serve it")
+                }
                 privateSourceRange = privateRangeOf(plan, containers)
                 val doorContainers = plan.frontDoors.map { it.containerName }.toSet()
                 frontDoorAddresses = containers.asSequence()

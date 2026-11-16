@@ -13,7 +13,7 @@ data class SessionClaims(
     val issuedAt: Long,
     val expiresAt: Long,
     val device: String = "",
-    /** What the token is for: [Sessions.SESSION] or [Sessions.TUNNEL]. A token for one use is not valid for the other. */
+    /** What the token is for: [Sessions.SESSION] or [Sessions.TUNNEL]. A token for one is not valid for the other. */
     val use: String = Sessions.SESSION,
 )
 

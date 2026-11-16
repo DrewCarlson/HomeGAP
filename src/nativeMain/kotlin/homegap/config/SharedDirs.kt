@@ -16,6 +16,7 @@ object SharedDirs {
     const val CLUSTER_CONFIG = "/cluster-config"
     const val IDENTITY = "/identity"
     const val SIGN_IN = "/sign-in"
+    const val VPN = "/vpn"
 
     /** What the orchestrator and the mesh agent of the homelab (`homegap mesh`) tell each other. */
     fun mesh(dataDir: String): String = resolve("HOMEGAP_MESH_DIR", MESH, "$dataDir/mesh")
@@ -32,6 +33,9 @@ object SharedDirs {
 
     /** The folder of the sign-in server. The orchestrator reads the public key of the server there. */
     fun signIn(dataDir: String): String = resolve("HOMEGAP_SIGN_IN_DIR", SIGN_IN, "$dataDir/sign-in")
+
+    /** What the sign-in server and the mesh agent tell each other about the devices of the VPN. */
+    fun vpn(dataDir: String): String = resolve("HOMEGAP_VPN_DIR", VPN, "$dataDir/vpn")
 
     private fun resolve(variable: String, imagePath: String, fallback: String): String =
         env(variable)?.takeIf { it.isNotBlank() } ?: imagePath.takeIf { Files.isDirectory(it) } ?: fallback

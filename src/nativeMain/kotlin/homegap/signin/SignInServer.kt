@@ -49,20 +49,29 @@ import kotlin.time.Duration.Companion.seconds
  * It serves the calls of the Pangolin apps for the sign-in of a device, with the paths and the
  * answers that the apps expect, and the page where the user signs in.
  */
-class SignInServer(
-    private val dir: String,
-    private val identityDir: String,
-    private val options: SignInPage.Options = SignInPage.Options(),
-    private val oidc: Oidc? = null,
-    vpn: VpnConfig = VpnConfig(),
-) {
+class SignInServer(private val dir: String, private val identityDir: String, setup: Setup = Setup()) {
+    /** How the server signs users in, and the VPN that it gives the devices. */
+    class Setup(
+        val options: SignInPage.Options = SignInPage.Options(),
+        val oidc: Oidc? = null,
+        val vpn: VpnConfig = VpnConfig(),
+        /** The folder shared with the VPN peer, and the name that the devices connect to. With null, no VPN. */
+        val tunnel: Pair<String, String>? = null,
+    )
+
+    private val options = setup.options
+    private val oidc = setup.oidc
+    private val vpn = setup.vpn
     private val logger = KotlinLogging.logger("sign-in")
 
     @Volatile
     private var directory: Directory? = null
     private val signIn = SignIn(dir, { directory })
     private val devices = Devices(dir, vpn.clientSubnet)
-    private val gateway: TunnelGateway = NoTunnels(Devices.serverAddress(vpn.clientSubnet))
+    private val gateway: TunnelGateway = when (val tunnel = setup.tunnel) {
+        null -> NoTunnels(Devices.serverAddress(vpn.clientSubnet))
+        else -> HomeTunnel(tunnel.first, tunnel.second) { directory }
+    }
     private val appApi = AppApi(signIn, devices)
     private val control = ControlSocket(signIn, devices, gateway, vpn.utilitySubnet)
 
@@ -104,6 +113,7 @@ class SignInServer(
             logger.info { "directory version ${loaded.version}: ${loaded.users.size} user(s)$ready" }
         }
         directory = loaded
+        gateway.refresh()
     }
 
     fun Application.module() {

@@ -210,7 +210,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     private suspend fun configureHomelab(ctx: ReconcileContext, layout: Layout): MemberState {
         val peers = runCatchingCancellable {
-            homelab.apply(layout.mesh, layout.homelabAddress, peersOf(ctx, layout, Mesh.HOMELAB), layout.forwards.homelab)
+            homelab.apply(layout.mesh, layout.homelabAddress, peersOf(ctx, layout, Mesh.HOMELAB), layout.forwards)
             homelab.peers()
         }
         val error = peers.exceptionOrNull()?.let { it.message ?: it.toString() }

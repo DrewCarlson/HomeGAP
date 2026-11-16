@@ -317,6 +317,8 @@ data class VpnConfig(
     @SerialName("client_subnet") val clientSubnet: String = "100.90.0.0/16",
     /** The apps use this subnet for their own DNS proxy and for the addresses of private names. */
     @SerialName("utility_subnet") val utilitySubnet: String = "100.96.128.0/24",
+    /** The UDP port of each node that the apps connect to. The next port up is in use inside the tunnel. */
+    val port: Int = 51830,
 )
 
 @Serializable

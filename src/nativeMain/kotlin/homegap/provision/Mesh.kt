@@ -340,7 +340,73 @@ object Mesh {
         val peers: List<Peer>,
         val openPorts: List<Int>,
         val forwards: List<Forward> = emptyList(),
+        val vpn: Vpn? = null,
     )
+
+    /**
+     * The peer of the VPN on the homelab: the interface [VPN_INTERFACE] with the address
+     * [address] in [subnet], on the UDP port [port]. The devices reach only the [targets].
+     */
+    @Serializable
+    data class Vpn(val subnet: String, val address: String, val port: Int, val targets: List<VpnTarget> = emptyList())
+
+    /**
+     * A private name of the VPN. A packet of a device to [address] (the address of the name) goes
+     * to [target], an address on a Docker network of the mesh namespace, on the same port.
+     */
+    @Serializable
+    data class VpnTarget(
+        val address: String,
+        val target: String,
+        val tcpPorts: List<Int> = emptyList(),
+        val udpPorts: List<Int> = emptyList(),
+        val roles: List<String> = emptyList(),
+    )
+
+    /** A device that is connected: its WireGuard key, its address in the tunnel and its roles. */
+    @Serializable
+    data class VpnPeer(val publicKey: String, val address: String, val roles: List<String> = emptyList())
+
+    /** What the VPN peer of the homelab says about itself, for the sign-in server. */
+    @Serializable
+    data class VpnStatus(
+        val publicKey: String,
+        val port: Int,
+        val address: String,
+        /** The keys of the devices that the interface has. */
+        val peers: List<String> = emptyList(),
+    )
+
+    const val VPN_INTERFACE = "hg-vpn"
+
+    /** The file that the sign-in server writes: the devices that are connected ([VpnPeer]). */
+    const val VPN_PEERS_FILE = "peers.json"
+
+    /** The file that the mesh agent writes: [VpnStatus]. */
+    const val VPN_STATUS_FILE = "status.json"
+
+    /** The config of the VPN interface in `wg` format, for `wg syncconf`. */
+    fun vpnConfig(vpn: Vpn, privateKey: String, peers: List<VpnPeer>): String = buildString {
+        appendLine("[Interface]")
+        appendLine("PrivateKey = $privateKey")
+        appendLine("ListenPort = ${vpn.port}")
+        for ((publicKey, address) in peers.sortedBy { it.address }) {
+            appendLine()
+            appendLine("[Peer]")
+            appendLine("PublicKey = $publicKey")
+            appendLine("AllowedIPs = $address/32")
+        }
+    }
+
+    /** The address of the homelab in the subnet of the VPN: the first one. */
+    fun vpnAddress(subnet: String): String = format(parseIp(subnet.substringBefore('/')) + 1)
+
+    /** Returns true if a device with [roles] can reach [target]. An admin can reach each target. */
+    fun allows(target: VpnTarget, roles: List<String>): Boolean =
+        ADMIN_ROLE in roles || roles.any { it in target.roles }
+
+    private const val ADMIN_ROLE = "Admin"
+    private const val MULTIPORT_LIMIT = 15
 
     @Serializable
     data class AgentStatus(
@@ -376,8 +442,15 @@ object Mesh {
      *   [AgentSpec.forwards], each to its one target.
      *
      * A TCP forward on one of the [AgentSpec.openPorts] gets no rule.
+     *
+     * With [AgentSpec.vpn], the devices of the VPN ([vpnPeers]) come in on [VPN_INTERFACE]:
+     * - In: WireGuard of the VPN from a node over the mesh, and the liveness probe of a device.
+     * - Through: a device reaches a target of the VPN only if it has a role of the target. The
+     *   rule names the address of the device, and WireGuard accepts that address only from the
+     *   key of the device. Each other packet of a device is refused, also to the mesh.
      */
-    fun firewallRules(spec: AgentSpec): String = buildString {
+    fun firewallRules(spec: AgentSpec, vpnPeers: List<VpnPeer> = emptyList()): String = buildString {
+        val vpn = spec.vpn
         val ports = spec.openPorts.joinToString(",")
         val forwards = spec.forwards
             .filterNot { it.protocol == TCP && it.port in spec.openPorts }
@@ -390,12 +463,22 @@ object Mesh {
         appendLine("-A HG-IN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
         appendLine("-A HG-IN -p icmp -j ACCEPT")
         if (ports.isNotEmpty()) appendLine("-A HG-IN -p tcp -m multiport --dports $ports -j ACCEPT")
+        if (vpn != null) {
+            appendLine("-A HG-IN -i $INTERFACE -p udp --dport ${vpn.port} -j ACCEPT")
+            appendLine("-A HG-IN -i $VPN_INTERFACE -d ${vpn.address} -p udp --dport ${vpn.port + 1} -j ACCEPT")
+        }
         appendLine("-A HG-IN -j DROP")
         appendLine("-A HG-OUT -o lo -j ACCEPT")
         appendLine("-A HG-OUT -o $INTERFACE -j ACCEPT")
         appendLine("-A HG-OUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
         appendLine("-A HG-OUT -p udp --dport ${spec.port} -j ACCEPT")
         appendLine("-A HG-OUT -j DROP")
+        if (vpn != null) {
+            // Before each other rule: a device gets only what a rule of HG-DNAT sent to a target.
+            appendLine("-A HG-FWD -i $VPN_INTERFACE ! -o $INTERFACE -m conntrack --ctstate DNAT -j ACCEPT")
+            appendLine("-A HG-FWD -i $VPN_INTERFACE -j DROP")
+            appendLine("-A HG-FWD -o $VPN_INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        }
         appendLine("-A HG-FWD ! -i $INTERFACE -o $INTERFACE -j ACCEPT")
         for ((forward, address) in forwards) {
             val match = "-d $address -p ${forward.protocol} --dport ${forward.targetPort}"
@@ -413,6 +496,19 @@ object Mesh {
         for ((forward, address) in forwards) {
             val match = "-i $INTERFACE -d ${spec.address} -p ${forward.protocol} --dport ${forward.port}"
             appendLine("-A HG-DNAT $match -j DNAT --to-destination $address:${forward.targetPort}")
+        }
+        for ((_, device, roles) in vpnPeers.sortedBy { it.address }) {
+            for (target in vpn?.targets.orEmpty().filter { allows(it, roles) }) {
+                val match = "-i $VPN_INTERFACE -s $device -d ${target.address}"
+                for ((protocol, targetPorts) in listOf(TCP to target.tcpPorts, "udp" to target.udpPorts)) {
+                    if (targetPorts.isEmpty()) continue
+                    // One rule of iptables takes 15 ports.
+                    for (chunk in targetPorts.sorted().chunked(MULTIPORT_LIMIT)) {
+                        val list = "-p $protocol -m multiport --dports ${chunk.joinToString(",")}"
+                        appendLine("-A HG-DNAT $match $list -j DNAT --to-destination ${target.target}")
+                    }
+                }
+            }
         }
         appendLine("COMMIT")
     }

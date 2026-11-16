@@ -54,8 +54,11 @@ interface TunnelGateway {
     /** Admits [publicKey] as the key of [device] and returns the peers for it. */
     suspend fun admit(device: Device, publicKey: String): Connection
 
-    /** Removes the key of [device], for example after a block. */
-    suspend fun remove(device: Device) {}
+    /** Removes the key [publicKey] of [device]: its control connection ended, or it lost its access. */
+    suspend fun remove(device: Device, publicKey: String) {}
+
+    /** The directory of the homelab changed. */
+    fun refresh() {}
 }
 
 /** A gateway with no peer yet. The app connects to the control server and gets an empty tunnel. */

@@ -53,15 +53,16 @@ class HomelabMesh(
         return "the mesh agent has not reported in $dir. $CLUSTER_SERVICES_HINT"
     }
 
-    /** Hands the agent the mesh ([address], [peers], [forwards]) and routes the mesh subnet through its namespace. */
-    suspend fun apply(mesh: MeshConfig, address: String, peers: List<Mesh.Peer>, forwards: List<Mesh.Forward>) {
+    /** Hands the agent the mesh ([address], [peers], [forwards] with the VPN) and routes the mesh subnet through it. */
+    suspend fun apply(mesh: MeshConfig, address: String, peers: List<Mesh.Peer>, forwards: MeshForwards.Result) {
         val spec = Mesh.AgentSpec(
             subnet = mesh.subnet,
             port = mesh.port,
             address = address,
             peers = peers.sortedBy { it.id },
             openPorts = ClusterTemplates.MESH_PORTS,
-            forwards = forwards.sortedWith(compareBy({ it.port }, { it.protocol })),
+            forwards = forwards.homelab.sortedWith(compareBy({ it.port }, { it.protocol })),
+            vpn = forwards.vpn,
         )
         val text = json.encodeToString(spec)
         if (Files.readTextOrNull(specFile) != text) {
