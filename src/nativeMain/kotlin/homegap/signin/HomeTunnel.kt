@@ -99,13 +99,7 @@ class HomeTunnel(
     /** Applies a change of the directory to the devices that are connected: new roles, a block, a removal. */
     override fun refresh() = synchronized(lock) { write() }
 
-    private fun rolesOf(device: Device): List<String>? {
-        val users = directory() ?: return null
-        return when {
-            device.userId.isEmpty() -> users.machine(device.id)?.takeIf { !it.blocked }?.roles
-            else -> users.user(device.userId)?.takeIf { !it.blocked }?.roles
-        }
-    }
+    private fun rolesOf(device: Device): List<String>? = directory()?.rolesOf(device.id, device.userId)
 
     private fun status(): Mesh.VpnStatus? = Files.readTextOrNull("$dir/${Mesh.VPN_STATUS_FILE}")
         ?.let { runCatching { Signed.JSON.decodeFromString<Mesh.VpnStatus>(it) }.getOrNull() }

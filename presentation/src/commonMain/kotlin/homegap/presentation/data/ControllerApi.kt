@@ -106,6 +106,12 @@ interface ControllerApi {
     /** `archive`, `unarchive`, `block`, `unblock` or `delete`. */
     suspend fun deviceAction(id: Int, action: String): ActionResponse
 
+    /** Blocks a user or ends the block ([action] is `block` or `unblock`). */
+    suspend fun userAction(id: String, action: String): ActionResponse
+
+    /** Gives a user a new password. The answer has it once. */
+    suspend fun newUserPassword(id: String): CreateAccessUserResponse
+
     /** The shells that the dashboard has open on the nodes. */
     suspend fun terminals(): TerminalOverviewDto
 

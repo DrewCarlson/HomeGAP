@@ -574,7 +574,7 @@ class PresenterTest {
     }
 
     @Test
-    fun accessCreatesUsersWithAPasswordOrAnInviteLink() = runTest {
+    fun accessCreatesUsersWithAChosenOrAGeneratedPassword() = runTest {
         val unavailable = present(graph.access, AccessScreenProps()).first { it != AccessScreenModel.Loading }
         assertEquals("no cluster", (unavailable as AccessScreenModel.Unavailable).message)
 
@@ -588,7 +588,7 @@ class PresenterTest {
         val models = present(g.access, AccessScreenProps())
         val ready = models.first { it is AccessScreenModel.Ready } as AccessScreenModel.Ready
         assertEquals("https://pangolin.x", ready.clientAddress)
-        assertFalse(ready.users.single().editable, "the server admin stays")
+        assertFalse(ready.users.single().editable, "the only admin stays")
         assertEquals("via as1", ready.devices.single().via)
         // New users default to the least-privileged role, and need a valid email and password.
         assertEquals(listOf("Member"), ready.newUser.roles.filter { it.selected }.map { it.name })
@@ -597,23 +597,23 @@ class PresenterTest {
         ready.newUser.onEmail("p@x.org")
         ready.newUser.onPassword("short")
         val short = models.first { (it as? AccessScreenModel.Ready)?.newUser?.password == "short" } as AccessScreenModel.Ready
-        assertEquals("The password needs at least 8 characters", short.newUser.error)
-        short.newUser.onPassword("long enough")
+        assertEquals("The password needs at least 12 characters", short.newUser.error)
+        short.newUser.onPassword("long enough now")
         val valid = models.first { (it as? AccessScreenModel.Ready)?.newUser?.canSubmit == true } as AccessScreenModel.Ready
         valid.newUser.onSubmit()
         models.first { (it as? AccessScreenModel.Ready)?.newUser?.email == "" }
         assertEquals("create p@x.org [2] password", g.api.calls.last())
 
-        // Without a password, the invite link is shown to hand over.
+        // Without a password, HomeGAP makes one and shows it to hand over.
         val cleared = models.first { (it as? AccessScreenModel.Ready)?.newUser?.email == "" } as AccessScreenModel.Ready
         cleared.newUser.onSetPassword(false)
         cleared.newUser.onEmail("q@x.org")
         val invite = models.first { (it as? AccessScreenModel.Ready)?.newUser?.let { f -> !f.setPassword && f.canSubmit } == true } as AccessScreenModel.Ready
-        assertEquals("Create invite link", invite.newUser.submitText)
+        assertEquals("Create user", invite.newUser.submitText)
         invite.newUser.onSubmit()
         val linked = models.first { (it as? AccessScreenModel.Ready)?.inviteLink != null } as AccessScreenModel.Ready
-        assertEquals("https://pangolin.x/invite?token=a-b", linked.inviteLink)
-        assertEquals("create q@x.org [2] invite", g.api.calls.last())
+        assertEquals("made-by-homegap", linked.inviteLink)
+        assertEquals("create q@x.org [2] generated", g.api.calls.last())
 
         linked.onDeviceAction(7, "block")
         assertTrue(g.api.calls.none { "device" in it }, "blocking asks first")

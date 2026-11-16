@@ -60,7 +60,7 @@ class AccessScreenPresenter(
     override fun model(props: AccessScreenProps): AccessScreenModel {
         // Bumped after a change so the lists reload at once.
         var reload by remember { mutableIntStateOf(0) }
-        // Changes made from any dashboard arrive on the event stream; Pangolin's own changes with the slow refresh.
+        // Changes made from any dashboard arrive on the event stream. A device that connects shows with the slow refresh.
         val changed by session.accessRevision.collectAsState()
         val overview by produceState<AccessOverviewDto?>(null, reload, changed) {
             while (true) {
@@ -105,8 +105,8 @@ class AccessScreenPresenter(
                 runCatchingCancellable { api.createUser(latestRequest) }
                     .onSuccess { r ->
                         actions.notify(r.message)
-                        inviteLink = r.inviteLink
-                        if (r.inviteLink == null) {
+                        inviteLink = r.password
+                        if (r.password == null) {
                             props.onOpen(Location(Route.Access))
                         }
                         email = ""
@@ -170,6 +170,17 @@ class AccessScreenPresenter(
                         },
                         onCancel = { roleEdits = roleEdits - user.id },
                         onRemove = { removeUser(user.id, user.email ?: user.username) { reload++ } },
+                        onBlock = { blockUser(user) { reload++ } },
+                        onNewPassword = {
+                            appScope.launch {
+                                runCatchingCancellable { api.newUserPassword(user.id) }
+                                    .onSuccess { response ->
+                                        inviteLink = response.password
+                                        props.onOpen(Location(Route.Access, ADD_USER))
+                                    }
+                                    .onFailure { actions.notify("New password failed: ${it.message}", isError = true) }
+                            }
+                        },
                     )
                 }
 
@@ -185,7 +196,7 @@ class AccessScreenPresenter(
             },
             clientAddress = address,
             qr = remember(address) { QrCode.encode(address) },
-            via = "Read through ${current.via}'s Pangolin",
+            via = "",
             newUser = NewUserFormModel(
                 email = email,
                 setPassword = setPassword,
@@ -194,14 +205,10 @@ class AccessScreenPresenter(
                 error = formError ?: problem.takeIf { email.isNotBlank() },
                 emailError = "This is not an email address".takeIf { email.isNotBlank() && !EMAIL.matches(email.trim()) },
                 rolesError = "Pick at least one role".takeIf { roles.isEmpty() },
-                passwordError = "The password needs at least 8 characters".takeIf { setPassword && password.isNotEmpty() && password.length < 8 },
+                passwordError = PASSWORD_RULE.takeIf { setPassword && password.isNotEmpty() && password.length < MIN_PASSWORD },
                 serverError = formError,
                 canSubmit = problem == null && !submitting,
-                submitText = when {
-                    submitting -> "Creating…"
-                    setPassword -> "Create user"
-                    else -> "Create invite link"
-                },
+                submitText = if (submitting) "Creating…" else "Create user",
                 onEmail = {
                     email = it
                     formError = null
@@ -227,7 +234,8 @@ class AccessScreenPresenter(
                     name = u.name,
                     roles = current.roles.map { RoleOptionModel(it.id, it.name, it.id in u.roleIds) },
                     badges = buildList {
-                        if (u.owner) add(Badge(Health.OK, "server admin"))
+                        if (u.blocked) add(Badge(Health.DOWN, "blocked"))
+                        if (u.owner) add(Badge(Health.OK, "only admin"))
                         if (u.twoFactor) add(Badge(Health.OK, "2FA"))
                         if (u.type != null && u.type != "internal") add(Badge(Health.UNKNOWN, u.type!!))
                     },
@@ -291,16 +299,30 @@ class AccessScreenPresenter(
         confirmations.ask(
             ConfirmModel(
                 title = "Remove $name?",
-                text = "$name can no longer sign in to the Pangolin apps, and their devices are disconnected.",
+                text = "$name can no longer sign in, and their devices are disconnected and removed.",
                 confirmLabel = "Remove user",
-                consequences = listOf(
-                    "Their devices stop connecting",
-                    "Undo is offered for 30 s, until the removal goes through",
-                ),
                 danger = true,
             )
         ) {
             actions.run("Remove user") { api.removeUser(id).also { onDone() } }
+        }
+    }
+
+    private fun blockUser(user: homegap.api.AccessUserDto, onDone: () -> Unit) {
+        val name = user.email ?: user.username
+        if (user.blocked) {
+            actions.run("Unblock user") { api.userAction(user.id, "unblock").also { onDone() } }
+            return
+        }
+        confirmations.ask(
+            ConfirmModel(
+                title = "Block $name?",
+                text = "$name cannot sign in, and their devices are disconnected, until you unblock them.",
+                confirmLabel = "Block $name",
+                danger = true,
+            )
+        ) {
+            actions.run("Block user") { api.userAction(user.id, "block").also { onDone() } }
         }
     }
 
@@ -320,7 +342,7 @@ class AccessScreenPresenter(
             "delete" -> confirmations.ask(
                 ConfirmModel(
                     title = "Delete ${device.name}?",
-                    text = "The device is removed from Pangolin. To connect again it has to sign in again.",
+                    text = "The device is removed. To connect again it has to sign in again.",
                     confirmLabel = "Delete ${device.name}",
                     typeToConfirm = device.name.ifBlank { "delete" },
                     danger = true,
@@ -341,11 +363,18 @@ class AccessScreenPresenter(
         onSave: () -> Unit,
         onCancel: () -> Unit,
         onRemove: () -> Unit,
+        onBlock: () -> Unit,
+        onNewPassword: () -> Unit,
     ): InspectorModel = InspectorModel(
         kind = "Person",
         title = user.name ?: user.email ?: user.username,
-        status = listOfNotNull(user.email, "server admin".takeIf { user.owner }).joinToString(" · "),
-        health = Health.OK,
+        status = listOfNotNull(
+            // The title is the address when the user has no name.
+            user.email.takeIf { user.name != null },
+            "blocked".takeIf { user.blocked },
+            "only admin".takeIf { user.owner },
+        ).joinToString(" · "),
+        health = if (user.blocked) Health.DOWN else Health.OK,
         sections = listOfNotNull(
             if (user.owner) {
                 null
@@ -361,8 +390,6 @@ class AccessScreenPresenter(
                 title = null,
                 rows = listOfNotNull(
                     FactRow("Roles", user.roles.joinToString(", ").ifEmpty { "none" }),
-                    FactRow("Two-factor", if (user.twoFactor) "on" else "off"),
-                    user.type?.let { FactRow("Sign-in", it) },
                 ),
             ),
             InspectorSection.Marks(
@@ -378,13 +405,16 @@ class AccessScreenPresenter(
             ),
         ),
         actions = when {
-            user.owner -> emptyList()
+            // The only admin keeps its roles and its access. A new password is always possible.
+            user.owner -> listOf(ActionModel(label = "New password", onClick = onNewPassword))
             dirty -> listOf(
                 ActionModel(label = "Cancel", onClick = onCancel),
                 ActionModel(label = "Save", style = ActionStyle.Primary, onClick = onSave),
             )
 
             else -> listOf(
+                ActionModel(label = "New password", onClick = onNewPassword),
+                ActionModel(label = if (user.blocked) "Unblock" else "Block", onClick = onBlock),
                 ActionModel(
                     label = "Remove",
                     style = ActionStyle.Danger,
@@ -426,11 +456,6 @@ class AccessScreenPresenter(
             } else {
                 ActionModel(label = "Block", style = ActionStyle.Danger, onClick = { onAction("block") })
             },
-            if (device.archived) {
-                ActionModel(label = "Restore", onClick = { onAction("unarchive") })
-            } else {
-                ActionModel(label = "Archive", onClick = { onAction("archive") })
-            },
             ActionModel(label = "Delete", style = ActionStyle.Danger, onClick = { onAction("delete") }),
         ),
     )
@@ -455,7 +480,6 @@ class AccessScreenPresenter(
                     danger = true
                 )
             )
-            add(if (archived) DeviceActionModel("Restore", "unarchive") else DeviceActionModel("Archive", "archive"))
             add(DeviceActionModel("Delete", "delete", danger = true))
         },
     )
@@ -465,12 +489,14 @@ class AccessScreenPresenter(
         const val ADD_USER = "add-user"
         private val REFRESH = 60.seconds
         private val EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
+        private const val MIN_PASSWORD = 12
+        private const val PASSWORD_RULE = "The password needs at least 12 characters"
 
         /** Why [request] can't be sent yet, or null. */
         fun validate(request: CreateAccessUserRequest, setPassword: Boolean): String? = when {
             !EMAIL.matches(request.email) -> "Enter the person's email address"
             request.roleIds.isEmpty() -> "Pick at least one role"
-            setPassword && (request.password?.length ?: 0) < 8 -> "The password needs at least 8 characters"
+            setPassword && (request.password?.length ?: 0) < MIN_PASSWORD -> PASSWORD_RULE
             else -> null
         }
     }

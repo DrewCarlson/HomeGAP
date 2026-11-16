@@ -28,6 +28,8 @@ class IdentityStore(
         val machines: List<Machine> = emptyList(),
         val resources: List<Resource> = emptyList(),
         val vpn: VpnAccess = VpnAccess(),
+        val blockedDevices: List<String> = emptyList(),
+        val removedDevices: List<String> = emptyList(),
         val issuers: Map<String, String> = emptyMap(),
     )
 
@@ -98,6 +100,35 @@ class IdentityStore(
         machine to secret
     }
 
+    fun setMachineBlocked(id: String, blocked: Boolean): Machine = synchronized(lock) {
+        val machine = requireNotNull(load().machines.firstOrNull { it.id == id }) { "no machine $id" }
+        val changed = machine.copy(blocked = blocked)
+        save { state -> state.copy(machines = state.machines.map { if (it.id == id) changed else it }) }
+        changed
+    }
+
+    /** Blocks the device [id] of a user, or ends its block. A blocked device cannot connect. */
+    fun setDeviceBlocked(id: String, blocked: Boolean): Unit = synchronized(lock) {
+        val next = if (blocked) (load().blockedDevices + id).distinct() else load().blockedDevices - id
+        if (next != load().blockedDevices) save { it.copy(blockedDevices = next) }
+    }
+
+    /** Removes the device [id] of a user: each server forgets it, and the device must sign in again. */
+    fun removeDevice(id: String): Unit = synchronized(lock) {
+        if (id !in load().removedDevices) {
+            save { it.copy(removedDevices = it.removedDevices + id, blockedDevices = it.blockedDevices - id) }
+        }
+    }
+
+    /** Forgets the removed and the blocked devices that no server has any more ([present] are the ids that exist). */
+    fun forgetDevices(present: Set<String>): Unit = synchronized(lock) {
+        val removed = load().removedDevices.filter { it in present }
+        val blocked = load().blockedDevices.filter { it in present }
+        if (removed != load().removedDevices || blocked != load().blockedDevices) {
+            save { it.copy(removedDevices = removed, blockedDevices = blocked) }
+        }
+    }
+
     fun removeMachine(id: String): Machine = synchronized(lock) {
         val machine = requireNotNull(load().machines.firstOrNull { it.id == id }) { "no machine $id" }
         save { it.copy(machines = it.machines - machine) }
@@ -134,6 +165,11 @@ class IdentityStore(
         if (load().issuers[name] == publicKey) return@synchronized false
         save { it.copy(issuers = it.issuers + (name to publicKey)) }
         true
+    }
+
+    /** The block and removal lists of the devices, as they are now. */
+    fun directoryView(): Directory = synchronized(lock) {
+        Directory(blockedDevices = load().blockedDevices, removedDevices = load().removedDevices)
     }
 
     /** The current directory with the signature of the homelab. */
@@ -183,6 +219,8 @@ class IdentityStore(
             machines = state.machines.sortedBy { it.name },
             resources = state.resources,
             vpn = state.vpn,
+            blockedDevices = state.blockedDevices,
+            removedDevices = state.removedDevices,
             issuers = state.issuers,
         )
         return Signed.seal(key, Signed.JSON.encodeToString(directory))

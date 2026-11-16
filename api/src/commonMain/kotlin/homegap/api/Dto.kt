@@ -697,6 +697,8 @@ data class AccessUserDto(
     val twoFactor: Boolean = false,
     /** `internal` (password) or an identity provider. */
     val type: String? = null,
+    /** A blocked user cannot sign in, and each device of the user is disconnected. */
+    val blocked: Boolean = false,
 )
 
 @Serializable
@@ -734,7 +736,13 @@ data class AccessDeviceDto(
 data class CreateAccessUserRequest(val email: String, val roleIds: List<Int>, val password: String? = null)
 
 @Serializable
-data class CreateAccessUserResponse(val ok: Boolean, val message: String, val inviteLink: String? = null)
+data class CreateAccessUserResponse(
+    val ok: Boolean,
+    val message: String,
+    val inviteLink: String? = null,
+    /** The password that HomeGAP made for the user. It shows once: HomeGAP keeps only its hash. */
+    val password: String? = null,
+)
 
 @Serializable
 data class SetAccessRolesRequest(val roleIds: List<Int>)

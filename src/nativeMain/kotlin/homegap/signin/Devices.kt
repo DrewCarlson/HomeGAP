@@ -96,12 +96,13 @@ class Devices(
     }
 
     /**
-     * Removes each device whose user or machine is not in [directory] any more. Its address is
-     * free again. Returns the devices that went.
+     * Removes each device whose user or machine is not in [directory] any more, and each device
+     * that the admin removed. Its address is free again. Returns the devices that went.
      */
     fun prune(directory: Directory): List<Device> = synchronized(lock) {
         val gone = devices().values.filter { device ->
-            if (device.userId.isEmpty()) directory.machine(device.id) == null else directory.user(device.userId) == null
+            val owner = if (device.userId.isEmpty()) directory.machine(device.id) else directory.user(device.userId)
+            owner == null || device.id in directory.removedDevices
         }
         gone.forEach { devices().remove(it.id) }
         if (gone.isNotEmpty()) write()

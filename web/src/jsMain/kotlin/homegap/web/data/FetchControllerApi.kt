@@ -210,6 +210,12 @@ class FetchControllerApi(
     override suspend fun deviceAction(id: Int, action: String): ActionResponse =
         http.post("/api/access/devices/$id/$action").body()
 
+    override suspend fun userAction(id: String, action: String): ActionResponse =
+        http.post("/api/access/users/$id/$action").body()
+
+    override suspend fun newUserPassword(id: String): CreateAccessUserResponse =
+        http.post("/api/access/users/$id/password").body()
+
     override suspend fun terminals(): TerminalOverviewDto = http.get("/api/terminal").body()
 
     override suspend fun openTerminal(node: String, rows: Int, columns: Int): TerminalSessionDto =

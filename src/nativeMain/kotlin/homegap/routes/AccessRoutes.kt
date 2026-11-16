@@ -13,7 +13,7 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.routing.*
 
-/** The cluster's users, invitations and devices. */
+/** The users and devices of HomeGAP's own sign-in, for the Access page. */
 @Suppress("unused") // The dependency graph creates this class.
 @SingleIn(AppScope::class)
 @ContributesIntoSet(scope = AppScope::class, binding = binding<RoutingController>())
@@ -27,29 +27,27 @@ class AccessRoutes(private val access: AccessService) : RoutingController {
                 access.changed()
                 call.respond(created)
             }
-            delete("/users/{id}") {
-                val (message, undo) = access.removeUser(param("id"))
-                call.respond(ActionResponse(true, message, undo))
-            }
+            delete("/users/{id}") { answer(access.removeUser(param("id"))) }
             put("/users/{id}/roles") {
                 val roles = call.receive<SetAccessRolesRequest>().roleIds
-                val message = access.setRoles(param("id"), roles)
-                access.changed()
-                call.respond(ActionResponse(true, message))
+                answer(access.setRoles(param("id"), roles))
             }
-            post("/invitations/{id}/reissue") { call.respond(access.reissueInvitation(param("id"))) }
-            delete("/invitations/{id}") {
-                val message = access.removeInvitation(param("id"))
+            post("/users/{id}/password") {
+                val created = access.newPassword(param("id"))
                 access.changed()
-                call.respond(ActionResponse(true, message))
+                call.respond(created)
             }
+            post("/users/{id}/{action}") { answer(access.userAction(param("id"), param("action"))) }
             post("/devices/{id}/{action}") {
                 val id = requireNotNull(param("id").toIntOrNull()) { "device id must be a number" }
-                val message = access.deviceAction(id, param("action"))
-                access.changed()
-                call.respond(ActionResponse(true, message))
+                answer(access.deviceAction(id, param("action")))
             }
         }
+    }
+
+    private suspend fun RoutingContext.answer(message: String) {
+        access.changed()
+        call.respond(ActionResponse(true, message))
     }
 
     private fun RoutingContext.param(name: String): String =

@@ -20,10 +20,9 @@ import org.jetbrains.compose.web.dom.*
 
 private const val APP_HELP = "Enter this address in the Pangolin app, or scan the code."
 
-private const val INVITE_HELP =
-    "Off: HomeGAP creates an invite link, valid 7 days."
+private const val GENERATED_HELP = "Off: HomeGAP makes a password and shows it once."
 
-/** Who can sign in to the Pangolin apps, their invitations and devices. */
+/** Who can sign in to the apps, and their devices. */
 @Composable
 fun AccessScreen(
     model: AccessScreenModel,
@@ -62,7 +61,7 @@ fun AccessScreen(
             )
             ClientAddress(
                 address = model.clientAddress,
-                via = model.via,
+                via = model.via.ifEmpty { null },
                 qr = model.qr,
             )
             if (model.addUserOpen) {
@@ -80,7 +79,7 @@ fun AccessScreen(
 
 @Composable
 private fun ClientAddress(address: String, via: String?, qr: QrCode?) {
-    Figure(title = "Pangolin app address", note = via) {
+    Figure(title = "App address", note = via) {
         Div({ classes("app-address-text") }) {
             Div({ classes("copy-row") }) {
                 Span({ classes("mono", "app-address-value") }) { Text(address) }
@@ -128,7 +127,9 @@ private fun People(model: AccessScreenModel.Ready, onOpen: (Location) -> Unit) {
                             }
                         }
                         Span({ classes("muted", "small") }) {
-                            Text(user.roles.filter { it.selected }.joinToString(", ") { it.name })
+                            val roles = user.roles.filter { it.selected }.joinToString(", ") { it.name }
+                            // A blocked user and the only admin show in the list, not only in the Inspector.
+                            Text((listOf(roles) + user.badges.map { it.text }).joinToString(" · "))
                         }
                         Span({ classes("mono", "muted", "small", "wide-only") }) {
                             Text("${user.devices} ${if (user.devices == 1) "device" else "devices"}")
@@ -273,11 +274,11 @@ private fun AddUser(
             Div({ classes("form-body") }) {
                 ScrollHint()
                 if (inviteLink != null) {
-                    P { Text("Send this link to the person. It works for 7 days.") }
+                    P { Text("Give this password to the person. HomeGAP shows it only once.") }
                     Div({ classes("copy-row") }) {
                         Span({ classes("mono", "small", "ellipsis") }) { Text(inviteLink) }
                         ActionButton(
-                            text = "Copy link",
+                            text = "Copy password",
                             small = true,
                             onClick = { window.navigator.clipboard.writeText(inviteLink) },
                         )
@@ -303,7 +304,7 @@ private fun AddUser(
                     }
                     CheckOption(
                         title = "Set a password now",
-                        description = if (form.setPassword) "They can sign in at once. Share it with them privately." else INVITE_HELP,
+                        description = if (form.setPassword) "They can sign in at once. Share it with them privately." else GENERATED_HELP,
                         checked = form.setPassword,
                         onChange = form.onSetPassword,
                     )
@@ -311,7 +312,7 @@ private fun AddUser(
                         TextField(
                             label = "Password",
                             value = form.password,
-                            placeholder = "at least 8 characters",
+                            placeholder = "at least 12 characters",
                             type = InputType.Password,
                             error = form.passwordError,
                             onChange = form.onPassword,

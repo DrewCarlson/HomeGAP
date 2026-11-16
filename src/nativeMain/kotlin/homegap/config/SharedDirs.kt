@@ -70,6 +70,8 @@ val AppConfig.identityDir: String get() = SharedDirs.identity(dataDir)
 
 val AppConfig.signInDir: String get() = SharedDirs.signIn(dataDir)
 
+val AppConfig.vpnDir: String get() = SharedDirs.vpn(dataDir)
+
 /** The private key of the homelab and the users. No other container gets this folder. */
 val AppConfig.authorityDir: String get() = "$dataDir/authority"
 

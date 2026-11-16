@@ -160,6 +160,31 @@ class AppApiTest {
     }
 
     @Test
+    fun aBlockedDeviceLosesItsTokenAndARemovedDeviceGoes() {
+        val fixture = Fixture()
+        val directory = { Signed.directory(fixture.store.directory().render(), fixture.store.publicKey) }
+        val signIn = SignIn("${fixture.root}/sign-in", directory)
+        val devices = Devices("${fixture.root}/blocks", "100.90.0.0/24")
+        val (phone, _) = devices.create(fixture.userId, "phone")
+        val (laptop, _) = devices.create(fixture.userId, "laptop")
+        val token = signIn.tunnelToken(phone)
+        assertNotNull(signIn.tunnelClaims(token))
+
+        fixture.store.setDeviceBlocked(phone.id, true)
+        assertNull(signIn.tunnelClaims(token), "the block ends the token of this device")
+        assertNotNull(signIn.tunnelClaims(signIn.tunnelToken(laptop)), "the other device of the user stays")
+        fixture.store.setDeviceBlocked(phone.id, false)
+        assertNotNull(signIn.tunnelClaims(token))
+
+        fixture.store.removeDevice(phone.id)
+        assertNull(signIn.tunnelClaims(token))
+        assertEquals(listOf(phone.id), devices.prune(directory()!!).map { it.id })
+        // The lists forget a device that no server has any more.
+        fixture.store.forgetDevices(setOf(laptop.id))
+        assertTrue(directory()!!.removedDevices.isEmpty())
+    }
+
+    @Test
     fun eachDeviceKeepsItsOwnAddress() {
         val dir = "/tmp/homegap-devices-test-${Keys.encode(Crypto.randomBytes(6))}"
         val devices = Devices(dir, "100.90.0.0/29")

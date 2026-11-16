@@ -12,7 +12,7 @@ import homegap.presentation.ui.PageHeadModel
 sealed interface AccessScreenModel : ScreenModel {
     data object Loading : AccessScreenModel
 
-    /** No cluster, or no node's Pangolin is reachable. */
+    /** The sign-in has no public address yet. */
     @Immutable
     data class Unavailable(
         val message: String,
@@ -26,17 +26,17 @@ sealed interface AccessScreenModel : ScreenModel {
         /** Whether the Add user form is open. */
         val addUserOpen: Boolean,
         override val inspector: InspectorModel?,
-        /** What to put into the Pangolin apps. */
+        /** What to put into the apps. */
         val clientAddress: String,
         /** The address as a QR code, for phones. */
         val qr: QrCode?,
-        /** "Read through na1's Pangolin". */
+        /** A note under the app address, or empty. */
         val via: String,
         val newUser: NewUserFormModel,
         val users: List<UserRowModel>,
         val invitations: List<InvitationRowModel>,
         val devices: List<DeviceRowModel>,
-        /** The invite link of the user just invited, to hand over. */
+        /** The password that HomeGAP made for a user, to hand over. It shows once. */
         val inviteLink: String?,
         val onDismissInviteLink: () -> Unit,
         val onRemoveUser: (userId: String) -> Unit,
@@ -58,7 +58,7 @@ data class RoleOptionModel(
 @Immutable
 data class NewUserFormModel(
     val email: String,
-    /** Set a password now (the user can sign in at once) instead of handing out an invite link. */
+    /** Set a password now. If not, HomeGAP makes one and shows it once. */
     val setPassword: Boolean,
     val password: String,
     val roles: List<RoleOptionModel>,

@@ -4,325 +4,230 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import homegap.api.AccessDeviceDto
-import homegap.api.AccessInvitationDto
 import homegap.api.AccessOverviewDto
 import homegap.api.AccessRoleDto
 import homegap.api.AccessUserDto
 import homegap.api.CreateAccessUserRequest
 import homegap.api.CreateAccessUserResponse
-import homegap.clients.PangolinBootstrapClient
-import homegap.clients.PangolinClient
-import homegap.clients.PangolinClientEntry
-import homegap.clients.PangolinUser
-import homegap.clients.PangolinUserRole
-import homegap.di.LocalHttp
-import homegap.platform.retrying
-import homegap.platform.runCatchingCancellable
+import homegap.config.vpnDir
+import homegap.identity.IdentityStore
+import homegap.identity.Signed
+import homegap.identity.User
+import homegap.platform.Files
+import homegap.provision.Mesh
 import homegap.reconcile.Controller
-import homegap.reconcile.ReadyNode
-import io.ktor.client.HttpClient
-import io.ktor.http.Url
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
+import homegap.signin.Device
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.seconds
 
 /**
- * The users and devices of the cluster. The dashboard manages them through the Pangolin of a node
- * that answers (all nodes share one database). The reconcile log gets each change.
+ * The users, machines and devices of HomeGAP's own sign-in, for the Access page of the dashboard.
+ *
+ * The users and machines are in the [IdentityStore] of the homelab. The devices belong to the
+ * sign-in server, which writes its list and the connected devices to the folder of the VPN. The
+ * orchestrator reads them there. A change to a device goes through the signed directory, which
+ * each server obeys. The reconcile log gets each change.
  */
 @SingleIn(AppScope::class)
 @Inject
-class AccessService(private val controller: Controller, @LocalHttp private val http: HttpClient) {
+class AccessService(private val controller: Controller, private val identity: IdentityStore) {
     private val domain = "access"
-    private val org get() = controller.config.pangolin.orgId
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
-    /** The removals that wait for their delay: user id to the message and the undo id. */
-    private val removals = mutableMapOf<String, Pair<String, String>>()
-    private val removalLock = SynchronizedObject()
-
     private val _revision = MutableStateFlow(0L)
 
     /** Grows after each change from the dashboard. The event stream then tells each dashboard to load again. */
     val revision: StateFlow<Long> = _revision
 
-    /** Marks that users, invitations or devices changed. */
+    /** Marks that users or devices changed. */
     fun changed() {
         _revision.value++
     }
 
-    suspend fun overview(): AccessOverviewDto {
+    fun overview(): AccessOverviewDto {
         val config = controller.config
-        val clientAddress = config.clientHost?.let { "https://$it" }
-        if (config.cluster == null) {
-            return AccessOverviewDto(
-                available = false,
-                note = "Users and devices are managed here once the cluster is enabled (cluster: in the config).",
-            )
-        }
-        val (ready, exitNodes) = controller.clusterPangolin()
-            ?: return AccessOverviewDto(false, "No node's Pangolin is reachable yet.", clientAddress)
-        return runCatchingCancellable { overview(ready, exitNodes, clientAddress) }.getOrElse { e ->
-            AccessOverviewDto(false, "${ready.node.id}'s Pangolin did not answer: ${e.message}", clientAddress)
-        }
-    }
-
-    private suspend fun overview(
-        ready: ReadyNode,
-        exitNodes: Map<Int, String>,
-        clientAddress: String?,
-    ): AccessOverviewDto = coroutineScope {
-        val api = ready.api
-        val roles = async { api.listRoles(org) }
-        val users = async { api.listUsers(org) }
-        val invitations = async { api.listInvitations(org) }
-        val machines = async { api.listClients(org) }
-        val userDevices = async { runCatchingCancellable { api.listUserDevices(org) }.getOrDefault(emptyList()) }
-        val roleList = roles.await()
-        val roleNames = roleList.associate { it.roleId to it.name }
-        val devices = (machines.await().map { it to "machine" } + userDevices.await().map { it to "user" })
-            .distinctBy { it.first.clientId }
-            .map { (client, kind) -> async { device(api, client, kind, exitNodes) } }
-            .awaitAll()
-        AccessOverviewDto(
+        val address = config.signIn.url ?: return AccessOverviewDto(
+            available = false,
+            note = "Set sign_in.url in the config: it is the address that the apps connect to.",
+        )
+        val users = identity.users()
+        val devices = devices()
+        identity.forgetDevices(devices.map { it.id }.toSet())
+        val roles = roleNames(users)
+        val admins = users.filter { IdentityStore.ADMIN_ROLE in it.roles && !it.blocked }
+        return AccessOverviewDto(
             available = true,
-            clientAddress = clientAddress,
-            via = ready.node.id,
-            roles = roleList.map { AccessRoleDto(it.roleId, it.name, it.isAdmin == true) },
-            users = users.await().map { user(it, roleNames) },
-            invitations = invitations.await().map { invitation ->
-                AccessInvitationDto(
-                    id = invitation.inviteId,
-                    email = invitation.email,
-                    roles = invitation.roles.map { roleName(it, roleNames) },
-                    expiresAt = invitation.expiresAt,
-                )
+            clientAddress = address,
+            roles = roles.map { AccessRoleDto(roleId(it), it, admin = it == IdentityStore.ADMIN_ROLE) },
+            users = users.sortedBy { it.email }.map { user ->
+                // HomeGAP keeps the last admin: with no admin, no person can use each service.
+                user.toDto(owner = admins.singleOrNull()?.id == user.id)
             },
-            devices = devices.sortedWith(compareBy({ !it.online }, { it.user.orEmpty() }, { it.name })),
+            devices = deviceRows(devices, users),
         )
     }
 
-    private fun user(user: PangolinUser, roleNames: Map<Int, String>) = AccessUserDto(
-        id = user.id,
-        email = user.email,
-        username = user.username,
-        name = user.name,
-        roleIds = user.roles.map { it.roleId },
-        roles = user.roles.map { roleName(it, roleNames) },
-        owner = user.isOwner == true,
-        twoFactor = user.twoFactorEnabled == true,
-        type = user.type,
+    /** Each role that a user, a machine, a service or the VPN names. Admin and the default role are always there. */
+    private fun roleNames(users: List<User>): List<String> {
+        val config = controller.config
+        val used = buildSet {
+            add(IdentityStore.ADMIN_ROLE)
+            add(IdentityStore.DEFAULT_ROLE)
+            users.forEach { addAll(it.roles) }
+            identity.machines().forEach { addAll(it.roles) }
+            controller.desired?.services?.forEach { addAll(it.roles) }
+            config.cluster?.exitNodes?.roles?.let { addAll(it) }
+            config.cluster?.tunnelDns?.roles?.let { addAll(it) }
+        }
+        return used.sortedWith(compareBy({ it != IdentityStore.ADMIN_ROLE }, { it }))
+    }
+
+    private fun User.toDto(owner: Boolean) = AccessUserDto(
+        id = id,
+        email = email,
+        username = email,
+        name = name.ifBlank { null },
+        roleIds = roles.map { roleId(it) },
+        roles = roles,
+        owner = owner,
+        type = "internal",
+        blocked = blocked,
     )
 
-    private fun roleName(role: PangolinUserRole, roleNames: Map<Int, String>): String =
-        role.roleName ?: roleNames[role.roleId] ?: "role ${role.roleId}"
-
-    /** The node that an online device relays through. The record of the device gives it (its exit node). */
-    private suspend fun device(
-        api: PangolinClient,
-        client: PangolinClientEntry,
-        kind: String,
-        exitNodes: Map<Int, String>,
-    ): AccessDeviceDto {
-        val viaNode = if (client.online == true) {
-            runCatchingCancellable { api.getClient(client.clientId).exitNodeId }.getOrNull()?.let { exitNodes[it] }
-        } else {
-            null
-        }
-        val agent = listOfNotNull(client.agent, client.olmVersion?.takeIf { client.agent?.contains(it) != true })
-            .joinToString(" ")
-            .ifEmpty { null }
-        return AccessDeviceDto(
-            id = client.clientId,
-            name = client.name ?: client.niceId ?: "client ${client.clientId}",
-            kind = if (client.userId != null || client.userEmail != null) "user" else kind,
-            user = client.userEmail ?: client.username,
-            agent = agent,
-            online = client.online == true,
-            archived = client.archived == true,
-            blocked = client.blocked == true,
-            viaNode = viaNode,
-            // Pangolin keeps the last ping in epoch seconds.
-            lastSeen = client.lastPing?.let { if (it < FIRST_EPOCH_MS) it * 1000 else it },
-        )
+    /** The devices of the sign-in server: the apps of the users and the machines that connected. */
+    private fun devices(): List<Device> {
+        val text = Files.readTextOrNull("${controller.config.vpnDir}/${Mesh.VPN_DEVICES_FILE}") ?: return emptyList()
+        return runCatching { Signed.JSON.decodeFromString<List<Device>>(text) }.getOrDefault(emptyList())
     }
 
-    suspend fun createUser(req: CreateAccessUserRequest): CreateAccessUserResponse {
-        val email = req.email.trim().lowercase()
-        require(EMAIL.matches(email)) { "enter a valid email address" }
-        require(req.roleIds.isNotEmpty()) { "pick at least one role" }
-        val password = req.password?.takeIf { it.isNotEmpty() }
-        password?.let { require(it.length >= MIN_PASSWORD_LENGTH) { "the password needs at least 8 characters" } }
-        val (ready, _) = pangolin()
-        val link = ready.api.createInvite(org, email, req.roleIds, INVITE_HOURS, regenerate = true)
-        if (password == null) {
-            controller.log.change(domain, "invited $email (invite link valid ${INVITE_HOURS / 24} days)")
-            return CreateAccessUserResponse(
-                ok = true,
-                message = "Invited $email. Send them the invite link; they choose their own password.",
-                inviteLink = link,
+    /** The tunnel addresses of the devices that are connected now. */
+    private fun connected(): Set<String> {
+        val text = Files.readTextOrNull("${controller.config.vpnDir}/${Mesh.VPN_PEERS_FILE}") ?: return emptySet()
+        val peers = runCatching { Signed.JSON.decodeFromString<List<Mesh.VpnPeer>>(text) }.getOrDefault(emptyList())
+        return peers.map { it.address }.toSet()
+    }
+
+    private fun deviceRows(devices: List<Device>, users: List<User>): List<AccessDeviceDto> {
+        val online = connected()
+        val byUser = users.associateBy { it.id }
+        val blocked = identity.directoryView().blockedDevices.toSet()
+        val apps = devices.filter { it.userId.isNotEmpty() }.map { device ->
+            AccessDeviceDto(
+                id = deviceId(device.id),
+                name = device.name.ifBlank { "Device" },
+                kind = "user",
+                user = byUser[device.userId]?.email,
+                online = device.address in online,
+                blocked = device.id in blocked || byUser[device.userId]?.blocked == true,
             )
         }
-        val token = checkNotNull(Url(link).parameters["token"]) { "the invite link has no token" }
-        val dashboard = checkNotNull(ready.dashboardUrl) { "${ready.node.id}'s dashboard API is not reachable" }
-        runCatchingCancellable {
-            PangolinBootstrapClient(http, dashboard).signUpWithInvite(email, password, token)
-        }.onFailure { e ->
-            // The invite stays, so the person can complete it.
-            throw IllegalStateException(
-                "${e.message}. The invite is still open: send them the link, or remove it and try again.",
+        // A machine is in the list also before its first connection.
+        val machines = identity.machines().map { machine ->
+            AccessDeviceDto(
+                id = deviceId(machine.id),
+                name = machine.name,
+                kind = "machine",
+                online = devices.firstOrNull { it.id == machine.id }?.address in online,
+                blocked = machine.blocked,
             )
         }
-        controller.log.change(domain, "created user $email")
-        return CreateAccessUserResponse(true, "Created $email. They can sign in now.")
+        return (apps + machines).sortedBy { it.name.lowercase() }
     }
 
     /**
-     * Removes [userId] after [REMOVE_DELAY], so the dashboard can undo the removal until then.
-     * If Pangolin refuses, more attempts follow for some minutes.
-     * Returns the message and the undo id.
+     * Creates a user. With a password in [req], the user gets that one. Without it, HomeGAP makes
+     * one, and the answer has it once.
      */
-    suspend fun removeUser(userId: String): Pair<String, String> {
-        // A second click must not start a second removal: an undo would stop only one of them.
-        synchronized(removalLock) { removals[userId] }?.let { return it }
-        val (ready, _) = pangolin()
-        val user = requireNotNull(ready.api.listUsers(org).firstOrNull { it.id == userId }) { "no such user" }
-        check(user.isOwner != true) { "the server admin can't be removed" }
-        val name = user.email ?: user.username
-        val removal = scope.launch {
-            delay(REMOVE_DELAY)
-            // Pangolin does not answer while the database moves to a different member.
-            var warned = false
-            retrying(
-                attempts = REMOVE_ATTEMPTS,
-                pause = REMOVE_RETRY_PAUSE,
-                onRetry = { failure ->
-                    if (!warned) {
-                        val reason = failure.message
-                        controller.log.warn(domain, "could not remove $name yet, a new attempt follows: $reason")
-                    }
-                    warned = true
-                },
-            ) {
-                pangolin().first.api.removeUser(org, userId)
-            }.onSuccess {
-                controller.log.change(domain, "removed user $name")
-            }.onFailure {
-                controller.log.error(domain, "could not remove $name: ${it.message}")
+    fun createUser(req: CreateAccessUserRequest): CreateAccessUserResponse {
+        val roles = roleNames(identity.users()).filter { roleId(it) in req.roleIds }
+        require(roles.isNotEmpty()) { "pick at least one role" }
+        val (user, generated) = identity.create(req.email, name = "", roles = roles)
+        val chosen = req.password?.takeIf { it.isNotEmpty() }
+        if (chosen != null) {
+            runCatching { identity.setPassword(user.id, chosen) }.onFailure {
+                identity.remove(user.id)
+                throw it
             }
-            synchronized(removalLock) { removals.remove(userId) }
-            changed()
         }
-        val undo = controller.offerUndo(ttlMs = REMOVE_DELAY.inWholeMilliseconds) {
-            removal.cancel()
-            synchronized(removalLock) { removals.remove(userId) }
-            controller.log.change(domain, "kept $name (removal undone)")
-            "Kept $name"
+        val message = "Created the user ${user.email} (${user.roles.joinToString()})"
+        controller.log.change(domain, message)
+        return CreateAccessUserResponse(true, message, password = generated.takeIf { chosen == null })
+    }
+
+    fun removeUser(userId: String): String {
+        check(admin(userId) == null) { "This is the last admin. Make another user an admin first." }
+        val user = identity.remove(userId)
+        return logged("Removed the user ${user.email}")
+    }
+
+    fun setRoles(userId: String, roleIds: List<Int>): String {
+        val roles = roleNames(identity.users()).filter { roleId(it) in roleIds }
+        require(roles.isNotEmpty()) { "a user needs at least one role" }
+        check(admin(userId) == null || IdentityStore.ADMIN_ROLE in roles) {
+            "This is the last admin. Make another user an admin first."
         }
-        val answer = "Removing $name in ${REMOVE_DELAY.inWholeSeconds} s" to undo
-        synchronized(removalLock) { removals[userId] = answer }
-        return answer
+        val user = identity.setRoles(userId, roles)
+        return logged("Set the roles of ${user.email} to ${user.roles.joinToString()}")
     }
 
-    /**
-     * Makes a new invite link for an open invitation, with the same email and roles. The old link
-     * stops.
-     */
-    suspend fun reissueInvitation(inviteId: String): CreateAccessUserResponse {
-        val (ready, _) = pangolin()
-        val invite = requireNotNull(ready.api.listInvitations(org).firstOrNull { it.inviteId == inviteId }) {
-            "no such invitation"
+    /** Blocks the user or ends the block ([action] is `block` or `unblock`). */
+    fun userAction(userId: String, action: String): String = when (action) {
+        "block" -> {
+            check(admin(userId) == null) { "This is the last admin. Make another user an admin first." }
+            logged("Blocked ${identity.setBlocked(userId, true).email}")
         }
-        val roles = ready.api.listRoles(org)
-        val roleIds = invite.roles.map { it.roleId }.filter { it > 0 }.ifEmpty {
-            invite.roles.mapNotNull { role -> roles.firstOrNull { it.name == role.roleName }?.roleId }
+        "unblock" -> logged("Ended the block of ${identity.setBlocked(userId, false).email}")
+        else -> throw IllegalArgumentException("unknown action $action")
+    }
+
+    /** Gives the user a new password. The answer has it once. */
+    fun newPassword(userId: String): CreateAccessUserResponse {
+        val password = identity.setPassword(userId)
+        val user = identity.users().first { it.id == userId }
+        return CreateAccessUserResponse(true, logged("Gave ${user.email} a new password"), password = password)
+    }
+
+    /** [action] is `block`, `unblock` or `delete`, for a device of a user or for a machine. */
+    fun deviceAction(id: Int, action: String): String {
+        val machine = identity.machines().firstOrNull { deviceId(it.id) == id }
+        if (machine != null) {
+            return when (action) {
+                "block" -> logged("Blocked the machine ${identity.setMachineBlocked(machine.id, true).name}")
+                "unblock" -> {
+                    val name = identity.setMachineBlocked(machine.id, false).name
+                    logged("Ended the block of the machine $name")
+                }
+                "delete" -> logged("Removed the machine ${identity.removeMachine(machine.id).name}")
+                else -> throw IllegalArgumentException("unknown action $action")
+            }
         }
-        require(roleIds.isNotEmpty()) { "the invitation has no roles to keep" }
-        val link = ready.api.createInvite(org, invite.email, roleIds, INVITE_HOURS, regenerate = true)
-        controller.log.change(domain, "re-issued the invite link for ${invite.email}")
-        changed()
-        return CreateAccessUserResponse(
-            ok = true,
-            message = "New invite link for ${invite.email}, valid ${INVITE_HOURS / 24} days.",
-            inviteLink = link,
-        )
-    }
-
-    suspend fun setRoles(userId: String, roleIds: List<Int>): String {
-        require(roleIds.isNotEmpty()) { "a user needs at least one role" }
-        val (ready, _) = pangolin()
-        val user = requireNotNull(ready.api.listUsers(org).firstOrNull { it.id == userId }) { "no such user" }
-        val have = user.roles.map { it.roleId }.toSet()
-        // Add first: Pangolin refuses to remove a user's last role.
-        (roleIds.toSet() - have).forEach { ready.api.addUserRole(userId, it) }
-        (have - roleIds.toSet()).forEach { ready.api.removeUserRole(userId, it) }
-        val name = user.email ?: user.username
-        controller.log.change(domain, "set the roles of $name")
-        return "Roles updated for $name"
-    }
-
-    suspend fun removeInvitation(inviteId: String): String {
-        require(INVITE_ID.matches(inviteId)) { "not an invitation id" }
-        val (ready, _) = pangolin()
-        ready.api.removeInvitation(org, inviteId)
-        controller.log.change(domain, "removed an open invitation")
-        return "Invitation removed"
-    }
-
-    /** [action] is `archive`, `unarchive`, `block`, `unblock` or `delete`. */
-    suspend fun deviceAction(clientId: Int, action: String): String {
-        val (ready, _) = pangolin()
-        if (action == "delete") {
-            ready.api.deleteClient(clientId)
-        } else {
-            require(action in PangolinClient.CLIENT_ACTIONS) { "unknown action $action" }
-            ready.api.clientAction(clientId, action)
+        val device = requireNotNull(devices().firstOrNull { deviceId(it.id) == id }) { "no device $id" }
+        val name = device.name.ifBlank { device.id }
+        return when (action) {
+            "block" -> identity.setDeviceBlocked(device.id, true).let { logged("Blocked the device $name") }
+            "unblock" -> {
+                identity.setDeviceBlocked(device.id, false)
+                logged("Ended the block of the device $name")
+            }
+            "delete" -> identity.removeDevice(device.id).let { logged("Removed the device $name") }
+            else -> throw IllegalArgumentException("unknown action $action")
         }
-        val done = PAST[action] ?: action
-        controller.log.change(domain, "$done device $clientId")
-        return "Device $done"
     }
 
-    private fun pangolin(): Pair<ReadyNode, Map<Int, String>> {
-        check(controller.config.cluster != null) { "users and devices are managed here only with the cluster enabled" }
-        return checkNotNull(controller.clusterPangolin()) { "no node's Pangolin is reachable right now" }
+    /** The user [userId] if that user is the only admin who is not blocked. */
+    private fun admin(userId: String): User? {
+        val admins = identity.users().filter { IdentityStore.ADMIN_ROLE in it.roles && !it.blocked }
+        return admins.singleOrNull()?.takeIf { it.id == userId }
     }
 
-    private companion object {
-        val EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
-        const val MIN_PASSWORD_LENGTH = 8
+    private fun logged(message: String): String {
+        controller.log.change(domain, message)
+        return message
+    }
 
-        /** Long enough to give the link to the person, who sets a password with it. */
-        const val INVITE_HOURS = 7 * 24
-        val INVITE_ID = Regex("^[A-Za-z0-9_-]{1,64}$")
+    companion object {
+        /** The page names a role by a number. The number of a role never changes, because it comes from the name. */
+        fun roleId(name: String): Int = name.hashCode() and Int.MAX_VALUE
 
-        /** The time that the removal of a person waits, so the dashboard can undo it. */
-        val REMOVE_DELAY = 30.seconds
-
-        /** A failover of the database ends in this time: 10 attempts in 5 minutes. */
-        const val REMOVE_ATTEMPTS = 10
-        val REMOVE_RETRY_PAUSE = 30.seconds
-
-        /** A time in ms is not below this value. A lower value is in seconds. */
-        const val FIRST_EPOCH_MS = 100_000_000_000L
-
-        val PAST = mapOf(
-            "archive" to "archived",
-            "unarchive" to "unarchived",
-            "block" to "blocked",
-            "unblock" to "unblocked",
-            "delete" to "deleted",
-        )
+        /** The page names a device by a number, from its id. */
+        fun deviceId(id: String): Int = id.hashCode() and Int.MAX_VALUE
     }
 }

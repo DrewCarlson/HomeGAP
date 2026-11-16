@@ -138,6 +138,7 @@ services:
       - "${HOMEGAP_DATA_DIR:-./data}/mesh:/mesh"                       # the mesh description, shared with the mesh agent
       - "${HOMEGAP_DATA_DIR:-./data}/identity:/identity"               # the signed directory of users, read by the sign-in
       - "${HOMEGAP_DATA_DIR:-./data}/sign-in:/sign-in:ro"              # the public key of the sign-in
+      - "${HOMEGAP_DATA_DIR:-./data}/vpn:/vpn:ro"                      # the devices, for the Access page
 
   # Keeps the route of the orchestrator to the mesh subnet. The orchestrator cannot change a
   # route as an ordinary user, so this container does it: root with only NET_ADMIN, in the network

@@ -341,6 +341,7 @@ services:
       - ./work/mesh:/mesh
       - ./work/identity:/identity
       - ./work/sign-in:/sign-in:ro
+      - ./work/vpn:/vpn:ro
 
   # The public sign-in of the homelab, as in deploy/compose.yml. It reads the signed directory of
   # users and has no key of the orchestrator.

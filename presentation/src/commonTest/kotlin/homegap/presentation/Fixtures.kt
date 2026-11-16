@@ -100,8 +100,8 @@ class FakeControllerApi(
     override suspend fun access() = accessValue
     override suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse {
         lastCreate = request
-        calls += "create ${request.email} ${request.roleIds} ${if (request.password != null) "password" else "invite"}"
-        return CreateAccessUserResponse(true, "created", if (request.password == null) "https://pangolin.x/invite?token=a-b" else null)
+        calls += "create ${request.email} ${request.roleIds} ${if (request.password != null) "password" else "generated"}"
+        return CreateAccessUserResponse(true, "created", password = "made-by-homegap".takeIf { request.password == null })
     }
     override suspend fun switchPrimary(to: String) = ok("switch $to")
     var locationsValue = LocationsResponse(listOf(
@@ -131,6 +131,8 @@ class FakeControllerApi(
     override suspend fun setUserRoles(id: String, roleIds: List<Int>) = ok("roles $id $roleIds")
     override suspend fun removeInvitation(id: String) = ok("remove-invite $id")
     override suspend fun deviceAction(id: Int, action: String) = ok("device $id $action")
+    override suspend fun userAction(id: String, action: String) = ok("user $id $action")
+    override suspend fun newUserPassword(id: String) = CreateAccessUserResponse(true, "new password", password = "generated")
 
     var terminalsValue = TerminalOverviewDto(enabled = false)
 

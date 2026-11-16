@@ -76,6 +76,10 @@ data class Directory(
     val machines: List<Machine> = emptyList(),
     val resources: List<Resource> = emptyList(),
     val vpn: VpnAccess = VpnAccess(),
+    /** The ids of the devices that cannot connect until the block ends. */
+    val blockedDevices: List<String> = emptyList(),
+    /** The ids of the devices that the admin removed. Each server that has such a device removes it. */
+    val removedDevices: List<String> = emptyList(),
     /**
      * The public keys that can sign a session with access to the homelab: name to key. Only the
      * sign-in server of the homelab is here. A node signs sessions that give its exit only.
@@ -85,6 +89,19 @@ data class Directory(
     fun user(id: String): User? = users.firstOrNull { it.id == id }
 
     fun machine(id: String): Machine? = machines.firstOrNull { it.id == id }
+
+    /**
+     * The roles of the device [deviceId] of the user [userId] (empty for a machine), or null if
+     * the device has no access: its user or machine is gone or blocked, or the device itself is
+     * blocked or removed.
+     */
+    fun rolesOf(deviceId: String, userId: String): List<String>? {
+        if (deviceId in blockedDevices || deviceId in removedDevices) return null
+        return when {
+            userId.isEmpty() -> machine(deviceId)?.takeIf { !it.blocked }?.roles
+            else -> user(userId)?.takeIf { !it.blocked }?.roles
+        }
+    }
 
     fun userByEmail(email: String): User? = users.firstOrNull { it.email.equals(email.trim(), ignoreCase = true) }
 }

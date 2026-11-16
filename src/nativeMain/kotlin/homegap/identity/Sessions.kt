@@ -50,8 +50,9 @@ object Sessions {
         val key = directory.issuers[claims.issuer] ?: return null
         if (!Keys.verify(key, payload, signature)) return null
         if (now >= claims.expiresAt || claims.use != use) return null
-        val active = when {
-            claims.userId.isEmpty() -> directory.machine(claims.device)?.blocked == false
+        val active = when (use) {
+            // The token of a device ends with the device, too.
+            TUNNEL -> directory.rolesOf(claims.device, claims.userId) != null
             else -> directory.user(claims.userId)?.blocked == false
         }
         return claims.takeIf { active }

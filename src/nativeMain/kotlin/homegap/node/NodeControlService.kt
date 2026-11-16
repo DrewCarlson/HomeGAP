@@ -120,10 +120,7 @@ class NodeControlService(
 
         override suspend fun admit(device: Device, publicKey: String): Connection {
             val users = directory() ?: error("the node has no directory")
-            val roles = when {
-                device.userId.isEmpty() -> users.machine(device.id)?.takeIf { !it.blocked }?.roles
-                else -> users.user(device.userId)?.takeIf { !it.blocked }?.roles
-            } ?: error("the device has no access")
+            val roles = users.rolesOf(device.id, device.userId) ?: error("the device has no access")
             check(users.vpn.nodeExitFor(roles)) { "the device has no role of the exits" }
             val (exitSpec, key) = exit.admitLocal(publicKey, device.address)
             val site = Site(siteId, spec.node, "${spec.host}:${exitSpec.port}", key, exitSpec.address, exitSpec.port)
