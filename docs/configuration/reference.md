@@ -104,6 +104,10 @@ See [The mesh](../reference/mesh.md).
 | `oidc.client_secret_env` | string | `HOMEGAP_OIDC_CLIENT_SECRET` | The environment variable of the sign-in container that holds the client secret. |
 | `oidc.name` | string | `single sign-on` | The name on the button of the sign-in page. |
 | `oidc.scopes` | list | `["openid", "email", "profile"]` | The scopes that HomeGAP requests. The list must contain `openid`. |
+| `oidc.create_users` | boolean | `false` | Makes a user for a person that the provider accepts and that HomeGAP does not have. The person must get a role. |
+| `oidc.group_roles` | map | `{}` | The roles that each group of the provider gives, for example `vpn-admins: [Admin]`. With an entry, the provider decides the roles of each person who signs in through it. |
+| `oidc.default_roles` | list | `[]` | The roles of a person who is in no group of `group_roles`. With an empty list, that person gets no access. |
+| `oidc.groups_claim` | string | `groups` | The claim of the provider that has the groups of the person. |
 
 The `oidc` object is optional. See [Sign-in](../vpn/sign-in.md).
 

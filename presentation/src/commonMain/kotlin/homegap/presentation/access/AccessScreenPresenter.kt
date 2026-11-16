@@ -254,7 +254,7 @@ class AccessScreenPresenter(
                     badges = buildList {
                         if (u.blocked) add(Badge(Health.DOWN, "blocked"))
                         if (u.owner) add(Badge(Health.OK, "only admin"))
-                        if (u.type != null && u.type != "internal") add(Badge(Health.UNKNOWN, u.type!!))
+                        u.provider()?.let { add(Badge(Health.UNKNOWN, it)) }
                     },
                     editable = !u.owner,
                     devices = current.devices.count { it.user == (u.email ?: u.username) },
@@ -295,7 +295,7 @@ class AccessScreenPresenter(
             },
             onToggleRole = { userId, roleId ->
                 val user = current.users.firstOrNull { it.id == userId }
-                if (user != null) {
+                if (user != null && user.provider() == null) {
                     val next = if (roleId in user.roleIds) user.roleIds - roleId else user.roleIds + roleId
                     if (next.isEmpty()) actions.notify("A user needs at least one role", isError = true)
                     else change("Change roles") { api.setUserRoles(userId, next) }
@@ -388,10 +388,13 @@ class AccessScreenPresenter(
         ).joinToString(" · "),
         health = if (user.blocked) Health.DOWN else Health.OK,
         sections = listOfNotNull(
-            if (user.owner) {
-                null
-            } else {
-                InspectorSection.Choices(
+            when {
+                user.owner -> null
+                user.provider() != null -> InspectorSection.Note(
+                    text = "The roles come from the groups of ${user.provider()}. Change them there.",
+                )
+
+                else -> InspectorSection.Choices(
                     title = "Roles",
                     options = roles.map { ChoiceOption(it.id.toString(), it.name, it.selected) },
                     onToggle = { id -> id.toIntOrNull()?.let(onToggleRole) },
@@ -514,3 +517,6 @@ class AccessScreenPresenter(
         }
     }
 }
+
+/** The sign-in provider whose groups give the roles of the user, or null if HomeGAP sets the roles. */
+private fun homegap.api.AccessUserDto.provider(): String? = type?.takeIf { it != "internal" }

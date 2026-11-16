@@ -220,7 +220,33 @@ data class OidcConfig(
     /** The name on the button of the sign-in page. */
     val name: String = "single sign-on",
     val scopes: List<String> = listOf("openid", "email", "profile"),
-)
+    /** Makes a user for a person that the provider vouches for and that HomeGAP does not have yet. */
+    @SerialName("create_users") val createUsers: Boolean = false,
+    /** The roles of a person who is in no group of [groupRoles]. With an empty list, that person gets no access. */
+    @SerialName("default_roles") val defaultRoles: List<String> = emptyList(),
+    /**
+     * The roles that each group of the provider gives. With an entry here, the provider decides
+     * the roles of each person who signs in through it, and HomeGAP cannot change them.
+     */
+    @SerialName("group_roles") val groupRoles: Map<String, List<String>> = emptyMap(),
+    /** The claim of the provider that has the groups of the person. */
+    @SerialName("groups_claim") val groupsClaim: String = "groups",
+) {
+    /** True if the groups of the provider decide the roles. */
+    val managesRoles: Boolean get() = groupRoles.isNotEmpty()
+
+    /** True if the orchestrator must hear about each person that the provider vouches for. */
+    val reportsUsers: Boolean get() = createUsers || managesRoles
+
+    /** The scopes to ask for. The groups need their scope. */
+    val requestedScopes: List<String> get() = if (managesRoles) (scopes + GROUPS_SCOPE).distinct() else scopes
+
+    /** The roles of a person in [groups]. An empty list says that the person gets no access. */
+    fun rolesFor(groups: List<String>): List<String> =
+        groups.flatMap { groupRoles[it].orEmpty() }.distinct().ifEmpty { defaultRoles }
+}
+
+private const val GROUPS_SCOPE = "groups"
 
 @Serializable
 data class VpnConfig(

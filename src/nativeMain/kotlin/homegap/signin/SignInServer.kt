@@ -1,11 +1,15 @@
 package homegap.signin
 
+import homegap.config.OidcConfig
 import homegap.config.VpnConfig
 import homegap.identity.Directory
 import homegap.identity.IdentityStore
+import homegap.identity.ProviderUser
+import homegap.identity.ProviderUsers
 import homegap.identity.Signed
 import homegap.platform.Crypto
 import homegap.platform.Files
+import homegap.platform.nowMillis
 import homegap.platform.runCatchingCancellable
 import homegap.platform.watchDirectory
 import homegap.provision.Mesh
@@ -33,7 +37,10 @@ import io.ktor.server.websocket.pingPeriod
 import io.ktor.server.websocket.timeout
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -85,6 +92,9 @@ class SignInServer(
 
     @Volatile
     private var directory: Directory? = null
+
+    /** The version of the directory that this server has. It changes after each new directory. */
+    private val directoryVersion = MutableStateFlow(0L)
     private val signIn = SignIn(dir, { directory }, issuer = role.issuer)
     private val vpnDir = setup.tunnel?.first
     private val devices = Devices(
@@ -144,6 +154,7 @@ class SignInServer(
             role.ownSessions -> loaded.copy(issuers = loaded.issuers + (role.issuer to signIn.publicKey))
             else -> loaded
         }
+        directoryVersion.value = loaded.version
         val gone = devices.prune(loaded)
         if (gone.isNotEmpty()) logger.info { "removed ${gone.size} device(s) of users and machines that are gone" }
         gateway.refresh()
@@ -278,6 +289,26 @@ class SignInServer(
         respondRedirect(address)
     }
 
+    /**
+     * Tells the homelab what the provider said about [person], and waits until the directory has
+     * the user with that answer. The homelab makes the user or gives it the roles of its groups.
+     * Returns false if the person gets no access: no role, or the homelab gave no answer.
+     */
+    private suspend fun report(oidc: OidcConfig, person: Oidc.Person): Boolean {
+        if (!oidc.reportsUsers) return true
+        val existing = directory?.userByEmail(person.email)
+        val roles = oidc.rolesFor(person.groups)
+        if (roles.isEmpty() && (oidc.managesRoles || existing == null)) return false
+        if (existing == null && !oidc.createUsers) return true
+        val at = nowMillis()
+        ProviderUsers.record(dir, ProviderUser(person.email, person.name, person.groups, at))
+        val taken = withTimeoutOrNull(REPORT_TIMEOUT) {
+            directoryVersion.first { directory?.userByEmail(person.email)?.providerAt == at }
+        }
+        if (taken == null) logger.error { "the homelab did not take the user of the provider in time" }
+        return taken != null
+    }
+
     private suspend fun ApplicationCall.finishProvider() {
         val query = request.queryParameters
         val provider = oidc ?: return page(SignInPage.askCode(UNKNOWN_CODE), HttpStatusCode.NotFound)
@@ -285,10 +316,13 @@ class SignInServer(
             is Oidc.Result.Proven -> {
                 val pending = signIn.pending(result.device)
                     ?: return page(SignInPage.askCode(UNKNOWN_CODE), HttpStatusCode.NotFound)
-                val outcome = signIn.signInProven(result.device, result.email)
+                val outcome = when {
+                    report(provider.settings, result.person) -> signIn.signInProven(result.device, result.person.email)
+                    else -> SignIn.Outcome.NoSuchUser
+                }
                 if (outcome is SignIn.Outcome.NoSuchUser) {
-                    val email = result.email.take(MAX_LOGGED)
-                    logger.warn { "the provider proved '$email', which is no user of HomeGAP" }
+                    val email = result.person.email.take(MAX_LOGGED)
+                    logger.warn { "the provider proved '$email', who has no user or no role in HomeGAP" }
                 }
                 show(outcome, result.device, pending, "the provider")
             }
@@ -322,7 +356,7 @@ class SignInServer(
                 page(form(code, pending, problem), HttpStatusCode.Unauthorized)
             }
             SignIn.Outcome.NoSuchUser -> {
-                val problem = "You have no HomeGAP user with this email address. Ask your admin."
+                val problem = "This account has no access to HomeGAP. Ask your admin."
                 page(form(code, pending, problem), HttpStatusCode.Forbidden)
             }
             SignIn.Outcome.TooManyAttempts -> {
@@ -363,6 +397,9 @@ class SignInServer(
         const val MAX_BODY = 4096
         const val MAX_FRAME = 64L * 1024
         const val MAX_LOGGED = 80
+
+        /** How long a sign-in waits for the homelab to take the user of the provider. */
+        val REPORT_TIMEOUT = 15.seconds
         const val NONCE_LENGTH = 24
     }
 }

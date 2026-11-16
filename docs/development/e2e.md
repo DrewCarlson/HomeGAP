@@ -53,6 +53,16 @@ Two harnesses cannot run at the same time, because they use the same addresses a
 4. It starts all services with `docker compose up -d --build`.
 5. It runs `e2e/load-images.sh`, which loads `homegap:e2e` into the Docker daemon of each fake node. The agent of a node runs this image, and a node cannot pull a local image from a registry.
 
+## Check the sign-in through Authelia
+
+`e2e/verify-oidc.sh` signs a device in through Authelia as a browser does. Give it a user of the harness Authelia. The last line is `approved` or `refused`.
+
+```bash
+e2e/verify-oidc.sh eve
+```
+
+The harness maps the groups of Authelia to roles (`sign_in.oidc.group_roles`) and makes users at the first sign-in. `ada` is in a group that gives `Admin`, `eve` in one that gives `Member`, and `mallory` in none, so HomeGAP refuses `mallory`.
+
 ## What verify.sh checks
 
 `e2e/verify.sh` does these checks on every node:

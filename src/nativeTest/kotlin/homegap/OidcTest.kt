@@ -73,13 +73,26 @@ class OidcTest {
         val oidc = oidc(provider)
         val state = begin(oidc, provider)
         val result = oidc.finish(state, "code-1", null)
-        assertEquals(Oidc.Result.Proven("ABCD2345", "ada@example.net"), result)
+        assertEquals(Oidc.Result.Proven("ABCD2345", Oidc.Person("ada@example.net")), result)
         assertEquals("authorization_code", provider.tokenForm["grant_type"])
         assertEquals("code-1", provider.tokenForm["code"])
         assertTrue(provider.tokenForm["code_verifier"]!!.length >= 43)
         assertTrue(provider.tokenAuthorization!!.startsWith("Basic "))
         // A state works once.
         assertNull((oidc.finish(state, "code-1", null) as Oidc.Result.Failed).device)
+    }
+
+    @Test
+    fun theProviderGivesTheNameAndTheGroupsOfTheUser() = runTest {
+        val provider = Provider(issuer)
+        provider.userinfo = """{"sub":"u1","email":"ada@example.net","name":"Ada L","groups":["family","admins"]}"""
+        val config = OidcConfig(issuer, "homegap", groupRoles = mapOf("admins" to listOf("Admin")))
+        val oidc = Oidc(config, "secret", redirect, provider.http) { 1_000_000 }
+        val url = Url(oidc.begin("ABCD2345"))
+        assertTrue("groups" in url.parameters["scope"]!!.split(' '), "the groups need their scope")
+        provider.nonce = url.parameters["nonce"]!!
+        val proven = assertIs<Oidc.Result.Proven>(oidc.finish(url.parameters["state"]!!, "code", null))
+        assertEquals(Oidc.Person("ada@example.net", "Ada L", listOf("family", "admins")), proven.person)
     }
 
     @Test

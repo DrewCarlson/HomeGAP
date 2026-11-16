@@ -90,7 +90,7 @@ class AccessService(private val controller: Controller, private val identity: Id
         roleIds = roles.map { roleId(it) },
         roles = roles,
         owner = owner,
-        type = "internal",
+        type = provider ?: INTERNAL_TYPE,
         blocked = blocked,
     )
 
@@ -248,5 +248,8 @@ class AccessService(private val controller: Controller, private val identity: Id
 
         /** The page names a device by a number, from its id. */
         fun deviceId(id: String): Int = id.hashCode() and Int.MAX_VALUE
+
+        /** The type of a user whose roles HomeGAP sets. */
+        const val INTERNAL_TYPE = "internal"
     }
 }

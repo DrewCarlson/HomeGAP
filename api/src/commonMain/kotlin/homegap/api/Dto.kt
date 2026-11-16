@@ -564,7 +564,7 @@ data class AccessUserDto(
     val roles: List<String> = emptyList(),
     /** The only admin who is not blocked. HomeGAP keeps this user and its admin role. */
     val owner: Boolean = false,
-    /** `internal` (password) or an identity provider. */
+    /** `internal`, or the name of the sign-in provider whose groups give the roles of the user. */
     val type: String? = null,
     /** A blocked user cannot sign in, and each device of the user is disconnected. */
     val blocked: Boolean = false,
@@ -624,6 +624,8 @@ data class IdentityUserDto(
     val blocked: Boolean = false,
     val hasPassword: Boolean = false,
     val createdAt: Long = 0,
+    /** The name of the sign-in provider whose groups give the roles. With null, HomeGAP sets the roles. */
+    val provider: String? = null,
 )
 
 @Serializable

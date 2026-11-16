@@ -29,6 +29,11 @@ sign_in:
     name: Authelia
     issuer: https://auth.test.example.net:9091
     client_id: homegap
+    # The groups of Authelia give the roles, and a person with a group gets a user at the first sign-in.
+    create_users: true
+    group_roles:
+      vpn-admins: [Admin]
+      family: [Member]
 agent:
   # Built locally and loaded into the nodes by run.sh (load-images.sh).
   image: homegap:e2e

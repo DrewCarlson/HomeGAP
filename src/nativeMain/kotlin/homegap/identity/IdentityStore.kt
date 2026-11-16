@@ -1,5 +1,6 @@
 package homegap.identity
 
+import homegap.config.OidcConfig
 import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.nowMillis
@@ -69,7 +70,55 @@ class IdentityStore(
     }
 
     fun setRoles(id: String, roles: List<String>): User = synchronized(lock) {
+        val provider = load().users.firstOrNull { it.id == id }?.provider
+        check(provider == null) { "The roles of this user come from $provider. Change the groups of the user there." }
         update(id) { it.copy(roles = cleanRoles(roles)) }
+    }
+
+    /**
+     * Takes what the sign-in provider said about [person]. A user with the same address gets the
+     * name, and with `group_roles` also the roles of the groups. With `create_users`, a person
+     * with no user gets one, with no password. Returns the change in words, or null if there is
+     * none: an older answer, or a person with no role and no user.
+     */
+    fun applyProvider(person: ProviderUser, oidc: OidcConfig): String? = synchronized(lock) {
+        val address = person.email.trim().lowercase()
+        val existing = load().users.firstOrNull { it.email == address }
+        if (existing != null && (existing.providerAt ?: 0) >= person.at) return@synchronized null
+        val mapped = oidc.rolesFor(person.groups)
+        val roles = if (mapped.isEmpty()) emptyList() else cleanRoles(mapped)
+        val provider = oidc.name.takeIf { oidc.managesRoles }
+        when {
+            existing != null -> {
+                val next = if (oidc.managesRoles) keepLastAdmin(existing, roles) else existing.roles
+                val name = person.name.trim().ifEmpty { existing.name }
+                update(existing.id) { it.copy(name = name, roles = next, provider = provider, providerAt = person.at) }
+                "${oidc.name} vouched for $address".takeIf { next != existing.roles || provider != existing.provider }
+                    ?.let { "$it: roles ${next.joinToString().ifEmpty { "none" }}" }
+            }
+            oidc.createUsers && roles.isNotEmpty() -> {
+                require(EMAIL.matches(address)) { "$address is not an email address" }
+                val user = User(
+                    id = Crypto.token(ID_LENGTH, ID_ALPHABET),
+                    email = address,
+                    name = person.name.trim(),
+                    roles = roles,
+                    createdAt = now(),
+                    provider = provider,
+                    providerAt = person.at,
+                )
+                save { it.copy(users = it.users + user) }
+                "made the user $address, who signed in through ${oidc.name}: roles ${roles.joinToString()}"
+            }
+            else -> null
+        }
+    }
+
+    /** The only admin who is not blocked keeps the admin role, so the provider cannot lock everybody out. */
+    private fun keepLastAdmin(user: User, roles: List<String>): List<String> {
+        val admins = load().users.filter { ADMIN_ROLE in it.roles && !it.blocked }
+        val last = admins.size == 1 && admins.single().id == user.id
+        return if (last && ADMIN_ROLE !in roles) roles + ADMIN_ROLE else roles
     }
 
     fun setBlocked(id: String, blocked: Boolean): User = synchronized(lock) {

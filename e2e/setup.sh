@@ -18,8 +18,13 @@ mkdir -p work/authelia work/identity work/sign-in work/vpn
 [ -f work/authelia/oidc.key ] || { openssl genrsa -out work/authelia/oidc.key 2048 2>/dev/null; chmod 644 work/authelia/oidc.key; }
 if [ ! -f work/authelia/users.yml ]; then
   HASH=$(docker run --rm docker.io/authelia/authelia:4.39 authelia crypto hash generate argon2 --password e2e-authelia-password | sed 's/^Digest: //')
-  printf 'users:\n  ada:\n    displayname: Ada\n    password: "%s"\n    email: ada@example.net\n' "$HASH" > work/authelia/users.yml
-  printf '  eve:\n    displayname: Eve\n    password: "%s"\n    email: eve@example.net\n' "$HASH" >> work/authelia/users.yml
+  # Ada is in a group that gives the admin role, Eve in one that gives the member role, and Mallory in none.
+  for person in "ada:Ada Lovelace:vpn-admins" "eve:Eve:family" "mallory:Mallory:other"; do
+    IFS=: read -r login display group <<< "$person"
+    [ -f work/authelia/users.yml ] || printf 'users:\n' > work/authelia/users.yml
+    printf '  %s:\n    displayname: "%s"\n    password: "%s"\n    email: %s@example.net\n    groups: [%s]\n' \
+      "$login" "$display" "$HASH" "$login" "$group" >> work/authelia/users.yml
+  done
 fi
 chmod 600 work/keys/id_ed25519
 echo "e2e material ready in $(pwd)/work"

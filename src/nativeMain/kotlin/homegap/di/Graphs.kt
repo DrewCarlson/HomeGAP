@@ -12,6 +12,7 @@ import homegap.dashboard.DashboardServer
 import homegap.dashboard.DashboardSso
 import homegap.identity.IdentityStore
 import homegap.identity.IssuerWatch
+import homegap.identity.ProviderUsersWatch
 import homegap.discovery.DockerClient
 import homegap.platform.env
 import homegap.reconcile.Controller
@@ -50,6 +51,7 @@ interface ControllerGraph {
     val dashboardAuth: DashboardAuth
     val speedTestServer: SpeedTestServer
     val issuerWatch: IssuerWatch
+    val providerUsersWatch: ProviderUsersWatch
 
     @Provides @SingleIn(AppScope::class)
     fun initialConfig(options: RunOptions): AppConfig = ConfigLoader.load(options.configPath)
@@ -96,6 +98,10 @@ interface ControllerGraph {
     @Provides @SingleIn(AppScope::class)
     fun issuerWatch(config: AppConfig, identity: IdentityStore, log: ReconcileLog): IssuerWatch =
         IssuerWatch(config.signInDir, identity, log)
+
+    @Provides @SingleIn(AppScope::class)
+    fun providerUsersWatch(controller: Controller, identity: IdentityStore, log: ReconcileLog): ProviderUsersWatch =
+        ProviderUsersWatch(controller.config.signInDir, identity, { controller.config }, log)
 
     @Provides @SingleIn(AppScope::class)
     fun ssh(config: AppConfig): SshPool = SshPool("/tmp/homegap-ssh", "${config.dataDir}/known_hosts")

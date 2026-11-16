@@ -269,6 +269,7 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
     val controller = graph.controller
     if (!once) {
         launch { graph.issuerWatch.run() }
+        launch { graph.providerUsersWatch.run() }
         graph.dashboard.start(config.dashboard.host, config.dashboard.port)
         logger.info { "dashboard listening on ${config.dashboard.bind}" }
         graph.dashboardAuth.generatedFile?.let { file ->

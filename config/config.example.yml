@@ -61,6 +61,11 @@ acme:
 #     issuer: https://auth.example.net
 #     client_id: homegap
 #     client_secret_env: HOMEGAP_OIDC_CLIENT_SECRET   # a variable of the sign-in container
+#     # create_users: true     # a person that the provider accepts gets a user at the first sign-in
+#     # group_roles:           # the groups of the provider give the roles, and HomeGAP cannot change them
+#     #   vpn-admins: [Admin]
+#     #   family: [Member]
+#     # default_roles: []      # the roles of a person in none of these groups. Empty: no access
 #     # The redirect address to give the provider is <url>/auth/oidc/callback.
 
 # The VPN of the devices that sign in.

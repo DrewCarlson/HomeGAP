@@ -52,9 +52,15 @@ class Oidc(
     /** A sign-in that is at the provider. [device] is the device code that it is for. */
     private class Started(val device: String, val nonce: String, val verifier: String, val at: Long)
 
+    /** What the provider says about a user: the address that it proved, the name and the groups. */
+    data class Person(val email: String, val name: String = "", val groups: List<String> = emptyList())
+
+    /** The settings of the provider. */
+    val settings: OidcConfig get() = config
+
     sealed interface Result {
-        /** The provider says that the user has the address [email]. [device] is the device code. */
-        data class Proven(val device: String, val email: String) : Result
+        /** The provider says that the user is [person]. [device] is the device code. */
+        data class Proven(val device: String, val person: Person) : Result
 
         /** [device] is null if HomeGAP does not know which sign-in this was. */
         data class Failed(val device: String?, val reason: String) : Result
@@ -74,7 +80,7 @@ class Oidc(
             parameters.append("response_type", "code")
             parameters.append("client_id", config.clientId)
             parameters.append("redirect_uri", redirect)
-            parameters.append("scope", config.scopes.joinToString(" "))
+            parameters.append("scope", config.requestedScopes.joinToString(" "))
             parameters.append("state", state)
             parameters.append("nonce", entry.nonce)
             parameters.append("code_challenge", Keys.fingerprint(entry.verifier))
@@ -90,14 +96,14 @@ class Oidc(
         if (code.isNullOrEmpty()) {
             return Result.Failed(entry.device, "The provider refused the sign-in (${error ?: "no code"}).")
         }
-        val proven = runCatchingCancellable { email(entry, code) }
+        val proven = runCatchingCancellable { person(entry, code) }
         return proven.fold(
             onSuccess = { Result.Proven(entry.device, it) },
             onFailure = { Result.Failed(entry.device, it.message ?: "The provider gave no valid answer.") },
         )
     }
 
-    private suspend fun email(entry: Started, code: String): String {
+    private suspend fun person(entry: Started, code: String): Person {
         val provider = endpoints()
         val response = http.submitForm(
             url = provider.token,
@@ -115,13 +121,21 @@ class Oidc(
         check((claims.number("exp") ?: 0) * MILLIS > now()) { "The ID token has expired." }
         check(claims.text("nonce") == entry.nonce) { "The ID token is for another sign-in." }
         val subject = claims.text("sub") ?: error("The ID token names no user.")
-        // Authelia gives the address only at the user info endpoint, not in the token.
-        val person = if (claims.text("email") != null) claims else userinfo(provider, tokens, subject)
+        // Authelia gives the address, the name and the groups only at the user info endpoint, not in the token.
+        val complete = claims.text("email") != null && (!config.reportsUsers || wanted().all { it in claims })
+        val person = if (complete) claims else JsonObject(claims + userinfo(provider, tokens, subject))
         check((person["email_verified"] as? JsonPrimitive)?.booleanOrNull != false) {
             "The provider did not verify the email address of this user."
         }
-        return person.text("email") ?: error("The provider gave no email address. Add the scope 'email'.")
+        return Person(
+            email = person.text("email") ?: error("The provider gave no email address. Add the scope 'email'."),
+            name = person.text("name").orEmpty(),
+            groups = person.texts(config.groupsClaim),
+        )
     }
+
+    /** The claims that HomeGAP needs besides the address when it takes its users from the provider. */
+    private fun wanted(): List<String> = listOfNotNull("name", config.groupsClaim.takeIf { config.managesRoles })
 
     private suspend fun userinfo(provider: Endpoints, tokens: JsonObject, subject: String): JsonObject {
         val url = provider.userinfo ?: error("The provider gave no email address and has no user info endpoint.")

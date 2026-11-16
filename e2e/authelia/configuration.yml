@@ -42,7 +42,7 @@ identity_providers:
         consent_mode: implicit
         redirect_uris:
           - https://signin.test.example.net/auth/oidc/callback
-        scopes: [openid, email, profile]
+        scopes: [openid, email, profile, groups]
         token_endpoint_auth_method: client_secret_basic
         require_pkce: true
         pkce_challenge_method: S256

@@ -142,7 +142,7 @@ See [With the homelab down](index.md#with-the-homelab-down).
 | --- | --- |
 | The app does not accept the address. | Open the address in a browser. It must have a valid certificate, and a node must answer. Check `sign_in.url` and the DNS records of the name. |
 | "This code is not known, or it expired." | A code is valid for 10 minutes. Start the sign-in in the app again. |
-| "You have no HomeGAP user with this email address. Ask your admin." | Add the user on the **Access** page, with the email address of the provider. |
+| "This account has no access to HomeGAP. Ask your admin." | Add the user on the **Access** page, with the email address of the provider. With `sign_in.oidc.group_roles`, put the person in a group that gives a role. |
 | The app signs in and does not show **Connected**. | The device must reach UDP port `vpn.port` (default `51830`) of the node. Open it in the firewall of your server provider. |
 | An exit of a node does not pass traffic. | The device must reach UDP port `vpn.exit_port` (default `51840`) of the node. |
 | A private name does not open. | Check the roles of the user and the `homegap.roles` label of the service. A service with no such label is for `Admin` only. |

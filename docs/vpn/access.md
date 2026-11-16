@@ -42,6 +42,7 @@ HomeGAP writes each change that you make here to the reconcile log. The page sho
 Click a user in **People**. The Inspector opens with the roles, the devices and the actions of the user.
 
 - To change the roles, select them under **Roles** and click **Save**. A user needs one role or more.
+- A user whose roles come from the sign-in provider shows the name of the provider, for example **Authelia**. The Inspector has no role selection for this user. Change the groups of the user at the provider. See [Sign-in](sign-in.md#users-and-roles-from-the-provider).
 - **New password** makes a new password and shows it one time. The old password stops.
 - **Block** stops the sign-in of the user and disconnects the devices of the user. **Unblock** ends the block.
 - **Remove** deletes the user. The devices of the user disconnect, and HomeGAP removes them.

@@ -76,7 +76,16 @@ class IdentityRoutes(private val identity: IdentityStore, private val log: Recon
 
     private fun RoutingContext.id(): String = requireNotNull(call.parameters["id"]) { "id required" }
 
-    private fun User.toDto() = IdentityUserDto(id, email, name, roles, blocked, passwordHash != null, createdAt)
+    private fun User.toDto() = IdentityUserDto(
+        id = id,
+        email = email,
+        name = name,
+        roles = roles,
+        blocked = blocked,
+        hasPassword = passwordHash != null,
+        createdAt = createdAt,
+        provider = provider,
+    )
 
     private companion object {
         const val DOMAIN = "identity"

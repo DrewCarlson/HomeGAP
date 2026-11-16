@@ -44,7 +44,8 @@ class UserCommand(config: AppConfig, private val args: List<String>) {
 
     private fun describe(user: IdentityUserDto): String {
         val state = if (user.blocked) "blocked" else "active"
-        return "${user.email}  ${user.roles.joinToString(",")}  $state"
+        val source = user.provider?.let { "  roles from $it" }.orEmpty()
+        return "${user.email}  ${user.roles.joinToString(",")}  $state$source"
     }
 
     private fun showPassword(response: IdentityPasswordResponse) {

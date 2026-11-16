@@ -14,6 +14,10 @@ data class User(
     /** A blocked user cannot sign in, and each session of the user ends. */
     val blocked: Boolean = false,
     val createdAt: Long = 0,
+    /** The name of the sign-in provider whose groups give the roles. With null, HomeGAP sets the roles. */
+    val provider: String? = null,
+    /** The time of the newest answer of the provider that the homelab took for this user (epoch ms). */
+    val providerAt: Long? = null,
 )
 
 /**
