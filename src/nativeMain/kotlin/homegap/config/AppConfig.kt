@@ -247,6 +247,11 @@ data class VpnConfig(
 data class AgentConfig(
     /** The HomeGAP image that a node runs as its agent. */
     val image: String = defaultImage(),
+    /**
+     * The build of the image, the value of `HOMEGAP_REVISION`. A tag such as `main` goes to a new
+     * image after each build. With a new revision, each node pulls the image again.
+     */
+    val revision: String? = env("HOMEGAP_REVISION")?.trim()?.ifEmpty { null },
 ) {
     companion object {
         const val IMAGE_REPOSITORY = "ghcr.io/drewcarlson/homegap"

@@ -129,6 +129,7 @@ See [Exits and tunnel DNS](../vpn/exit-nodes.md).
 | Key | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `image` | string | `ghcr.io/drewcarlson/homegap:<tag>` | The HomeGAP image that a node runs as its agent. The default tag is the value of `HOMEGAP_VERSION`. Without that variable, the tag is the version of the orchestrator. |
+| `revision` | string | The value of `HOMEGAP_REVISION`. | The build of the image. The image sets `HOMEGAP_REVISION` to its commit. When the revision changes, each node pulls the image of the agent again. A tag such as `main` then brings its new build to the nodes. |
 
 ## nodes[]
 
@@ -233,6 +234,7 @@ The listener of `speedtest.bind` serves the status page. See [Status page](../op
 | `HOMEGAP_CONFIG` | `/config/config.yml` | The path of the config file. |
 | `HOMEGAP_DRY_RUN` | None. | With `1`, `true` or `yes`, the orchestrator runs in dry run. |
 | `HOMEGAP_VERSION` | None. | The tag of the default image of the agent on each node (`agent.image`). The shipped compose file also uses it as the tag of the stack. |
+| `HOMEGAP_REVISION` | The commit of the image. | The default of `agent.revision`. |
 | `DOCKER_SOCKET` | `/var/run/docker.sock` | The path of the Docker socket. |
 | `DOCKER_HOST` | None. | The address of the Docker socket proxy, as `tcp://host:port`. With it, the orchestrator does not use the socket. The shipped compose file sets it. |
 | `HOMEGAP_MESH_DIR` | `/mesh` | The directory that the orchestrator and the mesh agent share. |

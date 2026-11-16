@@ -204,6 +204,11 @@ object NodeTemplates {
      */
     private fun JsonObjectBuilder.agentContainer(config: AppConfig) {
         put("image", config.agent.image)
+        // The tag can go to a new image. The revision changes this file, and the node then pulls the image.
+        config.agent.revision?.let { revision ->
+            put("pull_policy", "always")
+            putJsonObject("environment") { put("HOMEGAP_REVISION", revision) }
+        }
         put("container_name", AgentSpec.SERVICE)
         put("restart", "unless-stopped")
         put("network_mode", "host")

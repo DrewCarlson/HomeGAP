@@ -49,6 +49,18 @@ class TemplatesTest {
     }
 
     @Test
+    fun aNewBuildMakesTheNodePullTheImageOfTheAgent() {
+        fun agent(revision: String?): String {
+            val built = config.copy(agent = config.agent.copy(revision = revision))
+            val files = NodeTemplates.staticFiles(built, built.node("na1")!!, secrets)
+            return files.single { it.path == "compose.yml" }.content.substringAfter("  homegap-agent:")
+        }
+        assertFalse("pull_policy" in agent(null))
+        assertTrue("pull_policy: \"always\"" in agent("abc123") && "HOMEGAP_REVISION: \"abc123\"" in agent("abc123"))
+        assertTrue(agent("abc123") != agent("def456"), "a new build changes the stack of the node")
+    }
+
+    @Test
     fun everyRenderedFileIsValidYaml() {
         val game = container(
             "game",

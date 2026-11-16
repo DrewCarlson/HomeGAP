@@ -65,6 +65,10 @@ COPY build/bin/linuxArm64/releaseExecutable/homegap.kexe /tmp/homegap-arm64
 RUN if [ "${TARGETARCH:-$(dpkg --print-architecture)}" = "amd64" ]; then mv /tmp/homegap-amd64 /usr/local/bin/homegap; else mv /tmp/homegap-arm64 /usr/local/bin/homegap; fi \
     && rm -f /tmp/homegap-* && chmod 0755 /usr/local/bin/homegap
 
+# The commit of the build. The orchestrator gives it to the agent of each node, so a node pulls
+# the image again when a tag such as `main` goes to a new build.
+ARG REVISION=
+ENV HOMEGAP_REVISION=$REVISION
 ENV HOMEGAP_CONFIG=/config/config.yml
 VOLUME ["/data"]
 EXPOSE 8088
