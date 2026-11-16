@@ -240,8 +240,14 @@ object MaintenancePage {
         |    down = os.path.exists(ACTIVE)
         |    fails = oks = 0
         |    while True:
-        |        targets = load("probe.json", {}).get("targets", [])
-        |        up = homelab_up(targets) if targets else True
+        |        try:
+        |            targets = load("probe.json", {}).get("targets", [])
+        |            up = homelab_up(targets) if targets else True
+        |        except Exception as e:
+        |            # A probe file that this version cannot read must not stop the watch.
+        |            log(f"could not check the homelab: {e}")
+        |            time.sleep(INTERVAL)
+        |            continue
         |        fails, oks = (0, oks + 1) if up else (fails + 1, 0)
         |        try:
         |            if not down and fails >= DOWN_AFTER:
