@@ -1,5 +1,6 @@
 package homegap.signin
 
+import homegap.identity.Directory
 import homegap.identity.Keys
 import homegap.identity.Signed
 import homegap.platform.Crypto
@@ -92,6 +93,19 @@ class Devices(
 
     fun remove(id: String): Unit = synchronized(lock) {
         if (devices().remove(id) != null) write()
+    }
+
+    /**
+     * Removes each device whose user or machine is not in [directory] any more. Its address is
+     * free again. Returns the devices that went.
+     */
+    fun prune(directory: Directory): List<Device> = synchronized(lock) {
+        val gone = devices().values.filter { device ->
+            if (device.userId.isEmpty()) directory.machine(device.id) == null else directory.user(device.userId) == null
+        }
+        gone.forEach { devices().remove(it.id) }
+        if (gone.isNotEmpty()) write()
+        gone
     }
 
     private fun devices(): MutableMap<String, Device> {

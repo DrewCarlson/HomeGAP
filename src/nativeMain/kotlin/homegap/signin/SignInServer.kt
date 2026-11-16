@@ -144,6 +144,8 @@ class SignInServer(
             role.ownSessions -> loaded.copy(issuers = loaded.issuers + (role.issuer to signIn.publicKey))
             else -> loaded
         }
+        val gone = devices.prune(loaded)
+        if (gone.isNotEmpty()) logger.info { "removed ${gone.size} device(s) of users and machines that are gone" }
         gateway.refresh()
         // The nodes get the directory, with the signature of the homelab, through the folder of the VPN.
         vpnDir?.let { shared ->

@@ -142,6 +142,24 @@ class AppApiTest {
     }
 
     @Test
+    fun theDevicesOfARemovedUserOrMachineGo() {
+        val fixture = Fixture()
+        val (machine, _) = fixture.store.createMachine("server", emptyList())
+        val devices = Devices("${fixture.root}/prune", "100.90.0.0/24")
+        val (phone, _) = devices.create(fixture.userId, "phone")
+        devices.machine(machine.id, machine.name)
+        val directory = { Signed.directory(fixture.store.directory().render(), fixture.store.publicKey)!! }
+        assertTrue(devices.prune(directory()).isEmpty())
+
+        fixture.store.removeMachine(machine.id)
+        assertEquals(listOf(machine.id), devices.prune(directory()).map { it.id })
+        assertNotNull(devices.get(phone.id), "a blocked or other user keeps the devices")
+        fixture.store.remove(fixture.userId)
+        assertEquals(listOf(phone.id), devices.prune(directory()).map { it.id })
+        assertEquals("100.90.0.2", devices.create("other", "new").first.address, "the address is free again")
+    }
+
+    @Test
     fun eachDeviceKeepsItsOwnAddress() {
         val dir = "/tmp/homegap-devices-test-${Keys.encode(Crypto.randomBytes(6))}"
         val devices = Devices(dir, "100.90.0.0/29")
