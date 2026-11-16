@@ -25,7 +25,6 @@ private fun HttpRequestData.text() = (body as TextContent).text
 
 class ReconcilerTest {
     private fun reconcileContext(
-        http: HttpClient,
         dryRun: Boolean = false,
         state: StateStore = StateStore(tmpPath("state")),
     ) = ReconcileContext(
@@ -103,7 +102,7 @@ class ReconcilerTest {
         // An unmanaged record collides with the managed wildcard set. A second record is unrelated.
         bunny.records += BunnyRecord(id = 1, type = 0, name = "*.test", value = "192.0.2.99")
         bunny.records += BunnyRecord(id = 2, type = 3, name = "txt", value = "keep-me")
-        val ctx = reconcileContext(http)
+        val ctx = reconcileContext()
         val desired = Planner.plan(ctx.config, listOf(TRAEFIK)).dns
         DnsReconciler(ctx, bunnyClient(http)).reconcile(desired, emptySet())
 
@@ -147,7 +146,7 @@ class ReconcilerTest {
     fun dnsReportsRecordsANameserverDoesNotServeYet() = runTest {
         val bunny = FakeBunny()
         val http = HttpClient(bunny.engine)
-        val ctx = reconcileContext(http)
+        val ctx = reconcileContext()
         val desired = Planner.plan(ctx.config, listOf(TRAEFIK)).dns
         val records = desired.groupBy({ it.fqdn to DnsWire.typeCode(it.type) }, { it.value })
         // coco does not have the management record of na1 yet. It answers with the node of the wildcard.
@@ -175,7 +174,7 @@ class ReconcilerTest {
     fun dnsDryRunAndPausedNodesNeverWrite() = runTest {
         val bunny = FakeBunny()
         val http = HttpClient(bunny.engine)
-        val dryRunCtx = reconcileContext(http, dryRun = true)
+        val dryRunCtx = reconcileContext(dryRun = true)
         val desired = Planner.plan(dryRunCtx.config, listOf(TRAEFIK)).dns
         DnsReconciler(dryRunCtx, bunnyClient(http)).reconcile(desired, emptySet())
         assertTrue(bunny.records.isEmpty())
@@ -183,7 +182,7 @@ class ReconcilerTest {
 
         val state = StateStore(tmpPath("state"))
         state.update { it.copy(pauses = it.pauses.copy(nodes = setOf("na1"))) }
-        val pausedCtx = reconcileContext(http, state = state)
+        val pausedCtx = reconcileContext(state = state)
         DnsReconciler(pausedCtx, bunnyClient(http)).reconcile(desired, emptySet())
         assertTrue(bunny.records.none { it.comment?.endsWith("node=na1") == true })
         assertTrue(bunny.records.any { it.comment?.endsWith("node=as1") == true })

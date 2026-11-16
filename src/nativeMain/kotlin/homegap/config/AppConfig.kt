@@ -476,10 +476,9 @@ data class DashboardSsoConfig(
     /** The headers that only the middleware can write. The route removes them from the request of the client. */
     val trustedHeaders: List<String> get() = (listOf(userHeader, groupsHeader) + EXTRA_HEADERS).distinct()
 
-    private companion object {
-        val EXTRA_HEADERS = listOf("Remote-Name", "Remote-Email")
-    }
 }
+
+private val EXTRA_HEADERS = listOf("Remote-Name", "Remote-Email")
 
 /** The approximate center of each region, for a node that gives only a region code. */
 val REGION_CENTROIDS: Map<String, GeoLocation> = mapOf(

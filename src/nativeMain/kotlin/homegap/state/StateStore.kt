@@ -5,8 +5,10 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNames
 
 private const val RUN_HISTORY_SIZE = 10
 
@@ -28,7 +30,12 @@ data class NodeState(
     val teardownError: String? = null,
     /** Outcome of the last stack update that did not go through (rolled back or skipped). */
     val update: UpdateState? = null,
-    /** The permanent slot of the node, which gives its mesh address. See NodeSlots. */
+    /**
+     * The permanent slot of the node, which gives its mesh address. See NodeSlots. A state file
+     * from before the mesh carried every route has the slot as `tunnelSlot`.
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    @JsonNames("tunnelSlot")
     val slot: Int? = null,
     /** The node's mesh public key, learned from the node (its private key never leaves it). */
     val meshPublicKey: String? = null,

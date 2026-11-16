@@ -1843,10 +1843,11 @@ internal const val SERVICE_SLOW_MS = 1000.0
 /**
  * Lines for the node's observe script: one request per hostname through the node's own proxy
  * (`--resolve` to 127.0.0.1), printing `H <host> <code> <seconds>`. Each waits at most 3 s.
+ * The request accepts each certificate. The certificate probe checks the certificates.
  */
 internal fun serviceProbeScript(hosts: List<String>): String = hosts.joinToString(separator = "") { host ->
     val quoted = shQuote(host)
-    $$"\necho \"H $$host $(curl -s -o /dev/null --max-time 3 --resolve $$quoted:443:127.0.0.1 " +
+    $$"\necho \"H $$host $(curl -sk -o /dev/null --max-time 3 --resolve $$quoted:443:127.0.0.1 " +
         "-w '%{http_code} %{time_total}' https://$quoted/ 2>/dev/null || echo '000 0')\""
 }
 

@@ -10,14 +10,17 @@
 #   2. recreates the orchestrator (the control plane only: traffic never goes through it) and
 #      the mesh agent (the mesh interface stays up without it);
 #   3. recreates the sign-in. A device that is connected keeps its tunnel and connects to the
-#      sign-in again.
+#      sign-in again;
+#   4. brings the rest of the stack to the compose file, and removes each container of a service
+#      that the compose file no longer has.
 #
 # If the orchestrator does not start with its new image, the script puts it back on the image it
 # had, and stops. It gives the old image the tag of the compose file, so a later
 # `docker compose pull` gets the new image again.
 #
-# The mesh container (homegap-mesh) is never recreated: the mesh and everything in its network
-# namespace would restart with it. --no-pull uses the images already on the host.
+# The mesh container (homegap-mesh) has a fixed image, so step 4 recreates it only when its part
+# of the compose files changes. The mesh agent restarts with it, and the mesh is down for a few
+# seconds. --no-pull uses the images already on the host.
 #
 # The files of the stack come from the new image (`homegap init --refresh`). A file that you did
 # not change gets its new version. For a file that you changed, the script asks. Without a
@@ -45,6 +48,8 @@ done
 ORCHESTRATOR=orchestrator
 MESH_AGENT=homegap-mesh-agent
 SIGN_IN=homegap-sign-in
+# The image of the mesh container, which the host already has.
+FOLDER_IMAGE=docker.io/library/busybox:1.37
 # This script started itself again after it got its new version: the pull and the refresh are done.
 REFRESHED=${HG_REFRESHED:-}
 
@@ -98,7 +103,8 @@ fi
 services=""
 # Reads the services of the compose project. Stops if the project has no orchestrator.
 read_services() {
-  services=$(dc config --services)
+  services=$(dc config --services) \
+    || die "the compose files are not valid (see the message above). Nothing restarted. Correct the cause and run this again."
   has "$ORCHESTRATOR" || die "no '$ORCHESTRATOR' service in this compose project"
 }
 has() { printf '%s\n' "$services" | grep -qx "$1"; }
@@ -155,6 +161,30 @@ refresh_files() {
   dc config -q || die "the compose files are not valid (see the message above). Nothing restarted. Correct the cause and run this again."
 }
 
+# Makes each data folder that is missing. Docker makes a missing folder as root, and then the
+# orchestrator and the sign-in cannot write to it. Where this user cannot make the folder, a
+# container makes it as root and gives it to the owner of this folder.
+make_folders() {
+  local data owner name missing=()
+  data=${HOMEGAP_DATA_DIR:-}
+  [ -n "$data" ] || [ ! -f .env ] || data=$(sed -n 's/^HOMEGAP_DATA_DIR=//p' .env | tail -n 1)
+  data=${data:-./data}
+  for name in orchestrator mesh identity sign-in vpn; do
+    [ -d "$data/$name" ] || missing+=("$name")
+  done
+  [ ${#missing[@]} -gt 0 ] || return 0
+  say "Making the data folders: ${missing[*]}"
+  if (cd "$data" 2>/dev/null && mkdir -p "${missing[@]}") 2>/dev/null; then
+    return 0
+  fi
+  owner=$(stat -c '%u:%g' . 2>/dev/null || echo "$(id -u):$(id -g)")
+  mkdir -p "$data" 2>/dev/null || true
+  [ -d "$data" ] || die "cannot make the data folder $data"
+  docker run --rm -e "OWNER=$owner" -v "$(cd "$data" && pwd):/data" -w /data "$FOLDER_IMAGE" \
+    sh -c 'mkdir -p "$@" && chown "$OWNER" "$@"' sh "${missing[@]}" \
+    || die "cannot make the folders ${missing[*]} in $data. Make them, give them to user $owner, and run this again."
+}
+
 read_services
 
 if [ "$PULL" = yes ] && [ -z "$REFRESHED" ]; then
@@ -173,6 +203,8 @@ if [ "$REFRESH" = yes ] && [ -z "$REFRESHED" ]; then
     echo "The files of the stack stay as they are: the refresh needs ./compose.yml and no compose arguments."
   fi
 fi
+
+make_folders
 
 say "Updating the orchestrator"
 previous=$(image_of "$ORCHESTRATOR")
@@ -193,6 +225,9 @@ if has "$SIGN_IN"; then
   say "Updating the sign-in"
   dc up -d --no-deps "$SIGN_IN"
 fi
+
+say "Bringing the rest of the stack to the compose file"
+dc up -d --remove-orphans
 
 say "Done"
 dc ps

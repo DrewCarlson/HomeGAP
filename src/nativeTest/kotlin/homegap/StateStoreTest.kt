@@ -28,6 +28,14 @@ class StateStoreTest {
     }
 
     @Test
+    fun aNodeKeepsTheSlotOfAnOlderStateFile() {
+        val path = tmpPath("state")
+        Files.writeAtomic(path, """{"nodes":{"na1":{"tunnelSlot":3}}}""", "600".toInt(8))
+        assertEquals(3, StateStore(path).snapshot().nodes.getValue("na1").slot)
+        listOf(path, "$path.bak").forEach { Files.delete(it) }
+    }
+
+    @Test
     fun aCorruptFileWithoutACopyStopsTheStart() {
         val path = tmpPath("state")
         Files.writeAtomic(path, "{ not json", "600".toInt(8))
