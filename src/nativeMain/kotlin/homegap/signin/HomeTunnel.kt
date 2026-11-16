@@ -74,12 +74,30 @@ class HomeTunnel(
             aliases = data.aliases,
         )
         val dns = DnsConfig(resolvers.map { "$it:$DNS_PORT" }, overrideDns = true, tunnelDns = true)
-        // The exit of each node that has the key of the device. The app must have the site to select its exit.
-        val permitted = users?.vpn?.nodeExitFor(roles) == true
-        val exits = status.exits.filter { permitted && publicKey in it.peers }.map { exit ->
+        // A node that has no key yet comes later, through watch().
+        return Connection(listOf(site) + exitSites(roles, publicKey, status), dns.takeIf { resolvers.isNotEmpty() })
+    }
+
+    override fun exitSites(device: Device, publicKey: String): List<Site> =
+        rolesOf(device)?.let { exitSites(it, publicKey, status()) }.orEmpty()
+
+    /** The exit of each node that has the key of the device. The app must have the site to select its exit. */
+    private fun exitSites(roles: List<String>, publicKey: String, status: Mesh.VpnStatus?): List<Site> {
+        if (directory()?.vpn?.nodeExitFor(roles) != true) return emptyList()
+        return status?.exits.orEmpty().filter { publicKey in it.peers }.map { exit ->
             Site(siteIdOf(exit), exit.node, "${exit.host}:${exit.port}", exit.publicKey, exit.address, exit.port)
         }
-        return Connection(listOf(site) + exits, dns.takeIf { resolvers.isNotEmpty() })
+    }
+
+    override suspend fun watch() {
+        var last = status()?.exits
+        watchDirectory(dir) { it == Mesh.VPN_STATUS_FILE }.collect {
+            val exits = status()?.exits
+            if (exits != last) {
+                last = exits
+                changed.tryEmit(Unit)
+            }
+        }
     }
 
     override fun siteData(device: Device, node: String?): SiteData? {

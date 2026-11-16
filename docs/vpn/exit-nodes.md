@@ -33,7 +33,7 @@ The agent of the node (`homegap-agent`) keeps a WireGuard interface for the exit
 
 The mesh agent of the homelab sends each node the devices that have a role for the exits. It sends the full list over the mesh every 15 seconds and after each change. The agent of the node admits the WireGuard key of each device at the tunnel address of that device. The node accepts the list only from the mesh address of the homelab.
 
-The app lists the exit of a node only after that node has the key of the device. A node that does not answer the mesh agent is not in the list.
+The app gets the exit of a node only after that node has the key of the device. A node that gets the key after the device connected sends its exit to the app at that time. The device needs no new connection. A node that does not answer the mesh agent is not in the list.
 
 Through this exit, a device reaches the internet. It does not reach a private range, the mesh or another device. On the node itself, it reaches only the probe of the app and ping.
 

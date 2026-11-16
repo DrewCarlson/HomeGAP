@@ -113,6 +113,12 @@ interface TunnelGateway {
      * gateway gives none. [node] is the id of the node of the control connection.
      */
     fun siteData(device: Device, node: String?): SiteData? = null
+
+    /** The peers of the node exits that hold [publicKey] of [device] now. */
+    fun exitSites(device: Device, publicKey: String): List<Site> = emptyList()
+
+    /** Runs for the life of the server and makes [changes] emit when an exit changes. */
+    suspend fun watch() {}
 }
 
 /** A gateway with no peer yet. The app connects to the control server and gets an empty tunnel. */

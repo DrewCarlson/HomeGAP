@@ -29,6 +29,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
@@ -58,6 +59,9 @@ class ControlSocket(
             val running = devices.running()
             gateway.restore(running)
             running.forEach { device -> device.tunnelKey?.let { depart(parent.application, device, it) } }
+        }
+        parent.application.launch {
+            runCatchingCancellable { gateway.watch() }.onFailure { logger.error { "the watch of the exits stopped: ${it.message}" } }
         }
         parent.webSocket("/ws") { serve() }
     }
@@ -94,9 +98,13 @@ class ControlSocket(
             delay(IDLE)
             close(CloseReason(CloseReason.Codes.NORMAL, "no tunnel"))
         }
-        var sites: List<Site> = resumed?.second.orEmpty()
-        var key: String? = resumed?.first
-        if (resumed != null) live.lock.withLock { live.sent = gateway.siteData(device, node) }
+        if (resumed != null) {
+            live.lock.withLock {
+                live.key = resumed.first
+                live.sites = resumed.second
+                live.sent = gateway.siteData(device, node)
+            }
+        }
         // A change of the directory reaches the app at once: it needs no new connection for a new name.
         val updates = launch { gateway.changes.collect { update(live, device, node) } }
         try {
@@ -122,14 +130,18 @@ class ControlSocket(
                         val admitted = register(device, data, chain, node)
                         devices.seen(device.id, agentOf(data), node)
                         if (admitted != null) {
-                            sites = admitted.second
-                            key = admitted.first
                             idle?.cancel()
-                            live.lock.withLock { live.sent = gateway.siteData(device, node) }
+                            live.lock.withLock {
+                                live.key = admitted.first
+                                live.sites = admitted.second
+                                live.sent = gateway.siteData(device, node)
+                            }
+                            // An exit that got the key between the admission and now.
+                            update(live, device, node)
                         }
                     }
                     "olm/disconnecting" -> devices.tunnel(device.id, null)
-                    "olm/wg/relay" -> relay(sites, data, chain)
+                    "olm/wg/relay" -> relay(live.lock.withLock { live.sites }, data, chain)
                     "olm/ping" -> send("pong", JsonObject(emptyMap()))
                     else -> Unit
                 }
@@ -137,7 +149,7 @@ class ControlSocket(
         } finally {
             updates.cancel()
             idle?.cancel()
-            key?.let { leave(device, it) }
+            live.key?.let { leave(device, it) }
             devices.seen(device.id)
             logger.info { "device '${device.name}' (${device.id}) disconnected" }
         }
@@ -224,15 +236,26 @@ class ControlSocket(
         )
     }
 
-    /** What the app of a connection has on the peer of the homelab. Null until its tunnel starts. */
-    private class LiveData(var sent: SiteData? = null, val lock: Mutex = Mutex())
+    /**
+     * What the app of a connection has: the key of its tunnel, its peers, and its ranges and names
+     * on the peer of the homelab. Each is null or empty until its tunnel starts.
+     */
+    private class LiveData(
+        var sent: SiteData? = null,
+        var key: String? = null,
+        var sites: List<Site> = emptyList(),
+        val lock: Mutex = Mutex(),
+    )
 
     /**
-     * Sends the app the ranges and names that changed since [live]. The removals go first, so a
+     * Sends the app the ranges and names that changed since [live], and the exit of each node
+     * that got the key of the device after the start of the tunnel. The removals go first, so a
      * name with a new address loses the old one before it gets the new one.
      */
     private suspend fun DefaultWebSocketServerSession.update(live: LiveData, device: Device, node: String?) {
         live.lock.withLock {
+            val key = live.key ?: return
+            addExits(live, device, key)
             val before = live.sent ?: return
             val now = gateway.siteData(device, node) ?: return
             val (removed, added) = now.changeFrom(before)
@@ -244,6 +267,17 @@ class ControlSocket(
                 logger.info { "device '${device.name}' (${device.id}) updated: $names" }
             }
         }
+    }
+
+    /** Sends the app each exit that it does not have yet. The caller holds the lock of [live]. */
+    private suspend fun DefaultWebSocketServerSession.addExits(live: LiveData, device: Device, key: String) {
+        val known = live.sites.map { it.siteId }.toSet()
+        val added = gateway.exitSites(device, key).filter { it.siteId !in known }
+        for (site in added) {
+            send("olm/wg/peer/add", WIRE.encodeToJsonElement(site).jsonObject)
+            logger.info { "device '${device.name}' (${device.id}) got the exit of ${site.name}" }
+        }
+        live.sites += added
     }
 
     private fun peerData(data: SiteData): JsonObject = buildJsonObject {
