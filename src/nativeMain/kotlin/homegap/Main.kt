@@ -5,6 +5,7 @@ import homegap.api.ActionResponse
 import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.config.SharedDirs
+import homegap.config.SignInConfig
 import homegap.dashboard.DashboardAuth
 import homegap.di.ControllerGraph
 import homegap.di.RunOptions
@@ -22,6 +23,8 @@ import homegap.node.NodeAgent
 import homegap.platform.Files
 import homegap.platform.env
 import homegap.provision.NodeSecrets
+import homegap.signin.Oidc
+import homegap.signin.SignInPage
 import homegap.signin.SignInServer
 import homegap.provision.NodeTemplates
 import homegap.stack.FileOutcome
@@ -31,6 +34,7 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.curl.Curl
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -57,6 +61,7 @@ private const val DEFAULT_DATA_DIR = "/data"
 private const val DEFAULT_MESH_HOST = "homegap-mesh"
 private const val DEFAULT_AGENT_DIR = "/agent"
 private const val DEFAULT_SIGN_IN_PORT = 8090
+private const val PROVIDER_TIMEOUT_MS = 15_000L
 private const val DEFAULT_MAINTENANCE_MINUTES = 30
 private const val DEFAULT_STACK_FILES = "/usr/share/homegap/deploy"
 private const val DEFAULT_STACK_FOLDER = "/work"
@@ -91,7 +96,7 @@ Usage:
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
   homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
-  homegap sign-in [--dir PATH] [--identity PATH] [--port N]
+  homegap sign-in [--config PATH] [--dir PATH] [--identity PATH] [--port N]
                                                        Run the public sign-in of the homelab
   homegap user list | add EMAIL [--name NAME] [--role ROLE]... | password EMAIL | block EMAIL | unblock EMAIL | remove EMAIL
                                                        Manage the users of HomeGAP's own sign-in
@@ -130,12 +135,7 @@ fun main(args: Array<String>) {
                 maintenance(configPath, action, minutes)
             }
             "init" -> initStack(line)
-            "sign-in" -> runBlocking {
-                val dir = line.option("--dir") ?: SharedDirs.signIn(DEFAULT_DATA_DIR)
-                val identity = line.option("--identity") ?: SharedDirs.identity(DEFAULT_DATA_DIR)
-                val port = line.option("--port")?.toIntOrNull() ?: DEFAULT_SIGN_IN_PORT
-                SignInServer(dir, identity).run(host = "0.0.0.0", port = port)
-            }
+            "sign-in" -> runSignIn(configPath, line)
             "user" -> UserCommand(ConfigLoader.load(configPath), line.rest).run()
             "mesh" -> {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
@@ -330,6 +330,28 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
         }
     }
     controller.run(this, once)
+}
+
+/** The sign-in reads only the `sign_in` part of the config. With no config file, it accepts passwords only. */
+private fun runSignIn(configPath: String, line: CommandLine) = runBlocking {
+    val settings = if (Files.exists(configPath)) ConfigLoader.load(configPath).signIn else SignInConfig()
+    val oidc = settings.oidc?.let { provider ->
+        val secret = env(provider.clientSecretEnv)?.takeIf { it.isNotBlank() }
+            ?: error("sign_in.oidc needs the variable ${provider.clientSecretEnv} in the sign-in container")
+        val http = HttpClient(Curl) {
+            // A provider with a certificate of a private CA: the file with that CA.
+            engine { env("SSL_CERT_FILE")?.takeIf { it.isNotBlank() }?.let { caInfo = it } }
+            install(HttpTimeout) { requestTimeoutMillis = PROVIDER_TIMEOUT_MS }
+            followRedirects = false
+            expectSuccess = false
+        }
+        Oidc(provider, secret, settings.url.orEmpty().trimEnd('/') + Oidc.CALLBACK_PATH, http)
+    }
+    val dir = line.option("--dir") ?: SharedDirs.signIn(DEFAULT_DATA_DIR)
+    val identity = line.option("--identity") ?: SharedDirs.identity(DEFAULT_DATA_DIR)
+    val port = line.option("--port")?.toIntOrNull() ?: DEFAULT_SIGN_IN_PORT
+    val options = SignInPage.Options(settings.passwords, settings.oidc?.name)
+    SignInServer(dir, identity, options, oidc).run(host = "0.0.0.0", port = port)
 }
 
 private fun runMesh(dir: String) = runBlocking {

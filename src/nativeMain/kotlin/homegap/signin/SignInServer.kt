@@ -6,6 +6,7 @@ import homegap.identity.IdentityStore
 import homegap.identity.Signed
 import homegap.platform.Crypto
 import homegap.platform.Files
+import homegap.platform.runCatchingCancellable
 import homegap.platform.watchDirectory
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.ContentType
@@ -19,6 +20,7 @@ import io.ktor.server.plugins.origin
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.header
+import io.ktor.server.response.respondRedirect
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
@@ -43,7 +45,12 @@ import kotlin.concurrent.Volatile
  * It serves the calls of the Pangolin apps for the sign-in of a device, with the paths and the
  * answers that the apps expect, and the page where the user signs in.
  */
-class SignInServer(private val dir: String, private val identityDir: String) {
+class SignInServer(
+    private val dir: String,
+    private val identityDir: String,
+    private val options: SignInPage.Options = SignInPage.Options(),
+    private val oidc: Oidc? = null,
+) {
     private val logger = KotlinLogging.logger("sign-in")
 
     @Volatile
@@ -101,6 +108,8 @@ class SignInServer(private val dir: String, private val identityDir: String) {
             }
             get("/auth/login/device") { call.showForm() }
             post("/auth/login/device") { call.submitForm() }
+            get("/auth/oidc/start") { call.startProvider() }
+            get(Oidc.CALLBACK_PATH) { call.finishProvider() }
         }
     }
 
@@ -162,28 +171,92 @@ class SignInServer(private val dir: String, private val identityDir: String) {
         when {
             code.isNullOrBlank() -> page(SignInPage.askCode())
             pending == null -> page(SignInPage.askCode(UNKNOWN_CODE), HttpStatusCode.NotFound)
-            else -> page(SignInPage.form(code.trim().uppercase(), pending, address()))
+            else -> page(form(code, pending))
         }
     }
+
+    private fun ApplicationCall.form(code: String, pending: SignIn.Pending, problem: String? = null): String =
+        SignInPage.form(SignInPage.Request(code.trim().uppercase(), pending, address()), options, problem)
+
+    /** The code that waits, if the request has the secret of its page. */
+    private fun pendingOf(code: String, form: String?): SignIn.Pending? =
+        signIn.pending(code)?.takeIf { Crypto.constantTimeEquals(it.form, form.orEmpty()) }
 
     private suspend fun ApplicationCall.submitForm() {
         val form = receiveParameters()
         val code = form["code"].orEmpty()
-        val pending = signIn.pending(code)
-        if (pending == null || !Crypto.constantTimeEquals(pending.form, form["form"].orEmpty())) {
+        val pending = pendingOf(code, form["form"])
+        if (pending == null || !options.passwords) {
             return page(SignInPage.askCode(UNKNOWN_CODE), HttpStatusCode.NotFound)
         }
         val email = form["email"].orEmpty()
-        when (val outcome = signIn.signIn(code, email, form["password"].orEmpty(), address())) {
+        val outcome = signIn.signIn(code, email, form["password"].orEmpty(), address())
+        if (outcome is SignIn.Outcome.WrongPassword) {
+            logger.warn { "failed sign-in for '${email.take(MAX_LOGGED)}' from ${address()}" }
+        }
+        show(outcome, code, pending, "a password")
+    }
+
+    private suspend fun ApplicationCall.startProvider() {
+        val code = request.queryParameters["code"].orEmpty()
+        val pending = pendingOf(code, request.queryParameters["form"])
+        if (pending == null || oidc == null) {
+            return page(SignInPage.askCode(UNKNOWN_CODE), HttpStatusCode.NotFound)
+        }
+        val address = runCatchingCancellable { oidc.begin(code) }.getOrElse { e ->
+            logger.error { "the sign-in provider is not usable: ${e.message}" }
+            val problem = "The sign-in provider does not answer. Try again in a moment."
+            return page(form(code, pending, problem), HttpStatusCode.BadGateway)
+        }
+        respondRedirect(address)
+    }
+
+    private suspend fun ApplicationCall.finishProvider() {
+        val query = request.queryParameters
+        val provider = oidc ?: return page(SignInPage.askCode(UNKNOWN_CODE), HttpStatusCode.NotFound)
+        when (val result = provider.finish(query["state"].orEmpty(), query["code"], query["error"])) {
+            is Oidc.Result.Proven -> {
+                val pending = signIn.pending(result.device)
+                    ?: return page(SignInPage.askCode(UNKNOWN_CODE), HttpStatusCode.NotFound)
+                val outcome = signIn.signInProven(result.device, result.email)
+                if (outcome is SignIn.Outcome.NoSuchUser) {
+                    val email = result.email.take(MAX_LOGGED)
+                    logger.warn { "the provider proved '$email', which is no user of HomeGAP" }
+                }
+                show(outcome, result.device, pending, "the provider")
+            }
+            is Oidc.Result.Failed -> {
+                logger.warn { "sign-in through the provider failed: ${result.reason}" }
+                val pending = result.device?.let { signIn.pending(it) }
+                when (pending) {
+                    null -> page(SignInPage.askCode(result.reason), HttpStatusCode.BadRequest)
+                    else -> page(form(result.device, pending, result.reason), HttpStatusCode.BadRequest)
+                }
+            }
+        }
+    }
+
+    /** The page for the [outcome] of a sign-in for [code]. [how] names the way of the sign-in in the log. */
+    private suspend fun ApplicationCall.show(
+        outcome: SignIn.Outcome,
+        code: String,
+        pending: SignIn.Pending,
+        how: String,
+    ) {
+        when (outcome) {
             is SignIn.Outcome.SignedIn -> {
-                logger.info { "${outcome.user.email} signed in for the device '${pending.device}' from ${address()}" }
+                val device = pending.device
+                logger.info { "${outcome.user.email} signed in with $how for the device '$device' from ${address()}" }
                 val nonce = Crypto.token(NONCE_LENGTH)
                 page(SignInPage.approved(outcome.user.email, nonce), nonce = nonce)
             }
             SignIn.Outcome.WrongPassword -> {
-                logger.warn { "failed sign-in for '${email.take(MAX_LOGGED)}' from ${address()}" }
                 val problem = "The email or the password is not correct."
-                page(SignInPage.form(code, pending, address(), problem), HttpStatusCode.Unauthorized)
+                page(form(code, pending, problem), HttpStatusCode.Unauthorized)
+            }
+            SignIn.Outcome.NoSuchUser -> {
+                val problem = "You have no HomeGAP user with this email address. Ask your admin."
+                page(form(code, pending, problem), HttpStatusCode.Forbidden)
             }
             SignIn.Outcome.TooManyAttempts -> {
                 val text = "Too many attempts. Try again in ${SignIn.FAILURE_WINDOW.inWholeMinutes} minutes."

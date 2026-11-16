@@ -61,11 +61,25 @@ object ConfigLoader {
             addAll(speedtestErrors(config))
             addAll(dashboardErrors(config.dashboard))
             addAll(meshErrors(config.mesh))
+            addAll(signInErrors(config.signIn))
             addAll(clusterErrors(config.cluster))
         }
         require(errors.isEmpty()) {
             "Invalid configuration:\n  - " + errors.joinToString("\n  - ")
         }
+    }
+
+    private fun signInErrors(signIn: SignInConfig): List<String> = buildList {
+        signIn.url?.let { if (!it.startsWith("https://")) add("sign_in.url must start with https://") }
+        val oidc = signIn.oidc
+        if (oidc == null) {
+            if (!signIn.passwords) add("sign_in.passwords is false and sign_in.oidc is not set: no user can sign in")
+            return@buildList
+        }
+        if (signIn.url == null) add("sign_in.oidc needs sign_in.url: the provider sends the browser back to it")
+        if (!oidc.issuer.startsWith("https://")) add("sign_in.oidc.issuer must start with https://")
+        if (oidc.clientId.isBlank()) add("sign_in.oidc.client_id must not be empty")
+        if ("openid" !in oidc.scopes) add("sign_in.oidc.scopes must have 'openid'")
     }
 
     private fun domainErrors(config: AppConfig): List<String> = buildList {

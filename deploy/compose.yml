@@ -166,7 +166,12 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
+    environment:
+      # The client secret of the sign-in provider (sign_in.oidc.client_secret_env).
+      HOMEGAP_OIDC_CLIENT_SECRET: ${HOMEGAP_OIDC_CLIENT_SECRET:-}
     volumes:
+      # The sign-in reads the part sign_in of the config. Start it again after a change of that part.
+      - ./config:/config:ro
       - "${HOMEGAP_DATA_DIR:-./data}/identity:/identity:ro"
       - "${HOMEGAP_DATA_DIR:-./data}/sign-in:/sign-in"
 

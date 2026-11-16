@@ -354,10 +354,30 @@ services:
     labels:
       homegap.expose: "signin.test.example.net"
       homegap.port: "8090"
+    environment:
+      HOMEGAP_OIDC_CLIENT_SECRET: e2e-oidc-client-secret
+      # The provider of the harness has a certificate of the test CA.
+      SSL_CERT_FILE: /certs/ca.pem
     volumes:
+      - ${E2E_CONFIG:-./config.e2e.yml}:/config/config.yml:ro
+      - ./work/certs:/certs:ro
       - ./work/identity:/identity:ro
       - ./work/sign-in:/sign-in
     networks: [e2e]
+
+  # The OpenID Connect provider of the sign-in: a real Authelia, with its own TLS.
+  authelia:
+    image: docker.io/authelia/authelia:4.39
+    restart: unless-stopped
+    environment:
+      X_AUTHELIA_CONFIG_FILTERS: template
+    volumes:
+      - ./authelia/configuration.yml:/config/configuration.yml:ro
+      - ./work/authelia:/work:ro
+      - ./work/certs:/certs:ro
+    networks:
+      e2e:
+        aliases: [auth.test.example.net]
 
   tunnels:
     image: homegap:e2e

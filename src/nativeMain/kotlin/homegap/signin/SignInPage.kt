@@ -5,9 +5,20 @@ object SignInPage {
     /** The link that brings the user back to the app. */
     const val APP_LINK = "pangolin://auth"
 
-    fun form(code: String, pending: SignIn.Pending, address: String, problem: String? = null): String = page(
+    /** What the form offers. With [provider], it has a button for that sign-in provider. */
+    class Options(val passwords: Boolean = true, val provider: String? = null)
+
+    /** The request of a device: its [code], what waits for it and the [address] of the browser. */
+    class Request(val code: String, val pending: SignIn.Pending, val address: String)
+
+    fun form(request: Request, options: Options, problem: String? = null): String = page(
         "Sign in",
-        """
+        device(request) + problem(problem) + provider(request, options) + passwords(request, options),
+    )
+
+    private fun device(request: Request): String {
+        val (code, pending, address) = Triple(request.code, request.pending, request.address)
+        return """
         <p class="lead">A device asks for access to your HomeGAP.</p>
         <dl>
           <dt>Device</dt><dd>${escape(pending.device.ifBlank { "No name" })}</dd>
@@ -16,22 +27,39 @@ object SignInPage {
           <dt>Your address</dt><dd>${escape(address)}</dd>
         </dl>
         <p>Sign in only if the code is the one that your device shows.</p>
-        ${problem?.let { "<p class=\"problem\" role=\"alert\">${escape(it)}</p>" }.orEmpty()}
+        """
+    }
+
+    private fun problem(text: String?): String =
+        text?.let { "<p class=\"problem\" role=\"alert\">${escape(it)}</p>" }.orEmpty()
+
+    private fun provider(request: Request, options: Options): String {
+        val name = options.provider ?: return ""
+        // A link and not a form: the browser must be free to go on to the provider.
+        val query = "code=${escape(request.code)}&amp;form=${escape(request.pending.form)}"
+        return "<a class=\"button\" href=\"/auth/oidc/start?$query\">Sign in with ${escape(name)}</a>"
+    }
+
+    private fun passwords(request: Request, options: Options): String {
+        if (!options.passwords) return ""
+        val divider = if (options.provider != null) "<p class=\"or\">or with your HomeGAP password</p>" else ""
+        return """
+        $divider
         <form method="post" action="/auth/login/device">
-          <input type="hidden" name="code" value="${escape(code)}">
-          <input type="hidden" name="form" value="${escape(pending.form)}">
-          <label>Email <input name="email" type="email" autocomplete="username" required autofocus></label>
+          <input type="hidden" name="code" value="${escape(request.code)}">
+          <input type="hidden" name="form" value="${escape(request.pending.form)}">
+          <label>Email <input name="email" type="email" autocomplete="username" required></label>
           <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
           <button type="submit">Sign in and approve the device</button>
         </form>
-        """,
-    )
+        """
+    }
 
     fun askCode(problem: String? = null): String = page(
         "Sign in",
         """
         <p class="lead">Type the code that your device shows.</p>
-        ${problem?.let { "<p class=\"problem\" role=\"alert\">${escape(it)}</p>" }.orEmpty()}
+        ${problem(problem)}
         <form method="get" action="/auth/login/device">
           <label>Code <input name="code" autocomplete="off" autocapitalize="characters" required autofocus></label>
           <button type="submit">Continue</button>
@@ -93,9 +121,11 @@ object SignInPage {
         label { display: block; margin: .75rem 0; color: var(--dim); }
         input { display: block; width: 100%; box-sizing: border-box; margin-top: .25rem; padding: .6rem;
           font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
-        button { width: 100%; margin-top: .5rem; padding: .7rem; font: inherit; font-weight: 600; color: #fff;
+        button, .button { display: block; width: 100%; box-sizing: border-box; margin-top: .5rem; padding: .7rem;
+          font: inherit; font-weight: 600; color: #fff; text-align: center; text-decoration: none;
           background: var(--accent); border: 0; border-radius: 8px; cursor: pointer; }
         .problem { color: var(--bad); }
+        .or { margin: 1.25rem 0 0; color: var(--dim); text-align: center; }
         a { color: var(--accent); }
     """
 }

@@ -44,6 +44,9 @@ class SignIn(
     sealed interface Outcome {
         data class SignedIn(val user: User) : Outcome
         data object WrongPassword : Outcome
+
+        /** The provider proved an address that no user of HomeGAP has, or the user is blocked. */
+        data object NoSuchUser : Outcome
         data object TooManyAttempts : Outcome
         data object UnknownCode : Outcome
         data object NotReady : Outcome
@@ -83,6 +86,21 @@ class SignIn(
             synchronized(lock) { keys.forEach { failures.getOrPut(it) { mutableListOf() } += now() } }
             return Outcome.WrongPassword
         }
+        return approve(entry, user)
+    }
+
+    /**
+     * Signs in the user with the address [email] for [code], with no password: a provider that
+     * HomeGAP trusts proved the address. The user must exist in the directory of the homelab.
+     */
+    fun signInProven(code: String, email: String): Outcome {
+        val users = directory() ?: return Outcome.NotReady
+        val entry = pending(code) ?: return Outcome.UnknownCode
+        val user = users.userByEmail(email)?.takeIf { !it.blocked } ?: return Outcome.NoSuchUser
+        return approve(entry, user)
+    }
+
+    private fun approve(entry: Pending, user: User): Outcome {
         val claims = SessionClaims(
             sid = Crypto.token(SESSION_ID_LENGTH),
             userId = user.id,

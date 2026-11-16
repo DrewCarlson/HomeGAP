@@ -129,6 +129,19 @@ speedtest:
 #     enabled: true          # the alias is ssh.<domain>
 #     roles: [Member]        # who may use it (Admin always can)
 
+# HomeGAP's own sign-in for the apps. A user signs in with a HomeGAP password, or through an
+# OpenID Connect provider such as Authelia. The provider proves who the user is. The user must
+# exist in HomeGAP with the same email address.
+# sign_in:
+#   url: https://vpn.example.net
+#   passwords: true          # false: accept only the provider
+#   oidc:
+#     name: Authelia         # the name on the button
+#     issuer: https://auth.example.net
+#     client_id: homegap
+#     client_secret_env: HOMEGAP_OIDC_CLIENT_SECRET   # a variable of the sign-in container
+#     # The redirect address to give the provider is <url>/auth/oidc/callback.
+
 status_page:
   enabled: false
   # hostname: status

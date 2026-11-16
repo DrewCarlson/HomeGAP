@@ -1,0 +1,48 @@
+# Authelia for the e2e harness: the OpenID Connect provider of HomeGAP's sign-in. Each secret here
+# is a test value. setup.sh makes the key and the user file in work/authelia.
+theme: light
+server:
+  address: tcp://:9091
+  tls:
+    certificate: /certs/wild.pem
+    key: /certs/wild.key
+log:
+  level: info
+identity_validation:
+  reset_password:
+    jwt_secret: e2e-jwt-secret-for-the-harness-only
+authentication_backend:
+  file:
+    path: /work/users.yml
+access_control:
+  default_policy: one_factor
+session:
+  secret: e2e-session-secret-for-the-harness-only
+  cookies:
+    - domain: test.example.net
+      authelia_url: https://auth.test.example.net:9091
+storage:
+  encryption_key: e2e-storage-key-for-the-harness-only
+  local:
+    path: /tmp/db.sqlite3
+notifier:
+  filesystem:
+    filename: /tmp/notification.txt
+identity_providers:
+  oidc:
+    hmac_secret: e2e-oidc-hmac-secret-for-the-harness-only
+    jwks:
+      - key: {{ secret "/work/oidc.key" | mindent 10 "|" | msquote }}
+    clients:
+      - client_id: homegap
+        client_name: HomeGAP
+        client_secret: $plaintext$e2e-oidc-client-secret
+        public: false
+        authorization_policy: one_factor
+        consent_mode: implicit
+        redirect_uris:
+          - https://signin.test.example.net/auth/oidc/callback
+        scopes: [openid, email, profile]
+        token_endpoint_auth_method: client_secret_basic
+        require_pkce: true
+        pkce_challenge_method: S256

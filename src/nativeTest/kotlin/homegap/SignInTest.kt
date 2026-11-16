@@ -116,6 +116,19 @@ class SignInTest {
     }
 
     @Test
+    fun aProvenAddressSignsInOnlyAUserOfHomeGap() {
+        val fixture = Fixture()
+        val code = fixture.signIn.start("Pixel", "Pangolin")!!
+        assertIs<SignIn.Outcome.NoSuchUser>(fixture.signIn.signInProven(code, "eve@example.net"))
+        assertNull(fixture.signIn.collect(code))
+        fixture.store.setBlocked(fixture.userId, true)
+        assertIs<SignIn.Outcome.NoSuchUser>(fixture.signIn.signInProven(code, "ada@example.net"))
+        fixture.store.setBlocked(fixture.userId, false)
+        assertIs<SignIn.Outcome.SignedIn>(fixture.signIn.signInProven(code, "ADA@example.net"))
+        assertEquals("ada@example.net", fixture.signIn.user(fixture.signIn.collect(code)!!)?.email)
+    }
+
+    @Test
     fun aCodeExpires() {
         val fixture = Fixture()
         val code = fixture.signIn.start("Pixel", "Pangolin")!!
@@ -127,7 +140,12 @@ class SignInTest {
     @Test
     fun thePageEscapesTheNameOfTheDevice() {
         val pending = SignIn.Pending("<script>alert(1)</script>", "\"app\"", 0, "form")
-        val html = SignInPage.form("ABCD2345", pending, "203.0.113.7")
+        val request = SignInPage.Request("ABCD2345", pending, "203.0.113.7")
+        val html = SignInPage.form(request, SignInPage.Options(provider = "Auth <1>"))
+        assertTrue("Sign in with Auth &lt;1&gt;" in html && "/auth/oidc/start?code=ABCD2345&amp;form=form" in html)
+        assertTrue("name=\"password\"" in html)
+        val providerOnly = SignInPage.form(request, SignInPage.Options(passwords = false, provider = "Authelia"))
+        assertFalse("name=\"password\"" in providerOnly)
         assertFalse("<script>alert" in html)
         assertTrue("&lt;script&gt;alert(1)&lt;/script&gt;" in html)
         assertTrue("&quot;app&quot;" in html)

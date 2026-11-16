@@ -28,6 +28,12 @@ speedtest:
 status_page:
   enabled: true
   title: HomeGAP e2e status
+sign_in:
+  url: https://signin.test.example.net
+  oidc:
+    name: Authelia
+    issuer: https://auth.test.example.net:9091
+    client_id: homegap
 agent:
   # Built locally and loaded into the nodes by run.sh (load-images.sh).
   image: homegap:e2e

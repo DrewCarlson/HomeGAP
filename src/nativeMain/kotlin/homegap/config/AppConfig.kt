@@ -31,6 +31,8 @@ data class AppConfig(
     val tunnels: TunnelsConfig = TunnelsConfig(),
     /** The private WireGuard mesh between the homelab and each node. It is always on. */
     val mesh: MeshConfig = MeshConfig(),
+    /** HomeGAP's own sign-in for the apps. */
+    @SerialName("sign_in") val signIn: SignInConfig = SignInConfig(),
     /** The agent of HomeGAP that each node runs. */
     val agent: AgentConfig = AgentConfig(),
     /** One Pangolin cluster across the nodes. With null, each node has its own Pangolin. */
@@ -279,6 +281,33 @@ data class ClusterConfig(
             "$IMAGE_REPOSITORY:${stackTag?.trim()?.ifEmpty { null } ?: VERSION}"
     }
 }
+
+@Serializable
+data class SignInConfig(
+    /** The address of the sign-in as a browser opens it, for example `https://vpn.example.net`. */
+    val url: String? = null,
+    /** A user can sign in with the password that HomeGAP holds. Turn it off to accept only [oidc]. */
+    val passwords: Boolean = true,
+    /** Sign-in through an OpenID Connect provider, for example Authelia. */
+    val oidc: OidcConfig? = null,
+)
+
+/**
+ * An OpenID Connect provider for the sign-in. The provider proves who the user is, with its own
+ * second factor. The user must exist in HomeGAP with the same email address, and HomeGAP gives
+ * the roles.
+ */
+@Serializable
+data class OidcConfig(
+    /** The address of the provider. Its settings are at `<issuer>/.well-known/openid-configuration`. */
+    val issuer: String,
+    @SerialName("client_id") val clientId: String,
+    /** The environment variable of the sign-in container that holds the client secret. */
+    @SerialName("client_secret_env") val clientSecretEnv: String = "HOMEGAP_OIDC_CLIENT_SECRET",
+    /** The name on the button of the sign-in page. */
+    val name: String = "single sign-on",
+    val scopes: List<String> = listOf("openid", "email", "profile"),
+)
 
 @Serializable
 data class AgentConfig(
