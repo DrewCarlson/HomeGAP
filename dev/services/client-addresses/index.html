@@ -1007,6 +1007,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#a-service-gets-the-address-of-homegap-not-of-the-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A service gets the address of HomeGAP, not of the client
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#public-traffic-comes-from-the-private-subnet" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2604,6 +2615,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#a-service-gets-the-address-of-homegap-not-of-the-client" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A service gets the address of HomeGAP, not of the client
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#public-traffic-comes-from-the-private-subnet" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2818,6 +2840,10 @@
 <p>The name has no private path. On the <strong>Config</strong> page, look at <code>privateNames</code> in the desired state of a node. Also look at the log.</p>
 <p>Make sure that the router uses the middleware by its name, on the router itself. HomeGAP reads the middleware list of the router. Or list the name in <code>homegap.private_hosts</code>.</p>
 <p>Make sure that the user has a role of <code>homegap.roles</code> on the front door. A device gets a private name only if one of its roles permits it.</p>
+<h3 id="a-service-gets-the-address-of-homegap-not-of-the-client">A service gets the address of HomeGAP, not of the client<a class="headerlink" href="#a-service-gets-the-address-of-homegap-not-of-the-client" title="Permanent link">&para;</a></h3>
+<p>The entry point of your Traefik does not trust the address of the <code>homegap-mesh</code> container. Traefik then drops the PROXY protocol header or the <code>X-Forwarded-For</code> header, and each service gets the address of that container.</p>
+<p>HomeGAP reads the entry points from the Traefik API of the front door and compares them with that address. When the entry point does not trust it, the <strong>Overview</strong> page shows a label error on the front door. The message names the entry point, the address and the setting: <code>proxyProtocol.trustedIPs</code> for <code>homegap.proxy_protocol</code>, or <code>forwardedHeaders.trustedIPs</code> for a front door in terminate mode. Add the address to that setting and start Traefik again.</p>
+<p>HomeGAP cannot set these values for you. They are static configuration of Traefik, which Traefik reads only at its start. If the Traefik API gives no answer, HomeGAP makes no check.</p>
 <h3 id="public-traffic-comes-from-the-private-subnet">Public traffic comes from the private subnet<a class="headerlink" href="#public-traffic-comes-from-the-private-subnet" title="Permanent link">&para;</a></h3>
 <p>The target of the front door is its private address. Set <code>homegap.host</code>, or keep the front door on only one other network.</p>
 
