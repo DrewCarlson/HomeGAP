@@ -15,12 +15,14 @@ import homegap.mesh.MeshAgent
 import homegap.platform.Identity
 import homegap.mesh.MeshRoute
 import homegap.model.HomelabServices
+import homegap.identity.UserCommand
 import homegap.model.Planner
 import homegap.model.PublicResource
 import homegap.node.NodeAgent
 import homegap.platform.Files
 import homegap.platform.env
 import homegap.provision.NodeSecrets
+import homegap.signin.SignInServer
 import homegap.provision.NodeTemplates
 import homegap.stack.FileOutcome
 import homegap.stack.FileResult
@@ -35,6 +37,7 @@ import io.ktor.client.request.post
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import platform.posix.STDIN_FILENO
@@ -53,6 +56,7 @@ private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
 private const val DEFAULT_MESH_HOST = "homegap-mesh"
 private const val DEFAULT_AGENT_DIR = "/agent"
+private const val DEFAULT_SIGN_IN_PORT = 8090
 private const val DEFAULT_MAINTENANCE_MINUTES = 30
 private const val DEFAULT_STACK_FILES = "/usr/share/homegap/deploy"
 private const val DEFAULT_STACK_FOLDER = "/work"
@@ -87,6 +91,10 @@ Usage:
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
   homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
+  homegap sign-in [--dir PATH] [--identity PATH] [--port N]
+                                                       Run the public sign-in of the homelab
+  homegap user list | add EMAIL [--name NAME] [--role ROLE]... | password EMAIL | block EMAIL | unblock EMAIL | remove EMAIL
+                                                       Manage the users of HomeGAP's own sign-in
   homegap init [--dir PATH] [--yes] [--refresh]        Write the files of the homelab stack to a folder (default /work)
   homegap version
 
@@ -122,6 +130,13 @@ fun main(args: Array<String>) {
                 maintenance(configPath, action, minutes)
             }
             "init" -> initStack(line)
+            "sign-in" -> runBlocking {
+                val dir = line.option("--dir") ?: SharedDirs.signIn(DEFAULT_DATA_DIR)
+                val identity = line.option("--identity") ?: SharedDirs.identity(DEFAULT_DATA_DIR)
+                val port = line.option("--port")?.toIntOrNull() ?: DEFAULT_SIGN_IN_PORT
+                SignInServer(dir, identity).run(host = "0.0.0.0", port = port)
+            }
+            "user" -> UserCommand(ConfigLoader.load(configPath), line.rest).run()
             "mesh" -> {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
                 runMesh(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
@@ -296,6 +311,7 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
     }
     val controller = graph.controller
     if (!once) {
+        launch { graph.issuerWatch.run() }
         graph.dashboard.start(config.dashboard.host, config.dashboard.port)
         logger.info { "dashboard listening on ${config.dashboard.bind}" }
         graph.dashboardAuth.generatedFile?.let { file ->

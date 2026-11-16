@@ -739,6 +739,28 @@ data class CreateAccessUserResponse(val ok: Boolean, val message: String, val in
 @Serializable
 data class SetAccessRolesRequest(val roleIds: List<Int>)
 
+/** A user of HomeGAP's own sign-in. The password hash never leaves the homelab through this type. */
+@Serializable
+data class IdentityUserDto(
+    val id: String,
+    val email: String,
+    val name: String = "",
+    val roles: List<String> = emptyList(),
+    val blocked: Boolean = false,
+    val hasPassword: Boolean = false,
+    val createdAt: Long = 0,
+)
+
+@Serializable
+data class CreateIdentityUserRequest(val email: String, val name: String = "", val roles: List<String> = emptyList())
+
+@Serializable
+data class SetIdentityRolesRequest(val roles: List<String>)
+
+/** The answer to a new user or a new password. [password] shows once: HomeGAP keeps only its hash. */
+@Serializable
+data class IdentityPasswordResponse(val message: String, val user: IdentityUserDto, val password: String)
+
 /** A search result the server finds: config keys, secrets and older log entries. */
 @Serializable
 data class SearchHitDto(

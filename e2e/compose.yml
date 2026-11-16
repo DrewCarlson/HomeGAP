@@ -338,6 +338,26 @@ services:
       - ./work/cluster-config:/cluster-config
       - ./work/tunnels:/tunnels
       - ./work/mesh:/mesh
+      - ./work/identity:/identity
+      - ./work/sign-in:/sign-in:ro
+
+  # The public sign-in of the homelab, as in deploy/compose.yml. It reads the signed directory of
+  # users and has no key of the orchestrator.
+  sign-in:
+    image: homegap:e2e
+    command: ["sign-in"]
+    restart: unless-stopped
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    labels:
+      homegap.expose: "signin.test.example.net"
+      homegap.port: "8090"
+    volumes:
+      - ./work/identity:/identity:ro
+      - ./work/sign-in:/sign-in
+    networks: [e2e]
 
   tunnels:
     image: homegap:e2e

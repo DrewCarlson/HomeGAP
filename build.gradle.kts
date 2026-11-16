@@ -75,6 +75,8 @@ kotlin {
                 implementation(libs.kaml)
                 implementation(libs.ksubprocess)
                 implementation(libs.okio)
+                implementation(libs.cryptography.core)
+                implementation(libs.cryptography.openssl)
             }
         }
         getByName("nativeTest") {

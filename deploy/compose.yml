@@ -130,10 +130,12 @@ services:
       - ./config:/config
       # The state cache, known_hosts and the SSH keys of the nodes (in ssh/).
       - "${HOMEGAP_DATA_DIR:-./data}/orchestrator:/data"
-      # The next three paths are fixed in the image: mount each folder there, with no variable.
+      # The next paths are fixed in the image: mount each folder there, with no variable.
       - "${HOMEGAP_DATA_DIR:-./data}/cluster/config:/cluster-config"   # written here, read by the cluster containers
       - "${HOMEGAP_DATA_DIR:-./data}/tunnels:/tunnels"                 # connector specs, shared with the tunnels container
       - "${HOMEGAP_DATA_DIR:-./data}/mesh:/mesh"                       # the mesh description, shared with the mesh agent
+      - "${HOMEGAP_DATA_DIR:-./data}/identity:/identity"               # the signed directory of users, read by the sign-in
+      - "${HOMEGAP_DATA_DIR:-./data}/sign-in:/sign-in:ro"              # the public key of the sign-in
 
   # Keeps the route of the orchestrator to the mesh subnet. The orchestrator cannot change a
   # route as an ordinary user, so this container does it: root with only NET_ADMIN, in the network
@@ -150,6 +152,23 @@ services:
     depends_on: { orchestrator: { condition: service_started, restart: true } }
     volumes:
       - "${HOMEGAP_DATA_DIR:-./data}/mesh:/mesh:ro"
+
+  # The public sign-in of HomeGAP: the page where a user signs in, and the calls of the apps for
+  # it. It is a container of its own, so the part that the internet reaches has no SSH key, no
+  # DNS key and no Docker access. It reads the signed directory of users and keeps its own key.
+  homegap-sign-in:
+    image: ghcr.io/drewcarlson/homegap:${HOMEGAP_VERSION:-latest}
+    command: ["sign-in"]
+    restart: unless-stopped
+    logging: *logging
+    networks: [traefik]
+    user: "${HOMEGAP_UID:-1000}:${HOMEGAP_GID:-1000}"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    volumes:
+      - "${HOMEGAP_DATA_DIR:-./data}/identity:/identity:ro"
+      - "${HOMEGAP_DATA_DIR:-./data}/sign-in:/sign-in"
 
   # A filtering proxy in front of the Docker socket. A socket mount gives the whole Docker API
   # whatever its mount mode, and with it control of this host. The orchestrator only needs to

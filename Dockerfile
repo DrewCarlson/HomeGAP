@@ -65,7 +65,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin homegap \
     && install -d -o homegap -g homegap -m 0700 /data \
-    && install -d -m 0755 /mesh /tunnels /cluster-config
+    && install -d -m 0755 /mesh /tunnels /cluster-config /identity /sign-in
 
 COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
 COPY --from=lego /usr/local/bin/lego /usr/local/bin/lego
