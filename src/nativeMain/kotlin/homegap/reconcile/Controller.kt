@@ -469,9 +469,10 @@ class Controller(
             val listed: List<DockerContainerSummary>? = runCatchingCancellable {
                 // Docker has no filter for a label prefix, and a container can have only named services.
                 passTimes.measure("discovery") {
-                    // The sign-in has no label: the pass needs its address for the name of the sign-in.
+                    // The sign-in and the mesh container have no label. The pass needs the address of
+                    // the sign-in, and the networks of the mesh namespace.
                     docker.listContainers(mapOf("status" to listOf("running")))
-                        .filter { declaresService(it.labels) || HomelabServices.isSignIn(it) }
+                        .filter { declaresService(it.labels) || HomelabServices.isOwn(it) }
                 }
             }.onFailure {
                 log.error("discovery", "cannot list containers: ${it.message}")

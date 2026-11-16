@@ -20,12 +20,22 @@ object HomelabServices {
     const val SIGN_IN_CONTAINER = "homegap-sign-in"
     const val SIGN_IN_PORT = 8090
 
+    /** The container that holds the network namespace of the mesh in the stack of the homelab. */
+    const val MESH_CONTAINER = "homegap-mesh"
+
     /** The label of Docker Compose that holds the name of the service of a container. */
     const val COMPOSE_SERVICE = "com.docker.compose.service"
 
     /** True if [container] is the sign-in of the stack of the homelab. */
     fun isSignIn(container: DockerContainerSummary): Boolean =
         container.name == SIGN_IN_CONTAINER || container.labels[COMPOSE_SERVICE] == SIGN_IN_CONTAINER
+
+    /** True if [container] holds the network namespace of the mesh. */
+    fun isMesh(container: DockerContainerSummary): Boolean =
+        container.name == MESH_CONTAINER || container.labels[COMPOSE_SERVICE] == MESH_CONTAINER
+
+    /** True if [container] is a container of the stack that the pass reads and that has no label. */
+    fun isOwn(container: DockerContainerSummary): Boolean = isSignIn(container) || isMesh(container)
 
     /** The services, with the address of the host that the mesh agent found. */
     fun containers(config: AppConfig): List<DockerContainerSummary> {

@@ -133,14 +133,20 @@ object MeshForwards {
 
     /**
      * The address of each container that the mesh namespace can reach: its address on a network
-     * of a front door, which is the Traefik network. A container with one address has no choice.
+     * of the mesh container. The private network of a front door is not one of them, because
+     * public traffic must not arrive there. Without the mesh container, the networks of the
+     * front doors stand in. A container with one address has no choice.
      */
-    private fun addresses(plan: DesiredState, containers: List<DockerContainerSummary>): Map<String, String> {
+    internal fun addresses(plan: DesiredState, containers: List<DockerContainerSummary>): Map<String, String> {
+        val privateNetworks = plan.frontDoors.mapNotNull { it.privateNetwork }
         val doors = plan.frontDoors.map { it.containerName }.toSet()
-        val doorNetworks = containers.filter { it.name in doors }.flatMap { it.networkSettings.networks.keys }.toSet()
+        val source = containers.filter(HomelabServices::isMesh).ifEmpty { containers.filter { it.name in doors } }
+        val reachable = source.flatMap { it.networkSettings.networks.keys }
+            .filterNot { name -> privateNetworks.any { name == it || name.endsWith("_$it") } }
+            .toSet()
         val known = containers.mapNotNull { container ->
             val networks = container.networkSettings.networks.filter { it.value.ipAddress.isNotEmpty() }
-            val shared = networks.filterKeys { it in doorNetworks }.values.firstOrNull()
+            val shared = networks.filterKeys { it in reachable }.values.firstOrNull()
             (shared ?: networks.values.singleOrNull())?.let { container to it.ipAddress }
         }
         // Docker Compose gives a container the name of its project too: its service is its second name.
