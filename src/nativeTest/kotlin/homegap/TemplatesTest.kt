@@ -4,6 +4,7 @@ import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlMap
 import homegap.model.Planner
 import homegap.model.RawPort
+import homegap.provision.Mesh
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.provision.YamlEmitter
@@ -78,6 +79,22 @@ class TemplatesTest {
         assertTrue("enable_integration_api: true" in pangolin)
         assertTrue("\"secret\\\"quote\"" in pangolin, "secrets are escaped, not interpolated raw")
         assertEquals("0600", files.single { it.path == "config/config.yml" }.mode)
+    }
+
+    @Test
+    fun theNameOfTheSignInFailsOverToTheAgentOfTheNode() {
+        val signIn = container("homegap-sign-in", "homegap.expose" to "vpn.test.example.net", "homegap.port" to "8090")
+        val planned = Planner.plan(config, listOf(TRAEFIK, signIn)).nodes.getValue("na1")
+        val name = "vpn.test.example.net"
+        val control = Mesh.NodeControl(name, "10.77.0.10:8092", "key", "na1", "203.0.113.10", "100.96.128.0/24")
+        val exit = Mesh.NodeExit("100.90.0.0/16", "100.90.255.10", 51840, "10.77.0.10:8091", "10.77.0.1", control)
+        val routes = NodeTemplates.dynamicRoutes(planned.copy(exit = exit), emptyMap())
+        assertTrue("failover:" in routes && "fallback: \"homegap-node-control\"" in routes, routes)
+        assertTrue("url: \"http://10.77.0.10:8092\"" in routes)
+        // Traefik refuses a failover if one of its two services has no health check.
+        assertEquals(2, routes.lines().count { "path: \"/api/v1/\"" in it })
+        // Without the control side, the name is a service like each other.
+        assertFalse("failover:" in NodeTemplates.dynamicRoutes(planned, emptyMap()))
     }
 
     @Test

@@ -119,6 +119,9 @@ object NodeTemplates {
     private const val RESOURCE_PRIORITY = 100
     private const val WILDCARD_PRIORITY = 90
     private const val AGENT_MOUNT = "/agent"
+    private const val NODE_CONTROL = "homegap-node-control"
+    private const val SIGN_IN_CHECK_INTERVAL = "5s"
+    private const val SIGN_IN_CHECK_TIMEOUT = "3s"
     private const val AGENT_STATE_DIR = "agent-state"
     private const val AGENT_STATE_MOUNT = "/agent-state"
     private const val HEALTH_PRIORITY = 60
@@ -723,7 +726,12 @@ object NodeTemplates {
                         putJsonObject(shared.key) { selfLoadBalancer(shared.key) }
                     }
                     for (resource in overMesh) {
-                        putJsonObject(meshService(resource.niceId)) { meshLoadBalancer(desired, resource) }
+                        val control = desired.exit?.control?.takeIf { it.name == resource.fullDomain }
+                        if (control == null) {
+                            putJsonObject(meshService(resource.niceId)) { meshLoadBalancer(desired, resource) }
+                        } else {
+                            signInServices(desired, resource, control)
+                        }
                     }
                     putJsonObject(PANGOLIN_API) { loadBalancer("http://pangolin:3000") }
                     putJsonObject(PANGOLIN_NEXT) { loadBalancer("http://pangolin:3002") }
@@ -874,6 +882,41 @@ object NodeTemplates {
         val name = hostHeaderName(resource) ?: return
         putJsonObject(name) {
             putJsonObject("headers") { putJsonObject("customRequestHeaders") { put("Host", resource.hostHeader) } }
+        }
+    }
+
+    /**
+     * The services for the name of the sign-in. The node sends the apps to the homelab over the
+     * mesh. While the homelab does not answer, it sends them to its own agent, which then signs
+     * devices in for the exit of the node.
+     */
+    @Suppress("HttpUrlsUsage") // The agent is on the node itself.
+    private fun JsonObjectBuilder.signInServices(
+        desired: NodeDesired,
+        resource: PublicResource,
+        control: Mesh.NodeControl,
+    ) {
+        val home = meshService(resource.niceId) + "-home"
+        putJsonObject(meshService(resource.niceId)) {
+            putJsonObject("failover") {
+                put("service", home)
+                put("fallback", NODE_CONTROL)
+                putJsonObject("healthCheck") {}
+            }
+        }
+        // Traefik wants a health check on each of the two services of a failover.
+        putJsonObject(home) { checkedLoadBalancer(desired.meshUrl(resource).orEmpty()) }
+        putJsonObject(NODE_CONTROL) { checkedLoadBalancer("http://${control.listen}") }
+    }
+
+    private fun JsonObjectBuilder.checkedLoadBalancer(url: String) {
+        putJsonObject("loadBalancer") {
+            putJsonArray("servers") { addJsonObject { put("url", url) } }
+            putJsonObject("healthCheck") {
+                put("path", "/api/v1/")
+                put("interval", SIGN_IN_CHECK_INTERVAL)
+                put("timeout", SIGN_IN_CHECK_TIMEOUT)
+            }
         }
     }
 

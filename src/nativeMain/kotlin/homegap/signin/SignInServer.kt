@@ -8,6 +8,7 @@ import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.runCatchingCancellable
 import homegap.platform.watchDirectory
+import homegap.provision.Mesh
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -49,7 +50,12 @@ import kotlin.time.Duration.Companion.seconds
  * It serves the calls of the Pangolin apps for the sign-in of a device, with the paths and the
  * answers that the apps expect, and the page where the user signs in.
  */
-class SignInServer(private val dir: String, private val identityDir: String, setup: Setup = Setup()) {
+class SignInServer(
+    private val dir: String,
+    private val identityDir: String,
+    setup: Setup = Setup(),
+    private val role: Role = Role(),
+) {
     /** How the server signs users in, and the VPN that it gives the devices. */
     class Setup(
         val options: SignInPage.Options = SignInPage.Options(),
@@ -59,6 +65,19 @@ class SignInServer(private val dir: String, private val identityDir: String, set
         val tunnel: Pair<String, String>? = null,
     )
 
+    /**
+     * What makes the server of a node different from the server of the homelab. A node signs its
+     * sessions with a key that the directory of the homelab does not name, so they give access to
+     * the node only. It accepts them itself ([ownSessions]).
+     */
+    class Role(
+        val issuer: String = SignIn.ISSUER,
+        val ownSessions: Boolean = false,
+        val pool: Devices.Pool? = null,
+        /** The gateway of the server, from the source of its directory. With null, the gateway of the homelab. */
+        val gateway: ((() -> Directory?) -> TunnelGateway)? = null,
+    )
+
     private val options = setup.options
     private val oidc = setup.oidc
     private val vpn = setup.vpn
@@ -66,11 +85,18 @@ class SignInServer(private val dir: String, private val identityDir: String, set
 
     @Volatile
     private var directory: Directory? = null
-    private val signIn = SignIn(dir, { directory })
-    private val devices = Devices(dir, vpn.clientSubnet)
-    private val gateway: TunnelGateway = when (val tunnel = setup.tunnel) {
-        null -> NoTunnels(Devices.serverAddress(vpn.clientSubnet))
-        else -> HomeTunnel(tunnel.first, tunnel.second) { directory }
+    private val signIn = SignIn(dir, { directory }, issuer = role.issuer)
+    private val vpnDir = setup.tunnel?.first
+    private val devices = Devices(
+        dir = dir,
+        subnet = vpn.clientSubnet,
+        // The nodes get the list of the devices of the homelab through the folder of the VPN.
+        pool = role.pool ?: Devices.Pool(mirror = vpnDir?.let { "$it/${Mesh.VPN_DEVICES_FILE}" }),
+    )
+    private val gateway: TunnelGateway = when {
+        role.gateway != null -> role.gateway.invoke { directory }
+        setup.tunnel != null -> HomeTunnel(setup.tunnel.first, setup.tunnel.second) { directory }
+        else -> NoTunnels(Devices.serverAddress(vpn.clientSubnet))
     }
     private val appApi = AppApi(signIn, devices, gateway)
     private val control = ControlSocket(signIn, devices, gateway, vpn.utilitySubnet)
@@ -109,11 +135,22 @@ class SignInServer(private val dir: String, private val identityDir: String, set
         val current = directory
         if (current != null && loaded.version < current.version) return
         if (current?.version != loaded.version) {
-            val ready = if (SignIn.ISSUER in loaded.issuers) "" else "; it does not name the key of this sign-in yet"
+            val named = role.ownSessions || role.issuer in loaded.issuers
+            val ready = if (named) "" else "; it does not name the key of this sign-in yet"
             logger.info { "directory version ${loaded.version}: ${loaded.users.size} user(s)$ready" }
         }
-        directory = loaded
+        // A node accepts its own sessions. No other server does, because only this copy names the key.
+        directory = when {
+            role.ownSessions -> loaded.copy(issuers = loaded.issuers + (role.issuer to signIn.publicKey))
+            else -> loaded
+        }
         gateway.refresh()
+        // The nodes get the directory, with the signature of the homelab, through the folder of the VPN.
+        vpnDir?.let { shared ->
+            val copy = "$shared/${Mesh.VPN_DIRECTORY_FILE}"
+            if (Files.readTextOrNull(copy) != text) Files.writeAtomic(copy, text)
+            devices.publish()
+        }
     }
 
     fun Application.module() {

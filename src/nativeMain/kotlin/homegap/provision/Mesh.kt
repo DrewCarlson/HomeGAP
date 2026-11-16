@@ -375,11 +375,35 @@ object Mesh {
         val port: Int,
         val listen: String,
         val homelab: String,
+        /** With this, the node also serves the apps while the homelab is away. */
+        val control: NodeControl? = null,
     )
 
-    /** The devices that a node admits to its exit. The mesh agent of the homelab sends the full list. */
+    /**
+     * The control side of a node: the calls of the apps and the sign-in page at [listen]
+     * (`address:port` on the mesh address of the node), which the Traefik of the node uses when
+     * the homelab does not answer. The node trusts a directory only with the signature of
+     * [authorityKey]. [node] is its id and [host] its public address, for its exit. [name] is the
+     * name of the sign-in, which the apps connect to.
+     */
     @Serializable
-    data class ExitPeers(val peers: List<VpnPeer> = emptyList())
+    data class NodeControl(
+        val name: String,
+        val listen: String,
+        val authorityKey: String,
+        val node: String,
+        val host: String,
+        val utilitySubnet: String,
+    )
+
+    /**
+     * What the mesh agent of the homelab sends a node, in full each time: the devices for the
+     * exit of the node ([peers]), the directory of users with the signature of the homelab
+     * ([directory], the text of the file) and the devices that the homelab knows ([devices], the
+     * text of the file). With the last two, the node can serve the apps while the homelab is away.
+     */
+    @Serializable
+    data class NodeState(val peers: List<VpnPeer> = emptyList(), val directory: String = "", val devices: String = "")
 
     /** What the exit of a node says after it took a list of devices. */
     @Serializable
@@ -400,7 +424,14 @@ object Mesh {
     const val AGENT_PORT = 8091
 
     /** The path of that call. */
-    const val EXIT_PEERS_PATH = "/exit/peers"
+    const val NODE_STATE_PATH = "/state"
+
+    /** The TCP port of the mesh address of a node where its agent serves the apps while the homelab is away. */
+    const val CONTROL_PORT = 8092
+
+    /** The files that the sign-in server of the homelab writes for the nodes, next to [VPN_PEERS_FILE]. */
+    const val VPN_DIRECTORY_FILE = "directory.json"
+    const val VPN_DEVICES_FILE = "devices.json"
 
     /**
      * The address of the exit of a node in the subnet of the VPN. The last 256 addresses of the
@@ -438,6 +469,12 @@ object Mesh {
         appendLine("-A HG-EXIT-IN -i $EXIT_INTERFACE -j DROP")
         appendLine("-A HG-EXIT-IN -i $INTERFACE -s ${exit.homelab} -p tcp --dport $listenPort -j ACCEPT")
         appendLine("-A HG-EXIT-IN -p tcp --dport $listenPort -j DROP")
+        exit.control?.let { control ->
+            // The Traefik of the node is in a container, so it comes from an address of a Docker network.
+            val port = control.listen.substringAfterLast(':')
+            appendLine("-A HG-EXIT-IN ! -i $INTERFACE -s $DOCKER_RANGE -p tcp --dport $port -j ACCEPT")
+            appendLine("-A HG-EXIT-IN -p tcp --dport $port -j DROP")
+        }
         appendLine("-A HG-EXIT-FWD -i $EXIT_INTERFACE -j HG-EXIT-OUT")
         appendLine("-A HG-EXIT-FWD -o $EXIT_INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
         appendLine("-A HG-EXIT-FWD -o $EXIT_INTERFACE -j DROP")
@@ -523,6 +560,9 @@ object Mesh {
     private const val ADMIN_ROLE = "Admin"
     private const val MULTIPORT_LIMIT = 15
     private const val EXIT_CHAIN = "HG-VPN-OUT"
+
+    /** The range that Docker takes the addresses of its networks from. */
+    private const val DOCKER_RANGE = "172.16.0.0/12"
     private const val DNS_PORT = 53
 
     /** The ranges that are never on the internet. */

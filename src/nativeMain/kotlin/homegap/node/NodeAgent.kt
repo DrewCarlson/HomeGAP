@@ -27,7 +27,9 @@ class NodeAgent(private val dir: String, private val stateDir: String) {
         logger.info { "node agent started; it reads $specFile" }
         val relay = tcpRelay { line -> logger.info { line } }
         launch(Dispatchers.IO) { relay.run() }
-        val exit = NodeExitService(stateDir, this)
+        lateinit var control: NodeControlService
+        val exit = NodeExitService(stateDir, this) { control.onState(it) }
+        control = NodeControlService(stateDir, this, exit)
         var unreadable = false
         // The watch emits once when it starts, so the agent reads a file that is already there.
         watchDirectory(dir) { it == AgentSpec.FILE }.collect {
@@ -37,6 +39,7 @@ class NodeAgent(private val dir: String, private val stateDir: String) {
             if (spec != null) {
                 relay.apply(spec.listeners.associate { it.port to it.target })
                 exit.apply(spec.exit)
+                control.apply(spec.exit)
             }
         }
     }

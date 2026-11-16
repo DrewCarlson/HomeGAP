@@ -73,7 +73,7 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
         val changes = Channel<Unit>(Channel.CONFLATED)
         launch { watchDirectory(dir) { it == Mesh.SPEC_FILE }.collect { changes.trySend(Unit) } }
         // The sign-in server writes the devices of the VPN that are connected.
-        launch { watchDirectory(vpnDir) { it == Mesh.VPN_PEERS_FILE }.collect { changes.trySend(Unit) } }
+        launch { watchDirectory(vpnDir) { it in VPN_INPUT_FILES }.collect { changes.trySend(Unit) } }
         while (true) {
             val key = runCatchingCancellable { publicKey() }
             val text = Files.readTextOrNull(specFile)
@@ -209,13 +209,18 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
      */
     private suspend fun pushExits(spec: Mesh.AgentSpec, peers: List<Mesh.VpnPeer>): List<Mesh.ExitStatus> {
         val roles = spec.vpn?.nodeExitRoles ?: return emptyList()
-        val body = json.encodeToString(Mesh.ExitPeers(peers.filter { Mesh.permits(roles, it.roles) }))
+        val state = Mesh.NodeState(
+            peers = peers.filter { Mesh.permits(roles, it.roles) },
+            directory = Files.readTextOrNull("$vpnDir/${Mesh.VPN_DIRECTORY_FILE}").orEmpty(),
+            devices = Files.readTextOrNull("$vpnDir/${Mesh.VPN_DEVICES_FILE}").orEmpty(),
+        )
+        val body = json.encodeToString(state)
         return coroutineScope {
             spec.peers.filter { it.endpoint != null }.map { node ->
                 async {
                     runCatchingCancellable {
                         @Suppress("HttpUrlsUsage") // WireGuard of the mesh encrypts the call.
-                        val response = http.put("http://${node.address}:${Mesh.AGENT_PORT}${Mesh.EXIT_PEERS_PATH}") {
+                        val response = http.put("http://${node.address}:${Mesh.AGENT_PORT}${Mesh.NODE_STATE_PATH}") {
                             setBody(body)
                         }
                         check(response.status.isSuccess()) { "status ${response.status.value}" }
@@ -317,6 +322,9 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
         val json = Json { ignoreUnknownKeys = true }
         const val BYTE_BITS = 8
         const val PUSH_TIMEOUT_MS = 3000L
+
+        /** The files of the sign-in server that the agent acts on. */
+        val VPN_INPUT_FILES = setOf(Mesh.VPN_PEERS_FILE, Mesh.VPN_DIRECTORY_FILE, Mesh.VPN_DEVICES_FILE)
         val WIREGUARD_KEY = Regex("^[A-Za-z0-9+/]{43}=$")
         val ADDRESS = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
     }

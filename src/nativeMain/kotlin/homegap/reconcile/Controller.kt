@@ -219,6 +219,21 @@ class Controller(
             port = cfg.vpn.exitPort,
             listen = "$meshAddress:${Mesh.AGENT_PORT}",
             homelab = Mesh.homelabAddress(cfg.mesh),
+            control = nodeControl(cfg, id, meshAddress),
+        )
+    }
+
+    /** The control side of the node [id], or null if the sign-in has no public name. */
+    private fun nodeControl(cfg: AppConfig, id: String, meshAddress: String): Mesh.NodeControl? {
+        val name = cfg.signIn.url?.removePrefix("https://")?.substringBefore('/') ?: return null
+        val node = cfg.node(id) ?: return null
+        return Mesh.NodeControl(
+            name = name,
+            listen = "$meshAddress:${Mesh.CONTROL_PORT}",
+            authorityKey = identity.publicKey,
+            node = id,
+            host = node.ipv4() ?: node.host,
+            utilitySubnet = cfg.vpn.utilitySubnet,
         )
     }
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }

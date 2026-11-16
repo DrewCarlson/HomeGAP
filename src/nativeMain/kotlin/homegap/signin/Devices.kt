@@ -31,13 +31,34 @@ data class Device(
  * (`a.b.c.d/prefix`) when the server sees it for the first time. The first address of the subnet
  * belongs to the homelab.
  */
-class Devices(private val dir: String, private val subnet: String, private val now: () -> Long = ::nowMillis) {
+class Devices(
+    private val dir: String,
+    private val subnet: String,
+    private val pool: Pool = Pool(),
+    private val now: () -> Long = ::nowMillis,
+) {
+    /**
+     * The addresses that this server gives, and the devices of other servers that it accepts.
+     *
+     * Each server that creates devices has its own part of the subnet, so two servers never give
+     * one address. The homelab has the start of the subnet. A node has 254 addresses, at
+     * [NODE_POOL_BASE] plus its number in the third part of the address.
+     */
+    class Pool(
+        /** The number of the node, or null for the homelab. */
+        val node: Int? = null,
+        /** The devices that another server created. This server accepts them and never changes them. */
+        val known: () -> List<Device> = { emptyList() },
+        /** A file that gets the list of devices after each change, for the nodes. */
+        val mirror: String? = null,
+    )
+
     private val lock = SynchronizedObject()
     private var loaded: MutableMap<String, Device>? = null
 
     val prefix: Int get() = subnet.substringAfter('/').toInt()
 
-    fun get(id: String): Device? = synchronized(lock) { devices()[id] }
+    fun get(id: String): Device? = synchronized(lock) { devices()[id] } ?: pool.known().firstOrNull { it.id == id }
 
     /** Creates a device of the user. Returns it and its secret, which HomeGAP does not keep. */
     fun create(userId: String, name: String): Pair<Device, String> = synchronized(lock) {
@@ -57,7 +78,9 @@ class Devices(private val dir: String, private val subnet: String, private val n
 
     /** The device of the machine [id] with the name [name]. The first call gives it its address. */
     fun machine(id: String, name: String): Device = synchronized(lock) {
-        devices()[id] ?: Device(id = id, name = name, address = freeAddress(), createdAt = now()).also { save(it) }
+        // A machine that another server saw first keeps the address from there.
+        devices()[id] ?: pool.known().firstOrNull { it.id == id }
+            ?: Device(id = id, name = name, address = freeAddress(), createdAt = now()).also { save(it) }
     }
 
     /** The device [id] of a user if [secret] is its secret. */
@@ -86,17 +109,34 @@ class Devices(private val dir: String, private val subnet: String, private val n
 
     private fun write() {
         Files.mkdirs(dir)
-        Files.writeAtomic("$dir/$FILE", Signed.JSON.encodeToString(devices().values.toList()) + "\n", OWNER_ONLY)
+        val text = Signed.JSON.encodeToString(devices().values.toList()) + "\n"
+        Files.writeAtomic("$dir/$FILE", text, OWNER_ONLY)
+        pool.mirror?.let { Files.writeAtomic(it, text) }
+    }
+
+    /** Writes the list for the nodes again, for a shared folder that lost it. */
+    fun publish(): Unit = synchronized(lock) {
+        val text = Signed.JSON.encodeToString(devices().values.toList()) + "\n"
+        pool.mirror?.takeIf { Files.readTextOrNull(it) != text }?.let { Files.writeAtomic(it, text) }
     }
 
     /** The lowest free address of the subnet. The network, the homelab and the last address are not for devices. */
     private fun freeAddress(): String {
         val base = toInt(subnet.substringBefore('/'))
         val size = 1L shl (ADDRESS_BITS - prefix)
-        val used = devices().values.map { toInt(it.address) }.toSet()
-        // The end of a subnet with room for it belongs to the exits of the nodes.
-        val end = if (size > 2 * Mesh.EXIT_RANGE) size - Mesh.EXIT_RANGE else size - 1
-        val offset = (FIRST_DEVICE until end).firstOrNull { base + it !in used }
+        val used = (devices().values + pool.known()).map { toInt(it.address) }.toSet()
+        val block = Mesh.EXIT_RANGE.toLong()
+        val (first, end) = when (val node = pool.node) {
+            // The start of the subnet, up to the pools of the nodes. A small subnet has no such pools.
+            null -> FIRST_DEVICE to if (size > NODE_POOL_BASE * block) NODE_POOL_BASE * block else size - 1
+            else -> {
+                val start = (NODE_POOL_BASE + node) * block
+                val fits = start + block <= size - block
+                check(fits) { "The tunnel subnet $subnet has no room for the devices of a node." }
+                start + 1 to start + block - 1
+            }
+        }
+        val offset = (first until end).firstOrNull { base + it !in used }
             ?: error("The tunnel subnet $subnet has no free address.")
         return toText(base + offset)
     }
@@ -118,6 +158,9 @@ class Devices(private val dir: String, private val subnet: String, private val n
         private const val SECRET_LENGTH = 48
         private const val NAME_LENGTH = 80
         private const val FIRST_DEVICE = 2L
+
+        /** The third part of the address where the pools of the nodes start, in a /16. */
+        const val NODE_POOL_BASE = 100L
         private const val ADDRESS_BITS = 32
         private const val ADDRESS_BYTES = 4
         private const val BYTE_BITS = 8

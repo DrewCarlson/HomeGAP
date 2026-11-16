@@ -35,13 +35,21 @@ import kotlin.time.Duration.Companion.seconds
  * key at the address of its device. The list is in memory only: after a start of the agent, the
  * homelab sends it again.
  */
-class NodeExitService(private val stateDir: String, private val scope: CoroutineScope) {
+class NodeExitService(
+    private val stateDir: String,
+    private val scope: CoroutineScope,
+    /** Gets each state that the homelab sends, after the exit took its devices. */
+    private val onState: suspend (Mesh.NodeState) -> Unit = {},
+) {
     private val logger = KotlinLogging.logger("exit")
     private val keyFile = "$stateDir/${Mesh.EXIT_INTERFACE}.key"
     private val confFile = "$stateDir/${Mesh.EXIT_INTERFACE}.conf"
     private val mutex = Mutex()
     private var current: Mesh.NodeExit? = null
     private var peers: List<Mesh.VpnPeer> = emptyList()
+
+    /** The devices that this node admitted itself, while the homelab was away. */
+    private var local: List<Mesh.VpnPeer> = emptyList()
     private var server: EmbeddedServer<*, *>? = null
     private var livenessPort: Int? = null
     private var reported: String? = null
@@ -61,19 +69,44 @@ class NodeExitService(private val stateDir: String, private val scope: Coroutine
         current = exit.takeIf { problem == null }
     }
 
-    /** Admits the devices in [text] ([Mesh.ExitPeers]). Returns the status for the homelab, or null with no exit. */
-    private suspend fun admit(text: String): Mesh.ExitStatus? = mutex.withLock {
-        val exit = current ?: return null
-        val wanted = JSON.decodeFromString<Mesh.ExitPeers>(text).peers
-            .filter { WIREGUARD_KEY.matches(it.publicKey) && ADDRESS.matches(it.address) && it.address != exit.address }
-            .distinctBy { it.address }
-            .distinctBy { it.publicKey }
-        if (wanted != peers) {
-            sync(exit, wanted)
-            peers = wanted
+    /**
+     * Takes the state from the homelab in [text] ([Mesh.NodeState]): admits its devices and hands
+     * the directory and the devices to [onState]. Returns the status for the homelab, or null with no exit.
+     */
+    private suspend fun take(text: String): Mesh.ExitStatus? {
+        val state = JSON.decodeFromString<Mesh.NodeState>(text)
+        val status = mutex.withLock {
+            val exit = current ?: return null
+            val wanted = clean(exit, state.peers)
+            if (wanted != peers) {
+                peers = wanted
+                sync(exit)
+            }
+            status(exit)
         }
-        status(exit)
+        onState(state)
+        return status
     }
+
+    /** Admits [publicKey] at [address] for a device that this node signed in. Returns the exit and its public key. */
+    suspend fun admitLocal(publicKey: String, address: String): Pair<Mesh.NodeExit, String> = mutex.withLock {
+        val exit = current ?: error("this node has no exit")
+        local = clean(exit, local.filter { it.address != address } + Mesh.VpnPeer(publicKey, address))
+        sync(exit)
+        exit to status(exit).publicKey
+    }
+
+    suspend fun removeLocal(publicKey: String): Unit = mutex.withLock {
+        val exit = current ?: return
+        if (local.none { it.publicKey == publicKey }) return
+        local = local.filter { it.publicKey != publicKey }
+        sync(exit)
+    }
+
+    private fun clean(exit: Mesh.NodeExit, wanted: List<Mesh.VpnPeer>): List<Mesh.VpnPeer> = wanted
+        .filter { WIREGUARD_KEY.matches(it.publicKey) && ADDRESS.matches(it.address) && it.address != exit.address }
+        .distinctBy { it.address }
+        .distinctBy { it.publicKey }
 
     private suspend fun bring(exit: Mesh.NodeExit) {
         if (Files.readTextOrNull(keyFile).isNullOrBlank()) {
@@ -85,7 +118,7 @@ class NodeExitService(private val stateDir: String, private val scope: Coroutine
             val added = run("ip", "link", "add", Mesh.EXIT_INTERFACE, "type", "wireguard")
             check(added.ok) { added.stderr.trim().ifEmpty { "could not make the interface" } }
         }
-        sync(exit, peers)
+        sync(exit)
         val address = "${exit.address}/${exit.subnet.substringAfter('/')}"
         if ("inet $address " !in run("ip", "-4", "addr", "show", "dev", Mesh.EXIT_INTERFACE).stdout) {
             run("ip", "-4", "addr", "flush", "dev", Mesh.EXIT_INTERFACE)
@@ -107,9 +140,11 @@ class NodeExitService(private val stateDir: String, private val scope: Coroutine
         peers = emptyList()
     }
 
-    private suspend fun sync(exit: Mesh.NodeExit, wanted: List<Mesh.VpnPeer>) {
+    /** Gives the interface the devices of the homelab and the devices of this node. The homelab wins an address. */
+    private suspend fun sync(exit: Mesh.NodeExit) {
         val key = Files.readTextOrNull(keyFile)?.trim().orEmpty()
-        Files.writeAtomic(confFile, Mesh.exitConfig(exit, key, wanted), OWNER_ONLY)
+        val all = clean(exit, peers + local)
+        Files.writeAtomic(confFile, Mesh.exitConfig(exit, key, all), OWNER_ONLY)
         wg("syncconf", Mesh.EXIT_INTERFACE, confFile)
     }
 
@@ -148,10 +183,10 @@ class NodeExitService(private val stateDir: String, private val scope: Coroutine
             },
         ) {
             routing {
-                put(Mesh.EXIT_PEERS_PATH) {
+                put(Mesh.NODE_STATE_PATH) {
                     val text = call.receiveText().take(MAX_BODY)
-                    val status = runCatchingCancellable { admit(text) }.getOrElse { e ->
-                        logger.error { "could not admit the devices: ${e.message}" }
+                    val status = runCatchingCancellable { take(text) }.getOrElse { e ->
+                        logger.error { "could not take the state from the homelab: ${e.message}" }
                         return@put call.respondText("", status = HttpStatusCode.InternalServerError)
                     }
                     when (status) {

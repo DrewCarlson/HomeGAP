@@ -28,6 +28,8 @@ import kotlin.time.Duration.Companion.minutes
 class SignIn(
     private val dir: String,
     private val directory: () -> Directory?,
+    /** The name of this server as the signer of its sessions. */
+    private val issuer: String = ISSUER,
     private val now: () -> Long = ::nowMillis,
 ) {
     private val lock = SynchronizedObject()
@@ -104,7 +106,7 @@ class SignIn(
         val claims = SessionClaims(
             sid = Crypto.token(SESSION_ID_LENGTH),
             userId = user.id,
-            issuer = ISSUER,
+            issuer = issuer,
             issuedAt = now(),
             expiresAt = now() + SESSION_LIFETIME.inWholeMilliseconds,
             device = entry.device,
@@ -135,7 +137,7 @@ class SignIn(
         val claims = SessionClaims(
             sid = Crypto.token(SESSION_ID_LENGTH),
             userId = device.userId,
-            issuer = ISSUER,
+            issuer = issuer,
             issuedAt = now(),
             expiresAt = now() + TUNNEL_TOKEN_LIFETIME.inWholeMilliseconds,
             device = device.id,
@@ -197,7 +199,7 @@ class SignIn(
     }
 
     companion object {
-        /** The name of this issuer in [Directory.issuers]. */
+        /** The name of the sign-in server of the homelab in [Directory.issuers]. */
         const val ISSUER = "homelab"
         const val PUBLIC_KEY_FILE = "issuer.pub"
         val CODE_LIFETIME = 10.minutes
