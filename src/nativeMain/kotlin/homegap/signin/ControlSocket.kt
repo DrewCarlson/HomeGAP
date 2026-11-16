@@ -63,7 +63,7 @@ class ControlSocket(
                     "olm/ping/request" -> send(
                         "olm/ping/exitNodes",
                         buildJsonObject {
-                            put("exitNodes", Signed.JSON.encodeToJsonElement(gateway.exitNodes()))
+                            put("exitNodes", WIRE.encodeToJsonElement(gateway.exitNodes()))
                             chain?.let { put("chainId", it) }
                         },
                     )
@@ -105,10 +105,10 @@ class ControlSocket(
         send(
             "olm/wg/connect",
             buildJsonObject {
-                put("sites", Signed.JSON.encodeToJsonElement(connection.sites))
+                put("sites", WIRE.encodeToJsonElement(connection.sites))
                 put("tunnelIP", "${device.address}/${devices.prefix}")
                 put("utilitySubnet", utilitySubnet)
-                connection.dns?.let { put("dnsConfig", Signed.JSON.encodeToJsonElement(it)) }
+                connection.dns?.let { put("dnsConfig", WIRE.encodeToJsonElement(it)) }
                 chain?.let { put("chainId", it) }
             },
         )

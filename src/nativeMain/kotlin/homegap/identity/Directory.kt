@@ -41,6 +41,25 @@ data class Resource(val name: String, val address: String, val roles: List<Strin
 }
 
 /**
+ * What a device can do through the VPN besides the private names: leave for the internet at the
+ * homelab ([exitRoles], null if the homelab is no exit) and reach the DNS [resolvers] through the
+ * tunnel ([resolverRoles]). An admin can do each of them.
+ */
+@Serializable
+data class VpnAccess(
+    val exitRoles: List<String>? = null,
+    val resolvers: List<String> = emptyList(),
+    val resolverRoles: List<String> = emptyList(),
+) {
+    fun exitFor(roles: List<String>): Boolean = exitRoles != null && permits(exitRoles, roles)
+
+    fun resolversFor(roles: List<String>): List<String> = if (permits(resolverRoles, roles)) resolvers else emptyList()
+
+    private fun permits(wanted: List<String>, roles: List<String>): Boolean =
+        IdentityStore.ADMIN_ROLE in roles || roles.any { it in wanted }
+}
+
+/**
  * What the homelab says about who can sign in. The homelab signs it ([Signed]), and each part
  * that checks a user or a session trusts only a directory with that signature.
  */
@@ -52,6 +71,7 @@ data class Directory(
     val users: List<User> = emptyList(),
     val machines: List<Machine> = emptyList(),
     val resources: List<Resource> = emptyList(),
+    val vpn: VpnAccess = VpnAccess(),
     /**
      * The public keys that can sign a session with access to the homelab: name to key. Only the
      * sign-in server of the homelab is here. A node signs sessions that give its exit only.

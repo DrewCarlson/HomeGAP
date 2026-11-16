@@ -50,9 +50,12 @@ class HomeTunnel(
                 .map { status() }
                 .first { it != null && publicKey in it.peers }
         } ?: error("the VPN peer gave no answer")
-        val aliases = directory()?.resources.orEmpty()
+        val users = directory()
+        val aliases = users?.resources.orEmpty()
             .filter { it.allows(roles) }
             .map { Alias(it.name, it.address) }
+        // The app sends the lookups for these servers to this peer, which sends them on.
+        val resolvers = users?.vpn?.resolversFor(roles).orEmpty()
         val site = Site(
             siteId = SITE_ID,
             name = SITE_NAME,
@@ -60,9 +63,17 @@ class HomeTunnel(
             publicKey = status.publicKey,
             serverIP = status.address,
             serverPort = status.port,
+            remoteSubnets = resolvers.map { "$it/32" },
             aliases = aliases,
         )
-        return Connection(listOf(site))
+        val dns = DnsConfig(resolvers.map { "$it:$DNS_PORT" }, overrideDns = true, tunnelDns = true)
+        return Connection(listOf(site), dns.takeIf { resolvers.isNotEmpty() })
+    }
+
+    override fun exits(roles: List<String>): List<ExitResource> {
+        if (directory()?.vpn?.exitFor(roles) != true) return emptyList()
+        val exit = ExitResource(SITE_ID, "exit-$SITE_NAME", "Exit via $SITE_NAME", listOf(SITE_ID), listOf(SITE_NAME))
+        return listOf(exit)
     }
 
     override suspend fun remove(device: Device, publicKey: String) = synchronized(lock) {
@@ -100,6 +111,7 @@ class HomeTunnel(
     private companion object {
         const val SITE_ID = 1
         const val SITE_NAME = "homelab"
+        const val DNS_PORT = 53
         val ADMIT_TIMEOUT = 10.seconds
     }
 }

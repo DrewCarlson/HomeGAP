@@ -27,6 +27,7 @@ class IdentityStore(
         val users: List<User> = emptyList(),
         val machines: List<Machine> = emptyList(),
         val resources: List<Resource> = emptyList(),
+        val vpn: VpnAccess = VpnAccess(),
         val issuers: Map<String, String> = emptyMap(),
     )
 
@@ -123,6 +124,11 @@ class IdentityStore(
         next
     }
 
+    /** Sets what the devices can do through the VPN besides the private names. */
+    fun setVpnAccess(access: VpnAccess): Unit = synchronized(lock) {
+        if (load().vpn != access) save { it.copy(vpn = access) }
+    }
+
     /** Sets the public key [publicKey] of the session issuer [name]. Returns true if that is a change. */
     fun setIssuer(name: String, publicKey: String): Boolean = synchronized(lock) {
         if (load().issuers[name] == publicKey) return@synchronized false
@@ -176,6 +182,7 @@ class IdentityStore(
             users = state.users.sortedBy { it.email },
             machines = state.machines.sortedBy { it.name },
             resources = state.resources,
+            vpn = state.vpn,
             issuers = state.issuers,
         )
         return Signed.seal(key, Signed.JSON.encodeToString(directory))

@@ -348,7 +348,17 @@ object Mesh {
      * [address] in [subnet], on the UDP port [port]. The devices reach only the [targets].
      */
     @Serializable
-    data class Vpn(val subnet: String, val address: String, val port: Int, val targets: List<VpnTarget> = emptyList())
+    data class Vpn(
+        val subnet: String,
+        val address: String,
+        val port: Int,
+        val targets: List<VpnTarget> = emptyList(),
+        /** The roles of the devices that can leave for the internet here. With null, the homelab is no exit. */
+        val exitRoles: List<String>? = null,
+        /** The DNS servers that a device can reach through the tunnel, and the roles for it. */
+        val resolvers: List<String> = emptyList(),
+        val resolverRoles: List<String> = emptyList(),
+    )
 
     /**
      * A private name of the VPN. A packet of a device to [address] (the address of the name) goes
@@ -407,6 +417,34 @@ object Mesh {
 
     private const val ADMIN_ROLE = "Admin"
     private const val MULTIPORT_LIMIT = 15
+    private const val EXIT_CHAIN = "HG-VPN-OUT"
+    private const val DNS_PORT = 53
+
+    /** The ranges that are never on the internet. */
+    private val PRIVATE_RANGES = listOf(
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+        "169.254.0.0/16",
+        "127.0.0.0/8",
+        "224.0.0.0/3",
+    )
+
+    /** The rules of `HG-FWD` for what the device [peer] sends past the private names: DNS servers and the exit. */
+    private fun vpnOutRules(vpn: Vpn, peer: VpnPeer): String = buildString {
+        val from = "-A HG-FWD -i $VPN_INTERFACE -s ${peer.address}"
+        if (permits(vpn.resolverRoles, peer.roles)) {
+            for (resolver in vpn.resolvers.sorted()) {
+                appendLine("$from -d $resolver ! -o $INTERFACE -p udp --dport $DNS_PORT -j ACCEPT")
+                appendLine("$from -d $resolver ! -o $INTERFACE -p tcp --dport $DNS_PORT -j ACCEPT")
+            }
+        }
+        if (vpn.exitRoles != null && permits(vpn.exitRoles, peer.roles)) appendLine("$from -j $EXIT_CHAIN")
+    }.trimEnd()
+
+    private fun permits(wanted: List<String>, roles: List<String>): Boolean =
+        ADMIN_ROLE in roles || roles.any { it in wanted }
 
     @Serializable
     data class AgentStatus(
@@ -459,6 +497,12 @@ object Mesh {
         appendLine(":HG-IN - [0:0]")
         appendLine(":HG-OUT - [0:0]")
         appendLine(":HG-FWD - [0:0]")
+        appendLine(":$EXIT_CHAIN - [0:0]")
+        // A device that leaves for the internet here reaches no private range: not the home network,
+        // not a Docker network, not the mesh.
+        PRIVATE_RANGES.forEach { appendLine("-A $EXIT_CHAIN -d $it -j DROP") }
+        appendLine("-A $EXIT_CHAIN -o $INTERFACE -j DROP")
+        appendLine("-A $EXIT_CHAIN -j ACCEPT")
         appendLine("-A HG-IN -i lo -j ACCEPT")
         appendLine("-A HG-IN -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
         appendLine("-A HG-IN -p icmp -j ACCEPT")
@@ -476,6 +520,10 @@ object Mesh {
         if (vpn != null) {
             // Before each other rule: a device gets only what a rule of HG-DNAT sent to a target.
             appendLine("-A HG-FWD -i $VPN_INTERFACE ! -o $INTERFACE -m conntrack --ctstate DNAT -j ACCEPT")
+            vpnPeers.sortedBy { it.address }
+                .map { vpnOutRules(vpn, it) }
+                .filter { it.isNotEmpty() }
+                .forEach(::appendLine)
             appendLine("-A HG-FWD -i $VPN_INTERFACE -j DROP")
             appendLine("-A HG-FWD -o $VPN_INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
         }
@@ -493,19 +541,21 @@ object Mesh {
         appendLine("-A HG-NAT -o $INTERFACE -j MASQUERADE")
         // The target sees the namespace as the client, so its answers come back here.
         appendLine("-A HG-NAT ! -o $INTERFACE -m conntrack --ctstate DNAT -j MASQUERADE")
+        // The traffic of a device that leaves here (an exit, a DNS server) gets the address of the namespace.
+        vpn?.let { appendLine("-A HG-NAT -s ${it.subnet} ! -o $INTERFACE -j MASQUERADE") }
         for ((forward, address) in forwards) {
             val match = "-i $INTERFACE -d ${spec.address} -p ${forward.protocol} --dport ${forward.port}"
             appendLine("-A HG-DNAT $match -j DNAT --to-destination $address:${forward.targetPort}")
         }
         for ((_, device, roles) in vpnPeers.sortedBy { it.address }) {
-            for (target in vpn?.targets.orEmpty().filter { allows(it, roles) }) {
-                val match = "-i $VPN_INTERFACE -s $device -d ${target.address}"
-                for ((protocol, targetPorts) in listOf(TCP to target.tcpPorts, "udp" to target.udpPorts)) {
+            for ((address, destination, tcpPorts, udpPorts) in vpn?.targets.orEmpty().filter { allows(it, roles) }) {
+                val match = "-i $VPN_INTERFACE -s $device -d $address"
+                for ((protocol, targetPorts) in listOf(TCP to tcpPorts, "udp" to udpPorts)) {
                     if (targetPorts.isEmpty()) continue
                     // One rule of iptables takes 15 ports.
                     for (chunk in targetPorts.sorted().chunked(MULTIPORT_LIMIT)) {
                         val list = "-p $protocol -m multiport --dports ${chunk.joinToString(",")}"
-                        appendLine("-A HG-DNAT $match $list -j DNAT --to-destination ${target.target}")
+                        appendLine("-A HG-DNAT $match $list -j DNAT --to-destination $destination")
                     }
                 }
             }

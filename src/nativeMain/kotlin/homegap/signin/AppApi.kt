@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -28,7 +29,7 @@ import kotlinx.serialization.json.putJsonObject
  * user. The calls about the device give it its id and secret, and the token for its control
  * connection.
  */
-class AppApi(private val signIn: SignIn, private val devices: Devices) {
+class AppApi(private val signIn: SignIn, private val devices: Devices, private val gateway: TunnelGateway) {
     private val logger = KotlinLogging.logger("sign-in")
 
     /** Adds the calls to [parent], which is the route `/api/v1`. */
@@ -37,9 +38,7 @@ class AppApi(private val signIn: SignIn, private val devices: Devices) {
         get("/user/{user}/orgs") { call.withUser { organisations() } }
         get("/org/{org}") { call.withUser { answer(buildJsonObject { put("org", organisation()) }) } }
         get("/org/{org}/user/{user}/check") { call.withUser { answer(buildJsonObject { put("allowed", true) }) } }
-        get("/org/{org}/site-resources") {
-            call.withUser { answer(buildJsonObject { putJsonArray("siteResources") {} }) }
-        }
+        get("/org/{org}/site-resources") { call.withUser { exits(it) } }
         post("/user/{user}/olm/recover") { call.withUser { fail(HttpStatusCode.NotFound, "No device to recover") } }
         put("/user/{user}/olm") { call.withUser { createDevice(it) } }
         get("/user/{user}/olm/{olm}") { call.withUser { showDevice(it) } }
@@ -86,6 +85,13 @@ class AppApi(private val signIn: SignIn, private val devices: Devices) {
             }
         },
     )
+
+    /** The exits for the picker of the app. The app asks for pages until one is empty. */
+    private suspend fun ApplicationCall.exits(user: User) {
+        val first = (request.queryParameters["page"] ?: "1") == "1"
+        val exits = if (first) gateway.exits(user.roles) else emptyList()
+        answer(buildJsonObject { put("siteResources", WIRE.encodeToJsonElement(exits)) })
+    }
 
     private suspend fun ApplicationCall.createDevice(user: User) {
         val body = body()

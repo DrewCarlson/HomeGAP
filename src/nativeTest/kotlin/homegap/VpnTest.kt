@@ -57,6 +57,37 @@ class VpnTest {
     }
 
     @Test
+    fun anExitAtTheHomelabReachesTheInternetAndNoPrivateRange() {
+        val access = vpn.copy(exitRoles = member, resolvers = listOf("9.9.9.9"), resolverRoles = listOf("Ops"))
+        val exit = spec.copy(vpn = access)
+        val peers = listOf(
+            Mesh.VpnPeer(key, "100.90.0.2", listOf("Member")),
+            Mesh.VpnPeer(key, "100.90.0.3", listOf("Ops")),
+            Mesh.VpnPeer(key, "100.90.0.4", listOf("Guest")),
+        )
+        val lines = Mesh.firewallRules(exit, peers).lines()
+        val forward = lines.filter { it.startsWith("-A HG-FWD") }
+        // The member leaves here. The chain of the exit drops each private range first, and the mesh.
+        assertTrue("-A HG-FWD -i hg-vpn -s 100.90.0.2 -j HG-VPN-OUT" in forward)
+        val chain = lines.filter { it.startsWith("-A HG-VPN-OUT") }
+        assertEquals("-A HG-VPN-OUT -j ACCEPT", chain.last())
+        for (range in listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10")) {
+            assertTrue("-A HG-VPN-OUT -d $range -j DROP" in chain, range)
+        }
+        assertTrue("-A HG-VPN-OUT -o hg-mesh -j DROP" in chain)
+        // Ops has the DNS server and no exit. The guest has none of the two.
+        assertTrue("-A HG-FWD -i hg-vpn -s 100.90.0.3 -d 9.9.9.9 ! -o hg-mesh -p udp --dport 53 -j ACCEPT" in forward)
+        assertFalse(forward.any { "-s 100.90.0.3 -j HG-VPN-OUT" in it })
+        assertFalse(forward.any { "-s 100.90.0.4" in it })
+        // The rules of a device come before the rule that refuses each other packet of a device.
+        assertTrue(forward.indexOf("-A HG-FWD -i hg-vpn -j DROP") > forward.indexOfLast { "-s 100.90.0." in it })
+        assertTrue("-A HG-NAT -s 100.90.0.0/16 ! -o hg-mesh -j MASQUERADE" in lines)
+        // With no exit in the config, also an admin gets no exit rule.
+        val none = Mesh.firewallRules(spec, listOf(Mesh.VpnPeer(key, "100.90.0.9", listOf("Admin"))))
+        assertFalse("-j HG-VPN-OUT" in none)
+    }
+
+    @Test
     fun aTargetWithManyPortsGetsOneRuleForEach15() {
         val many = Mesh.VpnTarget("100.96.128.12", "172.18.0.7", tcpPorts = (8000..8019).toList(), roles = member)
         val peer = Mesh.VpnPeer(key, "100.90.0.2", listOf("Member"))

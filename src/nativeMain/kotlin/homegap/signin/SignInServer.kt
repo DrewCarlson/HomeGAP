@@ -72,7 +72,7 @@ class SignInServer(private val dir: String, private val identityDir: String, set
         null -> NoTunnels(Devices.serverAddress(vpn.clientSubnet))
         else -> HomeTunnel(tunnel.first, tunnel.second) { directory }
     }
-    private val appApi = AppApi(signIn, devices)
+    private val appApi = AppApi(signIn, devices, gateway)
     private val control = ControlSocket(signIn, devices, gateway, vpn.utilitySubnet)
 
     init {

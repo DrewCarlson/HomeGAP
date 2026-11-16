@@ -3,6 +3,7 @@ package homegap.reconcile
 import homegap.config.VpnConfig
 import homegap.discovery.DockerContainerSummary
 import homegap.identity.Resource
+import homegap.identity.VpnAccess
 import homegap.model.DesiredState
 import homegap.model.PublicResource
 import homegap.model.RawPort
@@ -38,12 +39,20 @@ object MeshForwards {
          * Adds the VPN: its peer on the homelab with the [targets] at the addresses of
          * [resources], and its UDP port on each node, which the node forwards to the homelab.
          */
-        fun withVpn(config: VpnConfig, targets: List<PrivateTarget>, resources: List<Resource>): Result {
+        fun withVpn(
+            config: VpnConfig,
+            targets: List<PrivateTarget>,
+            resources: List<Resource>,
+            access: VpnAccess = VpnAccess(),
+        ): Result {
             val addresses = resources.associate { it.name to it.address }
             val vpn = Mesh.Vpn(
                 subnet = config.clientSubnet,
                 address = Mesh.vpnAddress(config.clientSubnet),
                 port = config.port,
+                exitRoles = access.exitRoles,
+                resolvers = access.resolvers,
+                resolverRoles = access.resolverRoles,
                 targets = targets.mapNotNull { target ->
                     addresses[target.name]?.let {
                         Mesh.VpnTarget(it, target.target, target.tcpPorts, target.udpPorts, target.roles)

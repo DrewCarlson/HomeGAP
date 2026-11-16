@@ -37,6 +37,7 @@ import homegap.discovery.concernsHomegap
 import homegap.discovery.declaresService
 import homegap.discovery.traefikApiUrls
 import homegap.identity.IdentityStore
+import homegap.identity.VpnAccess
 import homegap.model.DesiredDnsRecord
 import homegap.model.DesiredState
 import homegap.model.HomelabServices
@@ -79,6 +80,8 @@ import kotlin.io.encoding.Base64
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+
+private val IPV4 = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
 
 /**
  * The reconciler: moves the actual state to the desired state (labels and config) in six
@@ -191,6 +194,17 @@ class Controller(
     @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
     /** The forwards of the last pass that had the container list. A pass with no list keeps them. */
     private var meshForwards = MeshForwards.Result()
+
+    /** The exit at the homelab and the DNS servers of the tunnel, from the config. The tunnel has no IPv6. */
+    private fun vpnAccess(cfg: AppConfig): VpnAccess {
+        val exits = cfg.cluster?.exitNodes
+        val dns = cfg.cluster?.tunnelDns
+        return VpnAccess(
+            exitRoles = exits?.roles?.takeIf { exits.homelab },
+            resolvers = dns?.resolvers.orEmpty().filter { IPV4.matches(it) },
+            resolverRoles = dns?.roles.orEmpty(),
+        )
+    }
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
 
     @Volatile private var meshStatus: MeshStatusDto? = null
@@ -562,7 +576,9 @@ class Controller(
                 val (privateTargets, unreachable) = MeshForwards.privateTargets(plan, containers)
                 val names = privateTargets.associate { it.name to it.roles }
                 val resources = identity.setResources(names, cfg.vpn.utilitySubnet)
-                meshForwards = MeshForwards.of(plan, containers).withVpn(cfg.vpn, privateTargets, resources)
+                val access = vpnAccess(cfg)
+                identity.setVpnAccess(access)
+                meshForwards = MeshForwards.of(plan, containers).withVpn(cfg.vpn, privateTargets, resources, access)
                 meshForwards.unknown.forEach { log.warn("mesh", "no address for the target $it: its ports are closed") }
                 unreachable.forEach {
                     log.warn("mesh", "no address for the private target $it: the VPN does not serve it")
