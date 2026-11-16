@@ -1,6 +1,7 @@
 package homegap.signin
 
 import homegap.identity.Signed
+import homegap.platform.nowMillis
 import homegap.platform.runCatchingCancellable
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.server.routing.Route
@@ -11,10 +12,6 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -31,7 +28,7 @@ import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
-import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -47,36 +44,25 @@ class ControlSocket(
 ) {
     private val logger = KotlinLogging.logger("control")
 
-    private val lock = SynchronizedObject()
-
-    /** The removal that waits for each device whose control connection ended: device id to the job. */
-    private val departures = mutableMapOf<String, Job>()
+    private lateinit var presence: Presence
 
     /** Adds the WebSocket to [parent], which is the route `/api/v1`. */
     fun init(parent: Route) {
+        presence = Presence(parent.application, KEEP) { device, key -> gateway.remove(device, key) }
         if (gateway.home) {
             // A start of this server ends each control connection. The apps keep their tunnels and connect again.
             val running = devices.running()
             gateway.restore(running)
-            running.forEach { device -> device.tunnelKey?.let { depart(parent.application, device, it) } }
+            val now = nowMillis()
+            running.forEach { device ->
+                val silent = (now - (device.lastSeen ?: now)).coerceAtLeast(0).milliseconds
+                device.tunnelKey?.let { presence.depart(device, it, silent) }
+            }
         }
         parent.application.launch {
             runCatchingCancellable { gateway.watch() }.onFailure { logger.error { "the watch of the exits stopped: ${it.message}" } }
         }
         parent.webSocket("/ws") { serve() }
-    }
-
-    /** Removes the key of [device] after [GRACE], unless its app connects again before that. */
-    private fun depart(scope: CoroutineScope, device: Device, key: String) {
-        val job = scope.launch {
-            delay(GRACE)
-            runCatchingCancellable { gateway.remove(device, key) }
-        }
-        synchronized(lock) { departures.put(device.id, job) }?.cancel()
-    }
-
-    private fun arrive(device: Device) {
-        synchronized(lock) { departures.remove(device.id) }?.cancel()
     }
 
     private suspend fun DefaultWebSocketServerSession.serve() {
@@ -88,7 +74,7 @@ class ControlSocket(
         }
         logger.info { "device '${device.name}' (${device.id}) connected" }
         val node = call.request.headers[NODE_HEADER]?.take(MAX_NAME)
-        arrive(device)
+        presence.arrive(device.id)
         val live = LiveData()
         // An app that runs its tunnel does not start it again after a new connection. Only the
         // server of the homelab can keep that tunnel. A different server ends a connection that
@@ -149,20 +135,21 @@ class ControlSocket(
         } finally {
             updates.cancel()
             idle?.cancel()
-            live.key?.let { leave(device, it) }
+            val last = presence.leave(device.id)
+            live.key?.let { leave(device, it, last) }
             devices.seen(device.id)
             logger.info { "device '${device.name}' (${device.id}) disconnected" }
         }
     }
 
     /**
-     * The control connection of [device] ended. The app keeps its tunnel and connects again, so
-     * the server of the homelab keeps the key for [GRACE]. An app that said that it stops loses
-     * the key at once.
+     * A control connection of [device] ended. A phone that sleeps ends it and keeps its tunnel, so
+     * the server of the homelab keeps the key for [KEEP] after the [last] connection. An app that
+     * said that it stops loses the key at once.
      */
-    private suspend fun DefaultWebSocketServerSession.leave(device: Device, key: String) {
+    private suspend fun leave(device: Device, key: String, last: Boolean) {
         if (gateway.home && devices.get(device.id)?.tunnelKey == key) {
-            depart(call.application, device, key)
+            if (last) presence.depart(device, key)
         } else {
             withContext(NonCancellable) { runCatchingCancellable { gateway.remove(device, key) } }
         }
@@ -317,8 +304,11 @@ class ControlSocket(
         const val MAX_MESSAGE = 64 * 1024
         const val MAX_NAME = 80
 
-        /** How long the server of the homelab keeps the key of a device with no control connection. */
-        val GRACE = 2.minutes
+        /**
+         * How long the server of the homelab keeps the key of a device with no control connection.
+         * It is the life of the token for that connection. After it, the app must start again.
+         */
+        val KEEP = SignIn.TUNNEL_TOKEN_LIFETIME
 
         /** How long a server that is not the homelab keeps a control connection that starts no tunnel. */
         val IDLE = 15.seconds

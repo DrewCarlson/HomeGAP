@@ -109,6 +109,8 @@ The app also answers the public names of your services itself. A device connects
 
 HomeGAP sends each change of these names to a connected app at once. A new service, a removed service or a new role needs no new connection. The app also keeps its tunnel when the sign-in restarts, for example during an upgrade.
 
+A phone that sleeps ends its connection to the sign-in and keeps its tunnel. HomeGAP keeps the key of that tunnel for 7 days, so the tunnel works at once when the phone wakes. HomeGAP removes the key earlier when you disconnect in the app, or when the device or its user gets a block or goes.
+
 For other names, HomeGAP gives the app the DNS servers of `vpn.tunnel_dns.resolvers` (default `8.8.8.8`) and enables DNS through the tunnel. These values override the DNS settings of the app. The lookups then leave from your homelab. A user without a role of `vpn.tunnel_dns.roles` gets no DNS settings from HomeGAP.
 
 <!-- FACT-CHECK: the labels of the DNS settings in each app, and whether a user must change one. PLAN.md says that the values of the server override the settings of the app. The comment in config/config.example.yml says to set the same address as the upstream DNS in each app. -->

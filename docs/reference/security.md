@@ -87,7 +87,7 @@ The orchestrator is the authority for users. It keeps the users, the machines, t
 
 - **Passwords:** HomeGAP stores a password as a PBKDF2-SHA256 hash with 600,000 iterations and its own salt. A password has 12 characters or more.
 - **Secrets of machines and devices:** HomeGAP stores only the SHA-256 of each secret.
-- **Sessions:** the sign-in signs each session token with its own key. The directory names that key, and only such a session gives access to the homelab. A session of a user lasts 30 days. The token for the control connection of a device lasts 7 days.
+- **Sessions:** the sign-in signs each session token with its own key. The directory names that key, and only such a session gives access to the homelab. A session of a user lasts 30 days. The token for the control connection of a device lasts 7 days. The peer of the homelab keeps the key of a device that has no control connection for the same time.
 - **Limits:** after five wrong passwords in 15 minutes, the sign-in refuses the address of the browser and the email address. A sign-in code lasts 10 minutes.
 - **Blocks:** a block of a user or a device goes into the signed directory. The session of a blocked user gives no access, and the device loses its connection.
 
