@@ -210,6 +210,11 @@ class FetchControllerApi(
     override suspend fun deviceAction(id: Int, action: String): ActionResponse =
         http.post("/api/access/devices/$id/$action").body()
 
+    override suspend fun createMachine(request: CreateAccessMachineRequest): CreateAccessMachineResponse =
+        http.post("/api/access/machines") {
+            setBody(request)
+        }.body()
+
     override suspend fun userAction(id: String, action: String): ActionResponse =
         http.post("/api/access/users/$id/$action").body()
 

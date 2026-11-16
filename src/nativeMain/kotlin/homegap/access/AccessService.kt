@@ -7,6 +7,8 @@ import homegap.api.AccessDeviceDto
 import homegap.api.AccessOverviewDto
 import homegap.api.AccessRoleDto
 import homegap.api.AccessUserDto
+import homegap.api.CreateAccessMachineRequest
+import homegap.api.CreateAccessMachineResponse
 import homegap.api.CreateAccessUserRequest
 import homegap.api.CreateAccessUserResponse
 import homegap.config.vpnDir
@@ -115,17 +117,25 @@ class AccessService(private val controller: Controller, private val identity: Id
                 name = device.name.ifBlank { "Device" },
                 kind = "user",
                 user = byUser[device.userId]?.email,
+                agent = device.agent,
+                viaNode = device.node.takeIf { device.address in online },
+                lastSeen = device.lastSeen,
                 online = device.address in online,
                 blocked = device.id in blocked || byUser[device.userId]?.blocked == true,
             )
         }
         // A machine is in the list also before its first connection.
         val machines = identity.machines().map { machine ->
+            val device = devices.firstOrNull { it.id == machine.id }
+            val connected = device != null && device.address in online
             AccessDeviceDto(
                 id = deviceId(machine.id),
                 name = machine.name,
                 kind = "machine",
-                online = devices.firstOrNull { it.id == machine.id }?.address in online,
+                agent = device?.agent,
+                viaNode = device?.node.takeIf { connected },
+                lastSeen = device?.lastSeen,
+                online = connected,
                 blocked = machine.blocked,
             )
         }
@@ -150,6 +160,15 @@ class AccessService(private val controller: Controller, private val identity: Id
         val message = "Created the user ${user.email} (${user.roles.joinToString()})"
         controller.log.change(domain, message)
         return CreateAccessUserResponse(true, message, password = generated.takeIf { chosen == null })
+    }
+
+    /** Creates a machine. The answer has its id and its secret once. */
+    fun createMachine(req: CreateAccessMachineRequest): CreateAccessMachineResponse {
+        val roles = roleNames(identity.users()).filter { roleId(it) in req.roleIds }
+        require(roles.isNotEmpty()) { "pick at least one role" }
+        val (machine, secret) = identity.createMachine(req.name, roles)
+        val message = logged("Created the machine ${machine.name} (${machine.roles.joinToString()})")
+        return CreateAccessMachineResponse(true, message, machine.id, secret)
     }
 
     fun removeUser(userId: String): String {

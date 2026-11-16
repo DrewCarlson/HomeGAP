@@ -47,6 +47,7 @@ class ControlSocket(
             return close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "unauthorized"))
         }
         logger.info { "device '${device.name}' (${device.id}) connected" }
+        val node = call.request.headers[NODE_HEADER]?.take(MAX_NAME)
         var sites: List<Site> = emptyList()
         var key: String? = null
         try {
@@ -70,6 +71,7 @@ class ControlSocket(
                     // The app sends this form first, for old servers. The real one comes after the list of nodes.
                     "olm/wg/register" -> if ((data["backwardsCompatible"] as? JsonPrimitive)?.booleanOrNull != true) {
                         val admitted = register(device, data, chain)
+                        devices.seen(device.id, agentOf(data), node)
                         if (admitted != null) {
                             sites = admitted.second
                             key = admitted.first
@@ -82,6 +84,7 @@ class ControlSocket(
             }
         } finally {
             key?.let { withContext(NonCancellable) { runCatchingCancellable { gateway.remove(device, it) } } }
+            devices.seen(device.id)
             logger.info { "device '${device.name}' (${device.id}) disconnected" }
         }
     }
@@ -138,6 +141,12 @@ class ControlSocket(
         send(Frame.Text(message.toString()))
     }
 
+    /** The app and its version from the start message of a tunnel, for example `Olm CLI 1.10.1`. */
+    private fun agentOf(data: JsonObject): String? {
+        val parts = listOfNotNull(data.text("olmAgent"), data.text("agentVersion") ?: data.text("olmVersion"))
+        return parts.joinToString(" ").take(MAX_NAME).ifBlank { null }
+    }
+
     private fun reason(code: String, message: String): JsonObject = buildJsonObject {
         put("code", code)
         put("message", message)
@@ -153,6 +162,10 @@ class ControlSocket(
     private companion object {
         const val TERMINATE = "olm/terminate"
         const val MAX_MESSAGE = 64 * 1024
+        const val MAX_NAME = 80
+
+        /** The header that the Traefik of a node sets: the id of the node. */
+        const val NODE_HEADER = "X-HomeGAP-Node"
 
         /** A WireGuard public key: 32 bytes in base64. */
         val KEY = Regex("^[A-Za-z0-9+/]{43}=$")

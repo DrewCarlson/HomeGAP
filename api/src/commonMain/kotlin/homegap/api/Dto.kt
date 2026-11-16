@@ -747,6 +747,14 @@ data class CreateAccessUserResponse(
 @Serializable
 data class SetAccessRolesRequest(val roleIds: List<Int>)
 
+/** A new machine: a device with no user, such as a server. */
+@Serializable
+data class CreateAccessMachineRequest(val name: String, val roleIds: List<Int>)
+
+/** The id and the secret of a new machine. The secret shows once: HomeGAP keeps only its hash. */
+@Serializable
+data class CreateAccessMachineResponse(val ok: Boolean, val message: String, val id: String, val secret: String)
+
 /** A user of HomeGAP's own sign-in. The password hash never leaves the homelab through this type. */
 @Serializable
 data class IdentityUserDto(

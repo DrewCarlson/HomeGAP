@@ -7,6 +7,7 @@ import dev.zacsweers.metro.SingleIn
 import homegap.api.AccessDeviceDto
 import homegap.api.AccessOverviewDto
 import homegap.api.ActionResponse
+import homegap.api.CreateAccessMachineRequest
 import homegap.api.CreateAccessUserRequest
 import homegap.api.Health
 import homegap.presentation.common.Badge
@@ -78,6 +79,12 @@ class AccessScreenPresenter(
         var submitting by remember { mutableStateOf(false) }
         var formError by remember { mutableStateOf<String?>(null) }
         var inviteLink by remember { mutableStateOf<String?>(null) }
+        var passwordOwner by remember { mutableStateOf<String?>(null) }
+        var machineName by remember { mutableStateOf("") }
+        var machineRoles by remember { mutableStateOf<Set<Int>?>(null) }
+        var machineError by remember { mutableStateOf<String?>(null) }
+        var machineSecret by remember { mutableStateOf<MachineSecretModel?>(null) }
+        var creatingMachine by remember { mutableStateOf(false) }
         // Role edits wait in the Inspector until Save: user id to the roles chosen so far.
         var roleEdits by remember { mutableStateOf<Map<String, Set<Int>>>(emptyMap()) }
 
@@ -106,6 +113,7 @@ class AccessScreenPresenter(
                     .onSuccess { r ->
                         actions.notify(r.message)
                         inviteLink = r.password
+                        passwordOwner = null
                         if (r.password == null) {
                             props.onOpen(Location(Route.Access))
                         }
@@ -120,6 +128,27 @@ class AccessScreenPresenter(
         }
 
         fun change(label: String, call: suspend () -> ActionResponse) = actions.run(label) { call().also { reload++ } }
+
+        // A new machine defaults to the least-privileged role, like a new user.
+        val chosenMachineRoles = machineRoles ?: current.roles.filter { !it.admin }.take(1).map { it.id }.toSet()
+        val machineRequest = CreateAccessMachineRequest(machineName.trim(), chosenMachineRoles.toList())
+        val latestMachine by rememberUpdatedState(machineRequest)
+        val submitMachine = appScope.rememberEventTrigger {
+            creatingMachine = true
+            machineError = null
+            try {
+                runCatchingCancellable { api.createMachine(latestMachine) }
+                    .onSuccess { created ->
+                        actions.notify(created.message)
+                        machineSecret = MachineSecretModel(latestMachine.name, created.id, created.secret)
+                        machineName = ""
+                        reload++
+                    }
+                    .onFailure { machineError = it.message }
+            } finally {
+                creatingMachine = false
+            }
+        }
 
         val online = current.devices.count { it.online && !it.blocked }
         val expiring = current.invitations.filter { it.expiresAt != null }.minByOrNull { it.expiresAt ?: Long.MAX_VALUE }
@@ -140,6 +169,10 @@ class AccessScreenPresenter(
                 },
                 actions = listOf(
                     ActionModel(
+                        label = "+ Add machine",
+                        location = Location(Route.Access, ADD_MACHINE),
+                    ),
+                    ActionModel(
                         label = "+ Add user",
                         style = ActionStyle.Primary,
                         location = Location(Route.Access, ADD_USER),
@@ -148,7 +181,7 @@ class AccessScreenPresenter(
             ),
             addUserOpen = selection == ADD_USER,
             inspector = when {
-                selection == null || selection == ADD_USER -> null
+                selection == null || selection == ADD_USER || selection == ADD_MACHINE -> null
                 selection.startsWith("user:") -> current.users.firstOrNull { "user:${it.id}" == selection }?.let { user ->
                     val saved = user.roleIds.toSet()
                     val chosen = roleEdits[user.id] ?: saved
@@ -176,6 +209,7 @@ class AccessScreenPresenter(
                                 runCatchingCancellable { api.newUserPassword(user.id) }
                                     .onSuccess { response ->
                                         inviteLink = response.password
+                                        passwordOwner = user.email ?: user.username
                                         props.onOpen(Location(Route.Access, ADD_USER))
                                     }
                                     .onFailure { actions.notify("New password failed: ${it.message}", isError = true) }
@@ -252,7 +286,33 @@ class AccessScreenPresenter(
             },
             devices = current.devices.map { it.toRow() },
             inviteLink = inviteLink,
-            onDismissInviteLink = { inviteLink = null },
+            passwordOwner = passwordOwner,
+            addMachineOpen = selection == ADD_MACHINE,
+            newMachine = NewMachineFormModel(
+                name = machineName,
+                roles = current.roles.map { RoleOptionModel(it.id, it.name, it.id in chosenMachineRoles) },
+                serverError = machineError,
+                canSubmit = machineName.isNotBlank() && chosenMachineRoles.isNotEmpty() && !creatingMachine,
+                submitText = if (creatingMachine) "Creating…" else "Create machine",
+                onName = {
+                    machineName = it
+                    machineError = null
+                },
+                onToggleRole = { id ->
+                    machineRoles = if (id in chosenMachineRoles) {
+                        chosenMachineRoles - id
+                    } else {
+                        chosenMachineRoles + id
+                    }
+                },
+                onSubmit = submitMachine::trigger,
+            ),
+            machineSecret = machineSecret,
+            onDismissMachineSecret = { machineSecret = null },
+            onDismissInviteLink = {
+                inviteLink = null
+                passwordOwner = null
+            },
             onRemoveUser = { id ->
                 val user = current.users.firstOrNull { it.id == id }
                 removeUser(id, user?.email ?: user?.username ?: id) { reload++ }
@@ -487,6 +547,9 @@ class AccessScreenPresenter(
     companion object {
         /** The selection that opens the Add user form. */
         const val ADD_USER = "add-user"
+
+        /** The selection that opens the Add machine form. */
+        const val ADD_MACHINE = "add-machine"
         private val REFRESH = 60.seconds
         private val EMAIL = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
         private const val MIN_PASSWORD = 12

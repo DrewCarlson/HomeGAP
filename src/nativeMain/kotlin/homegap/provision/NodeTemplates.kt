@@ -120,6 +120,10 @@ object NodeTemplates {
     private const val WILDCARD_PRIORITY = 90
     private const val AGENT_MOUNT = "/agent"
     private const val NODE_CONTROL = "homegap-node-control"
+    private const val NODE_HEADER = "homegap-node"
+
+    /** The request header with the id of the node that a request came through. */
+    const val NODE_HEADER_NAME = "X-HomeGAP-Node"
     private const val SIGN_IN_CHECK_INTERVAL = "5s"
     private const val SIGN_IN_CHECK_TIMEOUT = "3s"
     private const val AGENT_STATE_DIR = "agent-state"
@@ -769,6 +773,10 @@ object NodeTemplates {
             }
         }
         putJsonObject(HEALTH_PATH) { putJsonObject("replacePath") { put("path", desired.healthPath) } }
+        // A service of the homelab learns which node a request came through. A client cannot set the header.
+        putJsonObject(NODE_HEADER) {
+            putJsonObject("headers") { putJsonObject("customRequestHeaders") { put(NODE_HEADER_NAME, desired.id) } }
+        }
         // The status page needs no token, so one address gets a limit on it.
         if (desired.statusRedirect != null) {
             putJsonObject(STATUS_RATE_LIMIT) {
@@ -869,7 +877,7 @@ object NodeTemplates {
             rule = if (wildcard) "HostRegexp(`${wildcardRegex(domain.removePrefix(WILDCARD))}`)" else "Host(`$domain`)",
             service = meshService(resource.niceId),
             priority = if (wildcard) WILDCARD_PRIORITY else RESOURCE_PRIORITY,
-            middlewares = listOfNotNull(hostHeaderName(resource)),
+            middlewares = listOfNotNull(NODE_HEADER, hostHeaderName(resource)),
         )
         httpsRouter("homegap-http-${resource.niceId}", route)
     }

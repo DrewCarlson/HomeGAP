@@ -38,6 +38,14 @@ sealed interface AccessScreenModel : ScreenModel {
         val devices: List<DeviceRowModel>,
         /** The password that HomeGAP made for a user, to hand over. It shows once. */
         val inviteLink: String?,
+        /** The user that [inviteLink] is for, if it is a new password of a user that exists. */
+        val passwordOwner: String? = null,
+        /** Whether the Add machine form is open. */
+        val addMachineOpen: Boolean = false,
+        val newMachine: NewMachineFormModel,
+        /** The id and the secret of the machine just created, to hand over. They show once. */
+        val machineSecret: MachineSecretModel? = null,
+        val onDismissMachineSecret: () -> Unit = {},
         val onDismissInviteLink: () -> Unit,
         val onRemoveUser: (userId: String) -> Unit,
         val onToggleRole: (userId: String, roleId: Int) -> Unit,
@@ -77,6 +85,26 @@ data class NewUserFormModel(
     val onPassword: (String) -> Unit,
     val onToggleRole: (Int) -> Unit,
     val onSubmit: () -> Unit,
+)
+
+@Immutable
+data class NewMachineFormModel(
+    val name: String,
+    val roles: List<RoleOptionModel>,
+    /** What the orchestrator answered when it refused the machine. */
+    val serverError: String?,
+    val canSubmit: Boolean,
+    val submitText: String,
+    val onName: (String) -> Unit,
+    val onToggleRole: (Int) -> Unit,
+    val onSubmit: () -> Unit,
+)
+
+@Immutable
+data class MachineSecretModel(
+    val name: String,
+    val id: String,
+    val secret: String,
 )
 
 @Immutable

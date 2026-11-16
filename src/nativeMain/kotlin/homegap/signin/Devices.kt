@@ -25,6 +25,12 @@ data class Device(
     val secretHash: String? = null,
     val address: String,
     val createdAt: Long = 0,
+    /** The app and its version, as the device said at its last connection. */
+    val agent: String? = null,
+    /** When the device connected or disconnected last (epoch ms). */
+    val lastSeen: Long? = null,
+    /** The node that the last connection came through. */
+    val node: String? = null,
 )
 
 /**
@@ -89,6 +95,12 @@ class Devices(
         val device = get(id) ?: return null
         val expected = device.secretHash ?: return null
         return device.takeIf { Crypto.constantTimeEquals(expected, Keys.fingerprint(secret)) }
+    }
+
+    /** Notes a connection or a disconnection of the device [id] of this server. [agent] and [node] stay if null. */
+    fun seen(id: String, agent: String? = null, node: String? = null): Unit = synchronized(lock) {
+        val device = devices()[id] ?: return@synchronized
+        save(device.copy(agent = agent ?: device.agent, node = node ?: device.node, lastSeen = now()))
     }
 
     fun remove(id: String): Unit = synchronized(lock) {

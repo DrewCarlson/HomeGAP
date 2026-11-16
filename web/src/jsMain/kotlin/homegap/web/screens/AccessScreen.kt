@@ -6,6 +6,8 @@ import androidx.compose.runtime.key
 import homegap.presentation.access.AccessScreenModel
 import homegap.presentation.access.DeviceRowModel
 import homegap.presentation.access.InvitationRowModel
+import homegap.presentation.access.MachineSecretModel
+import homegap.presentation.access.NewMachineFormModel
 import homegap.presentation.access.NewUserFormModel
 import homegap.presentation.access.RoleOptionModel
 import homegap.presentation.routing.Location
@@ -64,10 +66,20 @@ fun AccessScreen(
                 via = model.via.ifEmpty { null },
                 qr = model.qr,
             )
+            if (model.addMachineOpen) {
+                AddMachine(
+                    form = model.newMachine,
+                    secret = model.machineSecret,
+                    viewport = viewport,
+                    onDismissSecret = model.onDismissMachineSecret,
+                    onClose = { onOpen(Location(Route.Access)) },
+                )
+            }
             if (model.addUserOpen) {
                 AddUser(
                     form = model.newUser,
                     inviteLink = model.inviteLink,
+                    passwordOwner = model.passwordOwner,
                     viewport = viewport,
                     onDismissLink = model.onDismissInviteLink,
                     onClose = { onOpen(Location(Route.Access)) },
@@ -240,17 +252,124 @@ private fun Devices(rows: List<DeviceRowModel>, onOpen: (Location) -> Unit) {
     }
 }
 
+/** The Add machine form. After Create it shows the id and the secret of the machine, once. */
+@Composable
+private fun AddMachine(
+    form: NewMachineFormModel,
+    secret: MachineSecretModel?,
+    viewport: Viewport,
+    onDismissSecret: () -> Unit,
+    onClose: () -> Unit,
+) {
+    Overlay(
+        label = "Add a machine",
+        titleId = "add-machine-title",
+        style = when (viewport) {
+            Viewport.Phone -> OverlayStyle.Sheet
+            else -> OverlayStyle.Drawer
+        },
+        onDismiss = onClose,
+    ) {
+        Div({ classes("overlay-panel", "form-panel") }) {
+            Div({ classes("wizard-head") }) {
+                Div {
+                    Div({ classes("caption") }) { Text(secret?.name ?: "New machine") }
+                    H2({ id("add-machine-title") }) { Text("Add a machine") }
+                }
+                IconButton(
+                    iconPath = Icons.CLOSE,
+                    label = "Close",
+                    onClick = onClose,
+                )
+            }
+            Div({ classes("form-body") }) {
+                ScrollHint()
+                if (secret != null) {
+                    P { Text("Give the machine its id and secret. HomeGAP shows the secret only once.") }
+                    CopyValue(
+                        label = "Id",
+                        value = secret.id,
+                    )
+                    CopyValue(
+                        label = "Secret",
+                        value = secret.secret,
+                    )
+                } else {
+                    TextField(
+                        label = "Name",
+                        value = form.name,
+                        placeholder = "backup server",
+                        kind = FieldKind.Identifier,
+                        onChange = form.onName,
+                    )
+                    Div({ classes("field") }) {
+                        Span({ classes("muted") }) { Text("Roles") }
+                        RoleChips(
+                            roles = form.roles,
+                            enabled = true,
+                            onToggle = form.onToggleRole,
+                        )
+                    }
+                    form.serverError?.let { ErrorText(it, mono = false) }
+                }
+            }
+            Div({ classes("form-actions") }) {
+                if (secret != null) {
+                    ActionButton(
+                        text = "Done",
+                        style = ButtonStyle.Primary,
+                        onClick = {
+                            onDismissSecret()
+                            onClose()
+                        },
+                    )
+                } else {
+                    ActionButton(
+                        text = "Cancel",
+                        onClick = onClose,
+                    )
+                    ActionButton(
+                        text = form.submitText,
+                        style = ButtonStyle.Primary,
+                        enabled = form.canSubmit,
+                        onClick = form.onSubmit,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** A value with its name and a Copy button. */
+@Composable
+private fun CopyValue(label: String, value: String) {
+    Div({ classes("field") }) {
+        Span({ classes("muted") }) { Text(label) }
+        Div({ classes("copy-row") }) {
+            Span({ classes("mono", "small", "ellipsis") }) { Text(value) }
+            ActionButton(
+                text = "Copy",
+                small = true,
+                onClick = { window.navigator.clipboard.writeText(value) },
+            )
+        }
+    }
+}
+
 /** The Add user form: a drawer or dialog with explicit Cancel and Create. */
 @Composable
 private fun AddUser(
     form: NewUserFormModel,
     inviteLink: String?,
+    passwordOwner: String?,
     viewport: Viewport,
     onDismissLink: () -> Unit,
     onClose: () -> Unit,
 ) {
+    // The same panel shows a new password of a user that exists.
+    val title = if (passwordOwner != null) "New password" else "Add a user"
     Overlay(
-        label = "Add a user",
+        label = title,
         titleId = "add-user-title",
         style = when (viewport) {
             Viewport.Phone -> OverlayStyle.Sheet
@@ -262,8 +381,8 @@ private fun AddUser(
         Div({ classes("overlay-panel", "form-panel") }) {
             Div({ classes("wizard-head") }) {
                 Div {
-                    Div({ classes("caption") }) { Text("New user") }
-                    H2({ id("add-user-title") }) { Text("Add a user") }
+                    Div({ classes("caption") }) { Text(passwordOwner ?: "New user") }
+                    H2({ id("add-user-title") }) { Text(title) }
                 }
                 IconButton(
                     iconPath = Icons.CLOSE,

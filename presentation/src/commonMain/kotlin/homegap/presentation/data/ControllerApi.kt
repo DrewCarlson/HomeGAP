@@ -106,6 +106,9 @@ interface ControllerApi {
     /** `archive`, `unarchive`, `block`, `unblock` or `delete`. */
     suspend fun deviceAction(id: Int, action: String): ActionResponse
 
+    /** Creates a machine: a device with no user. The answer has its secret once. */
+    suspend fun createMachine(request: CreateAccessMachineRequest): CreateAccessMachineResponse
+
     /** Blocks a user or ends the block ([action] is `block` or `unblock`). */
     suspend fun userAction(id: String, action: String): ActionResponse
 

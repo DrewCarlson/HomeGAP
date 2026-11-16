@@ -132,6 +132,10 @@ class FakeControllerApi(
     override suspend fun removeInvitation(id: String) = ok("remove-invite $id")
     override suspend fun deviceAction(id: Int, action: String) = ok("device $id $action")
     override suspend fun userAction(id: String, action: String) = ok("user $id $action")
+    override suspend fun createMachine(request: CreateAccessMachineRequest): CreateAccessMachineResponse {
+        calls += "machine ${request.name} ${request.roleIds}"
+        return CreateAccessMachineResponse(true, "created", "m1", "machine-secret")
+    }
     override suspend fun newUserPassword(id: String) = CreateAccessUserResponse(true, "new password", password = "generated")
 
     var terminalsValue = TerminalOverviewDto(enabled = false)

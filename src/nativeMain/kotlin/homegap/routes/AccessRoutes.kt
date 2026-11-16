@@ -7,6 +7,7 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import homegap.access.AccessService
 import homegap.api.ActionResponse
+import homegap.api.CreateAccessMachineRequest
 import homegap.api.CreateAccessUserRequest
 import homegap.api.SetAccessRolesRequest
 import io.ktor.server.request.receive
@@ -24,6 +25,11 @@ class AccessRoutes(private val access: AccessService) : RoutingController {
             get { respondRevalidated(access.overview()) }
             post("/users") {
                 val created = access.createUser(call.receive<CreateAccessUserRequest>())
+                access.changed()
+                call.respond(created)
+            }
+            post("/machines") {
+                val created = access.createMachine(call.receive<CreateAccessMachineRequest>())
                 access.changed()
                 call.respond(created)
             }
