@@ -6,11 +6,15 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import homegap.api.ActionResponse
+import homegap.api.CreateIdentityMachineRequest
 import homegap.api.CreateIdentityUserRequest
+import homegap.api.IdentityMachineDto
+import homegap.api.IdentityMachineSecretResponse
 import homegap.api.IdentityPasswordResponse
 import homegap.api.IdentityUserDto
 import homegap.api.SetIdentityRolesRequest
 import homegap.identity.IdentityStore
+import homegap.identity.Machine
 import homegap.identity.User
 import homegap.reconcile.ReconcileLog
 import io.ktor.server.request.receive
@@ -48,7 +52,22 @@ class IdentityRoutes(private val identity: IdentityStore, private val log: Recon
             post("/{id}/unblock") { answer("removed the block of ${identity.setBlocked(id(), false).email}") }
             delete("/{id}") { answer("removed the user ${identity.remove(id()).email}") }
         }
+        parent.route("/identity/machines") { machines() }
     }
+
+    private fun Route.machines() {
+        get { call.respond(identity.machines().map { it.toDto() }) }
+        post {
+            val request = call.receive<CreateIdentityMachineRequest>()
+            val (machine, secret) = identity.createMachine(request.name, request.roles)
+            val message = "created the machine ${machine.name} (${machine.roles.joinToString()})"
+            log.change(DOMAIN, message)
+            call.respond(IdentityMachineSecretResponse(message, machine.toDto(), secret))
+        }
+        delete("/{id}") { answer("removed the machine ${identity.removeMachine(id()).name}") }
+    }
+
+    private fun Machine.toDto() = IdentityMachineDto(id, name, roles, blocked, createdAt)
 
     private suspend fun RoutingContext.answer(message: String) {
         log.change(DOMAIN, message)

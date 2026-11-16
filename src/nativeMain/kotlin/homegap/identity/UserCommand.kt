@@ -6,35 +6,21 @@ import homegap.api.CreateIdentityUserRequest
 import homegap.api.IdentityPasswordResponse
 import homegap.api.IdentityUserDto
 import homegap.config.AppConfig
-import homegap.dashboard.DashboardAuth
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
-import io.ktor.client.request.header
-import io.ktor.client.request.request
-import io.ktor.client.request.setBody
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
-import io.ktor.http.contentType
-import io.ktor.http.isSuccess
 import kotlinx.coroutines.runBlocking
 
 /**
  * `homegap user`: manages the users of HomeGAP's own sign-in from a shell in the orchestrator
  * container. It calls the API of the dashboard, so the orchestrator stays the one writer.
  */
-class UserCommand(private val config: AppConfig, private val args: List<String>) {
+class UserCommand(config: AppConfig, private val args: List<String>) {
     private companion object {
         const val USAGE = "homegap user list | add EMAIL | password EMAIL | block EMAIL | unblock EMAIL | remove EMAIL"
     }
 
-    private val base: String
-        @Suppress("HttpUrlsUsage") // The dashboard is on the loopback of this container.
-        get() {
-            val host = config.dashboard.host.let { if (it == "0.0.0.0" || it.isEmpty()) "127.0.0.1" else it }
-            return "http://$host:${config.dashboard.port}/api/identity/users"
-        }
+    private val api = DashboardApi(config, "/api/identity/users")
 
     fun run(): Unit = runBlocking {
         HttpClient(CIO).use { http ->
@@ -76,28 +62,14 @@ class UserCommand(private val config: AppConfig, private val args: List<String>)
     private fun options(name: String): List<String> =
         args.indices.filter { args[it] == name }.mapNotNull { args.getOrNull(it + 1) }
 
+    private suspend fun call(http: HttpClient, method: HttpMethod, path: String, body: String? = null): String =
+        api.call(http, method, path, body)
+
     private suspend fun users(http: HttpClient): List<IdentityUserDto> =
         ApiJson.decodeFromString(call(http, HttpMethod.Get, ""))
 
     private suspend fun id(http: HttpClient): String {
         val email = email()
         return users(http).firstOrNull { it.email.equals(email, ignoreCase = true) }?.id ?: error("no user $email")
-    }
-
-    private suspend fun call(http: HttpClient, method: HttpMethod, path: String, body: String? = null): String {
-        val token = DashboardAuth.current(config)
-        val response = http.request(base + path) {
-            this.method = method
-            token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
-            body?.let {
-                contentType(ContentType.Application.Json)
-                setBody(it)
-            }
-        }
-        val text = response.bodyAsText()
-        check(response.status.isSuccess()) {
-            runCatching { ApiJson.decodeFromString<ActionResponse>(text).message }.getOrDefault(text)
-        }
-        return text
     }
 }

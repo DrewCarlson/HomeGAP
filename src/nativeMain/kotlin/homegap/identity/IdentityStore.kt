@@ -25,6 +25,7 @@ class IdentityStore(
     private data class Stored(
         val version: Long = 0,
         val users: List<User> = emptyList(),
+        val machines: List<Machine> = emptyList(),
         val issuers: Map<String, String> = emptyMap(),
     )
 
@@ -76,6 +77,31 @@ class IdentityStore(
         user
     }
 
+    fun machines(): List<Machine> = synchronized(lock) { load().machines }
+
+    /** Creates a machine. Returns it and its secret, which HomeGAP does not keep. */
+    fun createMachine(name: String, roles: List<String>): Pair<Machine, String> = synchronized(lock) {
+        val label = name.trim()
+        require(MACHINE_NAME.matches(label)) { "a machine name has 1 to 60 letters, digits, spaces, '.', '-' and '_'" }
+        require(load().machines.none { it.name.equals(label, ignoreCase = true) }) { "a machine $label exists already" }
+        val secret = Crypto.token(MACHINE_SECRET_LENGTH)
+        val machine = Machine(
+            id = Crypto.token(ID_LENGTH, ID_ALPHABET),
+            name = label,
+            roles = cleanRoles(roles),
+            secretHash = Keys.fingerprint(secret),
+            createdAt = now(),
+        )
+        save { it.copy(machines = it.machines + machine) }
+        machine to secret
+    }
+
+    fun removeMachine(id: String): Machine = synchronized(lock) {
+        val machine = requireNotNull(load().machines.firstOrNull { it.id == id }) { "no machine $id" }
+        save { it.copy(machines = it.machines - machine) }
+        machine
+    }
+
     /** Sets the public key [publicKey] of the session issuer [name]. Returns true if that is a change. */
     fun setIssuer(name: String, publicKey: String): Boolean = synchronized(lock) {
         if (load().issuers[name] == publicKey) return@synchronized false
@@ -123,7 +149,13 @@ class IdentityStore(
     }
 
     private fun seal(state: Stored): Signed {
-        val directory = Directory(state.version, now(), state.users.sortedBy { it.email }, state.issuers)
+        val directory = Directory(
+            version = state.version,
+            issuedAt = now(),
+            users = state.users.sortedBy { it.email },
+            machines = state.machines.sortedBy { it.name },
+            issuers = state.issuers,
+        )
         return Signed.seal(key, Signed.JSON.encodeToString(directory))
     }
 
@@ -153,6 +185,8 @@ class IdentityStore(
         const val MIN_PASSWORD_LENGTH = 12
         private const val KEY_FILE = "authority.key"
         private const val USERS_FILE = "users.json"
+        private const val MACHINE_SECRET_LENGTH = 48
+        private val MACHINE_NAME = Regex("^[A-Za-z0-9 ._-]{1,60}$")
         private const val ID_LENGTH = 15
         private const val ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789"
         private val OWNER_ONLY = "600".toInt(8)

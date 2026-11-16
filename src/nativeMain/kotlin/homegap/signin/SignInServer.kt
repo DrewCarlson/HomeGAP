@@ -1,6 +1,6 @@
 package homegap.signin
 
-import homegap.VERSION
+import homegap.config.VpnConfig
 import homegap.identity.Directory
 import homegap.identity.IdentityStore
 import homegap.identity.Signed
@@ -13,6 +13,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
@@ -26,16 +27,19 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import io.ktor.server.websocket.WebSockets
+import io.ktor.server.websocket.pingPeriod
+import io.ktor.server.websocket.timeout
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.concurrent.Volatile
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * `homegap sign-in`: the public sign-in of the homelab, in a container of its own. It has no SSH
@@ -50,16 +54,25 @@ class SignInServer(
     private val identityDir: String,
     private val options: SignInPage.Options = SignInPage.Options(),
     private val oidc: Oidc? = null,
+    vpn: VpnConfig = VpnConfig(),
 ) {
     private val logger = KotlinLogging.logger("sign-in")
 
     @Volatile
     private var directory: Directory? = null
     private val signIn = SignIn(dir, { directory })
+    private val devices = Devices(dir, vpn.clientSubnet)
+    private val gateway: TunnelGateway = NoTunnels(Devices.serverAddress(vpn.clientSubnet))
+    private val appApi = AppApi(signIn, devices)
+    private val control = ControlSocket(signIn, devices, gateway, vpn.utilitySubnet)
+
+    init {
+        // The orchestrator reads the public key here and puts it in the directory.
+        Files.writeAtomic("$dir/${SignIn.PUBLIC_KEY_FILE}", signIn.publicKey + "\n")
+    }
 
     suspend fun run(host: String, port: Int): Unit = coroutineScope {
-        Files.writeAtomic("$dir/${SignIn.PUBLIC_KEY_FILE}", signIn.publicKey + "\n")
-        launch { watchDirectory(identityDir).collect { load() } }
+        launch { watchDirectory(identityDir).collect { reload() } }
         embeddedServer(
             CIO,
             configure = {
@@ -75,7 +88,7 @@ class SignInServer(
     }
 
     /** Takes the directory of [identityDir] if the homelab signed it and it is not older than the current one. */
-    private fun load() {
+    fun reload() {
         val key = Files.readTextOrNull("$identityDir/${IdentityStore.PUBLIC_KEY_FILE}")?.trim()
         val text = Files.readTextOrNull("$identityDir/${IdentityStore.DIRECTORY_FILE}")
         if (key == null || text == null) return
@@ -94,8 +107,15 @@ class SignInServer(
     }
 
     fun Application.module() {
+        install(WebSockets) {
+            pingPeriod = 30.seconds
+            timeout = 90.seconds
+            maxFrameSize = MAX_FRAME
+        }
         routing {
             route("/api/v1") {
+                appApi.init(this)
+                control.init(this)
                 get { call.answer(buildJsonObject { put("status", "healthy") }) }
                 get("/") { call.answer(buildJsonObject { put("status", "healthy") }) }
                 post("/auth/device-web-auth/start") { call.start() }
@@ -160,8 +180,6 @@ class SignInServer(
             },
         )
     }
-
-    private fun ApplicationCall.sessionToken(): String? = request.cookies[SESSION_COOKIE]?.takeIf { it.isNotBlank() }
 
     // ------------------------------------------------------------------ the page
 
@@ -291,32 +309,10 @@ class SignInServer(
         respondText(html, ContentType.Text.Html, status)
     }
 
-    // ------------------------------------------------------------------ answers
-
-    private suspend fun ApplicationCall.answer(data: JsonElement) = envelope(HttpStatusCode.OK, data, "ok")
-
-    private suspend fun ApplicationCall.fail(status: HttpStatusCode, message: String) =
-        envelope(status, JsonNull, message)
-
-    /** The form of each answer of the Pangolin API. */
-    private suspend fun ApplicationCall.envelope(status: HttpStatusCode, data: JsonElement, message: String) {
-        val ok = status.value < HttpStatusCode.BadRequest.value
-        val body = buildJsonObject {
-            put("data", data)
-            put("success", ok)
-            put("error", !ok)
-            put("message", message)
-            put("status", status.value)
-        }
-        response.header("Cache-Control", "no-store")
-        response.header("X-HomeGAP-Version", VERSION)
-        respondText(body.toString(), ContentType.Application.Json, status)
-    }
-
     private companion object {
-        const val SESSION_COOKIE = "p_session_token"
         const val UNKNOWN_CODE = "This code is not known, or it expired."
         const val MAX_BODY = 4096
+        const val MAX_FRAME = 64L * 1024
         const val MAX_LOGGED = 80
         const val NONCE_LENGTH = 24
     }

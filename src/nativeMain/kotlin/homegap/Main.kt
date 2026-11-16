@@ -6,6 +6,7 @@ import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.config.SharedDirs
 import homegap.config.SignInConfig
+import homegap.config.VpnConfig
 import homegap.dashboard.DashboardAuth
 import homegap.di.ControllerGraph
 import homegap.di.RunOptions
@@ -16,6 +17,7 @@ import homegap.mesh.MeshAgent
 import homegap.platform.Identity
 import homegap.mesh.MeshRoute
 import homegap.model.HomelabServices
+import homegap.identity.MachineCommand
 import homegap.identity.UserCommand
 import homegap.model.Planner
 import homegap.model.PublicResource
@@ -96,6 +98,8 @@ Usage:
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
   homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
+  homegap machine list | add NAME [--role ROLE]... | remove NAME
+                                                       Manage the devices with no user (servers that need access)
   homegap sign-in [--config PATH] [--dir PATH] [--identity PATH] [--port N]
                                                        Run the public sign-in of the homelab
   homegap user list | add EMAIL [--name NAME] [--role ROLE]... | password EMAIL | block EMAIL | unblock EMAIL | remove EMAIL
@@ -136,6 +140,7 @@ fun main(args: Array<String>) {
             }
             "init" -> initStack(line)
             "sign-in" -> runSignIn(configPath, line)
+            "machine" -> MachineCommand(ConfigLoader.load(configPath), line.rest).run()
             "user" -> UserCommand(ConfigLoader.load(configPath), line.rest).run()
             "mesh" -> {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
@@ -334,7 +339,8 @@ private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = 
 
 /** The sign-in reads only the `sign_in` part of the config. With no config file, it accepts passwords only. */
 private fun runSignIn(configPath: String, line: CommandLine) = runBlocking {
-    val settings = if (Files.exists(configPath)) ConfigLoader.load(configPath).signIn else SignInConfig()
+    val config = if (Files.exists(configPath)) ConfigLoader.load(configPath) else null
+    val settings = config?.signIn ?: SignInConfig()
     val oidc = settings.oidc?.let { provider ->
         val secret = env(provider.clientSecretEnv)?.takeIf { it.isNotBlank() }
             ?: error("sign_in.oidc needs the variable ${provider.clientSecretEnv} in the sign-in container")
@@ -351,7 +357,7 @@ private fun runSignIn(configPath: String, line: CommandLine) = runBlocking {
     val identity = line.option("--identity") ?: SharedDirs.identity(DEFAULT_DATA_DIR)
     val port = line.option("--port")?.toIntOrNull() ?: DEFAULT_SIGN_IN_PORT
     val options = SignInPage.Options(settings.passwords, settings.oidc?.name)
-    SignInServer(dir, identity, options, oidc).run(host = "0.0.0.0", port = port)
+    SignInServer(dir, identity, options, oidc, config?.vpn ?: VpnConfig()).run(host = "0.0.0.0", port = port)
 }
 
 private fun runMesh(dir: String) = runBlocking {

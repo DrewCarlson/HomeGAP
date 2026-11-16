@@ -13,6 +13,8 @@ data class SessionClaims(
     val issuedAt: Long,
     val expiresAt: Long,
     val device: String = "",
+    /** What the token is for: [Sessions.SESSION] or [Sessions.TUNNEL]. A token for one use is not valid for the other. */
+    val use: String = Sessions.SESSION,
 )
 
 /**
@@ -20,6 +22,11 @@ data class SessionClaims(
  * signed [Directory] to check one, with no call to the homelab.
  */
 object Sessions {
+    /** [SessionClaims.use] of a session of a user. */
+    const val SESSION = "session"
+
+    /** [SessionClaims.use] of the token for the control connection of a device. [SessionClaims.device] is its id. */
+    const val TUNNEL = "tunnel"
     private const val PREFIX = "hg1"
     private const val PARTS = 3
 
@@ -30,9 +37,10 @@ object Sessions {
 
     /**
      * The claims of [token] if it gives access to the homelab at the time [now]: an issuer of
-     * [directory] signed it, it has not expired, and its user is there and not blocked.
+     * [directory] signed it for [use], it has not expired, and its user or machine is there and
+     * not blocked.
      */
-    fun read(token: String, directory: Directory, now: Long): SessionClaims? {
+    fun read(token: String, directory: Directory, now: Long, use: String = SESSION): SessionClaims? {
         val parts = token.split('.')
         if (parts.size != PARTS || parts[0] != PREFIX) return null
         val payload = Keys.decode(parts[1]) ?: return null
@@ -41,7 +49,11 @@ object Sessions {
             .getOrNull() ?: return null
         val key = directory.issuers[claims.issuer] ?: return null
         if (!Keys.verify(key, payload, signature)) return null
-        if (now >= claims.expiresAt) return null
-        return claims.takeIf { directory.user(it.userId)?.blocked == false }
+        if (now >= claims.expiresAt || claims.use != use) return null
+        val active = when {
+            claims.userId.isEmpty() -> directory.machine(claims.device)?.blocked == false
+            else -> directory.user(claims.userId)?.blocked == false
+        }
+        return claims.takeIf { active }
     }
 }

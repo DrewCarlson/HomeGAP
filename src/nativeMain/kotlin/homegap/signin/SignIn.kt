@@ -127,6 +127,29 @@ class SignIn(
         return users.user(claims.userId)
     }
 
+    /** The directory of the homelab as this server has it now. */
+    fun users(): Directory? = directory()
+
+    /** A token that lets [device] open its control connection. */
+    fun tunnelToken(device: Device): String {
+        val claims = SessionClaims(
+            sid = Crypto.token(SESSION_ID_LENGTH),
+            userId = device.userId,
+            issuer = ISSUER,
+            issuedAt = now(),
+            expiresAt = now() + TUNNEL_TOKEN_LIFETIME.inWholeMilliseconds,
+            device = device.id,
+            use = Sessions.TUNNEL,
+        )
+        return Sessions.issue(key, claims)
+    }
+
+    /** The claims of the tunnel token [token], or null if it gives no access now. */
+    fun tunnelClaims(token: String): SessionClaims? {
+        val users = directory() ?: return null
+        return Sessions.read(token, users, now(), Sessions.TUNNEL)
+    }
+
     /** Ends the session [token] (sign-out). */
     fun end(token: String) {
         val users = directory() ?: return
@@ -179,6 +202,7 @@ class SignIn(
         const val PUBLIC_KEY_FILE = "issuer.pub"
         val CODE_LIFETIME = 10.minutes
         val SESSION_LIFETIME = 30.days
+        val TUNNEL_TOKEN_LIFETIME = 7.days
         const val MAX_FAILURES = 5
         val FAILURE_WINDOW = 15.minutes
         private const val KEY_FILE = "issuer.key"

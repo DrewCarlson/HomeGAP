@@ -17,6 +17,20 @@ data class User(
 )
 
 /**
+ * A device with no user, for example a server that needs access. It signs in with its id and a
+ * secret. [secretHash] is [Keys.fingerprint] of the secret.
+ */
+@Serializable
+data class Machine(
+    val id: String,
+    val name: String,
+    val roles: List<String> = emptyList(),
+    val secretHash: String,
+    val blocked: Boolean = false,
+    val createdAt: Long = 0,
+)
+
+/**
  * What the homelab says about who can sign in. The homelab signs it ([Signed]), and each part
  * that checks a user or a session trusts only a directory with that signature.
  */
@@ -26,6 +40,7 @@ data class Directory(
     val version: Long = 0,
     val issuedAt: Long = 0,
     val users: List<User> = emptyList(),
+    val machines: List<Machine> = emptyList(),
     /**
      * The public keys that can sign a session with access to the homelab: name to key. Only the
      * sign-in server of the homelab is here. A node signs sessions that give its exit only.
@@ -33,6 +48,8 @@ data class Directory(
     val issuers: Map<String, String> = emptyMap(),
 ) {
     fun user(id: String): User? = users.firstOrNull { it.id == id }
+
+    fun machine(id: String): Machine? = machines.firstOrNull { it.id == id }
 
     fun userByEmail(email: String): User? = users.firstOrNull { it.email.equals(email.trim(), ignoreCase = true) }
 }

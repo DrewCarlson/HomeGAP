@@ -761,6 +761,23 @@ data class SetIdentityRolesRequest(val roles: List<String>)
 @Serializable
 data class IdentityPasswordResponse(val message: String, val user: IdentityUserDto, val password: String)
 
+/** A device with no user that signs in with an id and a secret. */
+@Serializable
+data class IdentityMachineDto(
+    val id: String,
+    val name: String,
+    val roles: List<String> = emptyList(),
+    val blocked: Boolean = false,
+    val createdAt: Long = 0,
+)
+
+@Serializable
+data class CreateIdentityMachineRequest(val name: String, val roles: List<String> = emptyList())
+
+/** The answer to a new machine. [secret] shows once: HomeGAP keeps only its hash. */
+@Serializable
+data class IdentityMachineSecretResponse(val message: String, val machine: IdentityMachineDto, val secret: String)
+
 /** A search result the server finds: config keys, secrets and older log entries. */
 @Serializable
 data class SearchHitDto(

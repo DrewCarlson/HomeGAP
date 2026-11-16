@@ -33,6 +33,8 @@ data class AppConfig(
     val mesh: MeshConfig = MeshConfig(),
     /** HomeGAP's own sign-in for the apps. */
     @SerialName("sign_in") val signIn: SignInConfig = SignInConfig(),
+    /** The addresses of the VPN that the apps connect to. */
+    val vpn: VpnConfig = VpnConfig(),
     /** The agent of HomeGAP that each node runs. */
     val agent: AgentConfig = AgentConfig(),
     /** One Pangolin cluster across the nodes. With null, each node has its own Pangolin. */
@@ -307,6 +309,14 @@ data class OidcConfig(
     /** The name on the button of the sign-in page. */
     val name: String = "single sign-on",
     val scopes: List<String> = listOf("openid", "email", "profile"),
+)
+
+@Serializable
+data class VpnConfig(
+    /** Each device gets an address of this subnet in the tunnel. The first address is the homelab. */
+    @SerialName("client_subnet") val clientSubnet: String = "100.90.0.0/16",
+    /** The apps use this subnet for their own DNS proxy and for the addresses of private names. */
+    @SerialName("utility_subnet") val utilitySubnet: String = "100.96.128.0/24",
 )
 
 @Serializable
