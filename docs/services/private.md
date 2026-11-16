@@ -1,63 +1,93 @@
 # Private services
 
-A private service is available only through the Pangolin client. This page tells you how HomeGAP publishes a private service in each mode.
+A private service is available only to the devices of the VPN. This page tells you how HomeGAP publishes a private service, and who can reach it.
 
 ## How a private service works
 
-With `homegap.access: private`, the service becomes a Pangolin private resource in host mode. HomeGAP sets the resource like this:
+With `homegap.access: private`, a service gets no public DNS record, no public port and no route on a node. HomeGAP gives the service a **private name**, which only VPN devices resolve and reach:
 
-- The alias is the value of `homegap.expose`.
-- The destination is the value of `homegap.host`. The default is the container name.
-- The ports are the container ports from `homegap.port`, by protocol, as `tcp-ports` and `udp-ports`. For a raw service with a port list, a `public:` part has no effect here.
+- The name is the value of `homegap.expose`.
+- The destination is the container, or the value of `homegap.host`.
+- The ports are the ports of the container. For an `http` or `https` service, this is `homegap.port` (default 80 or 443). For a raw service, these are the container ports of the port list, by protocol. A `public:` part has no effect here.
 
-A private service has no public DNS record and no public port.
+A device reaches a private service on this path:
 
-`homegap.roles` lists the Pangolin roles that can reach the service. The `Admin` role can always reach it.
+1. A user signs in with a Pangolin app, at the address of `sign_in.url`. See [Connect the Pangolin apps](../vpn/pangolin-apps.md).
+2. The app gets the private names that the roles of the user permit. Each name has an address in `vpn.utility_subnet` (default `100.96.128.0/24`).
+3. The app sends the packets for that address through the tunnel to a node. The node forwards them over the mesh to the homelab.
+4. The `homegap-mesh` container sends them to the container of the service, on the same port.
+
+HomeGAP ends no TLS for a private service. The device connects directly to the port of the container. The service sees the address of the `homegap-mesh` container as the source.
+
+Without `sign_in.url`, there is no sign-in and no VPN, and no device can reach a private service. See [Sign-in and VPN](../vpn/index.md).
 
 A private service is different from the private path of a public service. A private service has no public path. For the private path, see [Client addresses and private-only services](client-addresses.md).
 
-## Users and connections in each mode
+## Who can reach a private service
 
-=== "Standalone"
+The VPN refuses everything by default. A device reaches only the private names that its roles permit, and only on the ports of each service. The firewall of the `homegap-mesh` container refuses each other packet of a device, also to your home network.
 
-    Each node that serves the service has its own private resource, in its own Pangolin. The Pangolin app connects to the Pangolin of one node, at its management host `https://pangolin-<id>.<domain>`.
-
-    Users and roles are different on each node. You manage them in the Pangolin web UI of each node. To open that UI, use SSH port forwarding. See [Manage nodes](../operations/nodes.md).
-
-    The **Access** page on the dashboard is for cluster mode only.
-
-=== "Cluster"
-
-    One private resource lists the site of every node that serves the service. The Pangolin app connects to `pangolin.<domain>`, and DNS sends it to the nearest healthy node. The app then relays through that node to the homelab.
-
-    The app selects the node when it connects or when it changes network. You manage the users on the **Access** page. See [Users and devices](../cluster/access.md).
-
-## Publish the dashboard as a private service
-
-!!! danger "Warning"
-    If you publish the dashboard as a public service, everybody on the internet can reach the control of every node. Publish it only as a private resource.
-
-Put the labels on the `orchestrator` service. It is on the `traefik` network. For example:
+`homegap.roles` lists the roles that can reach the service, separated by commas:
 
 ```yaml
-orchestrator:
+notes:
   labels:
-    homegap.expose: "homegap.example.net"
+    homegap.expose: "notes.example.net"
     homegap.access: "private"
-    homegap.protocol: "http"
-    homegap.port: "8088"
-    homegap.host: "orchestrator"
+    homegap.port: "8080"
+    homegap.roles: "Member,family"
 ```
 
-The destination of the private resource is `orchestrator`, the name of the service on the `traefik` network. The port is 8088.
+These rules apply:
 
-The dashboard must listen on an address that the `tunnels` container can reach. The example config uses `dashboard.bind: 0.0.0.0:8088`. The default `127.0.0.1:8088` is not reachable from other containers.
+- The `Admin` role reaches each private service.
+- A service without `homegap.roles` is for the `Admin` role only.
+- A device has the roles of its user. A machine has its own roles.
+- A blocked user, a blocked machine and a blocked device reach nothing.
+- A named service takes `homegap.roles` and `homegap.access` from the top-level labels, unless it sets its own values.
 
-From a device with the Pangolin client, open `http://homegap.example.net:8088`.
+You manage the users, the machines and their roles on the **Access** page of the dashboard. See [Users, machines and devices](../vpn/access.md).
+
+## What the service needs at home
+
+The `homegap-mesh` container must share a Docker network with the container of the service. A container on the Traefik network needs no change. For a container on a different network, add that network to the `homegap-mesh` service in `compose.override.yml`. See [How HomeGAP finds the container](index.md#how-homegap-finds-the-container).
+
+If HomeGAP finds no address for the service, the log has this warning:
+
+```text
+no address for the private target <host>: the VPN does not serve it
+```
+
+## When the homelab is down
+
+A private service has no path while the homelab is unreachable. A node then signs devices in for the exits only. See [Exits and tunnel DNS](../vpn/exit-nodes.md).
+
+## The dashboard for VPN devices only
+
+!!! danger "Warning"
+    If you publish the dashboard to the public, everybody on the internet can reach the control of every node, with only the token as protection. Publish it only to VPN devices.
+
+Do not put `homegap.*` labels on the `orchestrator` service for this. Set `dashboard.hostname` in the config file:
+
+```yaml
+dashboard:
+  hostname: orc
+  access: private
+```
+
+The Traefik of the homelab then serves the dashboard at `orc.<domain>`. With `dashboard.access: private`, which is the default, the name is a private name of the front door. Thus the front door needs `homegap.private_network`. See [Private-only services](client-addresses.md#private-only-services). The roles come from `homegap.roles` on the front door.
+
+Without a private path on the front door, the dashboard has no route, and you get this error:
+
+```text
+dashboard.access is private, but the front door has no homegap.private_network: the dashboard has no route
+```
+
+For the other keys of `dashboard`, see the [Configuration reference](../configuration/reference.md).
 
 ## Reach the homelab host over SSH
 
-HomeGAP can publish the SSH server of the homelab host as a private service. Then the host accepts SSH from Pangolin clients, and the internet has no path to it. You set one key in the config file. The compose file needs no change.
+HomeGAP can publish the SSH server of the homelab host as a private service. Then the host accepts SSH from VPN devices, and the internet has no path to it. You set one key in the config file. The compose file needs no change.
 
 1. Add the key to the config file:
 
@@ -67,9 +97,9 @@ HomeGAP can publish the SSH server of the homelab host as a private service. The
         enabled: true
     ```
 
-2. Save the config file. HomeGAP reads it in the next pass. The activity log shows `ensured private resource` for `ssh.<domain>`.
+2. Save the config file. HomeGAP reads it in the next pass.
 3. On a device, connect the Pangolin app.
-4. Connect to the alias:
+4. Connect to the private name:
 
     ```bash
     ssh user@ssh.example.net
@@ -78,7 +108,7 @@ HomeGAP can publish the SSH server of the homelab host as a private service. The
 | Key | Default | What it does |
 | --- | --- | --- |
 | `homelab.ssh.enabled` | `false` | Publishes the SSH server of the host as a private service. |
-| `homelab.ssh.hostname` | `ssh` | The first label of the alias, `<hostname>.<domain>`. |
+| `homelab.ssh.hostname` | `ssh` | The first label of the private name, `<hostname>.<domain>`. |
 | `homelab.ssh.port` | `22` | The port of the SSH server of the host. |
 | `homelab.ssh.roles` | `[]` | The roles that can reach the host. The `Admin` role always can. |
 
@@ -93,36 +123,23 @@ homelab:
 
 ### How HomeGAP finds the host
 
-The `tunnels` container opens the connection to the SSH server. When it starts, it reads the gateway of its default route, which is the address of the Docker host. It writes that address to the file `host-gateway` in the tunnels directory. The orchestrator uses the address as the destination of the service.
+The mesh agent (`homegap-mesh-agent`) reads the gateway of the default route of its network namespace. This is the address of the Docker host. It writes that address to the file `host-gateway` in the `mesh` data folder. The orchestrator uses the address as the destination of the service.
 
-The **Services** page shows the service with the container name `homelab`. If the log shows "homelab.ssh waits for the address of the host from the tunnels container", start the `tunnels` container.
+The **Services** page shows the service with the container name `homelab`. If the log shows "homelab.ssh waits for the address of the host from the mesh agent", start the `homegap-mesh-agent` container.
 
 ### If the connection fails
 
-Check that the container can reach the SSH server of the host. The command prints `open`:
+Look at the host:
 
-```bash
-docker compose exec tunnels bash -c 'timeout 3 bash -c "</dev/tcp/$(cat /tunnels/host-gateway)/22" && echo open'
-```
-
-If the command does not print `open`, look at the host:
-
-- `sshd` must listen on an address that the container can reach. The default `ListenAddress` (all addresses) is correct.
-- The firewall of the host must accept port 22 from the Docker networks. With `ufw`, run `sudo ufw allow from 172.16.0.0/12 to any port 22 proto tcp`.
+- `sshd` must listen on an address that a container can reach. The default `ListenAddress` (all addresses) is correct.
+- The firewall of the host must accept the SSH port from the Docker networks.
 
 ### A different service on the host
 
-For a service of the host that is not SSH, use labels on a container, with the address of the host in `homegap.host`. The LAN address of the host works. The name `host.docker.internal` also works, if the `tunnels` service has this entry in `compose.override.yml`:
-
-```yaml
-services:
-  tunnels:
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-```
+For a service of the host that is not SSH, use labels on a container, with an IPv4 address of the host in `homegap.host`. The LAN address of the host works. A hostname does not work there, because HomeGAP resolves no name for a target.
 
 !!! danger "Warning"
-    If the front door has a wildcard (`homegap.wildcard`), public DNS also answers for the alias, with the addresses of the nodes. A device that does not resolve the alias through the Pangolin app connects to the SSH server of a node. That server then receives your user name and your password or key. Before you accept a host key, compare its fingerprint with the key of the homelab host.
+    If the front door has a wildcard (`homegap.wildcard`), public DNS also answers for the private name, with the addresses of the nodes. A device that does not resolve the name through the Pangolin app connects to the SSH server of a node. That server then receives your user name and your password or key. Before you accept a host key, compare its fingerprint with the key of the homelab host.
 
 To read the fingerprint of the host key, run this command on the homelab host:
 

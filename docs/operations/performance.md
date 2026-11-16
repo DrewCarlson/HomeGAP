@@ -1,73 +1,55 @@
 # Performance
 
-Each request crosses two TCP legs (viewer to node, and node to homelab) and one WireGuard tunnel. This page tells you which settings have the largest effect on throughput.
+This page tells you which parts of the traffic path set the throughput, and what HomeGAP does to keep it high.
 
-## The three main settings
+## The path of a request
 
-| Setting | Effect |
+A web request crosses two TCP connections. The first one is from the viewer to the Traefik of the node. The second one is from that Traefik to the container on the homelab, over the WireGuard mesh. The mesh namespace of the homelab forwards the packets of the second connection. It does not end the connection.
+
+A raw TCP or UDP port has no second connection. The kernel of the node forwards its packets over the mesh. A port with the PROXY protocol goes through the agent of the node.
+
+## TCP tuning on the nodes
+
+With `node_stack.tcp_tuning: true` (the default), HomeGAP writes `/etc/sysctl.d/99-homegap.conf` on each node and applies it. The file has these settings:
+
+| Setting | Value | Effect |
+| --- | --- | --- |
+| `net.ipv4.tcp_congestion_control` | `bbr` | BBR keeps the throughput high on a long path with packet loss. |
+| `net.core.default_qdisc` | `fq` | BBR uses `fq` to pace the packets. |
+| `net.core.rmem_max`, `net.core.wmem_max` | 64 MiB | The largest socket buffers. |
+| `net.ipv4.tcp_rmem`, `net.ipv4.tcp_wmem` | Up to 64 MiB | The TCP windows can grow to the size that a fast, long path needs. |
+| `net.ipv4.tcp_mtu_probing` | `1` | TCP finds a packet size that works when path MTU discovery fails across the mesh. |
+| `net.ipv4.tcp_slow_start_after_idle` | `0` | A connection keeps its window after an idle time. |
+| `net.ipv4.tcp_reordering`, `net.ipv4.tcp_max_reordering` | `10`, `1000` | Long routes often reorder packets. TCP then does not read that as loss. |
+
+A container does not get the TCP settings of the host. Thus HomeGAP also sets the buffers, the MTU probing, the slow start and the reordering values on the Traefik container of the node. Each connection from a node to a viewer and to the homelab starts in that container.
+
+HomeGAP does not change the TCP settings of the containers on the homelab.
+
+### Check the result
+
+Some VPS kernels refuse BBR or other settings. HomeGAP then writes the warning "some TCP tuning sysctls could not be applied" to the activity log.
+
+The node keeps three facts, which `GET /api/status` shows:
+
+| Fact | What it shows |
 | --- | --- |
-| `pangolin.tcp_tuning: true` (default) | Writes `/etc/sysctl.d/99-homegap.conf` on each node. See [TCP tuning on the nodes](#tcp-tuning-on-the-nodes). |
-| `tunnels.mtu: 1420` | Sets the WireGuard MTU on both ends: Newt `--mtu` and Gerbil `--mtu`. The upstream default of 1280 decreases throughput. |
-| `tunnels.native: true` | Runs each main tunnel of Newt on a kernel WireGuard interface, instead of the userspace network stack of Newt. This gives the largest gain in most setups. |
+| `tcp_cc` | The congestion control that the kernel of the node uses. |
+| `qdisc` | The default qdisc of the node. |
+| `edge_tcp` | The congestion control and the largest send buffer in the Traefik container, for example `bbr 64MiB`. |
 
-### TCP tuning on the nodes
+The Inspector of a node shows `tcp_cc` and `qdisc` in the **TCP** row.
 
-The file sets BBR congestion control, the `fq` qdisc, socket buffers up to 64 MiB, MTU probing and a higher tolerance for reordering. BBR keeps long paths with packet loss fast.
+### Disable the tuning
 
-Docker containers do not inherit the TCP settings of the host. Thus HomeGAP also applies the same settings in the network namespace of Gerbil and Traefik on the node. The fact `edge_tcp` of the node in `GET /api/status` shows them. The Inspector of a node shows the settings of the host in the **TCP** row.
+Set `node_stack.tcp_tuning: false`. HomeGAP then removes the file from the node and the settings from the Traefik container. The values of the host stay until the next restart of the node. The change is a stack update, so it goes to one node at a time.
 
-The node fact `tcp_cc` shows the congestion control that the kernel really uses. Some VPS kernels refuse BBR.
+## VPN traffic
 
-### The MTU
+The traffic of a VPN device always goes through a node. The device sends its WireGuard packets to a node on `vpn.port`, and the node forwards them to the homelab over the mesh. There is no direct path from a device to the homelab. Thus the rate of a device has two limits: the path from the device to the node, and the path from the node to the homelab.
 
-If the path has PPPoE or another tunnel, use a lower MTU. To check a value, run this command from the homelab. Replace `<mtu - 28>` with the MTU minus 28:
-
-```bash
-ping -M do -s <mtu - 28> 203.0.113.10
-```
-
-### Native mode
-
-With `tunnels.native: true`, the `tunnels` container needs:
-
-- `cap_add: [NET_ADMIN]`. The shipped compose file has it.
-- `devices: ["/dev/net/tun:/dev/net/tun"]`. The shipped compose file has it.
-- WireGuard in the kernel of the host.
-
-## The homelab side in native mode
-
-In native mode, tune the `tunnels` container itself. TCP settings apply to each network namespace, so the `/etc/sysctl.d` of the host does not reach containers. The defaults (cubic and a 4 MiB send buffer) limit every download from the homelab to a distant node.
-
-Set the sysctls on the `tunnels` service:
-
-```yaml
-sysctls:
-  net.ipv4.tcp_congestion_control: bbr   # needs `modprobe tcp_bbr` on the host
-  net.ipv4.tcp_rmem: "4096 131072 67108864"
-  net.ipv4.tcp_wmem: "4096 65536 67108864"
-  net.ipv4.tcp_slow_start_after_idle: "0"
-  net.ipv4.tcp_mtu_probing: "1"
-  net.ipv4.tcp_reordering: "10"          # tolerate reordering on long routes
-  net.ipv4.tcp_max_reordering: "1000"
-```
-
-!!! warning "Caution"
-    For `bbr`, the host must load the `tcp_bbr` module (`modprobe tcp_bbr`). Without it, the container does not start.
-
-To check the settings, run this command:
-
-```bash
-docker compose exec tunnels sysctl net.ipv4.tcp_congestion_control net.ipv4.tcp_wmem
-```
-
-On a path with a round trip of approximately 170 ms, these settings took one setup from approximately 115 Mbps to approximately 250 Mbps.
-
-Also enable `fq` on the host (`net.core.default_qdisc = fq`). BBR uses it for pacing.
-
-## Userspace mode
-
-In userspace mode, Newt uses its own TCP stack, so these settings do not apply. A higher `net.core.rmem_max` and `net.core.wmem_max` on the host (for example `7500000`) still helps its UDP socket.
+With "Exit via `<node>`", the traffic leaves for the internet from that node and does not go to the homelab. See [Exits and tunnel DNS](../vpn/exit-nodes.md).
 
 ## Measure the result
 
-To measure the throughput through the real path, use the speed tests. See [Speed tests](speed-tests.md).
+To measure the throughput through the real path, use the speed tests. The test between the homelab and a node also shows the CPU load of the two machines. Thus you can see if a CPU or the network is the limit. See [Speed tests](speed-tests.md).

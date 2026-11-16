@@ -21,16 +21,20 @@ For the format of the port list and its rules, see [Port lists](labels.md#port-l
 
 `homegap.wildcard` is an error on a raw service. `homegap.tls` has no effect. To limit the nodes that serve the service, use `homegap.regions`.
 
-## What HomeGAP creates
+## How a raw port works
 
-For each port and protocol of a public raw service, HomeGAP creates these items on each node of the service:
+The kernel of the node forwards a raw port. The Traefik of the node has no part in it.
 
-- A Pangolin resource.
-- A Traefik entrypoint.
-- A published Gerbil port.
-- A `ufw` rule.
+1. A packet arrives at the public port of the node.
+2. A rule in the chain `HG-RAW` of the node changes its destination to the same port on the mesh address of the homelab.
+3. The packet goes over the mesh to the homelab.
+4. The `homegap-mesh` container forwards it to the port of the container of the service.
+
+HomeGAP writes the full set of rules of a node in one step, and the node applies the rules again at boot. The chain `HG-RAW-FWD` accepts the forwarded connections before the rules of `ufw`. Thus a new port needs no `ufw` rule and no restart of a container.
 
 The hostname also gets a geo DNS record set. Raw services that share a hostname share one record set. See [Shared hostnames and ports](labels.md#shared-hostnames-and-ports).
+
+The container must have an address that the `homegap-mesh` container can reach. See [How HomeGAP finds the container](index.md#how-homegap-finds-the-container).
 
 ### Public ports
 
@@ -42,7 +46,7 @@ HomeGAP refuses public ports that the node uses itself. For the list, see the [L
 
 A node uses its SSH port itself, so a service cannot have it as a public TCP port. The default SSH port is 22. To give port 22 to a service, for example the SSH of a git server, first move the SSH server of each node that serves the service.
 
-1. Set `ssh_port` of each node to a different port, for example `2222`. See [Move the SSH port of a node](../operations/node-updates.md#move-the-ssh-port-of-a-node).
+1. Set `ssh_port` of each node to a different port, for example `2222`. See [Node updates and rollback](../operations/node-updates.md).
 2. Wait until the activity log has the line "moved the SSH server from port 22 to port 2222" for each node.
 3. Add the labels to the service:
     ```yaml
@@ -56,30 +60,31 @@ If a node still has port 22 as its SSH port, HomeGAP refuses the service with th
 
 Port 22 on the nodes then goes to this service for each hostname, because TCP carries no hostname.
 
-### Resource ids
+### Ids in the plan
 
-| Service | niceId |
+The output of `homegap plan` shows one item for each port and protocol:
+
+| Service | Id |
 | --- | --- |
 | A top-level service with one port and one protocol | `hg-<host>-<proto>`, for example `hg-game-example-net-udp`. |
 | Any other top-level service | `hg-<host>-<public port>-<proto>`, for example `hg-voice-example-net-7882-udp`. |
 | A named service | `hg-<host>--<name>-<public port>-<proto>`, for example `hg-rtc-example-net--alt-17000-udp`. |
 
-The first form is the id from before port lists. Thus an upgrade does not recreate the resources of existing services.
+## Client addresses
 
-## Health checks and client addresses
+A raw service sees the address of the `homegap-mesh` container as the source of each connection, on TCP and on UDP.
 
-`homegap.healthcheck: tcp` applies only to the TCP ports. UDP ports have no health check of their target.
+`homegap.proxy_protocol: "true"` sends the address of each viewer to the service, on the TCP ports only. The service must accept PROXY protocol v2. The kernel cannot add this header, so the agent of the node (`homegap-agent`) serves these ports:
 
-`homegap.proxy_protocol: "true"` applies only to the TCP ports. The service must accept PROXY protocol v2. See [Client addresses and private-only services](client-addresses.md).
+1. The agent accepts each connection on the public port.
+2. It opens a connection to the same port on the mesh address of the homelab.
+3. It sends the PROXY protocol header, and then it passes the bytes in both directions.
 
-A UDP service sees the address of the `tunnels` container, because there is no PROXY protocol for UDP. Each caller keeps its own path through the tunnel. In the end-to-end tests, two UDP callers at the same time each get their own reply, from different source ports. UDP payloads up to 1400 bytes pass in both directions, with `tunnels.mtu: 1420`.
-
-!!! warning "Caution"
-    A new raw port changes the stack of the node: a new entrypoint and a new Gerbil port. Thus HomeGAP updates the nodes one at a time. See [Node updates and rollback](../operations/node-updates.md).
+The agent opens a new port and closes a removed port without a restart. Open connections continue. There is no PROXY protocol for UDP. See [Client addresses and private-only services](client-addresses.md).
 
 ## Private raw services
 
-With `homegap.access: private`, a raw service gets no public port and no DNS record. Only Pangolin clients can reach it. The private resource lists the container ports by protocol, as `tcp-ports` and `udp-ports`. A `public:` part has no effect there. See [Private services](private.md).
+With `homegap.access: private`, a raw service gets no public port and no DNS record. Only the devices of the VPN can reach it, on the ports of the container. A `public:` part has no effect there. See [Private services](private.md).
 
 ## Examples
 
@@ -103,7 +108,7 @@ ssh-jump:
     homegap.port: "22"
     homegap.protocol: "tcp"
     homegap.access: "private"
-    homegap.regions: "na1,as1"
+    homegap.roles: "Member"
 ```
 
 A public SSH server on public port 2222, to port 22 of the container:

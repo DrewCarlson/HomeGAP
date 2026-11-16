@@ -14,7 +14,7 @@ HomeGAP sends the key in the `AccessKey` header to `https://api.bunny.net`. It f
 ## Prepare the zone and the key
 
 1. Choose a test domain. Use a spare domain, or a subdomain of your real domain, for example `gap.example.net`.
-2. Sign in to Bunny (bunny.net). Open the DNS section https://dash.bunny.net/dns/zones
+2. Sign in to Bunny (bunny.net). Open the DNS section at `https://dash.bunny.net/dns/zones`.
 3. Add a DNS zone for the domain or the subdomain.
 4. Point the domain at the nameservers of Bunny. Do the step that matches your domain:
     - For a whole domain, go to your registrar. Replace the nameservers with the nameservers that Bunny shows for the zone.
@@ -24,13 +24,13 @@ HomeGAP sends the key in the `AccessKey` header to `https://api.bunny.net`. It f
     dig NS gap.example.net +short
     ```
     The command shows the nameservers of Bunny.
-6. Copy the API key of your account from the Bunny account settings: https://dash.bunny.net/account/api-key
+6. Copy the API key of your account from the Bunny account settings at `https://dash.bunny.net/account/api-key`.
 7. Keep the key for the install. You put it in `.env` as `BUNNY_API_KEY`. See [Install on the homelab](install.md).
 
 ## Records at the names that HomeGAP manages
 
 !!! danger "Warning"
-    On each DNS sync that is not a dry run and not paused, HomeGAP deletes records that collide with its managed record sets. This occurs at each name that HomeGAP manages: the root, `*.<domain>`, the dedicated hostnames, the node management hosts and the other managed names.
+    On each DNS sync that is not a dry run and not paused, HomeGAP deletes records that collide with its managed record sets. This occurs at each name that HomeGAP manages: the root, `*.<domain>`, the dedicated hostnames, the management names of the nodes and the other managed names.
 
     - HomeGAP deletes an A or AAAA record that it did not create, if it has the same name and type as a managed record.
     - With `acme.caa: true` (the default), HomeGAP deletes a CAA record at `<domain>` that it did not create.
@@ -48,8 +48,8 @@ HomeGAP never touches records at other names. It marks its own records with the 
 | `<domain>` | A geo record set (the front door). | When a front door exists. |
 | `*.<domain>` | A geo record set (the front door). | When the front door has `homegap.wildcard: "true"`. |
 | A public dedicated hostname | A geo record set. | For each public service with its own hostname. |
-| `pangolin-<node>.<domain>` | A plain record (the management host of the node). | For each node. |
-| `pangolin.<domain>` | A geo record set. | In cluster mode. |
+| `node-<id>.<domain>` | A plain record (the management name of the node). | For each node. |
+| The name of `sign_in.url` | A geo record set (the sign-in). | With `sign_in.url`. |
 | `speedtest.<domain>` | A geo record set for the speed test. | With the speed test, and only if there is no wildcard. |
 | `speedtest-<node>.<domain>` | A record for each node. | With the speed test. |
 | `status.<domain>` | A geo record set. | With the status page. |

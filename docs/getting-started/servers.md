@@ -14,15 +14,19 @@ Write down the public IP address, the SSH port and the initial login that the pr
 
 ## The firewall on the node
 
-By default, HomeGAP manages `ufw` on each node (`nodes[].firewall`, default `true`). The firewall opens only these ports:
+By default, HomeGAP manages `ufw` on each node (`nodes[].firewall`, default `true`). The firewall denies incoming connections and opens only these ports:
 
 - SSH, from anywhere or only from the sources in `ssh_allow_from`.
-- 80/tcp, 443/tcp and 443/udp.
-- 51820/udp and 21820/udp, for WireGuard and Gerbil.
-- In cluster mode, `cluster.mesh.port`/udp (default 51821).
-- The public ports of raw TCP and UDP services, as their labels set them.
+- 80/tcp, 443/tcp and 443/udp, for Traefik.
+- `mesh.port`/udp (default 51821), for the mesh.
 
-A firewall at the provider level (for example a security group) is outside the control of HomeGAP. It must also open the same ports.
+HomeGAP opens three more groups of ports with its own rules, which come before the rules of `ufw`:
+
+- The public ports of raw TCP and UDP services, as their labels set them.
+- `vpn.port`/udp (default 51830), for the devices of the VPN.
+- `vpn.exit_port`/udp (default 51840), on a node that is an exit.
+
+A firewall at the provider level (for example a security group) is outside the control of HomeGAP. It must also open the same ports. For the full list, see [Ports](../reference/ports.md).
 
 HomeGAP installs Docker on the node if Docker is not there (`install_docker`, default `true`).
 
@@ -38,7 +42,7 @@ HomeGAP installs Docker on the node if Docker is not there (`install_docker`, de
 
     Create a user with passwordless sudo and a dedicated SSH key for each node. Then add the node to `nodes[]` in the config.
 
-    Run these commands on the homelab, in the HomeGAP folder. Replace the user, the address and the node id with your values.
+    First get the files of the stack. See [Install on the homelab](install.md#get-the-files). Then run these commands on the homelab, in the folder of the stack. Replace the user, the address and the node id with your values.
 
     1. Create the folder for the keys:
         ```bash
@@ -76,9 +80,9 @@ HomeGAP installs Docker on the node if Docker is not there (`install_docker`, de
             location: { latitude: 40.71, longitude: -74.01, name: "New York" }
         ```
 
-    The `ssh_key_file` path is the path inside the orchestrator container. The compose file mounts `data/orchestrator` at `/data`. This is the same folder where the add-node wizard keeps the keys that it makes.
+    The `ssh_key_file` path is the path inside the orchestrator container. The compose file mounts `data/orchestrator` at `/data`. The add-node wizard keeps the keys that it makes in the same folder.
 
-    After the first start of the stack, the folder `data/orchestrator` belongs to root. Then run the commands above with `sudo`.
+    The command `homegap init` makes the folder `data/orchestrator` with you as its owner. The orchestrator runs as the same user, so it can read the keys.
 
     These rules apply to the entry:
 

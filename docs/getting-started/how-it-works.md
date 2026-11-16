@@ -1,16 +1,26 @@
 # How HomeGAP works
 
-This page gives the model of the system: the parts, the path of a request, the reconcile loop and failover. Later pages give the details.
+This page gives the model of the system: the parts, the path of a request, the VPN, the reconcile loop and failover. Later pages give the details.
 
 ## The parts
 
 | Part | What runs there |
 | --- | --- |
-| Homelab | Docker, the homelab Traefik (the **front door**), your services, the orchestrator (`homegap run`) and the tunnel supervisor (`homegap tunnels`, the `tunnels` container). In cluster mode, also a cluster member with PostgreSQL, Valkey and etcd. |
-| Nodes | Pangolin, Gerbil (WireGuard) and Traefik. In cluster mode, also a cluster member. |
+| Homelab | Docker, the homelab Traefik (the **front door**), your services and the HomeGAP stack. |
+| Nodes | Traefik (ports 80 and 443), the maintenance page (`homegap-maintenance`) and the agent of HomeGAP (`homegap-agent`). With `node_stack.crowdsec`, also CrowdSec. |
 | Bunny DNS | The DNS zone for your domain, with geo routing and health monitors. |
 
-The homelab has no inbound ports. All connections between the homelab and the nodes start at the homelab.
+The HomeGAP stack on the homelab has these containers:
+
+| Container | Job |
+| --- | --- |
+| `orchestrator` | The control plane (`homegap run`). It reads the labels and the config, and it writes the nodes, the mesh and the DNS records. |
+| `homegap-mesh` | A small container that holds the network namespace of the mesh. |
+| `homegap-mesh-agent` | Keeps the WireGuard interface, the forwards to your containers and the home end of the VPN in that namespace. |
+| `homegap-sign-in` | The public sign-in for the apps of the VPN. |
+| `docker-proxy` | A read-only filter on the Docker socket. The orchestrator reads containers and events through it. |
+
+The **mesh** is a private WireGuard network (`hg-mesh`) between the homelab and each node. It is always on. Every route from a node to the homelab goes over it. The homelab has no inbound ports: it dials out to each node, so it works behind NAT. For the addresses and the keys, see [The mesh](../reference/mesh.md).
 
 ## The path of a request
 
@@ -18,33 +28,38 @@ This is the default path: the front door in `passthrough` mode.
 
 1. A viewer resolves a name. Bunny DNS answers with the nearest healthy node.
 2. The viewer connects to that node on port 443.
-3. A Traefik TCP router on the node reads the TLS SNI. It matches the root domain or any single label under the domain.
-4. The router forwards the stream, still encrypted, into a Pangolin TCP resource.
-5. The stream goes through the WireGuard tunnel to the homelab Traefik. The Newt connector for that node opens this tunnel outbound from home.
+3. The Traefik of the node reads the TLS server name. It matches the root domain or any single label under the domain.
+4. Traefik sends the stream, still encrypted, to the mesh address of the homelab.
+5. The mesh namespace of the homelab forwards the stream to the homelab Traefik.
 6. The homelab Traefik ends TLS and routes the request to the service.
 
-The node never sees plaintext. Authelia and the other parts of your homelab continue to work without changes. For the other paths, see [Traffic paths](../services/traffic-paths.md).
+The node never sees plaintext. Authelia and the other parts of your homelab continue to work without changes.
 
-The orchestrator is the control plane. It reads the Docker labels and writes the connector specs for the tunnel supervisor. It talks to the nodes over SSH and through the Pangolin API, and to Bunny through the Bunny API. It never carries traffic.
+There are two other paths. With `homegap.tls: terminate`, the node ends TLS for the name. HomeGAP orders the certificate of the node from Let's Encrypt with the DNS challenge, only for the names that a node terminates. For a raw TCP or UDP port, the kernel of the node forwards the packets over the mesh. See [Traffic paths](../services/traffic-paths.md) and [Raw ports](../services/raw-ports.md).
+
+The orchestrator never carries traffic. It talks to the nodes over SSH, to the mesh agent through a shared folder, and to Bunny through the Bunny API.
+
+## Sign-in and VPN
+
+HomeGAP has its own sign-in for the Pangolin apps and the `olm` client. The address of the sign-in is `sign_in.url`, and each node serves it. A user signs in with a HomeGAP password or through an OpenID Connect provider.
+
+A device of the VPN connects to a node, and the node forwards it to the homelab. Private services get names that only the devices of the VPN resolve and reach. The roles of the user decide which private services a device can reach. HomeGAP denies everything else.
+
+A device can also select an exit. Then all its traffic leaves for the internet from a node or from the homelab. See [Sign-in and VPN](../vpn/index.md).
 
 ## Reconciliation
 
 The orchestrator is a reconciler. It moves the actual state toward the **desired state**. The desired state is the Docker labels and the config file, and nothing else.
 
-The work has six independent domains. A failure in one domain never stops the others.
+The work has independent domains. A failure in one domain does not stop the others.
 
 | Domain | What it does |
 | --- | --- |
-| Discovery | Reads the `homegap.*` labels from Docker, through a proxy that accepts only read requests. If discovery fails, the orchestrator skips the Resources and DNS domains for that pass. An empty view can never delete anything. |
-| Nodes | Uses SSH to change a bare Ubuntu VPS into a Pangolin node. The steps are preflight, Docker, `ufw`, the compose stack, the secrets, a health wait, the bootstrap and a final check. |
-| Tunnels | Keeps a Pangolin site for the homelab on each node. Writes one Newt connector spec for each node, for the tunnel supervisor. The spec has the addresses of the node's management host, the same values as its DNS records. The supervisor pins them in the hosts file of the `tunnels` container, so a connector does not depend on public DNS. |
-| Resources | Creates the Pangolin resources through blueprints, one for each resource, with fixed `hg-*` niceIds. Writes the Traefik routes of each node: SNI passthrough, health and the management API. |
-| DNS | Keeps the Bunny geo record sets for the root, the wildcard and each dedicated hostname. Also keeps a plain record for the management host of each node. Asks the nameservers of the zone directly if they serve each plain record. |
-| Observability | Collects the health of nodes, tunnels, resources and DNS for the dashboard. |
-
-In the Nodes domain, the bootstrap is headless. It creates the admin, the org, an API key with the least privilege and the license. Each step is idempotent. A drift check at an interval repairs changes from outside HomeGAP.
-
-In the Resources domain, the orchestrator deletes only stale `hg-*` resources. It never touches a resource that it does not manage. Traefik on the node reloads the routes without a restart.
+| Discovery | Reads the `homegap.*` labels from Docker, through the `docker-proxy` container. |
+| Nodes | Uses SSH to change a bare Ubuntu VPS into a node: Docker, `ufw`, the stack and a final check. A drift check at an interval (default `5m`) finds changes from outside HomeGAP. |
+| Mesh | Gives each node a permanent slot and a mesh address. Keeps the WireGuard peers of the homelab and of each node. |
+| Routes | Writes the routes of the Traefik of each node, and the forwards of raw ports. Traefik loads the routes without a restart. |
+| DNS | Keeps the Bunny geo record sets for the root, the wildcard and each dedicated hostname. Also keeps a plain record for the management name of each node, `node-<id>.<domain>`. |
 
 A **pass** is one run of the reconcile loop. Passes start in three ways:
 
@@ -52,25 +67,14 @@ A **pass** is one run of the reconcile loop. Passes start in three ways:
 - At an interval, as a full resync (default every `60s`).
 - On demand, with **Resync** on the dashboard.
 
-Each pass applies only the minimum difference.
-
 ## Health and failover
 
-Each geo record has a Bunny HTTP monitor. Bunny sends a request to `http://<node-ip>/` every 30 seconds from three regions. On the node, this request goes through the tunnel to the health check path of the front door (`homegap.healthcheck`). Thus a node is healthy only when the node is up, its tunnel is up and the origin answers.
+Each geo record has a Bunny monitor (`bunny.monitor`, default `http`). Bunny sends a request to `http://<node-ip>/`. The node sends this request over the mesh to the health check path of the front door (`homegap.healthcheck`). Thus a node is healthy only when the node is up, its mesh link is up and the origin answers.
 
-- If the origin is down, the probe gets a 502.
-- If the tunnel is down, the probe fails within 5 seconds.
+Bunny removes the offline members from a record set. Viewers then resolve to the next-nearest node. The records have a TTL of 60 seconds (`bunny.ttl`), so a failover also waits for the caches of the resolvers.
 
-Bunny removes the offline members from a record set. Viewers then resolve to the next-nearest node. When all members are offline, Bunny returns all of them (fail-open).
+When the homelab is down, a node serves the maintenance page for the names for which the node ends TLS. The node checks the homelab every 2 seconds. After three failed checks in a row, it answers with the page and HTTP status 503. For a passthrough name, the node closes the connection at once, because it holds no certificate for the name.
 
-A real failover takes the health interval, plus the 60-second TTL, plus the time that resolvers cache the answer. This is approximately 1 to 5 minutes.
+When the homelab is down, a node also signs devices in for the exits only. The exits through a node continue to work. The private services of the homelab do not.
 
-When the homelab is down, the nodes show a "back shortly" page for the names for which the node ends TLS. These are the `terminate` services and the shared names of the status page and the speed test. The page has HTTP status 503 and starts approximately 15 seconds after the nodes lose the homelab. For a passthrough name, the node closes the connection at once, because it holds no certificate for the name. Raw ports fail.
-
-For the monitors and the routing options, see [DNS routing and health checks](../configuration/dns.md).
-
-## Standalone and cluster
-
-Without the `cluster:` key, each node runs an independent Pangolin. With `cluster:`, the Pangolin of each node is one instance of a single Pangolin EE cluster. The cluster has a shared database with a member on the homelab and on every node.
-
-The members connect over a private WireGuard mesh. The homelab holds the database primary while it is up. While it is down, the nodes elect one of themselves. To compare the two modes, see [Standalone or cluster](choose-a-mode.md).
+For the monitors and the routing options, see [DNS routing and health checks](../configuration/dns.md). For each failure and its effect, see [Failure modes](../operations/failure-modes.md).

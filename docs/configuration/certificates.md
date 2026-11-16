@@ -6,19 +6,21 @@ A node holds a certificate only for a name that it terminates. This page tells y
 
 A browser accepts each valid certificate for a name. All traffic to your domain goes through a node. Thus a person with root on a node can read the traffic of each name on the certificate of that node. That person ends TLS on the node, reads or changes the request, and sends the request to the homelab. The browser and the homelab see no difference.
 
-For this reason, HomeGAP gives a node no certificate for a passthrough name.
+For this reason, HomeGAP gives a node no certificate for a passthrough name. The Traefik of your homelab holds the certificate of a passthrough name, and HomeGAP does not order or renew it.
 
 ## Which names are on the certificate
 
 | Name | On the certificate of the nodes |
 | --- | --- |
-| The management host of each node, `pangolin-<id>.<domain>`. | Yes. |
-| In cluster mode, the client address `pangolin.<domain>`. | Yes. |
+| The management name of each node, `node-<id>.<domain>`. | Yes. |
+| The name of the sign-in, from `sign_in.url`. | Yes. |
 | The shared names of the status page and the speed test. | Yes. |
 | A service with `homegap.tls: terminate`. | Yes. |
 | A service with `homegap.tls: passthrough`. | No. |
 | The front door with `passthrough`, with or without `homegap.wildcard`. | No. |
 | The front door with `terminate`. | Yes: the root name, and the names of the status page and the speed test for each node. With `homegap.wildcard`, `*.<domain>` is on the certificate, and it replaces each name one label under the domain. |
+
+A service that speaks plain HTTP is always in `terminate` mode. See [Traffic paths](../services/traffic-paths.md).
 
 The activity log shows each order, with the number of names. An order can take some minutes, because it waits for DNS. The reconcile pass does not wait for the order. When the order is complete, the next pass gives the new certificate to the nodes.
 
@@ -45,7 +47,7 @@ HomeGAP uses the DNS challenge:
 4. Let's Encrypt reads the records and issues the certificate.
 5. The orchestrator removes the records and sends the certificate to each node.
 
-A node orders no certificate. The Traefik on a node has no certificate resolver.
+A node orders no certificate. The Traefik on a node has no certificate resolver, and a node has no DNS key.
 
 HomeGAP orders a new certificate, with a new key, in these cases:
 
@@ -53,14 +55,13 @@ HomeGAP orders a new certificate, with a new key, in these cases:
 - One third of the lifetime of the certificate remains.
 - The ACME directory in the config changes.
 
-If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes have its key. This occurs when you remove a node, or when you change a service from `terminate` to `passthrough`. HomeGAP revokes the old certificate only after the new order succeeds. It does not revoke the old certificate if `acme.directory` changed in the same order.
+If a name leaves the list, HomeGAP also revokes the old certificate, because the nodes have its key. This occurs when you remove a node, or when you change a service from `terminate` to `passthrough`. HomeGAP revokes the old certificate only after the new order succeeds. It does not revoke the old certificate if the ACME directory changed in the same order.
 
-A new certificate does not restart the stack of a node. Traefik loads it in a few seconds.
+A new certificate does not restart the stack of a node. HomeGAP writes the new files, and Traefik loads them.
 
-### Limits
+One certificate has at most 100 names. With more names, the order fails, and the activity log shows the error.
 
-- One certificate has at most 100 names. With more names, the order fails, and the activity log shows the error.
-- Let's Encrypt has a limit of approximately 50 new certificates for a domain in a week. HomeGAP uses one for each change of the list of names.
+In dry run, or while changes are paused, HomeGAP orders no certificate. The **Config** page shows the order as a pending change.
 
 ## The CAA records
 
@@ -72,10 +73,12 @@ letsencrypt.org; validationmethods=dns-01
 
 With these records, only Let's Encrypt can issue a certificate for the domain, and only with the DNS challenge. A node has no DNS key. Thus a compromised node cannot order a certificate for one of your names, although the traffic for that name goes through it.
 
-HomeGAP removes other CAA records for `domain`, because they can give more permissions.
+HomeGAP removes each other CAA record at `domain`, because it can give more permissions.
 
 !!! warning "Caution"
     The CAA records also apply to the Traefik of your homelab. It must order its certificates from Let's Encrypt with the DNS challenge. If it uses a different certificate authority or a different challenge, its renewals fail. In that case, set `acme.caa: false`, or set `acme.caa_issuer` to the CAA name of your certificate authority.
+
+To publish no CAA records for one extra domain, set `caa: false` on that domain.
 
 ## Config
 
@@ -86,30 +89,30 @@ acme:
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `email` | `pangolin.acme_email`, then the admin email. | The contact address of the ACME account. |
+| `email` | `admin@<domain>` | The contact address of the ACME account. |
 | `staging` | `false` | Uses the staging directory of Let's Encrypt. Browsers do not trust its certificates. Use it for tests. |
-| `directory` | The directory of Let's Encrypt. | The address of a different ACME directory. |
+| `directory` | The directory of Let's Encrypt. | The address of a different ACME directory. It must start with `https://`. |
 | `caa` | `true` | Publishes the CAA records. |
 | `caa_issuer` | `letsencrypt.org` | The certificate authority in the CAA records. |
 
 ## Where HomeGAP keeps the certificate
 
-The ACME account key, the certificate and its key are in `acme/` in the data directory of the orchestrator. Include this folder in your backup of the data directory. If you lose it, HomeGAP makes a new account and orders a new certificate.
+The ACME account key, the certificate and its key are in `acme/` in the data directory of the orchestrator. Each file has mode 0600. Include this folder in your backup of the data directory. If you lose it, HomeGAP makes a new account and orders a new certificate.
 
-On a node, the certificate is `config/traefik/certs/homegap.crt` and the key is `homegap.key`, with mode 0600.
+On a node, the certificate is `config/traefik/certs/homegap.crt` and the key is `homegap.key`, with mode 0600. The file `config/traefik/dynamic/homegap-tls.yml` tells Traefik where they are.
 
 ## The Certificates page
 
-The dashboard has a **Certificates** tab on the **DNS** page. It shows state only. It never shows a key, a certificate file, the ACME account key or a challenge value, and it has no control to upload or download a certificate.
+The dashboard has a **Certificates** tab on the **DNS** page. It shows state only. It never shows a key, a certificate file, the ACME account key or a challenge value. It has no control to upload or download a certificate.
 
 The page has these parts:
 
-- **The status line.** One sentence with the state: valid, an order that runs, a failed order, the renewal window, or no certificate.
-- **The node certificate.** The lifetime with the issue date, the renewal date and the expiry, the issuer and the ACME directory, and each name with the reason that puts it on the certificate. If the names in the config differ from the names on the certificate, the page shows the names to add and to remove. The Inspector shows the key type, the serial number and the SHA-256 fingerprint of the certificate.
-- **Delivery to the nodes.** For each node: the version of the certificate that it has, the time of the delivery, and what it serves on its management name.
-- **What a visitor gets.** A TLS probe of each public name through each node, each pass. A name in `passthrough` mode has the tag **Homelab**: the Traefik of the homelab holds its certificate, and HomeGAP does not renew it.
-- **Orders.** The last 20 orders and revocations, with the reason, the result and the duration.
-- **Who can issue.** The CAA records that HomeGAP publishes, and the CAA records that DNS has now. With [extra domains](../services/extra-domains.md), each record starts with its domain.
+- The status line gives the state in one sentence: valid, an order that runs, a failed order, the renewal window, or no certificate.
+- **Node certificate** shows the lifetime with the issue date, the renewal date and the expiry, and each name on the certificate. If the names in the config differ from the names on the certificate, it shows the names to add and to remove.
+- **Delivery to the nodes** shows, for each node, the version of the certificate that it has and what it serves on its management name.
+- **What a visitor gets** shows a TLS probe of each public name through each node. A name in `passthrough` mode has the tag **Homelab**: the Traefik of the homelab holds its certificate.
+- **Orders** shows the last 20 orders and revocations, with the reason, the result and the duration.
+- **Who can issue** shows the CAA records that HomeGAP publishes, and the CAA records that DNS has now.
 
 The page has four actions:
 
@@ -118,11 +121,9 @@ The page has four actions:
 | **Order now** | Starts the order in the next pass, without the wait of one hour after a failure. HomeGAP refuses it after 5 failed orders in one hour. |
 | **Send again** | Writes the certificate files on the node again in the next pass. |
 | **Check now** | Runs the TLS probes again. |
-| **Replace the key** | Orders a new certificate with a new key for the same names, and revokes the old certificate. Use it when a node can be compromised. |
+| **Replace the key** | Orders a new certificate with a new key for the same names, and revokes the old certificate. Use it when you think that a person has the key of a node. |
 
-When changes are paused, or in dry-run mode, the actions that change something are off.
-
-A new node waits for an order with its management name. Until then, it answers that name with the default certificate, and its tunnel cannot connect. The dashboard shows the node as "waiting for certificate", not as down.
+A new node waits for an order with its management name. Until then, it answers that name with the default certificate of Traefik. The dashboard shows the node as "waiting for certificate", not as down.
 
 ## Expiry and failures
 
@@ -133,8 +134,8 @@ The **Certificates** page shows the cause of a failed order:
 | Cause | What to do |
 | --- | --- |
 | DNS did not show the challenge record in time. | Bunny DNS was slow. HomeGAP tries again after one hour. |
-| Let's Encrypt refused: too many orders. | Let's Encrypt allows 5 failed orders for each name in one hour. Wait. |
-| A CAA record forbids the order. | A CAA record that HomeGAP does not manage, on a name above `domain`, refuses Let's Encrypt. |
+| Let's Encrypt refused: too many orders. | Let's Encrypt accepts 5 failed orders for each name in one hour. Wait for the next hour. |
+| A CAA record forbids the order. | A CAA record that HomeGAP does not manage, on a name above `domain`, refuses Let's Encrypt. Remove it or change it. |
 | The Bunny key is missing or refused. | Set the Bunny API key, and make sure that it can change the zone. |
-| The ACME service did not answer. | The homelab cannot reach Let's Encrypt. |
-| More than 100 names. | One certificate holds at most 100 names. Use a front door in `terminate` mode with a wildcard. |
+| The ACME service did not answer. | The homelab cannot reach Let's Encrypt. Check the internet connection of the homelab. |
+| More than 100 names. | One certificate holds at most 100 names. Use a front door in `terminate` mode with a wildcard, or change services to `passthrough`. |

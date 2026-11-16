@@ -1,6 +1,6 @@
 # Add a node
 
-The add-node wizard takes a fresh VPS from the initial login of your provider to a provisioned node. This page tells you how to use the wizard, and how to add a node by hand.
+The add-node wizard takes a fresh VPS from the initial login of your provider to a provisioned node. This page tells you how to use the wizard, and how to add a node by hand. The stack on the homelab must run first. See [Install on the homelab](install.md).
 
 ## Before you start
 
@@ -29,8 +29,9 @@ The password is for the setup job only. HomeGAP never writes it to disk or to th
 ### Open the wizard
 
 1. On the dashboard, open **Nodes**.
-2. Click **+ Add node**. The **Add a node** wizard opens. It shows "Sets up a new server as an edge node. Nothing changes until you run it."
-<img src="../img/add-node/01-open-wizard.png" alt="The Nodes page with the Add node button">
+2. Click **+ Add node**. The **Add a node** wizard opens. It shows "Nothing changes on the server until you run it."
+
+<!-- SCREENSHOT: docs/img/add-node/01-open-wizard.png | the Nodes page with the + Add node button -->
 
 ### 1. Server
 
@@ -44,7 +45,7 @@ The password is for the setup job only. HomeGAP never writes it to disk or to th
 
 When you pick a point on the map, the nearest known city within 50 km gives the point its name.
 
-<img src="../img/add-node/02-server.png" alt="The Server step with the node id, the address and a location from the search">
+<!-- SCREENSHOT: docs/img/add-node/02-server.png | the Server step with the node id, the address and a location from the search -->
 
 ### 2. Initial login
 
@@ -69,7 +70,7 @@ You must test the connection before you can continue. The test checks the login 
 
 If the host key is different from the last connection, the test reports it. Make sure that the server has a new install. Then click **Forget the old host key and retry**.
 
-<img src="../img/add-node/03-initial-login.png" alt="The Initial login step after a successful connection test">
+<!-- SCREENSHOT: docs/img/add-node/03-initial-login.png | the Initial login step after a successful connection test -->
 
 ### 3. Access
 
@@ -82,14 +83,14 @@ The **Management user** is "The account HomeGAP manages the node with."
 5. Under **SSH hardening**, **Disable root login** is selected by default. Clear it to keep root login. This option needs a management user other than root. If the initial login is not root, and root login is off already or the server keeps it on, setup writes a note in the step and continues.
 6. **Disable password login** is selected by default. Then SSH accepts keys only, for every user. Clear it to keep password login.
 7. Optional: if the initial login is not root and HomeGAP creates a management user, select **Disable SSH login for** the initial user. Then that user cannot log in over SSH. The console of your provider still works.
-8. Optional: in **New SSH port**, type a port for the SSH server of the node. Leave the field empty to keep the port. HomeGAP moves the SSH server after setup, in its first pass for the node. See [Move the SSH port of a node](../operations/node-updates.md#move-the-ssh-port-of-a-node).
+8. Optional: in **New SSH port**, type a port for the SSH server of the node. Leave the field empty to keep the port. HomeGAP moves the SSH server after setup, and it keeps the old port open until the new port works. See [Node updates and rollback](../operations/node-updates.md).
 9. Click **Continue**.
 
 A generated key is an ed25519 key. HomeGAP keeps it in `<data dir>/ssh/` on the orchestrator.
 
-HomeGAP runs each script on the node as root, through `sudo -n`. It then gives the files under the install directory (`/opt/homegap` by default) to the management user. If the user is in the `docker` group, HomeGAP also runs Docker Compose as this user, so `docker compose` works there without sudo. The data directories of the cluster member stay with their containers.
+HomeGAP runs each script on the node as root, through `sudo -n`. It then gives the files under the install directory (`/opt/homegap` by default) to the management user. If the user is in the `docker` group, `docker compose` works in that folder without sudo when you log in yourself.
 
-<img src="../img/add-node/04-access.png" alt="The Access step with a dedicated user, a generated key and both options under SSH hardening">
+<!-- SCREENSHOT: docs/img/add-node/04-access.png | the Access step with a dedicated user, a generated key and both options under SSH hardening -->
 
 ### 4. Firewall
 
@@ -98,12 +99,14 @@ HomeGAP runs each script on the node as root, through `sudo -n`. It then gives t
 3. For **Only these sources**, check the list in **Allowed sources**. The wizard fills it with the address from the connection test.
 4. Click **Continue**.
 
-The page shows the rules:
+The page shows the rules under **Rules**. The firewall of a node opens these ports:
 
 - SSH on its port (tcp), from anywhere or from the sources in the list.
 - HTTP 80/tcp, HTTPS 443/tcp and 443/udp.
-- WireGuard 51820/udp and 21820/udp.
-- The ports of raw TCP and UDP services, as their labels set them.
+- The mesh on `mesh.port`/udp (default 51821).
+- The ports of raw TCP and UDP services, the VPN and the exit of the node. HomeGAP opens them with its own rules, before the rules of `ufw`.
+
+For the ports, see [Prepare the servers](servers.md#the-firewall-on-the-node).
 
 !!! danger "Warning"
     This risk applies to **Only these sources**. If the public IP address of the orchestrator changes to an address outside the list, HomeGAP loses SSH access to the node. This occurs with a residential IP address, a new ISP or a homelab in a new location. Provisioning and health checks for that node then fail until you correct the rule.
@@ -112,16 +115,17 @@ The page shows the rules:
 
     To recover, log in through the web console of your provider. Run `ufw allow <ssh port>/tcp`. Then update `ssh_allow_from` in the config, and click **Re-provision** for the node. Provisioning replaces the rules of HomeGAP. It does not remove your rule, so delete that rule with `ufw delete allow <ssh port>/tcp`.
 
-<img src="../img/add-node/05-firewall.png" alt="The Firewall step with the list of rules">
+<!-- SCREENSHOT: docs/img/add-node/05-firewall.png | the Firewall step with the list of rules -->
 
 ### 5. Review & run
 
 1. Examine the summary.
 2. Click **Set up and add node**. The page shows the progress of each setup step.
-3. When the page shows "Done. Provisioning starts on the next reconcile pass.", click **Go to nodes**.
+3. Wait until the page shows "Done. Provisioning starts on the next reconcile pass."
+4. Click **Go to nodes**.
 
-<img src="../img/add-node/06-review.png" alt="The Review & run step with the summary">
-<img src="../img/add-node/07-done.png" alt="The finished setup job with the Go to nodes button">
+<!-- SCREENSHOT: docs/img/add-node/06-review.png | the Review & run step with the summary -->
+<!-- SCREENSHOT: docs/img/add-node/07-done.png | the finished setup job with the Go to nodes button -->
 
 ## If setup fails
 
@@ -131,11 +135,15 @@ You can run setup again safely. The completed steps are idempotent. If an earlie
 
 ## After the wizard
 
-Provisioning runs in the background. The first install takes a few minutes for Docker, the firewall and the Pangolin stack. During this time, the node shows the current phase on the **Nodes** page, for example `preparing the host (1 of 4)`.
+Provisioning runs in the background. The first install takes a few minutes for Docker, the firewall, the mesh and the stack of the node. During this time, the node shows the current phase on the **Nodes** page, for example `preparing the host (1 of 3)`.
+
+A new node gets its DNS records only after its stack is up. The node serves viewers when the certificate order with its management name (`node-<id>.<domain>`) is complete. To see the order, open the **Certificates** page.
 
 If the first provisioning fails, HomeGAP tries again after five minutes. To try again at once, click **Re-provision**.
 
-<img src="../img/add-node/08-provisioning.png" alt="The Nodes page with the new node in the provisioning… state">
+<!-- SCREENSHOT: docs/img/add-node/08-provisioning.png | the Nodes page with the new node in the provisioning… state -->
+
+When the node is healthy, continue with [Publish a service](first-service.md).
 
 ## Add a node by hand
 

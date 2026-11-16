@@ -2,26 +2,26 @@
 
 This page defines the terms that the HomeGAP docs use.
 
-**Blueprint**
-: A Pangolin file that declares resources. HomeGAP applies one blueprint for each resource, and an optional base blueprint. See [Pangolin options](../configuration/pangolin.md#the-base-blueprint).
+**Agent of a node**
+: The `homegap-agent` container on a node (`homegap node-agent`). It serves the raw TCP ports with PROXY protocol and the exit of the node. During an outage of the homelab, it also serves the sign-in.
 
 **Bunny DNS**
 : The DNS service of bunny.net. It sends each viewer to the nearest healthy node. See [DNS routing and health checks](../configuration/dns.md).
 
-**Cluster mode**
-: The mode with a `cluster:` key in the config. All nodes are one Pangolin EE cluster on a shared database. See [Cluster mode](../cluster/index.md).
-
-**Connector**
-: A Newt process that connects the homelab to one node through WireGuard. The tunnel supervisor runs one connector for each node. See [How HomeGAP works](../getting-started/how-it-works.md).
-
 **Desired state**
-: The Docker labels and the config file, and nothing else. The orchestrator moves the actual state toward it. See [How HomeGAP works](../getting-started/how-it-works.md#reconciliation).
+: The Docker labels and the config file, and nothing else. The orchestrator moves the actual state toward it. See [How HomeGAP works](../getting-started/how-it-works.md).
+
+**Device**
+: One app that signed in, or one machine. A device has a WireGuard key and an address in the VPN. You can block, unblock or delete it. See [Users, machines and devices](../vpn/access.md).
+
+**Directory**
+: The list of users, machines, roles, private names and blocks. The orchestrator signs it, and the sign-in and the nodes trust only a directory with that signature. See [Security model](security.md#users-and-sign-in).
 
 **Drift**
-: A change on a node that HomeGAP did not make. The node check repairs it. See [Node updates and rollback](../operations/node-updates.md#drift).
+: A change on a node that HomeGAP did not make. The node check repairs it. See [Node updates and rollback](../operations/node-updates.md).
 
-**Exit node**
-: An exit to the internet for the Pangolin apps, through a node or through the homelab. See [Exit nodes](../cluster/exit-nodes.md).
+**Exit**
+: A way to the internet for a VPN device. `Exit via <node>` leaves with the address of that node, and `Exit via homelab` leaves from home. See [Exit nodes and tunnel DNS](../vpn/exit-nodes.md).
 
 **Extra domain**
 : A domain for services in addition to `domain`, from `extra_domains` in the config file. See [Extra domains](../services/extra-domains.md).
@@ -30,82 +30,79 @@ This page defines the terms that the HomeGAP docs use.
 : The homelab Traefik container with the root domain in `homegap.expose`. It claims the root and, with `homegap.wildcard`, `*.<domain>`. Each extra domain can have its own front door. See [Services](../services/index.md).
 
 **Geo record set**
-: A set of DNS records for one name, one for each node, with geo routing and a health monitor. See [DNS routing and health checks](../configuration/dns.md#the-records).
-
-**Gerbil**
-: The WireGuard server of Pangolin on each node.
-
-**Health resource**
-: A resource on each node that sends the Bunny probe through the tunnel to the front door. See [Traffic paths](../services/traffic-paths.md#health-resource).
+: A set of DNS records for one name, one for each node, with geo routing and a health monitor. See [DNS routing and health checks](../configuration/dns.md).
 
 **Homelab**
 : The home servers with Docker, the homelab Traefik and the services. It has no inbound ports.
 
+**Machine**
+: A device with no user, for example a server that needs access. It signs in with an id and a secret. See [Users, machines and devices](../vpn/access.md).
+
+**Maintenance page**
+: The page that a node shows while it cannot reach the homelab. The `homegap-maintenance` container of the node serves it.
+
 **Management host**
-: The name of the Pangolin API of a node, by default `pangolin-<id>.<domain>`. See [Manage nodes](../operations/nodes.md#the-management-host).
+: The name of one node, `node-<id>.<domain>`. See [Manage nodes](../operations/nodes.md).
 
 **Mesh**
-: The private WireGuard network `hg-mesh` between the homelab and every node, in cluster mode. See [Cluster mesh](../cluster/mesh.md).
+: The private WireGuard network `hg-mesh` between the homelab and every node. It is always on, and every route from a node to the homelab goes over it. See [Mesh](mesh.md).
+
+**Mesh agent**
+: The `homegap-mesh-agent` container on the homelab (`homegap mesh`). It keeps the mesh interface, the home end of the VPN and the firewall of the mesh namespace.
+
+**Mesh namespace**
+: The network namespace of the `homegap-mesh` container on the homelab. The mesh interface and the interface of the VPN devices are there, and the orchestrator is not. See [Security model](security.md#the-mesh-namespace).
 
 **Named service**
-: A service under `homegap.services.<name>.` on a container that can also have other services. Its key is `<host slug>--<name>`. See [Named services](../services/labels.md#named-services).
-
-**Newt**
-: The tunnel client of Pangolin. HomeGAP runs it on the homelab as connectors. With `cluster.exit_nodes.nodes`, each node also runs one as its exit connector.
-
-**niceId**
-: The fixed id of a Pangolin resource. The ids of the resources that HomeGAP manages start with `hg-`. HomeGAP deletes only stale `hg-*` resources.
+: A service under `homegap.services.<name>.` on a container that can also have other services. Its key is `<host slug>--<name>`. See [Labels](../services/labels.md).
 
 **Node**
-: A VPS that runs Pangolin, Gerbil and Traefik. Node ids are like `na1`, `eu1` and `as1`. See [Prepare the servers](../getting-started/servers.md).
+: A VPS that runs Traefik, the maintenance page and the agent of HomeGAP. Node ids are like `na1`, `eu1` and `as1`. See [Prepare the servers](../getting-started/servers.md).
 
 **Olm**
-: The Pangolin client in the Pangolin apps.
+: The command line client of the Pangolin apps. A machine connects with it.
 
 **Orchestrator**
-: The `homegap run` process on the homelab. It reads the labels and manages the nodes, the tunnels and DNS. It is never in the traffic path of your services. It serves only its own pages: the dashboard and, if enabled, the status page and the speed test.
+: The `homegap run` process on the homelab. It reads the labels and manages the nodes, the mesh, the users and DNS. It is never in the traffic path of your services. It serves only its own pages: the dashboard and, if enabled, the status page and the speed test.
 
-**Pangolin EE**
-: The Enterprise Edition of Pangolin, by Fossorial. HomeGAP needs it for cluster mode and for wildcard resources in `terminate` mode. See [Pangolin EE licenses](../configuration/licenses.md).
+**Pangolin apps**
+: The unmodified Pangolin apps for Android, iOS and desktop. A user connects a device to the VPN with one of them. See [Connect the Pangolin apps](../vpn/pangolin-apps.md).
 
 **Pass**
-: One run of the reconcile loop. See [How HomeGAP works](../getting-started/how-it-works.md#reconciliation).
+: One run of the reconcile loop. See [How HomeGAP works](../getting-started/how-it-works.md).
 
 **Passthrough**
 : The TLS mode where the node reads only the SNI and forwards the encrypted stream to the homelab. See [Traffic paths](../services/traffic-paths.md).
 
 **Port list**
-: A list of raw ports in `homegap.port`, with entries like `7881/tcp`, `3478/tcp+udp` or `2222:22/tcp`. See [Port lists](../services/labels.md#port-lists).
-
-**Primary and replica**
-: The primary is the database member that accepts writes. A replica follows the primary. See [Cluster database](../cluster/database.md).
+: A list of raw ports in `homegap.port`, with entries like `7881/tcp`, `3478/tcp+udp` or `2222:22/tcp`. See [Labels](../services/labels.md).
 
 **Private path**
-: A route that only Pangolin clients use to reach a public service, over a separate Docker network. See [Client addresses and private-only services](../services/client-addresses.md).
+: A route that only VPN devices use to reach a public service, over a separate Docker network. See [Client addresses and private-only services](../services/client-addresses.md).
 
-**Private resource**
-: A Pangolin resource that only the Pangolin client can reach. See [Private services](../services/private.md).
+**Private service**
+: A service with `homegap.access: private`. It gets a name that only VPN devices resolve and reach. See [Private services](../services/private.md).
+
+**Role**
+: A name that connects users and machines to private services and exits. `Admin` and `Member` always exist, and you can name more. A private service with no `homegap.roles` label is for `Admin` only.
 
 **Rollout**
 : An update of the node stacks, one node at a time. See [Node updates and rollback](../operations/node-updates.md).
 
-**Site**
-: A Pangolin object for a network that a connector serves. The homelab has a site on each node. See [Clustered Pangolin](../cluster/pangolin.md#sites-and-resources).
+**Sign-in**
+: The `homegap-sign-in` container on the homelab (`homegap sign-in`). A user signs in there with a HomeGAP password or through an OpenID Connect provider. `sign_in.url` is its address, and each node serves it. See [Sign-in](../vpn/sign-in.md).
 
 **Slot**
-: The permanent tunnel slot of a node. It sets the tunnel subnet, the interface and the mesh address. See [Manage nodes](../operations/nodes.md#tunnel-slots).
-
-**Standalone mode**
-: The mode without a `cluster:` key. Each node runs its own Pangolin with SQLite. See [Standalone or cluster](../getting-started/choose-a-mode.md).
-
-**Switch-back**
-: The move of the database primary back to the homelab, after the homelab stays caught up for `cluster.primary.switch_back_after`. See [Cluster database](../cluster/database.md#switch-back).
+: The permanent number of a node. It gives the mesh address of the node. See [Manage nodes](../operations/nodes.md).
 
 **Terminate**
-: The TLS mode where the node ends TLS. Pangolin sign-in needs it. See [Traffic paths](../services/traffic-paths.md#front-door-terminate).
+: The TLS mode where the node ends TLS, with the certificate that HomeGAP orders for the nodes. See [Traffic paths](../services/traffic-paths.md).
 
-**Tunnel supervisor**
-: The `tunnels` container (`homegap tunnels`). It runs one Newt connector for each node. See [Install on the homelab](../getting-started/install.md).
+**Tunnel DNS**
+: The DNS servers of `vpn.tunnel_dns`. An app with "DNS over tunnel" sends its lookups to them through the VPN. See [Exit nodes and tunnel DNS](../vpn/exit-nodes.md).
 
-**Vote**
-: The etcd quorum of the cluster. It needs a majority to elect a primary. See [Cluster database](../cluster/database.md#failover).
+**User**
+: A person who can sign in. A user has an email address, a name, roles and an optional password. See [Users, machines and devices](../vpn/access.md).
+
+**VPN**
+: The WireGuard connection of a device to the homelab. The device connects to a node, and the node forwards the packets over the mesh. The node cannot read them.

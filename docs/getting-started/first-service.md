@@ -1,6 +1,6 @@
 # Publish a service
 
-This page tells you how to send the first real traffic through HomeGAP, and how to check the result.
+This page tells you how to send the first real traffic through HomeGAP, and how to check the result. You must have one node or more. See [Add a node](add-node.md).
 
 ## Publish through the front door
 
@@ -8,7 +8,7 @@ The front door claims the root domain and `*.<domain>`. Thus HomeGAP publishes t
 
 To publish a service, add a normal Traefik router at home, for example with the rule ``Host(`whoami.example.net`)``.
 
-A service that needs its own path gets its own `homegap.*` labels. This applies to a dedicated hostname, a raw TCP or UDP service and a private service. See the [Label reference](../services/labels.md). A Docker event starts a pass at once, so the change starts without a wait for the next resync.
+A service that needs its own path gets its own `homegap.*` labels. This applies to a dedicated hostname, a raw TCP or UDP service and a private service. See the [Label reference](../services/labels.md). A Docker event starts a pass after a short debounce, so the change does not wait for the next resync.
 
 ## Check the service
 
@@ -25,7 +25,7 @@ The results are as follows:
 
 - The two `dig` commands return node addresses. The wildcard record covers `whoami`.
 - The `curl` command to `https://` shows the certificate of your homelab. In passthrough mode, the homelab Traefik ends TLS.
-- The `curl` command to `http://<node ip>/` sends the same request as the Bunny monitor. The request goes through the tunnel to the health check path of the front door. It returns 502 when the origin is down.
+- The `curl` command to `http://<node ip>/` sends the same request as the Bunny monitor. The node sends the request over the mesh to the health check path of the front door (`homegap.healthcheck`). The command prints the status code of that path.
 
 On the dashboard, the **Overview** and **Services** pages show the health in each region. The **DNS** page shows the records and the state of their monitors.
 
@@ -37,8 +37,12 @@ On the dashboard, the **Overview** and **Services** pages show the health in eac
 The dashboard and the log show label errors for each container. An error in the labels of one container never stops the other services. These are examples of errors:
 
 - An unknown protocol.
-- Pangolin sign-in (`homegap.auth`) without `homegap.tls: terminate`.
+- The maintenance page (`homegap.maintenance_page`) without `homegap.tls: terminate`.
 - A reserved public port.
 - A hostname that two services claim.
 
 An unknown `homegap.*` label gives a warning, and HomeGAP ignores it.
+
+## Next steps
+
+For a service that only your own devices can reach, see [Private services](../services/private.md). For the sign-in of those devices, see [Sign-in](../vpn/sign-in.md).

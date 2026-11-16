@@ -4,13 +4,25 @@ The `e2e/` folder has a self-contained end-to-end harness. This page tells you w
 
 ## The harness
 
-The harness has these parts:
+`e2e/compose.yml` has these services, on one private Docker network:
 
-- Two fake Ubuntu VPS nodes (`node-na1` and `node-as1`), each with sshd and its own Docker daemon.
-- A fresh server (`node-fr1`) for the add-node wizard. It is not in the config.
-- A simulated homelab, with Traefik, whoami and socat.
-- The orchestrator and the tunnel supervisor.
-- A stand-in for the Bunny API.
+| Service | What it is |
+| --- | --- |
+| `node-na1`, `node-as1` | Two fake Ubuntu VPS nodes, each with sshd and its own Docker daemon. |
+| `node-fr1` | A fresh server for the add-node wizard. It is not in the config. |
+| `homelab-traefik` | The front door of the simulated homelab, in passthrough mode with a wildcard and a private path. |
+| `whoami`, `git`, `wiki` | Web services: behind the front door, with passthrough of its own and with `terminate`. |
+| `other-door`, `shop`, `notes` | The front door, a public service and a private service of the extra domain `other.example.org`. |
+| `echo`, `rtc`, `proxy-echo` | Raw services: one TCP port, a port list with a named service, and a TCP port with PROXY protocol. |
+| `ssh-jump` | A private raw TCP service. |
+| `orchestrator`, `mesh`, `mesh-agent`, `homegap-sign-in`, `docker-proxy` | The homelab stack, with the same users and capabilities as `deploy/compose.yml`. |
+| `bunny-mock` | A stand-in for the Bunny API. |
+| `pebble` | A local ACME server in place of Let's Encrypt. |
+| `authelia` | A real Authelia, as the OpenID Connect provider of the sign-in. |
+| `viewer` | A container with `curl`, in the role of a visitor. |
+| `client` | A VPN device: the unmodified `olm` client of the Pangolin apps. It is in the profile `client`, so it does not start by default. |
+
+`e2e/config.e2e.yml` is the config of the harness. It enables the sign-in with Authelia, the exits of the nodes and of the homelab, the status page and the speed test.
 
 ## Run the harness
 
@@ -27,9 +39,19 @@ The harness has these parts:
     e2e/verify.sh
     ```
 
-To test EE features, put `PANGOLIN_LICENSE_KEY` in an untracked `.env` file at the root of the repository. `e2e/run.sh` exports it.
+The dashboard of the harness is at `http://127.0.0.1:18088`. Its token is in `e2e/work/data/dashboard-token`.
 
-The dashboard of the harness is at `http://127.0.0.1:18088`.
+Two harnesses cannot run at the same time, because they use the same addresses and ports.
+
+## What run.sh does
+
+`e2e/run.sh` does these steps:
+
+1. It runs `e2e/setup.sh`, which makes the test material in `e2e/work/` if it is missing. This is an SSH key, a test CA with the certificate of the homelab Traefik, and the key and two users of Authelia.
+2. It builds the image `homegap:e2e` from the local binary, with `e2e/image.Dockerfile`.
+3. It starts `pebble` and reads its root certificate. See [The certificate of the nodes](#the-certificate-of-the-nodes).
+4. It starts all services with `docker compose up -d --build`.
+5. It runs `e2e/load-images.sh`, which loads `homegap:e2e` into the Docker daemon of each fake node. The agent of a node runs this image, and a node cannot pull a local image from a registry.
 
 ## What verify.sh checks
 
@@ -40,59 +62,46 @@ The dashboard of the harness is at `http://127.0.0.1:18088`.
 - A private-only name returns 403 to the public.
 - A private-only subfolder of the root returns 403 to the public, and the rest of the root returns 200.
 - Passthrough of the wildcard.
-- The management API, which the node serves itself.
-- In cluster mode, the client address: the login page and the API on this node.
-- The shared names of the status page and the speed test, which this node answers itself.
+- The sign-in through this node, with the certificate that HomeGAP orders for the nodes.
+- The status page tells a public visitor that it is no VPN device.
+- The shared names of the status page and the speed test, which name this node.
 - The health endpoint on port 80, which Bunny probes.
 - The redirect from HTTP to HTTPS.
 - A dedicated passthrough service, with the certificate of the origin.
 - A dedicated terminate service, with the certificate that HomeGAP orders for the nodes.
+- The certificate on the node has the terminate name and the names of the extra domain. It has no wildcard of the main domain and no passthrough name. The node has no ACME account.
 - Raw TCP on the public port 19000.
 - A port list on TCP (7881 and 3478) and on UDP (3478), and a named service on 17000/udp.
 - Two UDP callers at the same time on port 7882.
-- The certificate on the node has the terminate name, no wildcard and no passthrough name. The ACME store of the node is empty.
+- The dedicated service and the front door of the extra domain.
 
-The script also checks that the zone has the two CAA records, and it prints the number of challenge records that stay in the zone.
+After the nodes, the script does these checks:
 
-Most checks print the result next to the value to expect. Compare them. The script stops with an error only for the names on the certificate and for the CAA records.
+- A private dashboard returns 403 to the public through each node, and 200 to the private network.
+- `homelab.ssh` is a private service to the address of the host that the mesh agent found.
+- The zone of the extra domain has the root, the wildcard and `shop` on each node, and the two CAA records.
+- The main zone has no record of the extra domain, the two CAA records and no challenge record.
+- The dashboard through the sign-in of the homelab Traefik gives 200 to the private network and 403 to the public.
+
+Most checks print the result next to the value to expect. Compare them. The script stops with an error for four checks: the names on the certificate, the private dashboard, the address of the homelab host and the records of the zones.
 
 ## The certificate of the nodes
 
-The `pebble` service is a local ACME server in place of Let's Encrypt. It accepts each challenge without a DNS lookup. Thus the harness checks that HomeGAP writes and removes the challenge records. It does not check that they resolve.
+The `pebble` service accepts each challenge without a DNS lookup. Thus the harness checks that HomeGAP writes and removes the challenge records. It does not check that they resolve.
 
-Pebble makes a new root certificate each time its container starts. `run.sh` reads the root and writes `work/certs/trust.pem`, which the viewer and the tunnels trust. After a new root, `run.sh` removes `work/data/acme`, so HomeGAP orders the certificate again.
+Pebble makes a new root certificate each time its container starts. `run.sh` reads the root and writes `work/certs/trust.pem`, which the viewer and the `client` trust. After a new root, `run.sh` removes `work/data/acme` and restarts the orchestrator, so HomeGAP orders the certificate again.
 
-## Cluster checks
+## A VPN device
 
-`e2e/config.e2e.yml` has cluster mode on. With the cluster, run `e2e/verify-cluster.sh` after `run.sh` and `verify.sh`. It takes approximately 5 minutes, and most of that time is the switch-back hold.
+The `client` service connects to `https://signin.test.example.net` as a machine. `CLIENT_NODE_IP` takes the role of DNS: it sends the device to one node. The default is the address of `node-as1`.
 
-```bash
-e2e/verify-cluster.sh
-```
+1. Create a machine. The command prints its id and its secret.
+    ```bash
+    docker compose -f e2e/compose.yml exec orchestrator homegap machine add e2e-client
+    ```
+2. Start the client with the id and the secret. This example sends the device to `node-na1`.
+    ```bash
+    OLM_ID=<id> OLM_SECRET=<secret> CLIENT_NODE_IP=172.30.0.10 docker compose -f e2e/compose.yml --profile client up -d client
+    ```
 
-The script has these sections:
-
-1. The database: every member is `streaming`, and the primary is on the homelab. The newest dump restores into an empty database.
-2. A user that the dashboard creates signs in at `pangolin.<domain>` through every node.
-3. A Pangolin client (the `client` service) reaches a private service through the node that it goes to. `CLIENT_NODE_IP` takes the role of DNS. Private-only names arrive from the private network.
-4. The homelab is cut off from the mesh. A node becomes the primary and takes writes, and the homelab stops writes. After the repair, HomeGAP switches the primary back.
-5. Exit nodes: a client that selects `Exit via <node>` or `Exit via homelab` reaches the internet through that exit. This section needs internet access.
-6. The container of Pangolin on each node cannot reach the etcd peer port or the Sentinel of a member. etcd and Sentinel refuse a request without their password.
-
-To run only some sections, set `ONLY`, for example `ONLY="3 5"`.
-
-### The homelab as a vote only
-
-To test `cluster.homelab_role: vote`, start a new harness with `E2E_HOMELAB_ROLE=vote`. The role does not change on a cluster that runs. Thus use a different project name and an empty `e2e/work` folder:
-
-```bash
-COMPOSE_PROJECT_NAME=homegap-e2e-vote E2E_HOMELAB_ROLE=vote E2E_NO_ENV=1 e2e/run.sh
-COMPOSE_PROJECT_NAME=homegap-e2e-vote e2e/verify-cluster.sh
-```
-
-`E2E_NO_ENV=1` makes `run.sh` ignore the `.env` file, so the harness does not activate a license key on the new database. In this mode, section 1 also checks that the database containers of the homelab are idle and that a dump is at home. Section 4 isolates the homelab from the mesh, then stops the database of the primary node.
-
-Two harnesses cannot run at the same time, because they use the same addresses and ports. Before you start the second harness, run `docker compose down` in `e2e/` for the first one.
-
-!!! note
-    If you recreate a node container of the harness, recreate the `gerbil`, `traefik` and `maintenance` services in it. Also recreate the connector in `/opt/homegap/exit`. The Docker daemon in the fake node gives its networks new subnets, and these containers keep the old ones. A reboot of a real server does not do this.
+The client has its local API on `127.0.0.1:9452` in the container. Use it to read the state of the client and to select an exit.

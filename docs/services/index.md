@@ -16,13 +16,14 @@ HomeGAP treats a service as the front door when its `homegap.expose` is equal to
 
 Label a container only when it needs its own path:
 
-- A dedicated hostname. The service gets its own resource and its own DNS record set. This resource has priority over the wildcard. See [Traffic paths](traffic-paths.md).
+- A dedicated hostname. The service gets its own route on the nodes and its own DNS record set. This route has priority over the wildcard. See [Traffic paths](traffic-paths.md).
 - Raw TCP or UDP ports. See [Raw TCP and UDP](raw-ports.md).
-- A private service, for Pangolin clients only. See [Private services](private.md).
-- Pangolin sign-in in front of the service. See [Pangolin sign-in for services](authentication.md).
+- A private service, for the devices of the VPN only. See [Private services](private.md).
 - Only some of the nodes serve the service. Use `homegap.regions` for this.
 
-For all labels, see the [Label reference](labels.md). For the real addresses of viewers and for services that only Pangolin clients can open, see [Client addresses and private-only services](client-addresses.md).
+For all labels, see the [Label reference](labels.md). For the real addresses of viewers and for names that only VPN devices can open, see [Client addresses and private-only services](client-addresses.md).
+
+HomeGAP has no sign-in for a public service. To put a sign-in in front of a public service, use a forward-auth middleware on the Traefik of the homelab.
 
 ## Several services on one container
 
@@ -38,13 +39,29 @@ hostname <name> is already claimed by <container>
 
 Raw services can share a hostname with each other, and with one `http` or `https` service. On the nodes that they share, only one public service can use a public port and protocol. See [Shared hostnames and ports](labels.md#shared-hostnames-and-ports).
 
-## How the tunnel finds the container
+## How HomeGAP finds the container
 
-The tunnel connects to the container by its name, or by the value of `homegap.host`. The name must resolve on a Docker network that the container shares with the `tunnels` container.
+Each node sends the traffic of a service over the mesh to the homelab. There, the `homegap-mesh` container forwards it to the address of the container of the service. The orchestrator reads that address from Docker. Nothing resolves a name at the time of a connection.
+
+The target is the container that has the labels. To use a different target, set `homegap.host` to one of these values:
+
+- An IPv4 address.
+- The name of a container that has a service in its own `homegap.*` labels. The name of its Compose service also works.
+
+The `homegap-mesh` container must share a Docker network with the target. HomeGAP selects the address of the target in this order:
+
+1. The address on a network of a front door container. In the usual stack, this is the Traefik network.
+2. The only address of the target, if the target is on one network.
+
+A target on a different network needs that network on the `homegap-mesh` service, in `compose.override.yml`. The file `compose.override.example.yml` has an example. If HomeGAP finds no address, the log has this warning, and the ports of the service stay closed:
+
+```text
+no address for the target <host>: its ports are closed
+```
 
 ## When a container is gone
 
-When a container with `homegap.*` labels stops, HomeGAP keeps its services for `reconcile.removal_grace` (default 3 minutes). After that time, HomeGAP removes the resources and the DNS records of the container.
+When a container with `homegap.*` labels stops, HomeGAP keeps its services for `reconcile.removal_grace` (default `3m`). After that time, HomeGAP removes the routes and the DNS records of the container.
 
 The grace period prevents a short outage after a restart of the homelab. The orchestrator can start before your app containers. Without the grace period, HomeGAP removes each service and creates it again a moment later.
 
@@ -52,7 +69,7 @@ A new container with the same hostname in its top-level `homegap.expose` immedia
 
 ## Errors and warnings
 
-The **Services** page on the dashboard and the log show the label errors of each container. HomeGAP does not publish a service whose labels have errors. An error about `homegap.private_network` or `homegap.private_hosts` that comes from the Docker networks or from the client addresses removes only the private path. The public service still publishes. The errors of one container never stop the other services. The errors of a named service start with `services.<name>:`, and they drop only that service.
+The **Services** page on the dashboard and the log show the label errors of each container. HomeGAP does not publish a service whose labels have errors. An error about `homegap.private_network` or `homegap.private_hosts` that comes from the Docker networks or from the names of the VPN removes only the private path. The public service still publishes. The errors of one container never stop the other services. The errors of a named service start with `services.<name>:`, and they drop only that service.
 
 A warning does not stop the publication of the service. An unknown `homegap.*` label gives this warning, and HomeGAP ignores the label:
 

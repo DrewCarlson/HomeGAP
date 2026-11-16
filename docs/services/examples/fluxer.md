@@ -15,11 +15,7 @@ This page gives two setups:
 | Direct media through one node | LiveKit advertises the address of one node. | No. |
 | TURN (recommended for several nodes) | Callers reach a TURN server by name, on the nearest healthy node. | Yes. |
 
-## What the tests checked
-
-Both setups pass the end-to-end tests in the HomeGAP harness, through each of two nodes. The tests check the web app, the signalling and the media path.
-
-The tests do not check a call between two users of the Fluxer app. The API of Fluxer disconnects LiveKit participants that do not join through Fluxer ("participant_joined without usable metadata"). Thus the tests use plain LiveKit clients, and run LiveKit without the webhook of Fluxer.
+<!-- FACT-CHECK: the earlier test results of this page (tracks, bit rate, packet loss, coturn allocations) come from a stack that HomeGAP does not use now. No measurement of the two setups on the mesh is in the repo. -->
 
 ## The web app
 
@@ -61,11 +57,11 @@ The proxy requirements of Fluxer apply to your Traefik as usual: WebSocket upgra
 
 ## The network of LiveKit
 
-The `tunnels` container must join the Docker network of Fluxer. With the project name `fluxer`, this network is `fluxer_fluxer`. Add it to the `tunnels` service in `compose.override.yml`:
+The homelab forwards the raw ports from the `homegap-mesh` container. Thus `homegap-mesh` must join the Docker network of Fluxer. With the project name `fluxer`, this network is `fluxer_fluxer`. Add it to the `homegap-mesh` service in the `compose.override.yml` of the HomeGAP stack:
 
 ```yaml
 services:
-  tunnels:
+  homegap-mesh:
     networks:
       fluxer: {}
 
@@ -75,10 +71,17 @@ networks:
     name: fluxer_fluxer
 ```
 
-You can also use `docker network connect fluxer_fluxer <tunnels container>`.
+Then run this command in the folder of the HomeGAP stack:
+
+```bash
+docker compose up -d
+```
 
 !!! warning "Caution"
-    LiveKit must be on one Docker network only: the network that it shares with `tunnels` (or with coturn). On two networks, LiveKit answers from its address on one network, while the packets of the tunnel arrive at the other. Then calls fail with "could not connect". The order of the interfaces can change on each restart. Thus join `tunnels` to the network of Fluxer. Do not add a network to LiveKit.
+    Compose recreates the `homegap-mesh` container after this change. The mesh drops, and the nodes cannot reach the homelab until the container runs again.
+
+!!! warning "Caution"
+    Keep LiveKit (and coturn) on one Docker network only: the network that it shares with `homegap-mesh`. HomeGAP uses the only address of a container that is not on the Traefik network. With two such networks, HomeGAP finds no address, and the ports stay closed. Thus join `homegap-mesh` to the network of Fluxer. Do not add a network to LiveKit.
 
 ## Setup 1: direct media through one node
 
@@ -103,7 +106,7 @@ In this setup, all calls go through one node. It is the simpler setup, but calls
 
 We recommend `homegap.regions` with the advertised node, so that HomeGAP publishes the ports only there. With all nodes, calls still use only the advertised node.
 
-In the test, a call has one audio publisher, one video publisher and two subscribers. All 4 of 4 tracks arrive, with approximately 1.2 Mbps of video each and 0% packet loss, in three runs out of three. The selected ICE pair of LiveKit is the node address on 7882/udp, with the remote end at the `tunnels` container.
+The kernel of the node forwards the two ports over the mesh to LiveKit. LiveKit sees each caller at the address of the `homegap-mesh` container.
 
 ## Setup 2: TURN
 
@@ -145,10 +148,10 @@ In this setup, calls reach a TURN server by name. DNS sends each caller to the n
 
 LiveKit then advertises its container address, and only coturn can reach it. With a `secret`, coturn checks short-lived credentials (`use-auth-secret`). The `host` of a TURN server can be a hostname.
 
-In the test, each of the two nodes gives 4 of 4 tracks with 0% loss. coturn logs 24 successful allocations and 168 channel binds, all from the address of the `tunnels` container.
+Every node forwards port 3478 on TCP and UDP to coturn. The relay ports of coturn (49160 to 49200) stay on the Docker network of Fluxer. They need no labels.
 
 ## Related pages
 
 - [Raw TCP and UDP](../raw-ports.md)
 - [Label reference](../labels.md#port-lists)
-- [Performance](../../operations/performance.md), for `tunnels.mtu`
+- [Services](../index.md#how-homegap-finds-the-container), for the address of a container

@@ -30,11 +30,13 @@ The image build needs the two Linux binaries first:
     docker buildx build --platform linux/amd64,linux/arm64 -t homegap .
     ```
 
-The Dockerfile builds the map tiles and these docs (`mkdocs.embedded.yml`) itself.
+The Dockerfile builds the map tiles and these docs (`mkdocs.embedded.yml`) itself. It also downloads `lego`, the ACME client, and checks its SHA-256. The image has the files of the homelab stack in `/usr/share/homegap/deploy`, for `homegap init`.
+
+One image has every role. The command selects the role: `run` for the orchestrator, `mesh` for the mesh agent, `sign-in` for the sign-in and `node-agent` for the agent of a node. See [Command line](../reference/cli.md).
 
 ## CI
 
-`.github/workflows/build.yml` runs on pushes to `main`, on version tags, on pull requests and on a manual start. It runs the unit tests and the presenter tests. Then it builds two multi-arch images: the orchestrator image and the cluster image from `cluster/Dockerfile`. On each run that is not a pull request, it publishes the two images to GHCR and signs them with cosign. The name of the cluster image has the suffix `-cluster`. The image tags are:
+`.github/workflows/build.yml` runs on pushes to `main`, on version tags, on pull requests and on a manual start. It runs the unit tests and the presenter tests. Then it builds one multi-arch image, for `linux/amd64` and `linux/arm64`. On each run that is not a pull request, it publishes the image to GHCR and signs it with cosign. For a version tag, it also adds the archive of the stack files to the GitHub release. The image tags are:
 
 | Event | Tags |
 | --- | --- |
@@ -45,36 +47,39 @@ The Dockerfile builds the map tiles and these docs (`mkdocs.embedded.yml`) itsel
 
 ```text
 src/nativeMain/kotlin/homegap/
-  discovery/    Docker socket client + label parsing
+  discovery/    Docker client, label parsing, the Traefik API of the front door
   model/        pure planner: labels + config -> desired state
-  reconcile/    controller loop and the node, tunnel, resource and DNS reconcilers
-  clients/      Pangolin (integration + bootstrap), Bunny, SSH (OpenSSH ControlMaster)
-  provision/    node, cluster and exit stack templates, firewall rules, maintenance page, YAML emitter
+  reconcile/    controller loop and the node, mesh and DNS reconcilers
+  clients/      Bunny, SSH (OpenSSH ControlMaster)
+  provision/    node stack templates, mesh and firewall rules, maintenance page, YAML emitter
   acme/         the certificate of the nodes: orders, DNS challenge, probes
   setup/        the add-node wizard: first login, keys, setup scripts
   mesh/         the mesh agent of the homelab
+  node/         the agent of a node: PROXY protocol ports, the exit, the sign-in for an outage
+  identity/     users, machines, the signed directory, sessions, the user and machine commands
+  signin/       the public sign-in, the API and the control connection of the apps, OpenID Connect
+  access/       users, machines and devices for the Access page
+  stack/        the files of the homelab stack, for homegap init
   state/        local state cache
   dashboard/    HTTP server, token check, embedded SPA, and the map and docs files
   routes/       the REST API routes
-  access/       users and devices of the cluster
   diagnostics/  node logs and the diagnostics bundle
   terminal/     shell sessions on the nodes
   speedtest/    speed tests and the public listener
   status/       the public status page
+  zone/         the records of the DNS zones
   locations/    the locations catalog (shipped list + local edits)
-  tunnels/      Newt connector supervisor
+  brand/        the emblem for the pages that HomeGAP renders itself
   config/       config file, secrets, shared directories
   platform/     files, processes, crypto and other native helpers
   di/           the dependency graphs
 api/            wire types shared by the API and the dashboard
 presentation/   presenters and UI models of the dashboard, tested on Node
 web/            Compose for HTML dashboard, bundled with Vite (kotlin-vite)
-cluster/        the cluster image (PostgreSQL with Patroni, etcd, Valkey, HAProxy)
 deploy/         the files of the homelab stack: compose.yml, upgrade.sh and the examples
-blueprints/     example Pangolin base blueprint
 config/         example configuration
 locations/      the shipped data-center catalog (datacenters.yml)
-tools/          build-map.sh: the self-hosted map's tiles; localize-docs-assets.py: local copies of the docs theme files
+tools/          build-map.sh: the self-hosted map's tiles; localize-docs-assets.py: local copies of the docs theme files; stack-archive.sh: the archive of the stack files for a release
 docs/           these docs
 e2e/            end-to-end harness
 ```

@@ -10,9 +10,11 @@ The orchestrator finds the file in this order:
 2. The `HOMEGAP_CONFIG` environment variable.
 3. The default path, `/config/config.yml`.
 
-The repository has an example with the common keys in `config/config.example.yml`. For every key, see the [Configuration reference](reference.md).
+With the shipped stack, the file is `config/config.yml` in the folder of the stack. `homegap init` writes a first version with the settings that most homelabs need. The file `config/config.example.yml` in the same folder shows more keys. For every key, see the [Configuration reference](reference.md).
 
-The parser is strict. An unknown key is an error.
+The parser is strict. An unknown key is an error, and the orchestrator does not start.
+
+The file holds no secret. See [Secrets](secrets.md).
 
 ## A minimal config
 
@@ -20,8 +22,8 @@ The parser is strict. An unknown key is an error.
 domain: example.net
 bunny:
   zone: example.net
-pangolin:
-  acme_email: ops@example.net
+acme:
+  email: ops@example.net
 nodes: []
 dashboard:
   bind: 0.0.0.0:8088
@@ -38,6 +40,12 @@ These changes need a restart of the orchestrator:
 - A change of the dashboard token. The orchestrator reads the token one time, at the start.
 - A change of `dashboard.bind`.
 - A change of `data_dir`.
+
+The `homegap-sign-in` container reads the `sign_in` and `vpn` parts of the file one time, at its start. After a change of these parts, start the container again:
+
+```bash
+docker compose restart homegap-sign-in
+```
 
 ## Check the file
 
@@ -70,25 +78,79 @@ A duration is a number with a unit: `ms`, `s`, `m` or `h`. A number without a un
 
 ## Validation rules
 
-`homegap validate` and each read of the file check these rules:
+`homegap validate` and each read of the file check these rules.
+
+The domains and Bunny:
 
 - `domain` is a plain hostname, without a leading dot and without `*`.
 - `bunny.zone` is equal to `domain`, or a parent of it.
 - `bunny.routing` is `geolocation`, `latency` or `none`.
 - `bunny.monitor` is `http`, `ping` or `none`.
+- Each domain of `extra_domains` is a plain hostname in lower case.
+- The zone of each extra domain is equal to that domain, or a parent of it.
+- No extra domain is inside `domain` or a different extra domain, and none contains one of them.
+
+The certificate:
+
 - `acme.directory` starts with `https://`.
+- With `acme.caa: true`, `acme.caa_issuer` is a domain name.
+
+The nodes:
+
 - Each node id matches `^[a-z][a-z0-9-]{0,30}$`, and each node id is unique.
+- `host` is a hostname or an IP address.
+- `ssh_user` matches `^[a-z_][a-z0-9_-]{0,31}$`.
+- `ssh_port` is from 1 to 65535.
+- `ssh_key_file` is not empty.
+- `management_host`, if you set it, is a hostname.
+- `public_ipv4` and `public_ipv6` are IP addresses.
 - Each `ssh_allow_from` entry is an IP address or a CIDR.
 - Each node has an IPv4 address (`public_ipv4`, or a `host` that is an IPv4 literal), or a `public_ipv6`.
 - With `geolocation` routing, each node has a `location` or a known region code.
 - With `latency` routing, each node has a `latency_zone`.
-- `reconcile.resync_interval`, `reconcile.debounce` and `reconcile.node_check_interval` are valid durations.
-- `tunnels.mtu` is from 1280 to 1500.
+
+The reconcile loop:
+
+- `reconcile.resync_interval` is `1s` or more.
+- Each other key of `reconcile` that is a duration has a valid value.
+
+The mesh:
+
+- `mesh.subnet` is a valid IPv4 subnet. It does not overlap `100.64.0.0/10`, where the VPN has its addresses.
+- `mesh.subnet` has space for 32 nodes (/26 or larger).
+- `mesh.port` is from 1 to 65535.
+
+The sign-in and the VPN:
+
+- `sign_in.url` starts with `https://`.
+- With `sign_in.passwords: false`, `sign_in.oidc` is set.
+- `sign_in.oidc` needs `sign_in.url`.
+- `sign_in.oidc.issuer` starts with `https://`.
+- `sign_in.oidc.client_id` is not empty.
+- `sign_in.oidc.scopes` contains `openid`.
+- Each entry of `vpn.tunnel_dns.resolvers` is an IP address.
+- `vpn.port`, the port after it, `vpn.exit_port` and the port after it are four different ports from 1 to 65535.
+- `vpn.client_subnet` is a /16.
+
+The dashboard:
+
 - `dashboard.bind` is in the form `host:port`.
+- `dashboard.hostname`, if you set it, is a single lowercase label that matches `^[a-z][a-z0-9]{0,20}$`.
+- With `dashboard.hostname`, `dashboard.access` is `private` or `public`.
+- `dashboard.hostname` is different from the hostname of the speed test and of the status page, if they are enabled.
+- `dashboard.sso` needs `dashboard.hostname`.
+- `dashboard.sso.middleware` is a Traefik middleware with its provider, for example `authelia@docker`.
+- `dashboard.sso.user_header` and `dashboard.sso.groups_header` are header names.
+- No group of `dashboard.sso.groups` and `dashboard.sso.read_only_groups` is empty or contains a comma.
+
+When `homelab.ssh.enabled` is `true`:
+
+- `homelab.ssh.hostname` is a single lowercase label.
+- `homelab.ssh.port` is from 1 to 65535.
 
 When the status page is enabled:
 
-- `status_page.hostname` is a single lowercase label that matches `^[a-z][a-z0-9]{0,20}$`.
+- `status_page.hostname` is a single lowercase label.
 - `status_page.hostname` is different from `speedtest.hostname`, if the speed test is also enabled.
 - `status_page.title` has 60 characters or fewer.
 - `speedtest.bind` is in the form `host:port`, and it is different from `dashboard.bind`.
@@ -101,12 +163,3 @@ When the speed test is enabled:
 - `speedtest.streams` is from 1 to 16.
 - `speedtest.link_ttl` is a valid duration, and `speedtest.bind` is in the form `host:port`.
 - `speedtest.bind` is different from `dashboard.bind`.
-
-In cluster mode:
-
-- `cluster.mesh.subnet` is a valid subnet. It does not overlap `100.64.0.0/10`.
-- `cluster.mesh.subnet` has space for 32 nodes (/26 or larger).
-- `cluster.mesh.port` is from 1 to 65535, and it is not 51820 or 21820.
-- `cluster.primary.preferred` is `homelab`.
-- `cluster.primary.switch_back_after` is a valid duration.
-- `cluster.image` is not empty.

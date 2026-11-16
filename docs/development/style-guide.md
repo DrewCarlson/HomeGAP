@@ -45,9 +45,9 @@ lists the facts, the sources in the code, and the order of the page.
 ### Section 2: Noun clusters
 
 - **Rule 2.1: Not more than three nouns in a row.** Break longer clusters with prepositions.
-    - Not: "node cluster member database container restart".
-    - Write: "a restart of the database container on the node's cluster member".
-    - Exception: a technical name stays as it is (`cluster-proxy`, "Pangolin EE license key").
+    - Not: "node stack agent container image update".
+    - Write: "an update of the agent image in the stack of the node".
+    - Exception: a technical name stays as it is (`homegap-mesh-agent`, "OpenID Connect provider").
 
 ### Section 3: Verbs and tenses
 
@@ -60,10 +60,10 @@ lists the facts, the sources in the code, and the order of the page.
     - Not: "The node will be removed from DNS."
     - Write: "HomeGAP removes the node from DNS."
 - **Rule 3.3: Do not use "-ing" forms for actions or states.**
-    - Not: "While provisioning the node, ..." / "The tunnel is reconnecting."
-    - Write: "During provisioning, ..." / "The tunnel reconnects."
+    - Not: "While provisioning the node, ..." / "The device is reconnecting."
+    - Write: "During provisioning, ..." / "The device connects again."
     - Exception: a technical name or UI text with "-ing" stays as it is (`provisioning…`,
-      "Pending switch-back", the `streaming` replica state, `ping`).
+      "Waiting for DNS", the `waiting for certificate` state, `ping`).
 
 ### Section 4: Sentences
 
@@ -72,13 +72,13 @@ lists the facts, the sources in the code, and the order of the page.
     - A descriptive sentence: 25 words or fewer.
     - Code, labels, paths and URLs count as one word each.
 - **Rule 4.2: One idea in each sentence.** A sentence can have one dependent clause, if that
-  clause gives a simple condition ("If the tunnel is down, ...").
+  clause gives a simple condition ("If the mesh link is down, ...").
 - **Rule 4.3: No hedging.** Do not use *should*, *would*, *may*, *might*, *likely*, *probably*,
   *could*, *perhaps*, *usually* (unless the code shows a real "usually", give the condition).
     - For a requirement, use **must**.
     - For a capability, use **can**.
     - For a recommendation, say it directly: "We recommend ...", or give the reason: "Use
-      `tunnels.mtu: 1420`. The default of 1280 decreases throughput."
+      `sign_in.oidc` with a second factor. A node can read a password that a user types."
 
 ### Section 5: Procedures
 
@@ -131,11 +131,11 @@ lists the facts, the sources in the code, and the order of the page.
 | via | **through** or **with** |
 | e.g., i.e. | "for example", "that is" |
 
-**Technical names (TN) and technical verbs.** Keep words that are names of HomeGAP, Pangolin,
-Traefik, Bunny, Docker or Linux things, also if STE does not approve them. Examples: "orchestrator",
-"node", "front door", "passthrough", "terminate" (the TLS mode), "provision", "reconcile",
-"deploy", "label", "router", "middleware", "allowlist", "replica", "primary", "switchover",
-"failover", "connector", "tunnel", "blueprint". Write a name the same way every time.
+**Technical names (TN) and technical verbs.** Keep words that are names of HomeGAP, Traefik,
+Bunny, WireGuard, Docker or Linux things, also if STE does not approve them. Examples:
+"orchestrator", "node", "front door", "passthrough", "terminate" (the TLS mode), "provision",
+"reconcile", "deploy", "label", "router", "middleware", "allowlist", "mesh", "sign-in", "exit",
+"failover", "directory", "tunnel", "slot". Write a name the same way every time.
 
 **Literal text is outside these rules.** Code blocks, inline code, label names, config keys,
 commands, log lines, error messages and UI labels stay exactly as the source shows them. Quote a UI
@@ -165,9 +165,9 @@ label in bold (**Add node**) and a value or key in code (`homegap.tls`).
 
 ### Example 3: HomeGAP text
 
-- **Input:** "Once you've set up the tunnels container, HomeGAP will automatically start routing
-  your traffic through the nearest healthy node, which should give you seamless failover."
-- **STE:** "When the `tunnels` container runs, Bunny DNS sends each viewer to the nearest healthy
+- **Input:** "Once you've set up the first node, HomeGAP will automatically start routing your
+  traffic through the nearest healthy node, which should give you seamless failover."
+- **STE:** "When the stack of a node runs, Bunny DNS sends each viewer to the nearest healthy
   node. If a node fails its health check, Bunny removes it from the answers."
 
 ---
@@ -220,9 +220,9 @@ They show that a text is generated, and they give no information:
 - Code blocks have a language: `yaml`, `bash`, `text`, `json`. Commands that a reader runs are in
   `bash` blocks, one command per line, without a `$` prompt.
 - Admonitions: see Rule 7.1. Use `???` (a closed block) for long optional detail.
-- Use content tabs (`=== "Standalone"` / `=== "Cluster"`) when one step is different in the two
-  modes.
-- Links between pages are relative paths to the `.md` file (`../cluster/database.md#switch-back`).
+- Use content tabs (`=== "Password"` / `=== "OpenID Connect"`) when one step is different in two
+  cases.
+- Links between pages are relative paths to the `.md` file (`../reference/security.md#secrets`).
 - Tables for reference data (labels, config keys, ports, API routes). Each cell that is a
   sentence follows the rules above.
 - The `hg_version` variable (in double braces) gives the version of the docs. Pages go through

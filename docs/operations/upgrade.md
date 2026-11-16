@@ -12,16 +12,17 @@ The script is in the folder of the stack, next to `compose.yml`. Run it in that 
 
 | Option | What it does |
 | --- | --- |
-| `--tunnels` | Recreates the `tunnels` container, also if its version does not change. |
 | `--no-pull` | Uses the images that are already on the host. |
 | `--no-refresh` | Does not change the files of the stack. |
 | `-h`, `--help` | Shows the help. |
 
+Each other argument goes to every `docker compose` call of the script. Such an argument also skips the refresh of the files.
+
 ## Run it over SSH
 
-Over SSH, run the script in `screen` or `tmux`. If the connection drops, a script in a plain SSH session stops before it ends. The upgrade can also restart the tunnel connectors, and that ends an SSH connection that goes through HomeGAP. In `screen` or `tmux`, the upgrade continues, and you can connect again to see the result.
+Over SSH, run the script in `screen` or `tmux`. If the connection drops, a script in a plain SSH session stops before it ends. In `screen` or `tmux`, the upgrade continues, and you can connect again to see the result.
 
-The script finds out how you run it:
+The script checks how you run it:
 
 | How you run it | What the script does |
 | --- | --- |
@@ -41,14 +42,14 @@ To run the script in a plain SSH session anyway, for example from an automation 
 HG_ALLOW_SSH=1 ./upgrade.sh
 ```
 
-## Check the image signatures
+## Check the image signature
 
-The release build signs the `homegap` image and the `homegap-cluster` image with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/). A signature shows that the build workflow of the HomeGAP repository made the image. The check is optional, and HomeGAP does not do it for you.
+The release build signs the `homegap` image with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/). A signature shows that the build workflow of the HomeGAP repository made the image. The check is optional, and HomeGAP does not do it for you.
 
-To check an image before an upgrade:
+To check the image before an upgrade:
 
 1. Install cosign on the homelab.
-2. Do the check for the `homegap` image:
+2. Run this command:
 
     ```bash
     cosign verify ghcr.io/drewcarlson/homegap:latest \
@@ -56,13 +57,31 @@ To check an image before an upgrade:
       --certificate-identity-regexp '^https://github\.com/DrewCarlson/HomeGAP/\.github/workflows/build\.yml@refs/tags/v'
     ```
 
-3. Do the same check for `ghcr.io/drewcarlson/homegap-cluster:latest`.
-
 If the image has a signature from a release build, the command shows the signature and exits with 0. If the command fails, do not run the upgrade.
+
+## What the script does
+
+1. It pulls the new images of the orchestrator, the mesh agent and the sign-in.
+2. It brings the files of the stack to the new version. See [The files of the stack](#the-files-of-the-stack).
+3. It makes each data folder that is missing: `orchestrator`, `mesh`, `identity`, `sign-in` and `vpn`.
+4. It recreates the orchestrator. Traffic never goes through the orchestrator, so this does not stop access. The script waits up to 120 seconds for the orchestrator to start.
+5. It recreates the mesh agent (`homegap-mesh-agent`). The mesh interface stays up without the agent.
+6. It recreates the sign-in (`homegap-sign-in`). A connected device keeps its tunnel and connects to the sign-in again.
+7. It runs `docker compose up -d --remove-orphans`. This brings the remainder of the stack to the compose file. It also removes each container of a service that the compose file does not have.
+
+If the compose files are not valid, the script stops before it restarts a container.
+
+### If the orchestrator does not start
+
+If the orchestrator does not start with its new image, the script shows the last 20 lines of its log. Then it restores the previous image of the orchestrator and stops. The mesh agent and the sign-in keep their containers.
+
+The script restores the image with a tag: it gives the previous image the image name of the compose file. A later `docker compose pull` gets the new image again.
+
+If the orchestrator does not start with its previous image either, the script stops. Read the log with `docker compose logs orchestrator`.
 
 ## The files of the stack
 
-After the pull, the script runs `homegap init --refresh` from the new image. This command brings `compose.yml`, `upgrade.sh` and the example files to the new version. It never changes `.env`, `compose.override.yml` or `config/config.yml`.
+After the pull, the script runs `homegap init --refresh` from the new image. This command brings `compose.yml`, `upgrade.sh` and the example files to the new version. It never changes `.env`, `compose.override.yml` or the `config` folder.
 
 | The file in the folder | What the script does |
 | --- | --- |
@@ -72,49 +91,19 @@ After the pull, the script runs `homegap init --refresh` from the new image. Thi
 
 If `upgrade.sh` itself gets a new version, the script starts the new version and continues from there.
 
-Then the script checks the compose files. A new version of `compose.yml` can need a variable that your `.env` does not have. In that case, the script shows the name of the variable and stops before it restarts a container. Set the variable in `.env` and run the script again.
+Then the script checks the compose files. A new version of `compose.yml` can need a variable that your `.env` does not have. In that case, the script shows the message of `docker compose` and stops before it restarts a container. Set the variable in `.env` and run the script again.
 
-To move your changes out of a file that HomeGAP changes, put them in `compose.override.yml`. See [Homelab stack](../reference/stack.md#changes-in-composeoverrideyml).
+To move your changes out of a file that HomeGAP changes, put them in `compose.override.yml`. See [Homelab stack](../reference/stack.md).
 
-The script skips this step if the folder has no `compose.yml`, or if you give arguments for `docker compose`.
-
-## What the script does
-
-1. It pulls the new images. Then it brings the files of the stack to the new version.
-2. It recreates the orchestrator. Traffic never goes through the orchestrator, so this does not stop access. The script waits up to 120 seconds for the orchestrator to start. Then it recreates the mesh agent.
-3. It moves the database primary and the Valkey primary to a node, and holds them there (`homegap maintenance start --minutes 30`).
-4. It recreates the cluster containers of the homelab one at a time. It waits up to 5 minutes for each container to serve again.
-5. It recreates the tunnel connectors, but only if their code or Newt is different.
-6. It ends the hold (`homegap maintenance end`). The primaries return to the homelab after the switch-back delay of the cluster.
-
-If the script cannot move the primaries, it stops and does not touch the cluster containers. Correct the cause and run the script again.
-
-If the orchestrator or a cluster container does not serve with its new image, the script restores the previous image of that service. Then it stops. The services after it keep their previous image. The script restores the image with a tag: it gives the previous image the image name of the compose file. A later `docker compose pull` gets the new image again.
-
-If the service does not serve with its previous image either, the script stops and shows the last lines of its log.
-
-When the script stops early, it ends the hold. The primaries then return to the homelab when its member is healthy again. If the start of the maintenance fails, HomeGAP removes the hold at once.
+The script skips this step if the folder has no `compose.yml`, or if you give arguments for `docker compose`. If the refresh fails, the script shows a warning and continues with the files that are there.
 
 ## The mesh container
 
-The script never recreates `homegap-mesh`. The mesh and every container in its network namespace restart with it. The script does recreate `homegap-mesh-agent` and `homegap-mesh-route`. The mesh interface stays up without the agent.
+The mesh container (`homegap-mesh`) holds the network namespace of the mesh. It has a fixed image, so an upgrade does not give it a new one. The last step of the script recreates it only when its part of the compose files changes.
 
-## The tunnels container
-
-The `tunnels` container restarts every Newt connector at once. Thus every node loses the homelab for a few seconds.
-
-The script recreates it only when the tunnels version of the new image is different. This version covers the code of the tunnel supervisor, its platform layer, the dependency versions and Newt. The script also recreates it when it does not run, or with `--tunnels`.
-
-Until then, the container continues to run the previous image. Thus Docker also keeps that image.
-
-## Standalone mode
-
-In standalone mode, the stack has no cluster services, because the profile `cluster` is off. The script then skips the cluster steps. It does not pull the cluster image, and it does not start maintenance. It still updates the orchestrator and the tunnels.
-
-With the profile `cluster` and no `cluster:` in the config, the orchestrator answers that the cluster is not enabled. The script then leaves the cluster containers as they are.
+!!! warning "Caution"
+    When the mesh container starts again, the mesh agent starts again with it. The mesh is down for a few seconds, and the nodes cannot reach the homelab during that time.
 
 ## After the upgrade
 
-After the upgrade, the cluster members on the nodes follow the cluster image of the homelab, pinned to its registry digest. HomeGAP updates one node in each pass, and only while every member serves and no maintenance runs. See [Cluster database](../cluster/database.md#updates-of-the-node-members).
-
-The script does not update the node stacks (the Pangolin images). They follow the config. See [Node updates and rollback](node-updates.md).
+The script does not update the stacks of the nodes. The orchestrator does that. The image of the agent of a node comes from `agent.image`, and its default tag is the version of the orchestrator. Thus a new version of the orchestrator starts a rolling update of the nodes. See [Node updates and rollback](node-updates.md).

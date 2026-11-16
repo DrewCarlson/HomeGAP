@@ -4,17 +4,17 @@ This page lists what you must have before you install HomeGAP.
 
 | Component | Requirement |
 | --- | --- |
-| Homelab | Docker with Compose, and a Traefik instance in front of your services. |
+| Homelab | Linux with WireGuard in the kernel, Docker with Compose, and a Traefik instance in front of your services. |
 | Regional nodes | A VPS with Ubuntu 22.04, 24.04, 26.04 or 26.10 (x86_64 or aarch64), a public IPv4 address (IPv6 is optional) and SSH access. |
 | DNS | A Bunny DNS zone and a Bunny API key. |
-| Pangolin EE license | Only for cluster mode and for wildcard resources in `terminate` mode. Use one key for a cluster, or one key for each node without a cluster. See [Pangolin EE licenses](../configuration/licenses.md). |
-| Nodes for the cluster | Two or more. Then the cluster can elect a primary, and sign-in continues to work, while the homelab is down. |
+
+One node is sufficient to start. For failover, you need two or more nodes.
 
 ## The homelab
 
-The homelab compose file expects the Docker network of your Traefik as an external network with the name `traefik`. If your network has a different name, set `TRAEFIK_NETWORK` in `.env`.
+The compose file of the stack expects the Docker network of your Traefik as an external network with the name `traefik`. If your network has a different name, set `TRAEFIK_NETWORK` in `.env`.
 
-Cluster mode needs WireGuard in the kernel of the homelab host, for the mesh interface `hg-mesh`. The setting `tunnels.native: true` also needs it. WireGuard is part of Linux 5.6 and later.
+The mesh agent makes the WireGuard interface `hg-mesh` in a network namespace of its own. Thus the kernel of the homelab host must have WireGuard. WireGuard is part of Linux 5.6 and later.
 
 ## SSH access to the nodes
 
@@ -32,6 +32,8 @@ The orchestrator needs outbound access to these destinations:
 - The ACME server of Let's Encrypt, for the certificate of the nodes. The config key `acme.directory` sets the URL.
 - The nameservers of the zone, for DNS queries.
 
+The mesh agent of the homelab needs outbound UDP access to the mesh port of each node (`mesh.port`, default `51821`).
+
 The Docker daemon of the homelab and the nodes need access to the container registries.
 
-The orchestrator needs no inbound access.
+The homelab needs no inbound access. For the ports that a node opens, see [Prepare the servers](servers.md#the-firewall-on-the-node).

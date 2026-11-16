@@ -89,7 +89,6 @@ nav:
       - getting-started/index.md
       - How HomeGAP works: getting-started/how-it-works.md
       - Requirements: getting-started/requirements.md
-      - Standalone or cluster: getting-started/choose-a-mode.md
       - Prepare Bunny DNS: getting-started/bunny-dns.md
       - Prepare the servers: getting-started/servers.md
       - Install on the homelab: getting-started/install.md
@@ -102,26 +101,21 @@ nav:
       - Raw TCP and UDP: services/raw-ports.md
       - Private services: services/private.md
       - Extra domains: services/extra-domains.md
-      - Pangolin sign-in: services/authentication.md
       - Client addresses and private-only services: services/client-addresses.md
       - Examples:
           - Fluxer (chat and voice): services/examples/fluxer.md
-  - Cluster mode:
-      - cluster/index.md
-      - Cluster mesh: cluster/mesh.md
-      - Cluster database: cluster/database.md
-      - Clustered Pangolin: cluster/pangolin.md
-      - Users and devices: cluster/access.md
-      - Connect the Pangolin apps: cluster/pangolin-apps.md
-      - Exit nodes: cluster/exit-nodes.md
+  - VPN and sign-in:
+      - vpn/index.md
+      - Sign-in: vpn/sign-in.md
+      - Users, machines and devices: vpn/access.md
+      - Connect the Pangolin apps: vpn/pangolin-apps.md
+      - Exit nodes and tunnel DNS: vpn/exit-nodes.md
   - Configuration:
       - configuration/index.md
       - Reference: configuration/reference.md
       - Secrets: configuration/secrets.md
       - Certificates: configuration/certificates.md
       - DNS routing and health checks: configuration/dns.md
-      - Pangolin EE licenses: configuration/licenses.md
-      - Pangolin options: configuration/pangolin.md
   - Operations:
       - The dashboard: operations/dashboard.md
       - Node updates and rollback: operations/node-updates.md
@@ -140,6 +134,7 @@ nav:
       - Ports and firewall: reference/ports.md
       - Homelab stack: reference/stack.md
       - Files and state: reference/files.md
+      - Mesh: reference/mesh.md
       - Glossary: reference/glossary.md
   - Development:
       - Build from source: development/building.md

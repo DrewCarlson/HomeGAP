@@ -6,23 +6,26 @@ This page gives the full order of setup. Each step links to the page with the de
 
 1. Read [How HomeGAP works](how-it-works.md).
 2. Check the [Requirements](requirements.md).
-3. Choose [standalone or cluster mode](choose-a-mode.md).
-4. [Prepare Bunny DNS](bunny-dns.md): a zone and an API key.
-5. [Prepare the servers](servers.md): one VPS for each region.
-6. [Install on the homelab](install.md): the compose file, the config and the secrets. Start in dry run.
-7. [Add a node](add-node.md) with the wizard on the dashboard, or by hand.
-8. [Publish a service](first-service.md) and check it.
+3. [Prepare Bunny DNS](bunny-dns.md): a zone and an API key.
+4. [Prepare the servers](servers.md): one VPS for each region.
+5. [Install on the homelab](install.md): the stack, the config and the secrets. Start in dry run.
+6. [Add a node](add-node.md) with the wizard on the dashboard, or by hand.
+7. [Publish a service](first-service.md) and check it.
+8. Configure the [sign-in](../vpn/sign-in.md) for the VPN.
+9. Add users on the **Access** page. See [Users, machines and devices](../vpn/access.md).
+10. [Connect the Pangolin apps](../vpn/pangolin-apps.md).
 
-In cluster mode, do two more steps. Add users on the **Access** page ([Users and devices](../cluster/access.md)). Then [connect the Pangolin apps](../cluster/pangolin-apps.md).
+Steps 8 to 10 are necessary only for the VPN and for private services.
 
 ## What the orchestrator does after you start it
 
 You do the steps above one time. After that, the orchestrator does this work by itself:
 
-- In cluster mode, it prepares the private mesh and the shared database. The homelab member comes first, then each node.
-- It provisions each node: Docker, `ufw`, Pangolin, Gerbil and Traefik. It also installs the secrets and the certificate, and creates the admin account, the org and the API key. If you set a Pangolin EE license key, it activates the key.
-- It creates the homelab sites on the Pangolin of each node, and one Newt connector for each node.
-- It creates the Pangolin resources, and the Bunny geo records with their monitors.
+- It provisions each node: Docker, `ufw`, Traefik, the maintenance page and the agent of HomeGAP.
+- It keeps the private mesh between the homelab and each node.
+- It orders the certificate of the nodes from Let's Encrypt, for the names that a node terminates.
+- It writes the routes of the Traefik of each node from the labels.
+- It creates the Bunny geo records with their monitors. A new node gets DNS records only after its stack is up.
 
 ## Before production
 
