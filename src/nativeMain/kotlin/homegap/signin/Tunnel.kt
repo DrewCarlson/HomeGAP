@@ -1,5 +1,7 @@
 package homegap.signin
 
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -33,6 +35,18 @@ data class DnsConfig(
     val overrideDns: Boolean = false,
     val tunnelDns: Boolean = false,
 )
+
+/** The ranges and the names that a device has on the peer [siteId]. */
+data class SiteData(val siteId: Int, val remoteSubnets: List<String>, val aliases: List<Alias>) {
+    /** What a device that has [before] must remove and add to have this. A name with a new address is in both. */
+    fun changeFrom(before: SiteData): Pair<SiteData, SiteData> {
+        val removed = SiteData(siteId, before.remoteSubnets - remoteSubnets.toSet(), before.aliases - aliases.toSet())
+        val added = SiteData(siteId, remoteSubnets - before.remoteSubnets.toSet(), aliases - before.aliases.toSet())
+        return removed to added
+    }
+
+    val isEmpty: Boolean get() = remoteSubnets.isEmpty() && aliases.isEmpty()
+}
 
 /** What the device needs to start its tunnel. */
 class Connection(val sites: List<Site>, val dns: DnsConfig? = null)
@@ -81,6 +95,24 @@ interface TunnelGateway {
 
     /** The directory of the homelab changed. */
     fun refresh() {}
+
+    /**
+     * True if this gateway has the peer of the homelab. Its server keeps the tunnel of a device
+     * across a new control connection. A different server gives the connection back.
+     */
+    val home: Boolean get() = false
+
+    /** Takes the tunnels that [running] had before this server started. Each has its key. */
+    fun restore(running: List<Device>) {}
+
+    /** Emits after each change of what a connected device can have on a peer. */
+    val changes: Flow<Unit> get() = emptyFlow()
+
+    /**
+     * The ranges and the names that [device] has now on the peer of the homelab, or null if this
+     * gateway gives none. [node] is the id of the node of the control connection.
+     */
+    fun siteData(device: Device, node: String?): SiteData? = null
 }
 
 /** A gateway with no peer yet. The app connects to the control server and gets an empty tunnel. */

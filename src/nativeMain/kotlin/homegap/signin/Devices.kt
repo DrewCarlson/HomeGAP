@@ -31,6 +31,8 @@ data class Device(
     val lastSeen: Long? = null,
     /** The node that the last connection came through. */
     val node: String? = null,
+    /** The WireGuard public key of the tunnel that the device runs, or null after it stopped the tunnel. */
+    val tunnelKey: String? = null,
 )
 
 /**
@@ -102,6 +104,15 @@ class Devices(
         val device = devices()[id] ?: return@synchronized
         save(device.copy(agent = agent ?: device.agent, node = node ?: device.node, lastSeen = now()))
     }
+
+    /** Keeps [key] as the key of the tunnel that the device [id] runs. Null says that the tunnel stopped. */
+    fun tunnel(id: String, key: String?): Unit = synchronized(lock) {
+        val device = devices()[id] ?: return@synchronized
+        if (device.tunnelKey != key) save(device.copy(tunnelKey = key))
+    }
+
+    /** The devices of this server that run a tunnel. */
+    fun running(): List<Device> = synchronized(lock) { devices().values.filter { it.tunnelKey != null } }
 
     fun remove(id: String): Unit = synchronized(lock) {
         if (devices().remove(id) != null) write()

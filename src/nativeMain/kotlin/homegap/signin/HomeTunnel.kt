@@ -8,6 +8,10 @@ import homegap.platform.watchDirectory
 import homegap.provision.Mesh
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withTimeout
@@ -28,12 +32,17 @@ class HomeTunnel(
     private val directory: () -> Directory?,
 ) : TunnelGateway {
     private val lock = SynchronizedObject()
+    private val changed = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = DROP_OLDEST)
+
+    override val changes: Flow<Unit> = changed.asSharedFlow()
 
     /** The devices that are connected: device id to the device and its key. */
     private val connected = LinkedHashMap<String, Pair<Device, String>>()
 
-    init {
-        // A start of this server ends each control connection, so no device is connected.
+    override val home: Boolean get() = true
+
+    override fun restore(running: List<Device>) = synchronized(lock) {
+        running.forEach { device -> device.tunnelKey?.let { connected[device.id] = device to it } }
         write()
     }
 
@@ -52,11 +61,7 @@ class HomeTunnel(
                 .first { it != null && publicKey in it.peers }
         } ?: error("the VPN peer gave no answer")
         val users = directory()
-        val aliases = users?.resources.orEmpty()
-            .filter { it.allows(roles) }
-            .map { Alias(it.name, it.address) }
-        val public = publicAliases(users?.nodeNames.orEmpty(), node).filter { it.alias !in aliases.map(Alias::alias) }
-        // The app sends the lookups for these servers to this peer, which sends them on.
+        val data = siteData(device, node) ?: error("the device has no access")
         val resolvers = users?.vpn?.resolversFor(roles).orEmpty()
         val site = Site(
             siteId = SITE_ID,
@@ -65,8 +70,8 @@ class HomeTunnel(
             publicKey = status.publicKey,
             serverIP = status.address,
             serverPort = status.port,
-            remoteSubnets = resolvers.map { "$it/32" },
-            aliases = aliases + public,
+            remoteSubnets = data.remoteSubnets,
+            aliases = data.aliases,
         )
         val dns = DnsConfig(resolvers.map { "$it:$DNS_PORT" }, overrideDns = true, tunnelDns = true)
         // The exit of each node that has the key of the device. The app must have the site to select its exit.
@@ -75,6 +80,17 @@ class HomeTunnel(
             Site(siteIdOf(exit), exit.node, "${exit.host}:${exit.port}", exit.publicKey, exit.address, exit.port)
         }
         return Connection(listOf(site) + exits, dns.takeIf { resolvers.isNotEmpty() })
+    }
+
+    override fun siteData(device: Device, node: String?): SiteData? {
+        val roles = rolesOf(device) ?: return null
+        val users = directory()
+        val reachable = users?.resources.orEmpty().filter { it.allows(roles) }.map { Alias(it.name, it.address) }
+        val names = reachable.map { it.alias }.toSet()
+        val public = publicAliases(users?.nodeNames.orEmpty(), node).filter { it.alias !in names }
+        // The app sends the lookups for these servers to this peer, which sends them on.
+        val resolvers = users?.vpn?.resolversFor(roles).orEmpty()
+        return SiteData(SITE_ID, resolvers.map { "$it/32" }, reachable + public)
     }
 
     override fun exits(roles: List<String>): List<ExitResource> {
@@ -99,7 +115,10 @@ class HomeTunnel(
     }
 
     /** Applies a change of the directory to the devices that are connected: new roles, a block, a removal. */
-    override fun refresh() = synchronized(lock) { write() }
+    override fun refresh() {
+        synchronized(lock) { write() }
+        changed.tryEmit(Unit)
+    }
 
     private fun rolesOf(device: Device): List<String>? = directory()?.rolesOf(device.id, device.userId)
 
