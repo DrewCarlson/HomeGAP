@@ -362,7 +362,8 @@ private fun runSignIn(configPath: String, line: CommandLine) = runBlocking {
     val port = line.option("--port")?.toIntOrNull() ?: DEFAULT_SIGN_IN_PORT
     val options = SignInPage.Options(settings.passwords, settings.oidc?.name)
     // The devices reach the VPN at the name of the sign-in, which goes to a node.
-    val tunnel = settings.url?.let { SharedDirs.vpn(DEFAULT_DATA_DIR) to it.removePrefix("https://").substringBefore('/') }
+    val endpoint = config?.vpn?.endpoint ?: settings.url?.removePrefix("https://")?.substringBefore('/')
+    val tunnel = endpoint?.let { SharedDirs.vpn(DEFAULT_DATA_DIR) to it }
     val setup = SignInServer.Setup(options, oidc, config?.vpn ?: VpnConfig(), tunnel)
     SignInServer(dir, identity, setup).run(host = "0.0.0.0", port = port)
 }

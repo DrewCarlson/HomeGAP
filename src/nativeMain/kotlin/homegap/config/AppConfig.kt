@@ -321,6 +321,11 @@ data class VpnConfig(
     val port: Int = 51830,
     /** The UDP port of each node for its own exit. The next port up is in use inside the tunnel. */
     @SerialName("exit_port") val exitPort: Int = 51840,
+    /**
+     * The name or address that the devices send their WireGuard packets to, for the peer of the
+     * homelab. It must go to a node. With null, it is the name of the sign-in.
+     */
+    val endpoint: String? = null,
 )
 
 @Serializable
