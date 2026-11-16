@@ -48,6 +48,14 @@ class TraefikApi(http: HttpClient) {
         routers
     }
 
+    /** The entry points of the Traefik at [baseUrl]. */
+    suspend fun entryPoints(baseUrl: String): List<TraefikEntryPoint> = withTimeout(REQUEST_TIMEOUT) {
+        val response = http.get("${baseUrl.trimEnd('/')}/api/entrypoints")
+        check(response.status.value in 200..299) { "Traefik API answered ${response.status.value}" }
+        runCatching { json.decodeFromString<List<TraefikEntryPoint>>(response.bodyAsText()) }
+            .getOrElse { error("the answer is not a list of Traefik entry points") }
+    }
+
     private companion object {
         val REQUEST_TIMEOUT = 10.seconds
         const val PAGE_SIZE = 500

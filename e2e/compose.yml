@@ -207,7 +207,7 @@ services:
 
   # Holds the network namespace of the mesh (the mesh interface and the interface of the VPN
   # devices), as in deploy/compose.yml. The orchestrator is not in it.
-  mesh:
+  homegap-mesh:
     # A fixed image, never the HomeGAP one: recreating this container replaces the namespace
     # (and drops the mesh), so it must not change with HomeGAP updates. Everything sharing the
     # namespace restarts with it if it ever is recreated (depends_on restart: true).
@@ -225,11 +225,11 @@ services:
     image: homegap:e2e
     command: ["mesh"]
     restart: unless-stopped
-    network_mode: service:mesh
+    network_mode: service:homegap-mesh
     cap_drop: [ALL]
     cap_add: [NET_ADMIN, NET_RAW, DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
-    depends_on: { mesh: { condition: service_started, restart: true } }
+    depends_on: { homegap-mesh: { condition: service_started, restart: true } }
     volumes: ["./work/mesh:/mesh", "./work/vpn:/vpn"]
 
   # The orchestrator reads Docker only through this proxy (container list and events).

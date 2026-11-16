@@ -156,5 +156,18 @@ object MeshForwards {
         return byService.toMap() + known.associate { (container, address) -> container.name to address }
     }
 
+    /**
+     * The address that the container at [target] sees as the source of a forward: the address of
+     * the mesh container on the network of [target]. Null if that network or the mesh container
+     * is not known.
+     */
+    fun source(containers: List<DockerContainerSummary>, target: String): String? {
+        val network = containers.firstNotNullOfOrNull { container ->
+            container.networkSettings.networks.entries.firstOrNull { it.value.ipAddress == target }?.key
+        } ?: return null
+        val mesh = containers.firstOrNull(HomelabServices::isMesh) ?: return null
+        return mesh.networkSettings.networks[network]?.ipAddress?.ifEmpty { null }
+    }
+
     private fun isAddress(host: String): Boolean = host.isNotEmpty() && host.all { it.isDigit() || it == '.' }
 }

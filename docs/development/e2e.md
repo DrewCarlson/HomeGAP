@@ -15,7 +15,7 @@ The `e2e/` folder has a self-contained end-to-end harness. This page tells you w
 | `other-door`, `shop`, `notes` | The front door, a public service and a private service of the extra domain `other.example.org`. |
 | `echo`, `rtc`, `proxy-echo` | Raw services: one TCP port, a port list with a named service, and a TCP port with PROXY protocol. |
 | `ssh-jump` | A private raw TCP service. |
-| `orchestrator`, `mesh`, `mesh-agent`, `homegap-sign-in`, `docker-proxy` | The homelab stack, with the same users and capabilities as `deploy/compose.yml`. |
+| `orchestrator`, `homegap-mesh`, `mesh-agent`, `homegap-sign-in`, `docker-proxy` | The homelab stack, with the same users and capabilities as `deploy/compose.yml`. |
 | `bunny-mock` | A stand-in for the Bunny API. |
 | `pebble` | A local ACME server in place of Let's Encrypt. |
 | `authelia` | A real Authelia, as the OpenID Connect provider of the sign-in. |

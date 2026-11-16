@@ -213,6 +213,14 @@ Make sure that the router uses the middleware by its name, on the router itself.
 
 Make sure that the user has a role of `homegap.roles` on the front door. A device gets a private name only if one of its roles permits it.
 
+### A service gets the address of HomeGAP, not of the client
+
+The entry point of your Traefik does not trust the address of the `homegap-mesh` container. Traefik then drops the PROXY protocol header or the `X-Forwarded-For` header, and each service gets the address of that container.
+
+HomeGAP reads the entry points from the Traefik API of the front door and compares them with that address. When the entry point does not trust it, the **Overview** page shows a label error on the front door. The message names the entry point, the address and the setting: `proxyProtocol.trustedIPs` for `homegap.proxy_protocol`, or `forwardedHeaders.trustedIPs` for a front door in terminate mode. Add the address to that setting and start Traefik again.
+
+HomeGAP cannot set these values for you. They are static configuration of Traefik, which Traefik reads only at its start. If the Traefik API gives no answer, HomeGAP makes no check.
+
 ### Public traffic comes from the private subnet
 
 The target of the front door is its private address. Set `homegap.host`, or keep the front door on only one other network.

@@ -30,14 +30,17 @@ import homegap.discovery.DockerContainerSummary
 import homegap.discovery.ServiceSpec
 import homegap.discovery.TraefikApi
 import homegap.discovery.TraefikRouter
+import homegap.discovery.clientAddressIssue
 import homegap.discovery.concernsHomegap
 import homegap.discovery.declaresService
+import homegap.discovery.traefikApiUrl
 import homegap.discovery.traefikApiUrls
 import homegap.identity.IdentityStore
 import homegap.provision.Mesh
 import homegap.identity.NodeNames
 import homegap.identity.VpnAccess
 import homegap.model.DesiredState
+import homegap.model.LabelIssue
 import homegap.model.HomelabServices
 import homegap.model.Planner
 import homegap.model.isHttpLike
@@ -305,6 +308,30 @@ class Controller(
         return if (complete) routerCache.filterKeys { it in urls } else null
     }
 
+    /** Why a front door does not get the address of the client. The status shows each as a label error. */
+    @Volatile private var clientAddressIssues: List<LabelIssue> = emptyList()
+
+    /**
+     * Asks each front door that is a Traefik if its entry point trusts the mesh container for the
+     * address of the client. A front door whose API gives no answer has no finding.
+     */
+    private suspend fun clientAddressIssues(
+        plan: DesiredState,
+        containers: List<DockerContainerSummary>,
+    ): List<LabelIssue> {
+        val addresses = MeshForwards.addresses(plan, containers)
+        val issues = plan.frontDoors.mapNotNull { door ->
+            val target = addresses[door.targetHost] ?: door.targetHost
+            val source = MeshForwards.source(containers, target) ?: return@mapNotNull null
+            val entryPoints = runCatchingCancellable {
+                traefikApi.entryPoints(traefikApiUrl(door.containerName, door.labels))
+            }.getOrNull() ?: return@mapNotNull null
+            clientAddressIssue(door, entryPoints, source)?.let { LabelIssue(door.containerName, it) }
+        }
+        (issues - clientAddressIssues.toSet()).forEach { log.warn("discovery", it.message, it.container) }
+        return issues
+    }
+
     /** Desired-records hash and time of the last successful DNS sync (see the DNS step). */
     private var dnsKey: String? = null
     private var dnsSyncedAt = 0L
@@ -527,6 +554,7 @@ class Controller(
                 identity.setNodeNames(nodeNames(plan))
                 meshForwards = MeshForwards.of(plan, containers).withVpn(cfg.vpn, privateTargets, resources, access)
                 meshForwards.unknown.forEach { log.warn("mesh", "no address for the target $it: its ports are closed") }
+                clientAddressIssues = clientAddressIssues(plan, containers)
                 unreachable.forEach {
                     log.warn("mesh", "no address for the private target $it: the VPN does not serve it")
                 }
@@ -1092,7 +1120,8 @@ class Controller(
             nodes = nodes,
             services = services,
             dns = dns,
-            labelErrors = plan?.labelErrors?.map { LabelErrorDto(it.container, it.message) }.orEmpty(),
+            labelErrors = (plan?.labelErrors.orEmpty() + clientAddressIssues)
+                .map { LabelErrorDto(it.container, it.message) },
             pauses = PausesDto(
                 global = stored.pauses.global,
                 nodes = stored.pauses.nodes.sorted(),
