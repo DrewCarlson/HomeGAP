@@ -3,16 +3,15 @@ package homegap.discovery
 /**
  * The `homegap.*` Docker label schema.
  *
- * Spec labels: expose, wildcard, port, protocol, tls, regions, access, auth, healthcheck.
+ * Spec labels: expose, wildcard, port, protocol, tls, regions, access, healthcheck.
  *
  * Extensions:
  * - host: a different target host.
  * - public_port: the raw TCP/UDP listen port on the nodes.
- * - roles: the Pangolin roles that have private or SSO access.
- * - pin_env: the environment variable that holds a 6-digit PIN.
- * - pause: HomeGAP keeps the manual overrides on the resources of this service.
+ * - roles: the roles whose devices reach a private service.
+ * - pause: HomeGAP keeps the DNS records of this service as they are.
  * - proxy_protocol: the node sends the viewer's address to the service with PROXY protocol v2.
- * - private_network: Pangolin clients reach the service at its address on this Docker network,
+ * - private_network: VPN devices reach the service at its address on this Docker network,
  *   which only their traffic uses.
  * - private_hosts: the names they reach it by that way. The default is the hostname of the service.
  * - private_middleware: adds each name that a router of this Traefik serves through this
@@ -27,12 +26,10 @@ object Labels {
     const val TLS = "homegap.tls"
     const val REGIONS = "homegap.regions"
     const val ACCESS = "homegap.access"
-    const val AUTH = "homegap.auth"
     const val HEALTHCHECK = "homegap.healthcheck"
     const val HOST = "homegap.host"
     const val PUBLIC_PORT = "homegap.public_port"
     const val ROLES = "homegap.roles"
-    const val PIN_ENV = "homegap.pin_env"
     const val PAUSE = "homegap.pause"
     const val PROXY_PROTOCOL = "homegap.proxy_protocol"
     const val PRIVATE_NETWORK = "homegap.private_network"
@@ -55,12 +52,10 @@ object Labels {
         TLS,
         REGIONS,
         ACCESS,
-        AUTH,
         HEALTHCHECK,
         HOST,
         PUBLIC_PORT,
         ROLES,
-        PIN_ENV,
         PAUSE,
         PROXY_PROTOCOL,
         PRIVATE_NETWORK,
@@ -95,7 +90,6 @@ data class PortMapping(val publicPort: Int, val port: Int, val protocols: Set<Pr
 
 enum class TlsMode(val label: String) { PASSTHROUGH("passthrough"), TERMINATE("terminate") }
 enum class Access(val label: String) { PUBLIC("public"), PRIVATE("private") }
-enum class AuthMode(val label: String) { NONE("none"), SSO("sso"), PIN("pin") }
 
 sealed interface HealthCheck {
     data class Http(val path: String) : HealthCheck
@@ -106,7 +100,7 @@ sealed interface HealthCheck {
 data class ServiceSpec(
     val containerId: String,
     val containerName: String,
-    /** The host that the tunnel connector dials. The default is the container name on the shared Docker network. */
+    /** The host that the homelab dials. The default is the container name on the shared Docker network. */
     val targetHost: String,
     val hostname: String,
     val wildcard: Boolean,
@@ -116,20 +110,18 @@ data class ServiceSpec(
     /** null means every configured node. */
     val regions: List<String>?,
     val access: Access,
-    val auth: AuthMode,
     /** null when the label is absent (Bunny still probes `/` through the front door). */
     val healthcheck: HealthCheck?,
     val publicPort: Int?,
     val roles: List<String>,
-    val pinEnv: String?,
     val paused: Boolean,
     /** Its TCP resources (passthrough or raw TCP) send the viewer's address with PROXY protocol v2. */
     val proxyProtocol: Boolean = false,
-    /** The Docker network whose address Pangolin clients reach this public service at. */
+    /** The Docker network whose address VPN devices reach this public service at. */
     val privateNetwork: String? = null,
     /** The container's address on [privateNetwork]. The planner reads it from Docker. */
     val privateHost: String? = null,
-    /** The names Pangolin clients reach it by over [privateNetwork]. Full names, which can have `*` and `?`. */
+    /** The names VPN devices reach it by over [privateNetwork]. Full names, which can have `*` and `?`. */
     val privateHosts: List<String> = emptyList(),
     /** The routers with this Traefik middleware (name without `@provider`) add their names to [privateHosts]. */
     val privateMiddleware: String? = null,
@@ -148,7 +140,7 @@ data class ServiceSpec(
     val labels: Map<String, String> = emptyMap(),
 ) {
     /**
-     * The stable identifier that is the key of each Pangolin and Bunny object of the service. A
+     * The stable identifier that is the key of each route and Bunny object of the service. A
      * named service adds its name after `--`, which the slug of a hostname never contains.
      */
     val key: String get() = slug(hostname) + (name?.let { "--" + slug(it) }.orEmpty())
@@ -241,10 +233,10 @@ private val RULE_STRING = Regex("""[`"']([^`"']+)[`"']""")
 private const val ALIAS_LABEL = "[a-z0-9*?](?:[a-z0-9*?-]{0,61}[a-z0-9*?])?"
 private const val ALIAS_LAST_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 
-/** A Pangolin alias: a full name whose labels can use `*` and `?`. */
+/** A private name: a full name whose labels can use `*` and `?`. */
 private val PRIVATE_ALIAS = Regex("^(?:$ALIAS_LABEL\\.)+$ALIAS_LAST_LABEL$")
 
-/** Whether the Pangolin alias [pattern] (`*` any run of characters, `?` one) covers [host]. */
+/** Whether the private name [pattern] (`*` any run of characters, `?` one) covers [host]. */
 fun aliasCovers(pattern: String, host: String): Boolean {
     val expression = pattern.split('*').joinToString(".*") { run ->
         run.split('?').joinToString(".") { Regex.escape(it) }
@@ -301,7 +293,6 @@ private class LabelParser(
         val declaredProtocol = declaredProtocol()
         val declaredTls = enumLabel(Labels.TLS, TlsMode.entries, TlsMode.PASSTHROUGH) { it.label }
         val access = enumLabel(Labels.ACCESS, Access.entries, Access.PUBLIC) { it.label }
-        val auth = enumLabel(Labels.AUTH, AuthMode.entries, AuthMode.NONE) { it.label }
         val paused = bool(Labels.PAUSE, default = false)
 
         val publicPort = port(Labels.PUBLIC_PORT)
@@ -313,9 +304,9 @@ private class LabelParser(
         val healthcheck = healthcheck()
 
         val tls = effectiveTls(protocol, declaredTls)
-        checkServiceRules(protocol, auth, wildcard)
+        checkRawRules(protocol, wildcard)
         val maintenancePage = maintenancePage(protocol, tls)
-        checkServiceRules(protocol, auth, wildcard, publicPort)
+        checkServiceRules(protocol, wildcard, publicPort)
         checkReservedPorts(access, ports)
 
         val proxyProtocol = proxyProtocol(protocol, tls, access)
@@ -337,11 +328,9 @@ private class LabelParser(
             tls = tls,
             regions = regions,
             access = access,
-            auth = auth,
             healthcheck = healthcheck,
             publicPort = ports.firstOrNull()?.publicPort,
             roles = labels[Labels.ROLES]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }.orEmpty(),
-            pinEnv = text(Labels.PIN_ENV),
             paused = paused,
             proxyProtocol = proxyProtocol,
             privateNetwork = privateNetwork,
@@ -541,7 +530,7 @@ private class LabelParser(
         return TlsMode.TERMINATE
     }
 
-    private fun checkServiceRules(protocol: Protocol, auth: AuthMode, wildcard: Boolean) {
+    private fun checkRawRules(protocol: Protocol, wildcard: Boolean) {
         if (protocol.isRaw) {
             if (wildcard) {
                 errors += "${Labels.WILDCARD} is only valid for http/https services"
@@ -549,10 +538,6 @@ private class LabelParser(
             if (labels[Labels.TLS] != null) {
                 warnings += "${Labels.TLS} has no effect on raw ${protocol.label} services"
             }
-        }
-        if (auth != AuthMode.NONE) {
-            errors += "${Labels.AUTH}=${auth.label} is not available: a node has no sign-in for a service. " +
-                "Use a forward-auth middleware on your Traefik, such as Authelia"
         }
     }
 
@@ -570,10 +555,7 @@ private class LabelParser(
         return wanted && terminated
     }
 
-    private fun checkServiceRules(protocol: Protocol, auth: AuthMode, wildcard: Boolean, publicPort: Int?) {
-        if (auth == AuthMode.PIN && labels[Labels.PIN_ENV].isNullOrBlank()) {
-            errors += "${Labels.AUTH}=pin requires ${Labels.PIN_ENV}"
-        }
+    private fun checkServiceRules(protocol: Protocol, wildcard: Boolean, publicPort: Int?) {
         if (wildcard && expose !in domains) {
             errors += "${Labels.WILDCARD}=true is only valid when ${Labels.EXPOSE} is the root domain"
         }
@@ -717,11 +699,7 @@ private fun namedServiceLabels(labels: Map<String, String>): Map<String, Map<Str
         }
 
 /**
- * Ports a regional node already uses for itself (web, tunnels, Pangolin internals). The SSH port
- * of a node is not here: the planner refuses it for each node, from `nodes[].ssh_port`.
+ * The ports that a node uses for itself: the web and its agent. The SSH port of a node is not
+ * here: the planner refuses it for each node, from `nodes[].ssh_port`.
  */
-val RESERVED_NODE_PORTS = setOf(
-    80, 443, 3000, 3001, 3002, 3003, 3004, 3005, 8080, 21820, 51820,
-    // The cluster services, the Traefik metrics and the maintenance page of the node.
-    2379, 2380, 5432, 5433, 6379, 6380, 8008, 8082, 8090, 26379,
-)
+val RESERVED_NODE_PORTS = setOf(80, 443, 8091, 8092)

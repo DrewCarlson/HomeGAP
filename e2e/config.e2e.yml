@@ -12,18 +12,13 @@ bunny:
   zone: example.net
   api_key_env: BUNNY_API_KEY
   api_url: http://bunny-mock:8080
-pangolin:
-  acme_email: ops@test.example.net
-  license_key_env: PANGOLIN_LICENSE_KEY
 # The local ACME server of the harness, in place of Let's Encrypt.
 acme:
+  email: ops@test.example.net
   directory: https://pebble:14000/dir
-tunnels:
-  mtu: 1420
-  native: true
 speedtest:
   enabled: true
-  # Pangolin clients open the test page with no link from the dashboard.
+  # VPN devices open the test page with no link from the dashboard.
   vpn_access: true
 status_page:
   enabled: true
@@ -37,12 +32,8 @@ sign_in:
 agent:
   # Built locally and loaded into the nodes by run.sh (load-images.sh).
   image: homegap:e2e
-cluster:
-  # Built locally and loaded into the nodes by run.sh (load-images.sh).
-  image: homegap-cluster:e2e
-  primary:
-    switch_back_after: 1m
-  # Internet exits for the Pangolin apps: one per node, and one at the homelab.
+vpn:
+  # Internet exits for the apps: one per node, and one at the homelab.
   exit_nodes:
     nodes: true
     homelab: true
@@ -67,7 +58,7 @@ nodes:
     location: { latitude: 19.1, longitude: 72.9 }
 dashboard:
   bind: 0.0.0.0:8088
-  # The homelab Traefik serves the dashboard at orc.test.example.net, for Pangolin clients only.
+  # The homelab Traefik serves the dashboard at orc.test.example.net, for VPN devices only.
   hostname: orc
   access: private
   # Sign-in through a middleware of the homelab Traefik (sign-in@file stands in for Authelia).
@@ -79,8 +70,8 @@ dashboard:
 # Where the homelab is, for the maps (the status page shows only its region).
 homelab:
   location: { latitude: 32.78, longitude: -96.8, name: "Dallas, Texas" }
-  # SSH to the homelab host for Pangolin clients. The harness host has no SSH server: the check
-  # is that HomeGAP makes the private resource with the address that the tunnels container found.
+  # SSH to the homelab host for VPN devices. The harness host has no SSH server: the check is
+  # that HomeGAP makes the private service with the address that the mesh agent found.
   ssh:
     enabled: true
     hostname: hostssh

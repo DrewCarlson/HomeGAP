@@ -1,5 +1,4 @@
 # Single-arch image for local e2e runs (the release Dockerfile expects both arches' binaries).
-FROM docker.io/fosrl/newt:1.20.0 AS newt
 FROM docker.io/library/ubuntu:24.04 AS lego
 ARG LEGO_VERSION=5.6.0
 ARG LEGO_SHA256_AMD64=f02fc11b6f56b97e387fa7caa0268f86f5a336953b22458e6430e4651fea439a
@@ -12,9 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && tar -xzf /tmp/lego.tar.gz -C /usr/local/bin lego
 
 FROM docker.io/library/ubuntu:24.04
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssh-client tini curl iputils-ping iproute2 iptables wireguard-tools redis-tools libnss-wrapper && rm -rf /var/lib/apt/lists/* \
-    && install -d -m 0755 /mesh /tunnels /cluster-config /identity /sign-in /vpn
-COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssh-client tini curl iputils-ping iproute2 iptables wireguard-tools libnss-wrapper && rm -rf /var/lib/apt/lists/* \
+    && install -d -m 0755 /mesh /identity /sign-in /vpn
 COPY --from=lego /usr/local/bin/lego /usr/local/bin/lego
 ARG BINARY=build/bin/linuxArm64/releaseExecutable/homegap.kexe
 COPY ${BINARY} /usr/local/bin/homegap

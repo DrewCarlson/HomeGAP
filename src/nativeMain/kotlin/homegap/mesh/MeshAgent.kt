@@ -29,14 +29,14 @@ import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * `homegap mesh`: the homelab's end of the cluster mesh. It runs in the network namespace the
- * homelab's cluster member lives in (the `homegap-mesh` container), with `NET_ADMIN`, and is the
+ * `homegap mesh`: the homelab's end of the mesh. It runs in the network namespace of the mesh
+ * (the `homegap-mesh` container), with `NET_ADMIN`, and is the
  * only thing there that can change the network.
  *
  * It keeps the `hg-mesh` interface as the orchestrator describes it in [Mesh.SPEC_FILE], and a
  * firewall that leaves that namespace three ways to talk: the mesh itself, WireGuard to the nodes,
  * and answers to the orchestrator. Nothing in the namespace can open a connection to the
- * orchestrator, to other containers or to the home network. Every node is a member of the cluster
+ * orchestrator, to other containers or to the home network. Every node is a member of the mesh
  * database, so HomeGAP treats the containers next to it as reachable from the nodes.
  *
  * The agent creates the private key once in [dir] (mode 0600), and the key never leaves it.
@@ -63,6 +63,7 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
         Files.mkdirs(dir)
         Files.chmodPath(dir, "700".toInt(8))
         logger.info { "mesh agent started; waiting for the orchestrator's mesh in $specFile" }
+        writeHostGateway()
         var applied: String? = null
         var appliedAll: String? = null
         var appliedAt = 0L
@@ -117,6 +118,16 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
             runCatchingCancellable { Files.writeAtomic(statusFile, json.encodeToString(status), READABLE) }
             withTimeoutOrNull(INTERVAL) { changes.receive() }
         }
+    }
+
+    /** Tells the orchestrator how this namespace reaches the homelab host, for a service on the host itself. */
+    private fun writeHostGateway() {
+        val gateway = Files.readTextOrNull(HostGateway.ROUTE_TABLE)?.let(HostGateway::parse)
+        if (gateway == null) {
+            logger.warn { "no default route: a service on the homelab host has no address" }
+            return
+        }
+        runCatching { Files.writeAtomic("$dir/${Mesh.HOST_GATEWAY_FILE}", gateway, READABLE) }
     }
 
     /** The public key of the homelab. The first call creates the key pair. */

@@ -57,7 +57,7 @@ enum class NetworkView {
     Map,
 }
 
-/** The network figure: the traffic path (homelab, tunnels, edges, names) or the map. */
+/** The network figure: the traffic path (homelab, mesh links, edges, names) or the map. */
 @Immutable
 data class NetworkModel(
     val view: NetworkView,
@@ -79,16 +79,16 @@ data class EdgeModel(
     val id: String,
     val place: String,
     val health: Health,
-    /** "API 412 ms" */
-    val api: String,
-    /** "mesh 31 ms", or null without a cluster. */
-    val mesh: String?,
+    /** "12 r/s". Null before the first sample. */
+    val requests: String?,
+    /** "link up" or "link down": the mesh link between the node and the homelab. */
+    val meshLink: String,
     /** The hostnames it serves, shortened. */
     val names: String,
     val location: Location,
 )
 
-/** One edge's card: its Pangolin API probe over the last hour, with what else is measured. */
+/** One edge's card: the requests it served over the last hour, with what else is measured. */
 @Immutable
 data class EdgeCardModel(
     val id: String,

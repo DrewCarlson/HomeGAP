@@ -2,14 +2,13 @@ package homegap.presentation.routing
 
 /** Dashboard destinations. [path] is the URL fragment (`#nodes`). */
 enum class Route(val path: String, val title: String, val subtitle: String) {
-    Overview("overview", "Overview", "Health of nodes, tunnels, services and DNS at a glance"),
+    Overview("overview", "Overview", "Health of nodes, mesh links, services and DNS at a glance"),
     Nodes("nodes", "Nodes", "The nodes that serve your visitors"),
     Services("services", "Services", "Containers published through homegap.* labels"),
     Dns("dns", "DNS", "Bunny DNS records managed by HomeGAP"),
     Certificates("certificates", "Certificates", "The certificate of the nodes, who has it, and what visitors get"),
     ZoneRecords("zone", "Zone records", "Every record of a DNS zone, and the records that you add"),
-    Tunnels("tunnels", "Tunnels", "The tunnels from the homelab to each node"),
-    Access("access", "Access", "Who can sign in to the Pangolin apps, and their devices"),
+    Access("access", "Access", "Who can sign in to the apps, and their devices"),
     SpeedTest("speedtest", "Speed test", "Latency and throughput through the real traffic path"),
     Activity("log", "Activity", "Reconcile log, newest first"),
     Diagnostics("diagnostics", "Diagnostics", "Container logs and a read-only snapshot of each node"),
@@ -58,7 +57,7 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
     companion object {
         val DEFAULT = Overview
 
-        /** The ten sections in navigation order: Operate, then Plumbing. */
+        /** The nine sections in navigation order: Operate, then Plumbing. */
         val NAV: List<Route> = listOf(
             Overview,
             Nodes,
@@ -66,7 +65,6 @@ enum class Route(val path: String, val title: String, val subtitle: String) {
             Access,
             SpeedTest,
             Dns,
-            Tunnels,
             Activity,
             Diagnostics,
             Config,

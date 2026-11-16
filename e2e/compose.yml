@@ -1,5 +1,5 @@
 # End-to-end harness: fake regional nodes (DinD VPS), a simulated homelab, the
-# orchestrator, the tunnel supervisor and a Bunny API stand-in, on one private network.
+# orchestrator, the mesh, the sign-in and a Bunny API stand-in, on one private network.
 # Run ./run.sh rather than using this file directly.
 name: homegap-e2e
 
@@ -14,8 +14,8 @@ networks:
   # Only the orchestrator and the Docker socket proxy, as in deploy/compose.yml.
   e2e-docker:
     internal: true
-  # Only the tunnels and the homelab Traefik: Pangolin clients' traffic arrives from here, so the
-  # homelab Traefik can tell it from public traffic (homegap.private_network).
+  # Only the mesh namespace and the homelab Traefik: the traffic of VPN devices arrives from here,
+  # so the homelab Traefik can tell it from public traffic (homegap.private_network).
   e2e-private:
     ipam:
       config:
@@ -27,11 +27,6 @@ volumes:
   node-as1-docker:
   node-as1-opt:
   node-fr1-docker:
-  cluster-etcd:
-  cluster-pgdata:
-  cluster-valkey:
-  cluster-sentinel:
-  cluster-backups:
 
 services:
   node-na1:
@@ -41,13 +36,12 @@ services:
     volumes:
       - ./work/keys:/keys:ro
       - node-docker:/var/lib/docker
-      # Persist the node stack so its Pangolin host identity (and any EE license activation)
-      # survives harness restarts instead of consuming a new activation each run.
+      # The stack of the node stays over a restart of the harness.
       - node-opt:/opt/homegap
     networks:
       e2e:
         ipv4_address: 172.30.0.10
-        aliases: [pangolin-na1.test.example.net]
+        aliases: [node-na1.test.example.net]
 
   node-as1:
     build: { context: ., dockerfile: node.Dockerfile }
@@ -60,7 +54,7 @@ services:
     networks:
       e2e:
         ipv4_address: 172.30.0.11
-        aliases: [pangolin-as1.test.example.net]
+        aliases: [node-as1.test.example.net]
 
   # A fresh VPS for the add-node wizard (root + password only). Not in the config until the wizard
   # adds it. Recreate it (`docker compose up -d --force-recreate node-fr1`) to test from scratch.
@@ -73,7 +67,7 @@ services:
     networks:
       e2e:
         ipv4_address: 172.30.0.40
-        aliases: [pangolin-fr1.test.example.net]
+        aliases: [node-fr1.test.example.net]
 
   whoami:
     image: docker.io/traefik/whoami:v1.10
@@ -139,7 +133,7 @@ services:
       homegap.port: "80"
     networks: [e2e]
 
-  # A private service on the extra domain: only Pangolin clients reach it.
+  # A private service on the extra domain: only VPN devices reach it.
   notes:
     image: docker.io/traefik/whoami:v1.10
     command: ["--name", "notes"]
@@ -163,7 +157,7 @@ services:
   # Several raw ports on one container, like a voice/video server: a port list with protocols,
   # one port on both TCP and UDP, and a named service on the same hostname with a public port
   # that differs from the container's. The UDP echoes report the address they see, to show that
-  # each caller keeps its own path through the tunnel.
+  # each caller keeps its own path through the mesh.
   rtc:
     image: docker.io/alpine/socat:1.8.0.1
     entrypoint: ["sh", "-c"]
@@ -181,7 +175,7 @@ services:
       homegap.services.alt.port: "17000:7000/udp"
     networks: [e2e]
 
-  # Private (Pangolin client only): no public DNS or node port.
+  # Private (VPN devices only): no public DNS or node port.
   ssh-jump:
     image: docker.io/alpine/socat:1.8.0.1
     command: ["TCP-LISTEN:22,fork,reuseaddr", "EXEC:echo SSH-2.0-fake"]
@@ -211,19 +205,18 @@ services:
     volumes: [ "./bunny-mock.py:/mock.py:ro" ]
     networks: [e2e]
 
-  # Holds the cluster's own network namespace (the mesh interface and the homelab's cluster
-  # member), as in deploy/compose.yml. The orchestrator is not in it.
+  # Holds the network namespace of the mesh (the mesh interface and the interface of the VPN
+  # devices), as in deploy/compose.yml. The orchestrator is not in it.
   mesh:
     # A fixed image, never the HomeGAP one: recreating this container replaces the namespace
     # (and drops the mesh), so it must not change with HomeGAP updates. Everything sharing the
     # namespace restarts with it if it ever is recreated (depends_on restart: true).
     image: docker.io/library/busybox:1.37
     entrypoint: ["sh", "-c", "trap 'exit 0' TERM INT; while :; do sleep 3600 & wait; done"]
-    # The orchestrator reaches the nodes' members through this namespace.
     sysctls:
       net.ipv4.ip_forward: "1"
-    # The e2e network is where the fake nodes are, so it is this namespace's way out to them
-    # (WireGuard) as well as its link to the orchestrator. The private network is the one that
+    # The e2e network is where the fake nodes and the services are, so it is the way of this
+    # namespace out to them. The private network is the one that
     # the front door serves VPN devices on (homegap.private_network).
     networks: [e2e, e2e-private]
 
@@ -239,59 +232,10 @@ services:
     depends_on: { mesh: { condition: service_started, restart: true } }
     volumes: ["./work/mesh:/mesh", "./work/vpn:/vpn"]
 
-  # Keeps the route of the orchestrator to the mesh subnet, as in deploy/compose.yml.
-  mesh-route:
-    image: homegap:e2e
-    command: ["mesh-route"]
-    restart: unless-stopped
-    network_mode: service:orchestrator
-    cap_drop: [ALL]
-    cap_add: [NET_ADMIN, DAC_READ_SEARCH]
-    security_opt: ["no-new-privileges:true"]
-    environment:
-      HOMEGAP_MESH_HOST: mesh
-    depends_on: { orchestrator: { condition: service_started, restart: true } }
-    volumes: ["./work/mesh:/mesh:ro"]
-
-  # The homelab's cluster member (etcd, PostgreSQL with Patroni, Valkey, Sentinel) in the mesh
-  # namespace, reading the config the orchestrator writes for it. As in deploy/compose.yml,
-  # these containers mount that config only, never the orchestrator's data directory.
-  cluster-etcd:
-    image: homegap-cluster:e2e
-    restart: unless-stopped
-    command: [etcd]
-    network_mode: service:mesh
-    depends_on: { mesh: { condition: service_started, restart: true } }
-    volumes: ["./work/cluster-config:/config:ro", "cluster-etcd:/var/lib/etcd"]
-  cluster-db:
-    image: homegap-cluster:e2e
-    restart: unless-stopped
-    command: [patroni]
-    network_mode: service:mesh
-    depends_on: { mesh: { condition: service_started, restart: true } }
-    shm_size: 256m
-    stop_grace_period: 60s
-    environment: { HG_BACKUP_DIR: /backups }
-    volumes: ["./work/cluster-config:/config:ro", "cluster-pgdata:/var/lib/postgresql/data", "cluster-backups:/backups"]
-  cluster-valkey:
-    image: homegap-cluster:e2e
-    restart: unless-stopped
-    command: [valkey]
-    network_mode: service:mesh
-    depends_on: { mesh: { condition: service_started, restart: true } }
-    volumes: ["./work/cluster-config:/config:ro", "cluster-valkey:/data"]
-  cluster-sentinel:
-    image: homegap-cluster:e2e
-    restart: unless-stopped
-    command: [sentinel]
-    network_mode: service:mesh
-    depends_on: { mesh: { condition: service_started, restart: true } }
-    volumes: ["./work/cluster-config:/config:ro", "cluster-sentinel:/var/lib/sentinel"]
-
-  # The orchestrator reads Docker only through this proxy (container list, events, images).
+  # The orchestrator reads Docker only through this proxy (container list and events).
   docker-proxy:
     image: docker.io/tecnativa/docker-socket-proxy:v0.5.0
-    environment: { CONTAINERS: 1, IMAGES: 1, EVENTS: 1, POST: 0 }
+    environment: { CONTAINERS: 1, EVENTS: 1, POST: 0 }
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
     networks: [e2e-docker]
 
@@ -325,19 +269,12 @@ services:
       # challenge records of the Bunny stand-in.
       LEGO_TLS_SKIP_VERIFY: "true"
       LEGO_DNS_PROPAGATION_WAIT: 1s
-      # The mesh namespace's name on the network the orchestrator shares with it.
-      HOMEGAP_MESH_HOST: mesh
       DOCKER_HOST: tcp://docker-proxy:2375
-      # Optional EE license, exported by run.sh from the repository's untracked .env.
-      PANGOLIN_LICENSE_KEY: ${PANGOLIN_LICENSE_KEY:-}
     volumes:
-      # run.sh points E2E_CONFIG at a generated copy for E2E_HOMELAB_ROLE=vote.
-      - ${E2E_CONFIG:-./config.e2e.yml}:/config/config.yml
+      - ./config.e2e.yml:/config/config.yml
       - ./work/keys:/keys:ro
       - ./work/certs:/certs:ro
       - ./work/data:/data
-      - ./work/cluster-config:/cluster-config
-      - ./work/tunnels:/tunnels
       - ./work/mesh:/mesh
       - ./work/identity:/identity
       - ./work/sign-in:/sign-in:ro
@@ -345,7 +282,7 @@ services:
 
   # The public sign-in of the homelab, as in deploy/compose.yml. It reads the signed directory of
   # users and has no key of the orchestrator.
-  sign-in:
+  homegap-sign-in:
     image: homegap:e2e
     command: ["sign-in"]
     restart: unless-stopped
@@ -353,15 +290,12 @@ services:
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
-    labels:
-      homegap.expose: "signin.test.example.net"
-      homegap.port: "8090"
     environment:
       HOMEGAP_OIDC_CLIENT_SECRET: e2e-oidc-client-secret
       # The provider of the harness has a certificate of the test CA.
       SSL_CERT_FILE: /certs/ca.pem
     volumes:
-      - ${E2E_CONFIG:-./config.e2e.yml}:/config/config.yml:ro
+      - ./config.e2e.yml:/config/config.yml:ro
       - ./work/certs:/certs:ro
       - ./work/identity:/identity:ro
       - ./work/sign-in:/sign-in
@@ -382,34 +316,15 @@ services:
       e2e:
         aliases: [auth.test.example.net]
 
-  tunnels:
-    image: homegap:e2e
-    command: ["tunnels"]
-    environment:
-      # Newt (Go) trusts the local ACME server that issued the certificate of the nodes.
-      SSL_CERT_FILE: /certs/trust.pem
-    # Kernel WireGuard for the main tunnel (tunnels.native: true).
-    cap_add: [NET_ADMIN]
-    devices: [ "/dev/net/tun:/dev/net/tun" ]
-    sysctls:
-      net.ipv4.tcp_rmem: "4096 131072 67108864"
-      net.ipv4.tcp_wmem: "4096 65536 67108864"
-      net.ipv4.tcp_reordering: "10"
-      net.ipv4.tcp_max_reordering: "1000"
-    volumes:
-      - ./work/tunnels:/tunnels
-      - ./work/certs:/certs:ro
-    networks: [e2e, e2e-private]
-
   viewer:
     image: docker.io/curlimages/curl:8.11.1
     entrypoint: ["sleep", "infinity"]
     volumes: [ "./work/certs:/certs:ro" ]
     networks: [e2e]
 
-  # A Pangolin client (cluster only): connects to pangolin.<domain>, which CLIENT_NODE_IP stands in
-  # for DNS steering to the nearest node, and reaches private services through the cluster.
-  # Start it with a machine client's credentials:
+  # A device of the VPN: the unmodified client of the apps. CLIENT_NODE_IP stands in for the DNS
+  # that sends the device to the nearest node. Start it with the credentials of a machine
+  # (`homegap machine add`):
   #   OLM_ID=… OLM_SECRET=… CLIENT_NODE_IP=172.30.0.10 docker compose --profile client up -d client
   client:
     image: docker.io/fosrl/olm:1.10.1
@@ -417,10 +332,13 @@ services:
     cap_add: [NET_ADMIN]
     devices: ["/dev/net/tun"]
     environment:
-      PANGOLIN_ENDPOINT: https://pangolin.test.example.net
+      PANGOLIN_ENDPOINT: https://signin.test.example.net
       OLM_ID: ${OLM_ID:-}
       OLM_SECRET: ${OLM_SECRET:-}
       SSL_CERT_FILE: /certs/trust.pem
+      # The local API of the client, to read its state and to pick an exit.
+      ENABLE_API: "true"
+      HTTP_ADDR: 127.0.0.1:9452
     volumes: [ "./work/certs:/certs:ro" ]
-    extra_hosts: ["pangolin.test.example.net:${CLIENT_NODE_IP:-172.30.0.11}"]
+    extra_hosts: ["signin.test.example.net:${CLIENT_NODE_IP:-172.30.0.11}"]
     networks: [e2e]

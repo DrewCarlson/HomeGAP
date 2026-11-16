@@ -407,7 +407,7 @@ class NodeCertificate(private val dir: String, private val lego: String = env("H
         addAll(listOf("--path", store, "--server", directory, "--email", email(config)))
     }
 
-    fun email(config: AppConfig) = config.acme.email ?: config.pangolin.acmeEmail ?: NodeTemplates.adminEmail(config)
+    fun email(config: AppConfig) = config.acme.email ?: NodeTemplates.adminEmail(config)
 
     companion object {
         const val RETRY_MS = 60 * 60_000L

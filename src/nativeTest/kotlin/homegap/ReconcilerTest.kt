@@ -3,15 +3,11 @@ package homegap
 import homegap.clients.BunnyClient
 import homegap.clients.BunnyRecord
 import homegap.clients.DnsWire
-import homegap.clients.PangolinClient
 import homegap.clients.SshPool
-import homegap.discovery.AuthMode
 import homegap.model.DesiredDnsRecord
 import homegap.model.Planner
-import homegap.platform.runCatchingCancellable
 import homegap.reconcile.*
 import homegap.state.StateStore
-import homegap.tunnels.TunnelSupervisor
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.client.request.HttpRequestData
@@ -20,15 +16,10 @@ import io.ktor.http.content.TextContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.*
-import kotlin.io.encoding.Base64
 import kotlin.test.*
 
 private fun MockRequestHandleScope.respondJson(body: String) =
     respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
-
-/** Answers as the Pangolin API does, with [data] in its envelope. */
-private fun MockRequestHandleScope.respondData(data: String) =
-    respondJson("""{"data":$data,"success":true,"error":false,"message":"ok","status":200}""")
 
 private fun HttpRequestData.text() = (body as TextContent).text
 
@@ -42,7 +33,6 @@ class ReconcilerTest {
         state = state,
         log = ReconcileLog(),
         ssh = SshPool(tmpPath("ssh"), tmpPath("kh")),
-        localHttp = http,
         dryRun = dryRun,
         diff = DiffCollector(),
     )
@@ -162,7 +152,7 @@ class ReconcilerTest {
         val records = desired.groupBy({ it.fqdn to DnsWire.typeCode(it.type) }, { it.value })
         // coco does not have the management record of na1 yet. It answers with the node of the wildcard.
         val probe = NameserverProbe { nameserver, name, type ->
-            if (nameserver == "coco.bunny.net" && name == "pangolin-na1.test.example.net") {
+            if (nameserver == "coco.bunny.net" && name == "node-na1.test.example.net") {
                 listOf("198.51.100.20")
             } else {
                 records[name to type].orEmpty()
@@ -172,7 +162,7 @@ class ReconcilerTest {
         val observed = DnsReconciler(ctx, bunnyClient(http), check).reconcile(desired, emptySet())
 
         val lagging = observed.filter { !it.inSync }
-        assertEquals(listOf("pangolin-na1.test.example.net"), lagging.map { it.desired?.fqdn })
+        assertEquals(listOf("node-na1.test.example.net"), lagging.map { it.desired?.fqdn })
         assertEquals(
             "${DnsReconciler.NOT_ON_EVERY_NAMESERVER}: coco.bunny.net still answers 198.51.100.20",
             lagging.single().diff,
@@ -197,97 +187,5 @@ class ReconcilerTest {
         DnsReconciler(pausedCtx, bunnyClient(http)).reconcile(desired, emptySet())
         assertTrue(bunny.records.none { it.comment?.endsWith("node=na1") == true })
         assertTrue(bunny.records.any { it.comment?.endsWith("node=as1") == true })
-    }
-
-    @Test
-    fun blueprintShapeMatchesPangolinSchema() {
-        val ctx = reconcileContext(HttpClient(MockEngine { error("no http") }))
-        val wiki = container(
-            "wiki",
-            "homegap.expose" to "wiki.test.example.net",
-            "homegap.port" to "8080",
-            "homegap.healthcheck" to "/healthz",
-        )
-        val ssh = container(
-            "ssh",
-            "homegap.expose" to "ssh.test.example.net",
-            "homegap.port" to "22",
-            "homegap.protocol" to "tcp",
-            "homegap.access" to "private",
-        )
-        val node = Planner.plan(ctx.config, listOf(TRAEFIK, wiki, ssh)).nodes.getValue("na1")
-        val reconciler = ResourceReconciler(ctx)
-        val blueprint = reconciler.buildBlueprint(node.publicResources, node.privateResources)
-        val publicResources = blueprint["public-resources"]!!.jsonObject
-        assertEquals(setOf("hg-frontdoor"), publicResources.keys, "Pangolin gets no HTTP resource of the plan")
-        val frontDoor = publicResources["hg-frontdoor"]!!.jsonObject
-        assertEquals("tcp", frontDoor["mode"]!!.jsonPrimitive.content)
-        assertNull(frontDoor["targets"]!!.jsonArray[0].jsonObject["method"], "tcp targets must not carry a method")
-        // The planner makes no HTTP resource with a sign-in for Pangolin. The blueprint still has the shape of one.
-        val planned = node.httpResources.single { it.niceId == "hg-wiki-test-example-net" }
-        val withSignIn = planned.copy(auth = AuthMode.SSO, roles = listOf("Member"))
-        val httpBlueprint = reconciler.buildBlueprint(listOf(withSignIn), emptyList())
-        val wikiResource = httpBlueprint["public-resources"]!!.jsonObject["hg-wiki-test-example-net"]!!.jsonObject
-        assertEquals("wiki.test.example.net", wikiResource["full-domain"]!!.jsonPrimitive.content)
-        assertEquals(true, wikiResource["auth"]!!.jsonObject["sso-enabled"]!!.jsonPrimitive.boolean)
-        val healthcheck = wikiResource["targets"]!!.jsonArray[0].jsonObject["healthcheck"]!!.jsonObject
-        assertEquals("/healthz", healthcheck["path"]!!.jsonPrimitive.content)
-        val wikiTarget = wikiResource["targets"]!!.jsonArray[0].jsonObject
-        assertEquals("homelab", wikiTarget["site"]!!.jsonPrimitive.content)
-        val sshResource = blueprint["private-resources"]!!.jsonObject["hg-ssh-test-example-net"]!!.jsonObject
-        assertEquals("host", sshResource["mode"]!!.jsonPrimitive.content)
-        assertEquals("22", sshResource["tcp-ports"]!!.jsonPrimitive.content)
-    }
-
-    @Test
-    fun resourceReconcilerDeletesOnlyManagedStaleResources() = runTest {
-        val deleted = mutableListOf<String>()
-        var applied: JsonObject? = null
-        val engine = MockEngine { request ->
-            val path = request.url.encodedPath
-            when {
-                path.endsWith("/resources") -> respondData("""{"resources":[
-                    {"resourceId":1,"niceId":"hg-frontdoor","mode":"tcp","proxyPort":1,"targets":[{"ip":"traefik","port":443}]},
-                    {"resourceId":2,"niceId":"hg-old-service","mode":"http","fullDomain":"old.test.example.net","targets":[]},
-                    {"resourceId":3,"niceId":"hand-made","mode":"http","fullDomain":"hand.test.example.net","targets":[]}
-                ]}""")
-                path.endsWith("/site-resources") -> respondData("""{"siteResources":[]}""")
-                path.endsWith("/blueprint") -> {
-                    val body = Json.parseToJsonElement(request.text()).jsonObject
-                    val blueprint = Base64.decode(body["blueprint"]!!.jsonPrimitive.content).decodeToString()
-                    applied = Json.parseToJsonElement(blueprint).jsonObject
-                    respondData("null")
-                }
-                request.method == HttpMethod.Delete -> {
-                    deleted += path
-                    respondData("null")
-                }
-                else -> error("unexpected $path")
-            }
-        }
-        val http = HttpClient(engine)
-        val ctx = reconcileContext(http)
-        val desired = Planner.plan(ctx.config, listOf(TRAEFIK)).nodes.getValue("na1")
-        val api = PangolinClient(http, baseUrl = "http://pangolin.invalid/v1", apiKey = "id.key")
-        val ready = ReadyNode(ctx.config.node("na1")!!, api)
-        val reconciler = ResourceReconciler(ctx)
-        // The write of the routes file through SSH fails in a test. The assertions are on the API calls.
-        runCatchingCancellable { reconciler.reconcile(ready, desired, emptySet()) }
-        assertNotNull(applied, "proxy-port mismatch triggers a blueprint apply")
-        assertEquals(listOf("/v1/resource/2"), deleted, "only stale hg- resources are deleted")
-    }
-
-    @Test
-    fun newtMetricsParsing() {
-        val metrics = TunnelSupervisor.parseMetrics("""
-            # HELP newt_tunnel_bytes_total bytes
-            newt_tunnel_bytes_total{direction="ingress",tunnel_id="a"} 1024
-            newt_tunnel_bytes_total{direction="egress",tunnel_id="a"} 2048
-            newt_tunnel_bytes_total{direction="ingress",tunnel_id="b"} 1
-            newt_websocket_connected{site="x"} 1
-        """.trimIndent())
-        assertEquals(1025, metrics.bytesIn)
-        assertEquals(2048, metrics.bytesOut)
-        assertEquals(true, metrics.connected)
     }
 }

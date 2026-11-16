@@ -36,7 +36,7 @@ class SearchTest {
     @Test
     fun aLiteralMatchHidesTheLooseOnes() {
         val index = searchIndex(
-            snapshot = snapshot(nodes = listOf(node("git1"), node("pangolin-test"))),
+            snapshot = snapshot(nodes = listOf(node("git1"), node("gateway-int"))),
             log = emptyList(),
             actions = emptyList(),
         )

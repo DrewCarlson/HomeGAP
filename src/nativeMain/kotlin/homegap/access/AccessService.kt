@@ -76,8 +76,8 @@ class AccessService(private val controller: Controller, private val identity: Id
             users.forEach { addAll(it.roles) }
             identity.machines().forEach { addAll(it.roles) }
             controller.desired?.services?.forEach { addAll(it.roles) }
-            config.cluster?.exitNodes?.roles?.let { addAll(it) }
-            config.cluster?.tunnelDns?.roles?.let { addAll(it) }
+            addAll(config.vpn.exitNodes.roles)
+            addAll(config.vpn.tunnelDns.roles)
         }
         return used.sortedWith(compareBy({ it != IdentityStore.ADMIN_ROLE }, { it }))
     }

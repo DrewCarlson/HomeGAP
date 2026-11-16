@@ -45,7 +45,6 @@ import homegap.presentation.speedtest.PhaseState
 import homegap.presentation.speedtest.SpeedTestScreenModel
 import homegap.presentation.speedtest.SpeedTestScreenPresenter
 import homegap.presentation.speedtest.SpeedTestScreenProps
-import homegap.presentation.tunnels.TunnelsScreenPresenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -66,11 +65,11 @@ class PresenterTest {
         val terminals = homegap.presentation.terminal.TerminalSessions(api, actions, confirmations, preferences, scope)
         val nodeActions = NodeActions(api, actions, confirmations, pausedGuard, relocation, terminals)
         val serviceActions = ServiceActions(api, actions, confirmations)
-        val nodes = NodesScreenPresenter(nodeActions, preferences)
+        val nodes = NodesScreenPresenter(nodeActions)
         val speedTest = SpeedTestScreenPresenter(api, session, actions, FakeTimeFormatter, scope)
         val activity = ActivityScreenPresenter(session, api, FakeTimeFormatter)
         val addNode = AddNodeScreenPresenter(api, session, AddNodeWizardStore(preferences), actions, scope)
-        val access = AccessScreenPresenter(api, session, actions, confirmations, FakeTimeFormatter, scope)
+        val access = AccessScreenPresenter(api, session, actions, confirmations, scope)
         val overview = OverviewScreenPresenter(preferences, nodeActions, serviceActions, FakeTimeFormatter)
         val app = AppPresenter(
             session = session,
@@ -87,7 +86,6 @@ class PresenterTest {
             dns = DnsScreenPresenter(api, actions),
             certificates = homegap.presentation.certificates.CertificatesScreenPresenter(api, actions, confirmations, FakeTimeFormatter),
             zoneRecords = homegap.presentation.zone.ZoneRecordsScreenPresenter(homegap.presentation.zone.ControllerZoneRecordsApi(api), actions, confirmations),
-            tunnels = TunnelsScreenPresenter(api, actions, confirmations),
             speedTest = speedTest,
             access = access,
             activity = activity,
@@ -576,18 +574,18 @@ class PresenterTest {
     @Test
     fun accessCreatesUsersWithAChosenOrAGeneratedPassword() = runTest {
         val unavailable = present(graph.access, AccessScreenProps()).first { it != AccessScreenModel.Loading }
-        assertEquals("no cluster", (unavailable as AccessScreenModel.Unavailable).message)
+        assertEquals("sign_in.url is not set", (unavailable as AccessScreenModel.Unavailable).message)
 
         val g = graph
         g.api.accessValue = AccessOverviewDto(
-            available = true, clientAddress = "https://pangolin.x", via = "na1",
+            available = true, clientAddress = "https://signin.x",
             roles = listOf(AccessRoleDto(1, "Admin", admin = true), AccessRoleDto(2, "Member")),
             users = listOf(AccessUserDto("u1", "admin@x", "admin@x", roleIds = listOf(1), roles = listOf("Admin"), owner = true)),
             devices = listOf(AccessDeviceDto(7, "phone", "user", user = "p@x", online = true, viaNode = "as1")),
         )
         val models = present(g.access, AccessScreenProps())
         val ready = models.first { it is AccessScreenModel.Ready } as AccessScreenModel.Ready
-        assertEquals("https://pangolin.x", ready.clientAddress)
+        assertEquals("https://signin.x", ready.clientAddress)
         assertFalse(ready.users.single().editable, "the only admin stays")
         assertEquals("via as1", ready.devices.single().via)
         // New users default to the least-privileged role, and need a valid email and password.
@@ -608,14 +606,14 @@ class PresenterTest {
         val cleared = models.first { (it as? AccessScreenModel.Ready)?.newUser?.email == "" } as AccessScreenModel.Ready
         cleared.newUser.onSetPassword(false)
         cleared.newUser.onEmail("q@x.org")
-        val invite = models.first { (it as? AccessScreenModel.Ready)?.newUser?.let { f -> !f.setPassword && f.canSubmit } == true } as AccessScreenModel.Ready
-        assertEquals("Create user", invite.newUser.submitText)
-        invite.newUser.onSubmit()
-        val linked = models.first { (it as? AccessScreenModel.Ready)?.inviteLink != null } as AccessScreenModel.Ready
-        assertEquals("made-by-homegap", linked.inviteLink)
+        val generated = models.first { (it as? AccessScreenModel.Ready)?.newUser?.let { f -> !f.setPassword && f.canSubmit } == true } as AccessScreenModel.Ready
+        assertEquals("Create user", generated.newUser.submitText)
+        generated.newUser.onSubmit()
+        val created = models.first { (it as? AccessScreenModel.Ready)?.newPassword != null } as AccessScreenModel.Ready
+        assertEquals("made-by-homegap", created.newPassword)
         assertEquals("create q@x.org [2] generated", g.api.calls.last())
 
-        linked.onDeviceAction(7, "block")
+        created.onDeviceAction(7, "block")
         assertTrue(g.api.calls.none { "device" in it }, "blocking asks first")
         assertEquals("Block phone?", g.confirmations.pending.value?.model?.title)
         g.confirmations.resolve(confirmed = true)
@@ -637,9 +635,9 @@ class PresenterTest {
         val g = graph
         val issuedAt = NOW / 1000 - 30 * 86_400
         val certs = homegap.api.CertificatesDto(
-            names = listOf(homegap.api.CertNameDto("pangolin-a1.example.net", "management", "a1"), homegap.api.CertNameDto("pangolin-b1.example.net", "management", "b1")),
-            issued = homegap.api.IssuedCertificateDto(listOf("pangolin-a1.example.net"), "R11 · Let's Encrypt", issuedAt, issuedAt + 90 * 86_400, issuedAt + 60 * 86_400, "EC P-256", "04:A1", "3F:9A", "3f9a00"),
-            pendingAdd = listOf("pangolin-b1.example.net"),
+            names = listOf(homegap.api.CertNameDto("node-a1.example.net", "management", "a1"), homegap.api.CertNameDto("node-b1.example.net", "management", "b1")),
+            issued = homegap.api.IssuedCertificateDto(listOf("node-a1.example.net"), "R11 · Let's Encrypt", issuedAt, issuedAt + 90 * 86_400, issuedAt + 60 * 86_400, "EC P-256", "04:A1", "3F:9A", "3f9a00"),
+            pendingAdd = listOf("node-b1.example.net"),
             directory = "https://acme-v02.api.letsencrypt.org/directory",
             order = homegap.api.CertOrderDto(state = "failed", cause = "dns-timeout", causeText = "DNS did not show the challenge record in time", failedAt = NOW - 12 * 60_000, retryAt = NOW + 48 * 60_000, failuresLastHour = 1),
             delivery = listOf(homegap.api.CertDeliveryDto("a1", "ok", installed = "3f9a00"), homegap.api.CertDeliveryDto("b1", "waiting")),
@@ -656,7 +654,7 @@ class PresenterTest {
         assertEquals(Health.DOWN, model.head.tabs[1].attention)
         assertEquals("Order now", model.head.actions.single().label)
         assertEquals("waiting for its name", model.delivery.first { it.node == "b1" }.state)
-        assertEquals(listOf("pangolin-b1.example.net"), model.certificate?.pending?.add?.map { it.name })
+        assertEquals(listOf("node-b1.example.net"), model.certificate?.pending?.add?.map { it.name })
         assertTrue(model.failure?.text.orEmpty().contains("b1 waits"), model.failure?.text)
         val facts = (model.inspector?.sections?.first() as homegap.presentation.ui.InspectorSection.Facts).rows
         assertTrue(facts.first { it.label == "SHA-256" }.copy, "a fingerprint can be copied")

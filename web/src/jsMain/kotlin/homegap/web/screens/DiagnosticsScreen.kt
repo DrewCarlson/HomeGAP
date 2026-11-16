@@ -86,7 +86,7 @@ fun DiagnosticsScreen(model: DiagnosticsScreenModel) {
                 ActionButton(
                     text = "Run diagnostics",
                     enabled = !model.loading && model.node != null,
-                    tooltip = "Containers, mesh, cluster proxy, firewall, NAT, ports and recent logs",
+                    tooltip = "Containers, mesh, firewall, NAT, ports and recent logs",
                     onClick = model.onRunDiagnostics,
                 )
             }

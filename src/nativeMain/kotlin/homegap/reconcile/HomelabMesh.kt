@@ -2,33 +2,21 @@ package homegap.reconcile
 
 import homegap.config.MeshConfig
 import homegap.config.SharedDirs
-import homegap.mesh.MeshRoute
 import homegap.platform.Files
-import homegap.platform.env
 import homegap.platform.nowMillis
-import homegap.provision.ClusterTemplates
 import homegap.provision.Mesh
-import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
-import kotlin.time.Duration.Companion.seconds
 
 /**
- * The homelab's end of the mesh, as the orchestrator sees it. The `hg-mesh` interface and the
- * homelab's cluster member live in their own network namespace (the `homegap-mesh` container),
- * which the orchestrator is not part of: every node is a member of the cluster database, so what
- * runs next to that database must reach nothing else at home.
+ * The homelab's end of the mesh, as the orchestrator sees it. The `hg-mesh` interface and the VPN
+ * peer live in their own network namespace (the `homegap-mesh` container), which the orchestrator
+ * is not part of: what a node can reach at home is only what that namespace forwards.
  *
  * The mesh agent (`homegap mesh`, in that namespace) owns the interface, its key and its firewall.
  * The orchestrator tells it what the mesh is through [dir] ([Mesh.SPEC_FILE]) and reads back what
- * it did ([Mesh.STATUS_FILE]). To reach the members itself (etcd, Patroni, Valkey), the mesh
- * subnet goes through that namespace over the network that the two share ([MeshRoute]).
+ * it did ([Mesh.STATUS_FILE]).
  */
-class HomelabMesh(
-    private val dir: String,
-    /** The mesh namespace's name on the network it shares with the orchestrator. */
-    private val gateway: String = env("HOMEGAP_MESH_HOST")?.takeIf { it.isNotBlank() } ?: "homegap-mesh",
-    private val now: () -> Long = ::nowMillis,
-) {
+class HomelabMesh(private val dir: String, private val now: () -> Long = ::nowMillis) {
     private val specFile = "$dir/${Mesh.SPEC_FILE}"
     private val statusFile = "$dir/${Mesh.STATUS_FILE}"
 
@@ -50,17 +38,17 @@ class HomelabMesh(
             val hint = SharedDirs.notAVolumeHint(dir, "data/mesh", "homegap-mesh-agent")
             return "the mesh agent has not reported. $hint"
         }
-        return "the mesh agent has not reported in $dir. $CLUSTER_SERVICES_HINT"
+        return "the mesh agent has not reported in $dir. Check that the homegap-mesh-agent container runs."
     }
 
-    /** Hands the agent the mesh ([address], [peers], [forwards] with the VPN) and routes the mesh subnet through it. */
-    suspend fun apply(mesh: MeshConfig, address: String, peers: List<Mesh.Peer>, forwards: MeshForwards.Result) {
+    /** Hands the agent the mesh: [address], [peers] and the [forwards] with the VPN. */
+    fun apply(mesh: MeshConfig, address: String, peers: List<Mesh.Peer>, forwards: MeshForwards.Result) {
         val spec = Mesh.AgentSpec(
             subnet = mesh.subnet,
             port = mesh.port,
             address = address,
             peers = peers.sortedBy { it.id },
-            openPorts = ClusterTemplates.MESH_PORTS,
+            openPorts = emptyList(),
             forwards = forwards.homelab.sortedWith(compareBy({ it.port }, { it.protocol })),
             vpn = forwards.vpn,
         )
@@ -69,7 +57,6 @@ class HomelabMesh(
             Files.mkdirs(dir)
             Files.writeAtomic(specFile, text, "600".toInt(8))
         }
-        route(mesh.subnet)
         status()?.error?.let { error(it) }
     }
 
@@ -80,33 +67,9 @@ class HomelabMesh(
         return status.peers.takeIf { status.applied == Mesh.specHash(wanted) }
     }
 
-    /**
-     * Waits until the mesh subnet goes through the mesh namespace. The orchestrator is an ordinary
-     * user and cannot change a route: the `homegap-mesh-route` container sets it. Each call finds
-     * the address of the namespace again, because the address changes when that container is
-     * recreated.
-     */
-    private suspend fun route(subnet: String) {
-        val resolved = MeshRoute.gatewayAddress(gateway)
-            ?: error("the mesh namespace ($gateway) is not on a network of the orchestrator. $CLUSTER_SERVICES_HINT")
-        repeat(ROUTE_POLLS) {
-            if (MeshRoute.present(subnet, resolved)) return
-            delay(ROUTE_POLL)
-        }
-        check(MeshRoute.present(subnet, resolved)) {
-            "no route to $subnet through $gateway: the homegap-mesh-route container sets it. $CLUSTER_SERVICES_HINT"
-        }
-    }
-
     private companion object {
         /** The agent reports four times a minute, and after each change. If the report is older than this, the agent does not run. */
         const val MAX_AGE_MS = 45_000L
-        const val ROUTE_POLLS = 15
-        val ROUTE_POLL = 1.seconds
-        /** The cluster services of the shipped compose file run only with the profile `cluster`. */
-        const val CLUSTER_SERVICES_HINT =
-            "If the cluster services of the stack do not run, add COMPOSE_PROFILES=cluster to .env " +
-                "and run `docker compose up -d`."
         val json = Json { ignoreUnknownKeys = true }
     }
 }

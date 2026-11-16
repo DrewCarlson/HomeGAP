@@ -12,7 +12,7 @@ object CertNames {
     const val MAX = 100
 
     /**
-     * A name and why it is on the certificate. [reason] is `management`, `client`, `status`,
+     * A name and why it is on the certificate. [reason] is `management`, `status`,
      * `speedtest`, `service` or `frontdoor`. [subject] is the node id or the service key.
      */
     data class Entry(val name: String, val reason: String, val subject: String?)
@@ -29,7 +29,6 @@ object CertNames {
         for (node in config.nodes) {
             add(node.managementHost(config.domain), "management", node.id)
         }
-        config.clientHost?.let { add(it, "client", null) }
         for (desiredNode in desired.nodes.values) {
             desiredNode.statusRedirect?.let { add(it.first, "status", null) }
             desiredNode.speedtestRedirect?.let { add(it.first, "speedtest", null) }

@@ -26,10 +26,10 @@ class MapsAndLocationsTest {
     private val dallas = PlaceDto(32.78, -96.8, "Dallas, Texas")
 
     @Test
-    fun theOverviewMapDrawsNodesTheHomelabAndItsTunnels() {
+    fun theOverviewMapDrawsNodesTheHomelabAndItsMeshLinks() {
         val down = node("b1", Health.DOWN).copy(
             location = PlaceDto(19.08, 72.88, "Mumbai"),
-            checks = listOf(CheckDto("pangolin", Health.DOWN, "running (unhealthy)"), CheckDto("ssh", Health.OK)),
+            checks = listOf(CheckDto("traefik", Health.DOWN, "running (unhealthy)"), CheckDto("ssh", Health.OK)),
         )
         val estimated = node("a1").copy(region = "EU", location = PlaceDto(50.1, 8.7, null, estimated = true), tunnelUp = true)
         val status = snapshot(nodes = listOf(estimated, down)).copy(homelab = dallas)
@@ -40,10 +40,10 @@ class MapsAndLocationsTest {
         val b1 = map.markers.single { it.id == "b1" }
         assertEquals(Health.DOWN, b1.health)
         assertEquals("Mumbai · AS", b1.info?.subtitle)
-        assertTrue(b1.info!!.rows.any { it.label == "pangolin" && it.health == Health.DOWN }, "what's failing")
+        assertTrue(b1.info!!.rows.any { it.label == "traefik" && it.health == Health.DOWN }, "what's failing")
         assertTrue(b1.info!!.rows.none { it.label == "ssh" }, "healthy checks stay out")
         assertEquals("EU (approximate)", map.markers.single { it.id == "a1" }.info?.subtitle)
-        assertEquals(mapOf("home-a1" to Health.OK, "home-b1" to Health.DOWN), map.lines.associate { it.id to it.health }, "lines follow the tunnels")
+        assertEquals(mapOf("home-a1" to Health.OK, "home-b1" to Health.DOWN), map.lines.associate { it.id to it.health }, "lines follow the mesh links")
 
         val noHome = snapshot(nodes = listOf(down)).overviewMap(NOW)
         assertTrue(noHome.lines.isEmpty() && noHome.markers.none { it.kind == MarkerKind.Homelab })

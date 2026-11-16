@@ -12,9 +12,8 @@ import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.ui.ProblemsFilterModel
 
 /**
- * The fleet of edges and the cluster they share: the rollout strip (only while an update runs or
- * is held), the fleet table, the cluster database and the mesh. Per-node actions live in the
- * Inspector.
+ * The fleet of nodes and the mesh they share: the rollout strip (only while an update runs or
+ * is held), the fleet table and the mesh. Per-node actions live in the Inspector.
  */
 @Immutable
 data class NodesScreenModel(
@@ -22,10 +21,7 @@ data class NodesScreenModel(
     val rollout: RolloutStripModel?,
     val fleet: List<FleetRowModel>,
     val filter: ProblemsFilterModel,
-    /** The cluster's database layer; null when the cluster is not configured. */
-    val database: DatabasePanelModel?,
-    val onSwitchPrimary: (memberId: String) -> Unit,
-    /** The cluster mesh; null when the cluster is not configured. */
+    /** The mesh. Null before the first pass that reads it. */
     val mesh: MeshMatrixModel?,
     /** The row that the Inspector shows, so the list can mark it. */
     val selected: Location? = null,
@@ -47,7 +43,9 @@ data class FleetRowModel(
     val note: String? = null,
     val noteHealth: Health = Health.UNKNOWN,
     val chart: ChartModel,
-    val tunnel: String,
+    /** "link up" or "link down": the mesh link between the node and the homelab. */
+    val meshLink: String,
+    val meshLinkHealth: Health,
     val certificate: String,
     val certificateHealth: Health = Health.UNKNOWN,
     val stack: String,
@@ -73,23 +71,14 @@ data class RolloutStepModel(
     val health: Health,
 )
 
-/** The mesh as a matrix: from each member (rows) to each other member (columns), in one [mode]. */
+/** The mesh as a matrix: the last handshake from each member (rows) with each other member (columns). */
 @Immutable
 data class MeshMatrixModel(
     val links: String,
-    val mode: MeshMode,
     val ids: List<String>,
     val rows: List<MeshRowModel>,
-    val onMode: (MeshMode) -> Unit,
     val legend: String,
 )
-
-/** What a mesh cell shows: the probe from the host, the probe from the containers, or the last handshake. */
-enum class MeshMode(val label: String) {
-    Host("Host probe"),
-    Container("Container probe"),
-    Handshake("Handshake"),
-}
 
 @Immutable
 data class MeshRowModel(

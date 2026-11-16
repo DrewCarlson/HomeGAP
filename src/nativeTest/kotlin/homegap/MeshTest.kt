@@ -1,6 +1,5 @@
 package homegap
 
-import homegap.config.ClusterConfig
 import homegap.config.ConfigLoader
 import homegap.config.MeshConfig
 import homegap.model.RawPort
@@ -36,9 +35,9 @@ class MeshTest {
             ConfigLoader.validate(config.copy(mesh = candidate))
         }.message!!
         assertTrue("100.64.0.0/10" in errorFor(MeshConfig(subnet = "100.89.0.0/24")))
-        assertTrue("Gerbil" in errorFor(MeshConfig(port = 51820)))
+        assertTrue("mesh.port" in errorFor(MeshConfig(port = 70000)))
         assertTrue("too small" in errorFor(MeshConfig(subnet = "10.77.0.0/27")))
-        ConfigLoader.validate(config.copy(cluster = ClusterConfig()))
+        ConfigLoader.validate(config.copy(mesh = MeshConfig(subnet = "10.77.0.0/26")))
     }
 
     @Test
@@ -73,13 +72,7 @@ class MeshTest {
         assertTrue("wg syncconf" in script, "peer changes apply without tearing the interface down")
         assertTrue("wg genkey" in script && "PUBKEY=" in script)
         assertTrue("allow 51821/udp" in script && $$"ufw $spec comment homegap" in script)
-        // A container of the node has no path to the control ports of the other members.
-        assertTrue("-I DOCKER-USER -o hg-mesh -p tcp -m multiport --dports 2380,26379 -j DROP" in script)
-        assertTrue(
-            "PostUp = iptables -N DOCKER-USER" in Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()),
-            "the rule comes back at boot",
-        )
-        // A rule for the bridge that admits more does not stay.
+        // A rule for the mesh interface that admits more does not stay.
         assertTrue($$"ufw delete $spec" in script)
         assertFalse("ufw allow" in Mesh.nodeScript(mesh, "10.77.0.10", "", openFirewall = false))
     }
@@ -102,8 +95,11 @@ class MeshTest {
     @Test
     fun firewallOpensTheMeshPortOnlyWhenItGetsOne() {
         val node = NodeConfig(id = "eu1", host = "203.0.113.30", sshKeyFile = "/k")
-        assertTrue("allow 51821/udp" in FirewallRules.specs(node, meshPort = 51821))
-        assertFalse(FirewallRules.specs(node).any { "51821" in it })
+        val web = listOf("allow 22/tcp", "allow 80/tcp", "allow 443/tcp", "allow 443/udp")
+        val withMesh = web + "allow 51821/udp"
+        assertEquals(withMesh, FirewallRules.specs(node, meshPort = 51821))
+        assertEquals(web, FirewallRules.specs(node), "SSH and the web, and no port of a removed part")
+        assertEquals(listOf("allow 51821/udp"), FirewallRules.meshSpecs(51821), "no port is open on the mesh interface")
     }
 
     @Test
@@ -126,7 +122,7 @@ class MeshTest {
         assertTrue(toTraefik in rules)
         assertTrue("-A HG-FWD -i hg-mesh -d 172.20.0.2 -p tcp --dport 443 -m conntrack --ctstate DNAT -j ACCEPT" in rules)
         assertTrue("-p udp --dport 3478 -j DNAT --to-destination 172.20.0.9:3478" in rules)
-        // A port of the cluster gets no rule.
+        // A TCP forward on an open port of the member gets no rule.
         assertFalse("--to-destination 172.20.0.2:5432" in rules)
         // The namespace refuses all other traffic of a node.
         assertEquals("-A HG-FWD -j DROP", rules.lines().last { it.startsWith("-A HG-FWD") })

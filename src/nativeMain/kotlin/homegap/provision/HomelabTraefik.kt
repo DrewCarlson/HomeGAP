@@ -28,13 +28,13 @@ object HomelabTraefik {
     /** The router and the service of the speed test and the status page. */
     const val PAGES = "homegap-pages"
 
-    /** The router that gives the shared name of the status page to Pangolin clients. */
+    /** The router that gives the shared name of the status page to VPN devices. */
     const val PRIVATE_STATUS = "homegap-status-private"
 
     /** The router and the service of the dashboard. */
     const val DASHBOARD = "homegap-dashboard"
 
-    /** The middleware that admits only the private path of Pangolin clients. */
+    /** The middleware that admits only the private path of VPN devices. */
     const val PRIVATE_ONLY = "homegap-private-only"
 
     /** The middleware that removes the sign-in headers from the request of the client. */
@@ -120,13 +120,13 @@ object HomelabTraefik {
     /**
      * The pages that the orchestrator serves: the speed test and the status page. The route of
      * [hosts] goes to the listener at [origin]. With [privateStatus], the shared name of the status
-     * page has a route too, only for the source range of Pangolin clients.
+     * page has a route too, only for the source range of VPN devices.
      */
     class Pages(val hosts: List<String>, val origin: String, val privateStatus: PrivateStatus? = null) {
         val isEmpty: Boolean get() = hosts.isEmpty() && privateStatus == null
     }
 
-    /** The shared name of the status page, and the source range of Pangolin clients that can use it. */
+    /** The shared name of the status page, and the source range of VPN devices that can use it. */
     class PrivateStatus(val host: String, val allowFrom: String)
 
     private val NO_PAGES = Pages(emptyList(), origin = "")

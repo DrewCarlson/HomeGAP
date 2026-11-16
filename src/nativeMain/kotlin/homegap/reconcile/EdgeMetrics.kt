@@ -91,8 +91,6 @@ class EdgeMetrics(private val capacity: Int = SAMPLES_PER_DAY) {
     }
 
     companion object {
-        const val API = "api"
-        const val MESH = "mesh"
         const val TUNNEL_IN = "in"
         const val TUNNEL_OUT = "out"
         const val REQUESTS = "rps"

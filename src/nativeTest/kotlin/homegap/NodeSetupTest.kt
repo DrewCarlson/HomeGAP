@@ -29,7 +29,7 @@ class NodeSetupTest {
             limited.take(2),
         )
         assertTrue(limited.none { it == "allow 2222/tcp" }, "no open SSH rule once sources are listed")
-        assertTrue("allow 51820/udp" in limited && "allow 443/tcp" in limited)
+        assertEquals(listOf("allow 80/tcp", "allow 443/tcp", "allow 443/udp"), limited.drop(2))
     }
 
     @Test

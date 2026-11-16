@@ -48,7 +48,7 @@ class SpeedTestTokens {
     /**
      * A new token. A [limited] token is for a device link, which leaves the homelab. It has a cap
      * on streams, bytes and saved results. The token of a homelab-to-node test has no cap. A [vpn]
-     * token is the link of a Pangolin client.
+     * token is the link of a VPN device.
      */
     fun issue(ttlMillis: Long, limited: Boolean = true, vpn: Boolean = false): Pair<String, Long> {
         return synchronized(lock) { issueLocked(ttlMillis, limited, vpn) }
@@ -68,7 +68,7 @@ class SpeedTestTokens {
         return synchronized(lock) { (tokens[token]?.expiresAt ?: 0) > nowMillis() }
     }
 
-    /** Whether [token] is the link of a Pangolin client. */
+    /** Whether [token] is the link of a VPN device. */
     fun vpn(token: String?): Boolean = synchronized(lock) { tokens[token]?.vpn == true }
 
     fun revoke(token: String): Unit = synchronized(lock) { tokens.remove(token) }
@@ -321,7 +321,7 @@ class SpeedTestServer(
     }
 
     /**
-     * Gives a Pangolin client a link, with no link from the dashboard. Only the shared name has a
+     * Gives a VPN device a link, with no link from the dashboard. Only the shared name has a
      * private path, and only a request from the private network of the front door gets a link.
      */
     private suspend fun RoutingContext.vpnLink() {
@@ -451,7 +451,7 @@ class SpeedTestServer(
         call.respond(HttpStatusCode.NoContent)
     }
 
-    /** Tells the visitor the own address, or that the request came from a Pangolin client. */
+    /** Tells the visitor the own address, or that the request came from a VPN device. */
     private suspend fun RoutingContext.statusClient() {
         if (!status.serves(call.request.host())) {
             return call.respond(HttpStatusCode.NotFound)

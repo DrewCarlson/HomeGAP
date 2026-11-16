@@ -37,7 +37,7 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * The dashboard: the REST API (route groups in `homegap.routes`, which [RoutingControllers]
- * mounts) and the embedded SPA. Publish it only as a private Pangolin resource. Every `/api` route
+ * mounts) and the embedded SPA. Publish it only as a private service. Every `/api` route
  * also needs the bearer token ([DashboardAuth]). It never returns secret values.
  */
 @SingleIn(AppScope::class)

@@ -1,10 +1,6 @@
 package homegap.presentation.nodes
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -13,7 +9,6 @@ import homegap.api.NodeStatusDto
 import homegap.api.StatusSnapshot
 import homegap.presentation.common.Badge
 import homegap.presentation.core.Presenter
-import homegap.presentation.data.Preferences
 import homegap.presentation.data.Samples
 import homegap.presentation.format.label
 import homegap.presentation.format.plural
@@ -41,23 +36,11 @@ data class NodesScreenProps(
 @Inject
 class NodesScreenPresenter(
     private val nodeActions: NodeActions,
-    private val preferences: Preferences,
 ) : Presenter<NodesScreenProps, NodesScreenModel> {
     @Composable
     override fun model(props: NodesScreenProps): NodesScreenModel {
         val status = props.status
         val now = props.now
-        var meshMode by remember {
-            mutableStateOf(
-                preferences.get(MESH_MODE_KEY)?.let { saved -> MeshMode.entries.firstOrNull { it.name == saved } } ?: MeshMode.Host
-            )
-        }
-        val onMeshMode = remember {
-            { mode: MeshMode ->
-                meshMode = mode
-                preferences.set(MESH_MODE_KEY, mode.name)
-            }
-        }
         val selected = status.nodes.firstOrNull { it.id == props.selection }
         val filter = rememberProblemsFilter(
             total = status.nodes.size,
@@ -85,19 +68,10 @@ class NodesScreenPresenter(
                 fleetRow(
                     node = node,
                     samples = props.metrics[node.id],
-                    status = status,
                     now = now,
                 )
             },
-            database = remember(status.cluster, now / 60_000) { status.cluster?.toPanelModel(now) },
-            onSwitchPrimary = remember { { id: String -> nodeActions.switchPrimary(id) } },
-            mesh = status.mesh?.let { mesh ->
-                meshMatrix(
-                    panel = mesh.toPanelModel(now),
-                    mode = meshMode,
-                    onMode = onMeshMode,
-                )
-            },
+            mesh = status.mesh?.let { mesh -> meshMatrix(mesh.toPanelModel(now)) },
             selected = selected?.let { Location(Route.Nodes, it.id) },
             inspector = selected?.let { node ->
                 nodeInspector(
@@ -128,11 +102,9 @@ class NodesScreenPresenter(
     private fun fleetRow(
         node: NodeStatusDto,
         samples: Map<String, Samples>?,
-        status: StatusSnapshot,
         now: Long,
     ): FleetRowModel {
         val passing = node.checks.count { it.health == Health.OK }
-        val api = node.checks.firstOrNull { it.name == "pangolin-api" }
         val problem = node.checks.firstOrNull { it.health == Health.DOWN } ?: node.checks.firstOrNull { it.health == Health.DEGRADED }
         return FleetRowModel(
             id = node.id,
@@ -153,16 +125,13 @@ class NodesScreenPresenter(
                 else -> Health.DEGRADED
             },
             chart = chartOf(
-                label = "Pangolin API probe",
-                samples = samples?.get("api"),
+                label = "Requests served",
+                samples = samples?.get("rps"),
                 nowSeconds = now / 1000,
-                threshold = api?.threshold,
+                unit = "r/s",
             ),
-            tunnel = when {
-                status.tunnels.firstOrNull { it.nodeId == node.id }?.up == true -> "healthy"
-                node.tunnelUp -> "healthy"
-                else -> "failing"
-            },
+            meshLink = if (node.tunnelUp) "link up" else "link down",
+            meshLinkHealth = if (node.tunnelUp) Health.OK else Health.DOWN,
             certificate = if (node.waitingForCertificate) "waiting" else node.certificate?.daysRemaining?.let { "$it days" } ?: "—",
             certificateHealth = node.checks.firstOrNull { it.name == "tls-mgmt" }?.health ?: Health.UNKNOWN,
             stack = stackText(node),
@@ -216,30 +185,21 @@ class NodesScreenPresenter(
         )
     }
 
-    private fun meshMatrix(
-        panel: MeshPanelModel,
-        mode: MeshMode,
-        onMode: (MeshMode) -> Unit,
-    ): MeshMatrixModel {
+    private fun meshMatrix(panel: MeshPanelModel): MeshMatrixModel {
         val ids = panel.members.map { it.id }
         val rows = panel.members.map { member ->
-            val badges = when (mode) {
-                MeshMode.Host -> member.probes
-                MeshMode.Container -> member.containerProbes
-                MeshMode.Handshake -> member.peers
-            }
             MeshRowModel(
                 id = member.id,
                 cells = ids.map { other ->
                     if (other == member.id) {
                         MeshCellModel(text = "", detail = "", health = Health.UNKNOWN, title = "")
                     } else {
-                        badges.firstOrNull { it.text.substringBefore(" ") == other }?.toCell()
+                        member.peers.firstOrNull { it.text.substringBefore(" ") == other }?.toCell()
                             ?: MeshCellModel(
                                 text = "—",
                                 detail = "",
                                 health = Health.UNKNOWN,
-                                title = member.error ?: "No ${mode.label.lowercase()} from ${member.id}",
+                                title = member.error ?: "No handshake from ${member.id}",
                             )
                     }
                 },
@@ -249,24 +209,15 @@ class NodesScreenPresenter(
         val up = panel.members.sumOf { member -> member.peers.count { it.health == Health.OK } }
         return MeshMatrixModel(
             links = "$up of $links links",
-            mode = mode,
             ids = ids,
             rows = rows,
-            onMode = onMode,
-            legend = when (mode) {
-                MeshMode.Host -> "Round trip of each member's probe over the mesh, from its host, with loss and outages in the last hour."
-                MeshMode.Container -> "The same probe from inside the member's Docker network, the path Pangolin's database traffic takes."
-                MeshMode.Handshake -> "When each member last completed a WireGuard handshake with each other one (about every 2 min while traffic flows)."
-            },
+            legend = "When each member last completed a WireGuard handshake with each other one " +
+                "(about every 2 min while traffic flows).",
         )
-    }
-
-    private companion object {
-        const val MESH_MODE_KEY = "nodes.mesh"
     }
 }
 
-/** "eu1 · 12.3 ms · 0.4% lost" as a cell: the round trip on top, loss and outages under it. */
+/** "eu1 · 2 min ago" as a cell: the time of the handshake, with the rest under it. */
 private fun Badge.toCell(): MeshCellModel {
     val parts = text.split(" · ").drop(1)
     return MeshCellModel(

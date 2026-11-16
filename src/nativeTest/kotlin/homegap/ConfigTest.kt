@@ -1,7 +1,7 @@
 package homegap
 
 import homegap.config.AcmeConfig
-import homegap.config.ClusterConfig
+import homegap.config.AgentConfig
 import homegap.config.ConfigLoader
 import homegap.config.parseDuration
 import homegap.platform.Files
@@ -53,11 +53,11 @@ class ConfigTest {
     }
 
     @Test
-    fun theDefaultClusterImageHasTheTagOfTheStack() {
-        val repository = ClusterConfig.IMAGE_REPOSITORY
-        assertEquals("$repository:0.1", ClusterConfig.defaultImage("0.1"))
-        assertEquals("$repository:$VERSION", ClusterConfig.defaultImage(null))
-        assertEquals("$repository:$VERSION", ClusterConfig.defaultImage(" "))
+    fun theDefaultAgentImageHasTheTagOfTheStack() {
+        val repository = AgentConfig.IMAGE_REPOSITORY
+        assertEquals("$repository:0.1", AgentConfig.defaultImage("0.1"))
+        assertEquals("$repository:$VERSION", AgentConfig.defaultImage(null))
+        assertEquals("$repository:$VERSION", AgentConfig.defaultImage(" "))
     }
 
     @Test

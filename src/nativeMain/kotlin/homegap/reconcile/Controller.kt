@@ -14,22 +14,19 @@ import homegap.api.*
 import homegap.clients.*
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.AppConfig
-import homegap.config.ClusterConfig
 import homegap.config.ConfigLoader
 import homegap.config.GeoLocation
 import homegap.config.NodeConfig
-import homegap.config.clusterConfigDir
 import homegap.config.meshDir
 import homegap.config.parseDuration
 import homegap.config.sharedDirProblems
-import homegap.config.tunnelsDir
 import homegap.di.ExternalHttp
 import homegap.di.LocalHttp
 import homegap.di.RunOptions
+import homegap.discovery.Access
 import homegap.discovery.DiscoveryMemory
 import homegap.discovery.DockerClient
 import homegap.discovery.DockerContainerSummary
-import homegap.discovery.DockerImage
 import homegap.discovery.ServiceSpec
 import homegap.discovery.TraefikApi
 import homegap.discovery.TraefikRouter
@@ -39,20 +36,15 @@ import homegap.discovery.traefikApiUrls
 import homegap.identity.IdentityStore
 import homegap.provision.Mesh
 import homegap.identity.VpnAccess
-import homegap.model.DesiredDnsRecord
 import homegap.model.DesiredState
 import homegap.model.HomelabServices
 import homegap.model.Planner
 import homegap.model.isHttpLike
 import homegap.platform.Crypto
-import homegap.platform.Files
 import homegap.platform.nowMillis
 import homegap.platform.queryNameserver
 import homegap.platform.runCatchingCancellable
-import homegap.provision.ClusterProxy
-import homegap.provision.ExitNodes
 import homegap.provision.NodeTemplates
-import homegap.provision.TunnelDns
 import homegap.speedtest.SpeedTestStore
 import homegap.speedtest.SpeedTestTokens
 import homegap.speedtest.TunnelSpeedTest
@@ -60,7 +52,6 @@ import homegap.speedtest.newResultId
 import homegap.state.ControllerState
 import homegap.state.NodeState
 import homegap.state.StateStore
-import homegap.tunnels.TunnelFiles
 import io.ktor.client.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -77,7 +68,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.ContinuationInterceptor
-import kotlin.io.encoding.Base64
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -192,26 +182,25 @@ class Controller(
 
     @Volatile private var dnsObs: List<DnsReconciler.Observed> = emptyList()
 
-    @Volatile private var siteOnline: Map<String, Boolean?> = emptyMap()
     /** The forwards of the last pass that had the container list. A pass with no list keeps them. */
     private var meshForwards = MeshForwards.Result()
 
     /** The exit at the homelab and the DNS servers of the tunnel, from the config. The tunnel has no IPv6. */
     private fun vpnAccess(cfg: AppConfig): VpnAccess {
-        val exits = cfg.cluster?.exitNodes
-        val dns = cfg.cluster?.tunnelDns
+        val exits = cfg.vpn.exitNodes
+        val dns = cfg.vpn.tunnelDns
         return VpnAccess(
-            exitRoles = exits?.roles?.takeIf { exits.homelab },
-            resolvers = dns?.resolvers.orEmpty().filter { IPV4.matches(it) },
-            resolverRoles = dns?.roles.orEmpty(),
-            nodeExitRoles = exits?.roles?.takeIf { exits.nodes },
+            exitRoles = exits.roles.takeIf { exits.homelab },
+            resolvers = dns.resolvers.filter { IPV4.matches(it) },
+            resolverRoles = dns.roles,
+            nodeExitRoles = exits.roles.takeIf { exits.nodes },
         )
     }
 
     /** The exit of the node [id], or null if the nodes are no exits or the node has no slot yet. */
     private fun nodeExit(cfg: AppConfig, id: String): Mesh.NodeExit? {
-        if (cfg.cluster?.exitNodes?.nodes != true) return null
-        val slot = knownTunnelSlots()[id] ?: return null
+        if (!cfg.vpn.exitNodes.nodes) return null
+        val slot = knownNodeSlots()[id] ?: return null
         val meshAddress = Mesh.nodeAddress(cfg.mesh, slot)
         return Mesh.NodeExit(
             subnet = cfg.vpn.clientSubnet,
@@ -256,26 +245,6 @@ class Controller(
 
     /** The last pass had no address for the services of the homelab host. The log shows it once. */
     private var hostAddressMissing = false
-
-    private val clusterRec by lazy {
-        ClusterReconciler(
-            dataDir = config.dataDir,
-            http = localHttp,
-            configDir = config.clusterConfigDir,
-            inUse = {
-                val stored = state.snapshot()
-                stored.clusterPangolin?.bootstrapped == true || stored.nodes.values.any { it.meshPublicKey != null }
-            },
-        )
-    }
-
-    /** The cluster's reachable Pangolins as of the last pass, and which node each exit node is. */
-    @Volatile private var clusterReady: Map<String, ReadyNode> = emptyMap()
-
-    @Volatile private var exitNodes: Map<Int, String> = emptyMap()
-
-    /** The recent cluster proxy readings of each node, to count lost primaries. */
-    private val proxyHistory = mutableMapOf<String, MutableList<Pair<Long, Map<String, Long>>>>()
 
     /** The last routers each front door's Traefik API reported (kept while it doesn't answer). */
     private val routerCache = mutableMapOf<String, List<TraefikRouter>>()
@@ -329,52 +298,6 @@ class Controller(
         return if (complete) routerCache.filterKeys { it in urls } else null
     }
 
-    /** Moves the database primary to [to] now (dashboard). See [ClusterReconciler.switchover]. */
-    suspend fun switchPrimary(to: String): String = onLoop { switchPrimaryOnLoop(to) }
-
-    private suspend fun switchPrimaryOnLoop(to: String): String {
-        check(config.cluster != null && !dryRun) { "the cluster is not enabled" }
-        val message = clusterRec.switchover(to)
-        log.change("cluster", "$message (requested from the dashboard)")
-        trigger("dashboard:switchover")
-        return message
-    }
-
-    /** Moves the primaries off the homelab and holds them there (see [ClusterReconciler.beginMaintenance]). */
-    suspend fun beginMaintenance(holdMinutes: Int): String = onLoop { beginMaintenanceOnLoop(holdMinutes) }
-
-    private suspend fun beginMaintenanceOnLoop(holdMinutes: Int): String {
-        val cluster = config.cluster
-        check(cluster != null && !dryRun) { "the cluster is not enabled" }
-        // No pass right away: Pangolin's connections are still moving to the new primary.
-        val message = clusterRec.beginMaintenance(cluster, holdMinutes.coerceIn(5, 240) * 60_000L)
-        log.change("cluster", message)
-        return message
-    }
-
-    suspend fun endMaintenance(): String = onLoop { endMaintenanceOnLoop() }
-
-    private fun endMaintenanceOnLoop(): String {
-        check(config.cluster != null) { "the cluster is not enabled" }
-        val message = clusterRec.endMaintenance()
-        log.change("cluster", message)
-        trigger("maintenance")
-        return message
-    }
-
-    /**
-     * A reachable Pangolin of the cluster (the first ready node in config order) and the exit node
-     * map, for dashboard actions on its users and devices. Null without a cluster or a ready node.
-     */
-    fun clusterPangolin(): Pair<ReadyNode, Map<Int, String>>? {
-        if (config.cluster == null) return null
-        val ready = clusterReady
-        val first = config.nodes.firstOrNull { it.id in ready } ?: return null
-        return ready.getValue(first.id) to exitNodes
-    }
-
-    @Volatile private var clusterStatus: ClusterStatusDto? = null
-
     /** Desired-records hash and time of the last successful DNS sync (see the DNS step). */
     private var dnsKey: String? = null
     private var dnsSyncedAt = 0L
@@ -386,7 +309,6 @@ class Controller(
         val reachable: Boolean,
         val checks: List<CheckDto>,
         val certificate: CertificateDto?,
-        val apiOk: Boolean,
         /** Each service hostname requested through this node's proxy: status code and time. */
         val serviceProbes: Map<String, ServiceProbe> = emptyMap(),
         /** Traefik's request and response-byte counters, summed over entry points. Null without metrics. */
@@ -404,19 +326,6 @@ class Controller(
     /** When each attention item was first seen, kept across passes. */
     @Volatile private var attentionSeen: Map<String, Long> = emptyMap()
 
-    /** The Newt version each node's Pangolin reports for its homelab site. */
-    private val newtVersions = mutableMapOf<String, String>()
-
-    /** Asks the tunnel supervisor to restart [nodeId]'s connector now. */
-    fun restartTunnel(nodeId: String): String {
-        val cfg = config
-        requireNotNull(cfg.node(nodeId)) { "unknown node $nodeId" }
-        val dir = cfg.tunnelsDir
-        Files.writeAtomic(TunnelFiles.restartPath(dir, nodeId), nowMillis().toString())
-        log.change("tunnels", "connector restart requested from the dashboard", nodeId)
-        return "Restarting the $nodeId connector"
-    }
-
     /** Labeled homelab containers at the last discovery. */
     @Volatile private var homelabContainers: Int? = null
 
@@ -426,14 +335,11 @@ class Controller(
     /** The stack that a pending update or an update in progress brings to each node. */
     private val targetStacks = mutableMapOf<String, String>()
 
-    /** Tunnel byte counters at the previous sample, for throughput: node id to (time, in, out). */
-    private val tunnelBytes = mutableMapOf<String, Triple<Long, Long, Long>>()
+    /** The byte counters of the mesh link of each node at the previous sample: node id to (time, in, out). */
+    private val meshBytes = mutableMapOf<String, Triple<Long, Long, Long>>()
 
     /** Traefik counters at the previous sample: node id to (time, requests, response bytes). */
     private val trafficCounters = mutableMapOf<String, Triple<Long, Double, Double>>()
-
-    /** The fastest Pangolin API probe of each node since the start, in ms. */
-    private val apiBest = mutableMapOf<String, Double>()
 
     fun trigger(reason: String) {
         triggers.trySend(reason)
@@ -544,7 +450,6 @@ class Controller(
                 state = state,
                 log = log,
                 ssh = ssh,
-                localHttp = localHttp,
                 dryRun = dryRun,
                 diff = diff,
                 applyOnce = applyOnce,
@@ -564,7 +469,9 @@ class Controller(
             val listed: List<DockerContainerSummary>? = runCatchingCancellable {
                 // Docker has no filter for a label prefix, and a container can have only named services.
                 passTimes.measure("discovery") {
-                    docker.listContainers(mapOf("status" to listOf("running"))).filter { declaresService(it.labels) }
+                    // The sign-in has no label: the pass needs its address for the name of the sign-in.
+                    docker.listContainers(mapOf("status" to listOf("running")))
+                        .filter { declaresService(it.labels) || HomelabServices.isSignIn(it) }
                 }
             }.onFailure {
                 log.error("discovery", "cannot list containers: ${it.message}")
@@ -597,7 +504,7 @@ class Controller(
             val routers = containers?.let { passTimes.measure("discovery") { traefikRouters(it) } }
             val hostServices = HomelabServices.containers(cfg)
             if (cfg.homelab.ssh.enabled && hostServices.isEmpty() && !hostAddressMissing) {
-                log.warn("discovery", "homelab.ssh waits for the address of the host from the tunnels container")
+                log.warn("discovery", "homelab.ssh waits for the address of the host from the mesh agent")
             }
             hostAddressMissing = cfg.homelab.ssh.enabled && hostServices.isEmpty()
             val planned = known.orEmpty() + hostServices
@@ -654,37 +561,26 @@ class Controller(
             val onCertificate = CertNames.of(cfg, effective)
             val certProbeNames = onCertificate + CertNames.passthrough(effective).filter { it !in onCertificate }
 
-            // 2-4. Node lifecycle, tunnels and resources, per node in parallel.
-            val nodeRec = NodeReconciler(ctx, if (cfg.cluster != null) clusterRec else null)
-            val tunnelRec = TunnelReconciler(ctx)
-            val exitRec = ExitReconciler(ctx)
-            val exitSites = mutableMapOf<String, String>()
-            val resourceRec = ResourceReconciler(ctx, certs)
+            // 2-4. The lifecycle of each node and the files that change with the services, per node in parallel.
+            val nodeRec = NodeReconciler(ctx)
+            val nodeRoutes = NodeRoutes(ctx, certs)
             val health = mutableMapOf<String, Map<String, ServiceNodeHealthDto>>()
-            // niceIds observed present on each node this pass (absent key = node not observed).
-            val present = mutableMapOf<String, Set<String>>()
-            val online = mutableMapOf<String, Boolean?>()
             val obs = mutableMapOf<String, NodeObservation>()
-            // In a cluster the resources are shared: applied once after the per-node work.
-            val clustered = cfg.cluster != null
-            val readyNodes = mutableMapOf<String, Pair<ReadyNode, PangolinSite>>()
-            // Permanent tunnel slots (subnet, interface, ports). The list position never gives a slot.
-            val slots = TunnelSlots.assign(cfg.nodes.map { it.id }, state.snapshot().nodes)
+            // Permanent slots, which give each node its mesh address. The list position never gives a slot.
+            val slots = NodeSlots.assign(cfg.nodes.map { it.id }, state.snapshot().nodes)
             if (!dryRun) {
                 for ((id, slot) in slots) {
-                    if (state.node(id).tunnelSlot != slot) state.updateNode(id) { it.copy(tunnelSlot = slot) }
+                    if (state.node(id).slot != slot) state.updateNode(id) { it.copy(slot = slot) }
                 }
             }
             coroutineScope {
                 cfg.nodes.map { node ->
                     val nodeStarted = nowMillis()
                     async {
-                        val slot = state.node(node.id).tunnelSlot ?: slots.getValue(node.id)
-                        val nodePlan = effective.nodes.getValue(node.id)
+                        val nodePlan = effective.nodes.getValue(node.id).copy(exit = nodeExit(cfg, node.id))
                         // A node being provisioned in the background keeps its last observation.
                         fun carryOver() {
                             nodeObs[node.id]?.let { synchronizedPut(obs, node.id, it) }
-                            synchronizedPut(online, node.id, siteOnline[node.id])
                             serviceHealth[node.id]?.let { synchronizedPut(health, node.id, it) }
                         }
                         if (jobs[node.id]?.second?.isActive == true) {
@@ -692,8 +588,9 @@ class Controller(
                             return@async
                         }
                         val force = forceProvision.remove(node.id)
-                        val assessment = runDomain("nodes", node.id) { nodeRec.assess(nodePlan, slot, force) }
-                        var ready: ReadyNode? = null
+                        val assessment = runDomain("nodes", node.id) { nodeRec.assess(nodePlan, force) }
+                        // True if the node runs a stack, so this pass can write its files.
+                        var serving = false
                         if (assessment != null) {
                             if (assessment.kind == NodeReconciler.Kind.UPDATE) {
                                 targetStacks[node.id] = assessment.hash
@@ -707,9 +604,7 @@ class Controller(
                                         log.info("nodes", "${assessment.reason}: ${decision.reason}", node.id)
                                     }
                                     // A node waiting for its update keeps serving on its current stack.
-                                    if (assessment.kind != NodeReconciler.Kind.FRESH) {
-                                        ready = runDomain("nodes", node.id) { nodeRec.ready(assessment, slot) }
-                                    }
+                                    serving = assessment.kind != NodeReconciler.Kind.FRESH
                                 }
                                 assessment.paused || assessment.kind == NodeReconciler.Kind.NONE -> {
                                     waiting.remove(node.id)
@@ -723,35 +618,21 @@ class Controller(
                                             node.id,
                                         )
                                     }
-                                    ready = runDomain("nodes", node.id) { nodeRec.ready(assessment, slot) }
+                                    serving = !assessment.paused
                                 }
                                 else -> {
                                     waiting.remove(node.id)
-                                    val tunnelWasUp = siteOnline[node.id] == true
                                     val scope = jobScope
                                     if (scope == null) {
                                         // One-shot mode: provision inline.
-                                        val provisioned = nodeRec.provisionJob(
-                                            assessment,
-                                            slot,
-                                            tunnelWasUp,
-                                            waitForCluster = false,
-                                        )
-                                        if (provisioned) {
-                                            ready = runDomain("nodes", node.id) { nodeRec.ready(assessment, slot) }
-                                        }
+                                        serving = nodeRec.provisionJob(assessment)
                                     } else {
                                         jobs[node.id] = assessment.kind to scope.launch {
                                             try {
-                                                nodeRec.provisionJob(
-                                                    a = assessment,
-                                                    slot = slot,
-                                                    tunnelWasUp = tunnelWasUp,
-                                                    progress = { step ->
-                                                        jobSteps[node.id] = step
-                                                        revision.value++
-                                                    },
-                                                )
+                                                nodeRec.provisionJob(assessment) { step ->
+                                                    jobSteps[node.id] = step
+                                                    revision.value++
+                                                }
                                             } finally {
                                                 jobSteps.remove(node.id)
                                                 jobs.remove(node.id)
@@ -766,33 +647,13 @@ class Controller(
                                 }
                             }
                         }
-                        var site: PangolinSite? = null
-                        var resources: List<PangolinResource> = emptyList()
-                        if (ready != null) {
-                            // The same addresses the DNS domain publishes for the management host.
-                            val pins = effective.managementAddresses(node.id)
-                            site = runDomain("tunnels", node.id) { tunnelRec.reconcile(ready, slot, pins) }
-                            if (clustered) {
-                                if (site != null) synchronizedPut(readyNodes, node.id, ready to site)
-                                runDomain("exits", node.id) { exitRec.reconcile(ready, pins) }
-                                    ?.let { synchronizedPut(exitSites, node.id, it) }
-                            } else if (discoveryOk && site != null) {
-                                resources = runDomain("resources", node.id) {
-                                    resourceRec.reconcile(ready, nodePlan, pausedKeys)
-                                }.orEmpty()
-                                if (resources.isNotEmpty()) present[node.id] = resources.map { it.niceId }.toSet()
-                            }
+                        if (serving && discoveryOk) {
+                            runDomain("routes", node.id) { nodeRoutes.write(node, nodePlan) }
                         } else if (dryRun) {
-                            val blueprint = resourceRec.displayBlueprint(
-                                nodePlan.publicResources.filter { !it.paused },
-                                nodePlan.privateResources.filter { !it.paused },
-                                cfg.siteNiceId(node.id),
-                            )
-                            log.info("resources", "[dry-run] blueprint: $blueprint", node.id)
-                            nodePlan.publicResources.forEach {
+                            nodePlan.resources.forEach {
                                 val address = it.fullDomain ?: ":${it.proxyPort}"
                                 diff.add(
-                                    "resources",
+                                    "routes",
                                     node.id,
                                     it.niceId,
                                     "unknown",
@@ -801,104 +662,41 @@ class Controller(
                             }
                         }
                         val probeHosts = effective.services
-                            .filter { it.isHttpLike() && !it.paused && !it.hostname.startsWith("*") }
-                            .filter { it.servesNode(node.id) }
+                            .filter { it.isHttpLike() && !it.hostname.startsWith("*") }
+                            // A node serves no private name, so a request through it has no answer.
+                            .filter { it.access == Access.PUBLIC && it.servesNode(node.id) }
                             .map { it.hostname }
                         val observation = runDomain("observe", node.id) {
-                            observeNode(ctx, ObservedEdge(node, ready, site), ProbeTargets(probeHosts, certProbeNames))
+                            observeNode(ctx, node, ProbeTargets(probeHosts, certProbeNames))
                         }
-                        val unobserved = NodeObservation(
-                            reachable = false,
-                            checks = emptyList(),
-                            certificate = null,
-                            apiOk = false,
-                        )
+                        val unobserved = NodeObservation(reachable = false, checks = emptyList(), certificate = null)
                         synchronizedPut(obs, node.id, observation ?: unobserved)
-                        synchronizedPut(online, node.id, site?.online)
-                        if (!clustered || ready == null || site == null) {
-                            synchronizedPut(health, node.id, serviceHealthFor(effective, node.id, resources, site))
-                        }
                     }.also { work ->
                         work.invokeOnCompletion { passTimes.add("node:${node.id}", nowMillis() - nodeStarted) }
                     }
                 }.awaitAll()
             }
-            if (clustered) {
-                clusterReady = readyNodes.mapValues { it.value.first }
-                exitNodes = readyNodes
-                    .mapNotNull { (id, readySite) -> readySite.second.exitNodeId?.let { it to id } }
-                    .toMap()
-            }
-            if (clustered && discoveryOk && readyNodes.isNotEmpty()) {
-                // Through the first ready node in config order. Each node then writes its own routes.
-                val sites = readyNodes.mapValues { (_, readySite) -> readySite.second.niceId }
-                val firstReadyId = cfg.nodes.first { it.id in readyNodes }.id
-                val actual = runDomain("resources", ResourceReconciler.CLUSTER_SCOPE) {
-                    resourceRec.reconcileCluster(
-                        readyNodes.getValue(firstReadyId).first,
-                        effective.nodes,
-                        sites,
-                        pausedKeys,
-                        ExitNodes.resources(cfg, exitSites, sites) + TunnelDns.resources(cfg, exitSites, sites),
-                    )
-                }
-                if (actual != null) {
-                    for ((id, readySite) in readyNodes) {
-                        val (ready, site) = readySite
-                        // What this node can serve: resources with a target on its own site.
-                        val mine = actual.filter { resource -> resource.targets.any { it.siteNiceId == site.niceId } }
-                        runDomain("resources", id) {
-                            val node = effective.nodes.getValue(id).copy(exit = nodeExit(cfg, id))
-                            resourceRec.writeRoutes(ready, node, mine)
-                        }
-                        present[id] = mine.map { it.niceId }.toSet()
-                        health[id] = serviceHealthFor(effective, id, mine, site)
-                    }
-                }
-            }
-            // What departed nodes left in the cluster's Pangolin (their sites and exit nodes).
-            if (clustered && !dryRun && !pauses.global && readyNodes.isNotEmpty()) {
-                val firstReady = readyNodes.getValue(cfg.nodes.first { it.id in readyNodes }.id).first
-                val knownIds = cfg.nodes.map { it.id }.toSet() + state.snapshot().nodes.keys
-                runDomain("cluster", null) { clusterRec.pruneDeparted(ctx, firstReady, knownIds) }
-            }
-            if (!dryRun && !pauses.global) {
-                runDomain("tunnels", null) {
-                    val active = cfg.nodes.filter { !state.node(it.id).pendingDecommission }
-                    tunnelRec.prune(active.map { it.id }.toSet())
-                }
-            }
 
-            // The mesh (host-level, independent of each node's stack).
+            // The mesh (host-level, independent of the stack of each node).
             meshStatus = if (dryRun) {
                 null
             } else {
                 runDomain("mesh", null) {
-                    meshRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots(), meshForwards)
+                    meshRec.reconcile(ctx, activeNodes(cfg), knownNodeSlots(), meshForwards)
                 } ?: meshStatus
             }
-            // The cluster's database layer, over the mesh.
-            clusterStatus = if (cfg.cluster == null || dryRun) {
-                null
-            } else {
-                runDomain("cluster", null) {
-                    clusterRec.reconcile(ctx, clusterNodes(cfg), knownTunnelSlots(), homelabClusterImage(cfg))
-                } ?: clusterStatus
-            }
-            clusterStatus = clusterStatus?.let { current ->
-                val shared = state.snapshot().clusterPangolin
-                val license = ClusterAlerts.License(
-                    configured = cfg.pangolin.licenseKey() != null,
-                    activated = shared?.licenseActivated == true,
-                    rejected = shared?.licenseRejected != null,
-                )
-                current.copy(alerts = ClusterAlerts.evaluate(current, meshStatus, license, nowMillis()))
+            // The health of a service through a node needs the mesh of this pass.
+            for (node in cfg.nodes) {
+                if (node.id in obs && node.id !in health) health[node.id] = serviceHealthFor(effective, node.id)
             }
 
             // 5. DNS
             if (discoveryOk) {
                 val bunny = cfg.bunny.apiKey.resolve()?.let { BunnyClient(externalHttp, cfg.bunny.apiUrl, it) }
-                val records = servableDns(effective, present)
+                // A node that has no stack yet answers nothing: DNS sends no viewer to it.
+                // A record of the domain itself, such as CAA, belongs to no node and stays.
+                val waiting = cfg.nodes.map { it.id }.filter { state.node(it).stackHash == null }.toSet()
+                val records = effective.dns.filter { it.nodeId !in waiting }
                 // The zone download is the only external API call of the pass. Skip it while the desired
                 // records are unchanged and the last sync succeeded recently.
                 val key = Crypto.fnv64(records.toString() + pausedKeys.sorted() + state.snapshot().pauses + cfg.bunny)
@@ -933,7 +731,6 @@ class Controller(
                 val active = cfg.nodes.filter { !state.node(it.id).pendingDecommission }
                 trackIsolation(active.mapNotNull { obs[it.id]?.reachable }, nowMillis())
             }
-            siteOnline = online
             serviceHealth = health
             lastDiff = diff.all()
             if (!dryRun) {
@@ -1010,9 +807,6 @@ class Controller(
         val isUpdate = assessment.kind == NodeReconciler.Kind.UPDATE
         return when {
             assessment.paused || assessment.kind == NodeReconciler.Kind.NONE -> RolloutPolicy.Decision.Start
-            // Until the slot is checked against the live subnet, the rendered stack can be wrong.
-            isUpdate && !state.node(nodeId).tunnelSlotConfirmed ->
-                RolloutPolicy.Decision.Wait("confirming the node's tunnel slot")
             // Without one discovery, the plan has no services, and the stack loses their ports.
             isUpdate && !servicesKnown -> RolloutPolicy.Decision.Wait("waiting for the first service discovery")
             else -> RolloutPolicy.decide(
@@ -1030,47 +824,10 @@ class Controller(
     }
 
     /** The tunnel slot of each node that has one. */
-    private fun knownTunnelSlots(): Map<String, Int> =
+    private fun knownNodeSlots(): Map<String, Int> =
         state.snapshot().nodes
-            .mapNotNull { (id, nodeState) -> nodeState.tunnelSlot?.let { id to it } }
+            .mapNotNull { (id, nodeState) -> nodeState.slot?.let { id to it } }
             .toMap()
-
-    /**
-     * Keeps a node in a hostname's record set only while the Pangolin resource serving that
-     * hostname exists on it (for example, a wildcard refused for lack of an EE license). Then DNS
-     * never steers viewers to a node that answers 404. A node that this pass did not observe stays.
-     */
-    private fun servableDns(plan: DesiredState, present: Map<String, Set<String>>): List<DesiredDnsRecord> =
-        plan.dns.filter { record ->
-            val have = present[record.nodeId] ?: return@filter true
-            val resources = plan.nodes[record.nodeId]?.publicResources ?: return@filter true
-            // The front door of the domain of the record. A root or wildcard record has no other source.
-            val frontDoor = plan.frontDoors.firstOrNull { it.hostname == record.fqdn.removePrefix("*.") }
-            val frontDoorKey = frontDoor?.key
-            val frontDoorWildcard = frontDoor?.let { "*.${it.hostname}" }
-            val needed = when {
-                record.purpose == "management" -> emptyList()
-                record.purpose == "root" -> resources.filter {
-                    it.serviceKey == frontDoorKey && it.fullDomain != frontDoorWildcard && !Planner.isHealth(it.niceId)
-                }
-                record.purpose == "wildcard" -> resources.filter {
-                    it.serviceKey == frontDoorKey && (it.mode.wire == "tcp" || it.fullDomain == frontDoorWildcard)
-                }
-                record.purpose.startsWith("service:") -> resources.filter {
-                    it.serviceKey == record.purpose.removePrefix("service:") && !Planner.isHealth(it.niceId)
-                }
-                else -> emptyList()
-            }.filter { !it.paused }.map { it.niceId }
-            val missing = needed.filter { it !in have }
-            if (missing.isNotEmpty()) {
-                log.warn(
-                    "dns",
-                    "not steering ${record.fqdn} to this node: ${missing.joinToString()} missing on it",
-                    record.nodeId,
-                )
-            }
-            missing.isEmpty()
-        }
 
     /** When the homelab last lost contact with every node: (start, end or null while it lasts). */
     @Volatile private var isolation: Pair<Long, Long?>? = null
@@ -1140,45 +897,17 @@ class Controller(
 
     // ------------------------------------------------------------------ observability
 
-    /** A node in one pass, with its API client and its site when the pass has them. */
-    private class ObservedEdge(val node: NodeConfig, val ready: ReadyNode?, val site: PangolinSite?)
-
-    /**
-     * The cluster image of the homelab, with its registry digest in the reference, or null if HomeGAP
-     * cannot read it. The nodes follow this image. Without `HOMEGAP_VERSION`, the stack pulls the tag
-     * `latest`. Then the homelab has no image with the release tag of the default image. For the
-     * default image, the image of the etcd container of the homelab counts.
-     */
-    private suspend fun homelabClusterImage(cfg: AppConfig): MemberImage? {
-        val ref = cfg.cluster?.image ?: return null
-        val local = runCatchingCancellable {
-            docker.image(ref) ?: if (ref == ClusterConfig.defaultImage()) runningEtcdImage() else null
-        }.getOrNull()
-        return local?.takeIf { it.created.isNotEmpty() }?.let { MemberImage(it.pinned(ref), it.created) }
-    }
-
-    private suspend fun runningEtcdImage(): DockerImage? {
-        val filters = mapOf(
-            "status" to listOf("running"),
-            "label" to listOf("$COMPOSE_SERVICE_LABEL=$HOMELAB_ETCD_SERVICE"),
-        )
-        val imageId = docker.listContainers(filters).singleOrNull()?.imageId?.ifEmpty { null } ?: return null
-        return docker.image(imageId)
-    }
-
     /** The names that the observe script requests through the proxy of the node. */
     private class ProbeTargets(val serviceHosts: List<String>, val certNames: List<String>)
 
-    private suspend fun observeNode(ctx: ReconcileContext, edge: ObservedEdge, targets: ProbeTargets): NodeObservation {
+    private suspend fun observeNode(ctx: ReconcileContext, node: NodeConfig, targets: ProbeTargets): NodeObservation {
         if (ctx.dryRun) {
             return NodeObservation(
                 reachable = false,
                 checks = listOf(CheckDto("mode", Health.UNKNOWN, "dry-run: no remote access")),
                 certificate = null,
-                apiOk = false,
             )
         }
-        val node = edge.node
         val checks = mutableListOf<CheckDto>()
         val serviceProbes = mutableMapOf<String, ServiceProbe>()
         var traffic: Pair<Double, Double>? = null
@@ -1202,22 +931,11 @@ class Controller(
                         val health = if (version == "none") Health.DOWN else Health.OK
                         checks += CheckDto("docker", health, version.orEmpty())
                     }
-                    "U" -> {
-                        val listens = parts.getOrNull(1) == "ok"
-                        checks += CheckDto("gerbil-udp", if (listens) Health.OK else Health.DOWN, "51820/udp")
-                    }
                     "H" -> parseServiceProbe(parts)?.let { (host, probe) -> serviceProbes[host] = probe }
                     "M" -> {
                         val requests = parts.getOrNull(1)?.toDoubleOrNull()
                         val bytes = parts.getOrNull(2)?.toDoubleOrNull()
                         if (requests != null && bytes != null) traffic = requests to bytes
-                    }
-                    "P" -> {
-                        val csv = parts.getOrNull(1)
-                            ?.takeIf { it.isNotBlank() }
-                            ?.let { runCatching { Base64.decode(it).decodeToString() }.getOrNull() }
-                        val history = proxyHistory.getOrPut(node.id) { mutableListOf() }
-                        checks += ClusterProxy.check(csv, history, nowMillis(), clusterRec.plannedMoves)
                     }
                     "T" -> if (parts.size == 3) {
                         val (check, served) = tlsCheck(which = parts[1], probe = parts[2])
@@ -1227,16 +945,7 @@ class Controller(
                 }
             }
         }
-        // The Pangolin API probe: a request through the edge to its Pangolin, timed.
-        val ready = edge.ready
-        val apiStarted = nowMillis()
-        val apiOk = ready != null && runCatchingCancellable { ready.api.getOrg(ctx.config.pangolin.orgId) }.isSuccess
-        val apiMs = (nowMillis() - apiStarted).toDouble()
-        checks += apiCheck(node.id, apiOk, apiMs)
-        licenseCheck(ctx, node)?.let { checks += it }
-        val site = edge.site
-        site?.newtVersion?.let { newtVersions[node.id] = it }
-        checks += tunnelCheck(site)
+        checks += meshCheck(node.id)
         val certProbes = if (reachable) {
             val lines = result.stdout.lines()
             val installed = CertProbes.installed(lines)
@@ -1248,7 +957,6 @@ class Controller(
             reachable = reachable,
             checks = checks,
             certificate = certificate,
-            apiOk = apiOk,
             serviceProbes = serviceProbes,
             traffic = traffic,
             certProbes = certProbes,
@@ -1260,17 +968,15 @@ class Controller(
         val mgmt = node.managementHost(ctx.config.domain)
         val root = ctx.config.domain
         val base = $$"""
-            |for s in pangolin gerbil traefik; do echo "C $s $(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $s 2>/dev/null || echo 'missing none')"; done
+            |for s in $$OBSERVED_CONTAINERS; do echo "C $s $(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $s 2>/dev/null || echo 'missing none')"; done
             |echo "D $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo none)"
             |probe() { c=$(echo | timeout 6 openssl s_client -connect 127.0.0.1:443 -servername "$1" 2>/dev/null | openssl x509 -noout -enddate -subject 2>/dev/null) || { echo "none"; return; }; end=$(echo "$c" | sed -n 's/^notAfter=//p'); sub=$(echo "$c" | sed -n 's/^subject=//p'); echo "$(date -d "$end" +%s 2>/dev/null || echo 0)|$sub"; }
             |echo "T mgmt $(probe $${shQuote(mgmt)})"
             |echo "T root $(probe $${shQuote(root)})"
-            |(ss -lun 2>/dev/null | grep -q ':51820 ') && echo "U ok" || echo "U missing"
         """.trimMargin()
-        val proxy = if (ctx.config.cluster == null) "" else $$"\necho \"P $($${ClusterProxy.CSV_CMD} | base64 -w0)\""
-        val dynamicTls = "${ctx.config.pangolin.installDir}/${NodeTemplates.DYNAMIC_TLS}"
+        val dynamicTls = "${ctx.config.nodeStack.installDir}/${NodeTemplates.DYNAMIC_TLS}"
         return listOf(
-            base + proxy + serviceProbeScript(targets.serviceHosts),
+            base + serviceProbeScript(targets.serviceHosts),
             NodeTemplates.TRAFFIC_CMD,
             CertProbes.script(targets.certNames, dynamicTls),
         ).joinToString("\n")
@@ -1318,105 +1024,38 @@ class Controller(
         return CheckDto("tls-$which", health, detail) to certificate
     }
 
-    /** The check of the Pangolin API probe of a node, which took [apiMs]. */
-    private fun apiCheck(nodeId: String, apiOk: Boolean, apiMs: Double): CheckDto {
-        // A far node is slow all the time, so the limit starts at the fastest probe of the node.
-        if (apiOk) apiBest[nodeId] = minOf(apiMs, apiBest[nodeId] ?: apiMs)
-        val limit = apiSlowLimit(apiBest[nodeId])
-        if (!apiOk) {
-            return CheckDto("pangolin-api", Health.DOWN, "not reachable", threshold = limit, unit = "ms")
-        }
-        val slow = apiMs > limit
-        return CheckDto(
-            name = "pangolin-api",
-            health = if (slow) Health.DEGRADED else Health.OK,
-            detail = if (slow) "slow" else "integration API",
-            value = apiMs,
-            threshold = limit,
-            unit = "ms",
-        )
+    /**
+     * The check of the mesh link between the node and the homelab, from the last pass that read
+     * the mesh: the two ends had a WireGuard handshake a short time ago.
+     */
+    private fun meshCheck(nodeId: String): CheckDto = when (meshLinkUp(nodeId)) {
+        true -> CheckDto(MESH_CHECK, Health.OK, "link to the homelab")
+        false -> CheckDto(MESH_CHECK, Health.DOWN, "no handshake with the homelab")
+        null -> CheckDto(MESH_CHECK, Health.UNKNOWN, "not read yet")
     }
 
-    private fun licenseCheck(ctx: ReconcileContext, node: NodeConfig): CheckDto? {
-        if (ctx.config.cluster != null) {
-            // One license for the whole cluster (stored in the shared database). A missing activation
-            // is a cluster alert, not a problem with this node.
-            if (ctx.config.pangolin.licenseKey() == null) return null
-            val shared = state.snapshot().clusterPangolin
-            return when {
-                shared?.licenseActivated == true && node.id in shared.licenseRecheck ->
-                    CheckDto("ee-license", Health.DEGRADED, "activated; this node has not re-read it yet")
-                shared?.licenseActivated == true ->
-                    CheckDto("ee-license", Health.OK, "the cluster's license is activated")
-                shared?.licenseRejected != null -> CheckDto("ee-license", Health.DEGRADED, LICENSE_REJECTED)
-                else -> null
-            }
-        }
-        if (node.licenseKey(ctx.config.pangolin) == null) return null
-        val nodeState = state.node(node.id)
-        return when {
-            nodeState.licenseActivated -> CheckDto("ee-license", Health.OK, "activated")
-            nodeState.facts["licenseRejected"] != null -> CheckDto("ee-license", Health.DEGRADED, LICENSE_REJECTED)
-            else -> CheckDto("ee-license", Health.UNKNOWN, "not activated")
-        }
+    /** True if the homelab and the node [nodeId] had a handshake on the mesh a short time ago. Null if not known. */
+    private fun meshLinkUp(nodeId: String): Boolean? {
+        val homelab = meshStatus?.members?.firstOrNull { it.id == Mesh.HOMELAB } ?: return null
+        if (homelab.error != null) return false
+        val handshake = homelab.peers.firstOrNull { it.id == nodeId }?.lastHandshakeAt ?: return false
+        return nowMillis() - handshake < MESH_LINK_MAX_AGE_MS
     }
 
-    private fun tunnelCheck(site: PangolinSite?): CheckDto {
-        val health = when (site?.online) {
-            true -> Health.OK
-            false -> Health.DOWN
-            null -> Health.UNKNOWN
-        }
-        val detail = site?.let { "site ${it.niceId}${it.newtVersion?.let { version -> ", newt $version" }.orEmpty()}" }
-        return CheckDto("tunnel", health, detail ?: "no site")
-    }
-
-    private fun serviceHealthFor(
-        plan: DesiredState,
-        nodeId: String,
-        resources: List<PangolinResource>,
-        site: PangolinSite?,
-    ): Map<String, ServiceNodeHealthDto> {
+    /** The health of each service through the node [nodeId]: each of them reaches the homelab over the mesh. */
+    private fun serviceHealthFor(plan: DesiredState, nodeId: String): Map<String, ServiceNodeHealthDto> {
         val nodePlan = plan.nodes[nodeId] ?: return emptyMap()
-        val byNiceId = resources.associateBy { it.niceId }
-        val healthByService = mutableMapOf<String, ServiceNodeHealthDto>()
-        for (service in plan.services) {
-            if (!service.servesNode(nodeId)) continue
-            val wanted = nodePlan.publicResources
-                .filter { it.serviceKey == service.key && !Planner.isHealth(it.niceId) }
-            val privateWanted = nodePlan.privateResources.filter { it.serviceKey == service.key }
-            if (wanted.isEmpty() && privateWanted.isEmpty()) {
-                // No resource of Pangolin, so each resource of the service here is on the mesh.
-                val overMesh = nodePlan.resources
-                    .any { it.serviceKey == service.key && !Planner.isHealth(it.niceId) }
-                if (overMesh) healthByService[service.key] = meshHealth(nodeId)
-                continue
-            }
-            val actual = wanted.mapNotNull { byNiceId[it.niceId] }
-            healthByService[service.key] = when {
-                site?.online == false -> ServiceNodeHealthDto(nodeId, Health.DOWN, "tunnel down")
-                wanted.isNotEmpty() && actual.size < wanted.size ->
-                    ServiceNodeHealthDto(nodeId, Health.DOWN, "resource missing")
-                actual.any { it.targets.any { target -> target.healthStatus == "unhealthy" } } ->
-                    ServiceNodeHealthDto(nodeId, Health.DEGRADED, "target unhealthy")
-                site?.online == true -> {
-                    val targetHealth = actual.firstOrNull()?.targets?.firstOrNull()?.healthStatus
-                    ServiceNodeHealthDto(nodeId, Health.OK, targetHealth ?: "online")
-                }
-                else -> ServiceNodeHealthDto(nodeId, Health.UNKNOWN, "")
-            }
-        }
-        return healthByService
+        val private = nodePlan.privateResources.map { it.serviceKey }
+        val served = (nodePlan.resources.map { it.serviceKey } + private).toSet()
+        return plan.services
+            .filter { it.servesNode(nodeId) && it.key in served }
+            .associate { it.key to meshHealth(nodeId) }
     }
 
-    /** The health of a service that reaches the homelab only over the mesh: the state of the mesh of the node. */
-    private fun meshHealth(nodeId: String): ServiceNodeHealthDto {
-        val member = meshStatus?.members?.firstOrNull { it.id == nodeId }
-        return when {
-            member == null -> ServiceNodeHealthDto(nodeId, Health.UNKNOWN, "")
-            member.error != null -> ServiceNodeHealthDto(nodeId, Health.DOWN, "mesh down")
-            else -> ServiceNodeHealthDto(nodeId, Health.OK, "over the mesh")
-        }
+    private fun meshHealth(nodeId: String): ServiceNodeHealthDto = when (meshLinkUp(nodeId)) {
+        true -> ServiceNodeHealthDto(nodeId, Health.OK, "over the mesh")
+        false -> ServiceNodeHealthDto(nodeId, Health.DOWN, "mesh down")
+        null -> ServiceNodeHealthDto(nodeId, Health.UNKNOWN, "")
     }
 
     /** Reads the state of the controller, so only code on the loop calls it. See [status]. */
@@ -1431,7 +1070,6 @@ class Controller(
             .map { id -> nodeStatus(cfg, stored, id, waitingForCertificate = id in waitingNodes) }
         val services = plan?.services?.map { serviceStatus(cfg, stored, plan, it) }.orEmpty()
         val dns = dnsObs.map { dnsRecordStatus(it) }
-        val tunnels = cfg.nodes.map { tunnelStatus(cfg, it) }
         return StatusSnapshot(
             generatedAt = nowMillis(),
             version = VERSION,
@@ -1445,7 +1083,6 @@ class Controller(
             nodes = nodes,
             services = services,
             dns = dns,
-            tunnels = tunnels,
             labelErrors = plan?.labelErrors?.map { LabelErrorDto(it.container, it.message) }.orEmpty(),
             pauses = PausesDto(
                 global = stored.pauses.global,
@@ -1453,7 +1090,6 @@ class Controller(
                 services = stored.pauses.services.sorted(),
             ),
             mesh = meshStatus,
-            cluster = clusterStatus.takeIf { cfg.cluster != null },
             homelab = cfg.homelab.location?.let { PlaceDto(it.latitude, it.longitude, it.name) },
             homelabIsolation = isolation?.let { (start, end) -> IsolationDto(start, end) },
             speedRun = speedRun,
@@ -1473,7 +1109,6 @@ class Controller(
         val node = cfg.node(id)
         val nodeState = stored.nodes[id]
         val observation = nodeObs[id]
-        val tunnel = TunnelFiles.readStatus(cfg.tunnelsDir, id)
         val worst = observation?.checks?.map { it.health }?.let { healths ->
             when {
                 healths.contains(Health.DOWN) -> Health.DOWN
@@ -1487,7 +1122,6 @@ class Controller(
             ?.firstOrNull { it.name == "docker" && it.health == Health.OK }
             ?.let { mapOf("docker" to it.detail) }
             .orEmpty()
-        val restartsFact = tunnel?.let { mapOf("newt_restarts" to it.restarts.toString()) }.orEmpty()
         return NodeStatusDto(
             id = id,
             region = node?.region.orEmpty(),
@@ -1503,7 +1137,7 @@ class Controller(
             reachable = observation?.reachable ?: false,
             checks = observation?.checks.orEmpty(),
             certificate = observation?.certificate,
-            tunnelUp = siteOnline[id] == true,
+            tunnelUp = meshLinkUp(id) == true,
             lastProvisionAt = nodeState?.lastProvisionAt,
             lastProvisionOk = nodeState?.lastProvisionOk,
             lastProvisionError = nodeState?.lastProvisionError,
@@ -1511,7 +1145,7 @@ class Controller(
             paused = stored.pauses.global || id in stored.pauses.nodes,
             pendingDecommission = nodeState?.pendingDecommission == true || node == null,
             teardownError = nodeState?.teardownError,
-            facts = nodeState?.facts.orEmpty().filterKeys { it in DASHBOARD_FACTS } + dockerFact + restartsFact,
+            facts = nodeState?.facts.orEmpty().filterKeys { it in DASHBOARD_FACTS } + dockerFact,
             job = jobs[id]?.takeIf { it.second.isActive }?.let { (kind, _) ->
                 if (kind == NodeReconciler.Kind.UPDATE) "updating" else "provisioning"
             },
@@ -1554,7 +1188,6 @@ class Controller(
         protocol = service.protocol.label,
         tls = if (service.isHttpLike()) service.tls.label else "—",
         access = service.access.label,
-        auth = service.auth.label,
         regions = service.regions ?: cfg.nodes.map { it.id },
         kind = when {
             service in plan.frontDoors -> "front-door"
@@ -1584,7 +1217,7 @@ class Controller(
         }
 
     /**
-     * The range of the private network of the front door, as `address/prefix`. Pangolin clients
+     * The range of the private network of the front door, as `address/prefix`. VPN devices
      * reach the front door from this network, and public traffic never does.
      */
     private fun privateRangeOf(plan: DesiredState, containers: List<DockerContainerSummary>): String? {
@@ -1617,26 +1250,6 @@ class Controller(
             diff = observed.diff,
             // The log names a record that nothing wants by its name in the zone.
             changedAt = log.lastRecordChange(observed.desired?.fqdn ?: record.name),
-        )
-    }
-
-    private fun tunnelStatus(cfg: AppConfig, node: NodeConfig): TunnelStatusDto {
-        val tunnel = TunnelFiles.readStatus(cfg.tunnelsDir, node.id)
-        val fresh = tunnel != null && nowMillis() - tunnel.updatedAt < TUNNEL_STATUS_FRESH_MS
-        return TunnelStatusDto(
-            nodeId = node.id,
-            siteNiceId = cfg.siteNiceId(node.id),
-            endpoint = "https://${node.managementHost(cfg.domain)}",
-            up = siteOnline[node.id] == true,
-            processRunning = fresh && tunnel.running,
-            siteOnline = siteOnline[node.id],
-            restarts = tunnel?.restarts ?: 0,
-            lastExit = tunnel?.lastExit,
-            bytesIn = tunnel?.bytesIn,
-            bytesOut = tunnel?.bytesOut,
-            updatedAt = tunnel?.updatedAt,
-            exits = tunnel?.exits.orEmpty().map { TunnelExitDto(it.at, it.reason) },
-            newtVersion = newtVersions[node.id],
         )
     }
 
@@ -1694,7 +1307,7 @@ class Controller(
             "$nodeId is paused. Resume it to send the certificate."
         }
         checkNotNull(nodeCert.current()) { "There is no certificate to send" }
-        state.updateNode(nodeId) { it.copy(facts = it.facts - "routesHash" + (ResourceReconciler.CERT_RESEND to "1")) }
+        state.updateNode(nodeId) { it.copy(facts = it.facts - "routesHash" + (NodeRoutes.CERT_RESEND to "1")) }
         trigger("certificate resend:$nodeId")
         return "The certificate goes to $nodeId in this pass"
     }
@@ -1707,33 +1320,27 @@ class Controller(
     }
 
     /**
-     * Takes this pass's sample of each edge for the graphs: the Pangolin API probe, the node's
-     * mesh round trip to the homelab, and the tunnel's throughput since the last sample.
+     * Takes the sample of this pass of each node for the graphs: the requests and the bytes of its
+     * Traefik, and the throughput of its mesh link to the homelab since the last sample.
      */
     private suspend fun recordMetrics(cfg: AppConfig, snapshot: StatusSnapshot) {
         val now = nowMillis()
-        val tunnelsDir = cfg.tunnelsDir
+        val homelab = snapshot.mesh?.members?.firstOrNull { it.id == Mesh.HOMELAB }
         val points = cfg.nodes.flatMap { node ->
-            val api = nodeObs[node.id]?.checks?.firstOrNull { it.name == "pangolin-api" }
-            val mesh = snapshot.mesh?.members
-                ?.firstOrNull { it.id == node.id }
-                ?.peers?.firstOrNull { it.id == "homelab" }
-                ?.probe
-            val tunnel = TunnelFiles.readStatus(tunnelsDir, node.id)
-            val bytesIn = tunnel?.bytesIn
-            val bytesOut = tunnel?.bytesOut
-            val previous = tunnelBytes[node.id]
-            val rates = if (previous != null && bytesIn != null && bytesOut != null && now > previous.first) {
+            // What the homelab got from the node and sent to it, by the counters of WireGuard.
+            val link = homelab?.peers?.firstOrNull { it.id == node.id }
+            val previous = meshBytes[node.id]
+            val rates = if (previous != null && link != null && now > previous.first) {
                 val seconds = (now - previous.first) / 1000.0
-                // A restarted connector starts counting again: no rate for that sample.
-                val inRate = (bytesIn - previous.second).takeIf { it >= 0 }?.let { it * 8 / 1e6 / seconds }
-                val outRate = (bytesOut - previous.third).takeIf { it >= 0 }?.let { it * 8 / 1e6 / seconds }
+                // A new interface starts to count again: no rate for that sample.
+                val inRate = (link.rxBytes - previous.second).takeIf { it >= 0 }?.let { it * 8 / 1e6 / seconds }
+                val outRate = (link.txBytes - previous.third).takeIf { it >= 0 }?.let { it * 8 / 1e6 / seconds }
                 inRate to outRate
             } else {
                 null
             }
-            if (bytesIn != null && bytesOut != null) {
-                tunnelBytes[node.id] = Triple(now, bytesIn, bytesOut)
+            if (link != null) {
+                meshBytes[node.id] = Triple(now, link.rxBytes, link.txBytes)
             }
             val traffic = nodeObs[node.id]?.traffic
             val previousTraffic = trafficCounters[node.id]
@@ -1750,13 +1357,9 @@ class Controller(
                 trafficCounters[node.id] = Triple(now, traffic.first, traffic.second)
             }
             buildList {
-                add(MetricPointDto(node.id, EdgeMetrics.API, api?.value))
                 if (trafficRates != null) {
                     add(MetricPointDto(node.id, EdgeMetrics.REQUESTS, trafficRates.first))
                     add(MetricPointDto(node.id, EdgeMetrics.EGRESS, trafficRates.second))
-                }
-                if (snapshot.mesh != null) {
-                    add(MetricPointDto(node.id, EdgeMetrics.MESH, mesh?.rttMs))
                 }
                 if (rates != null) {
                     add(MetricPointDto(node.id, EdgeMetrics.TUNNEL_IN, rates.first))
@@ -1773,16 +1376,6 @@ class Controller(
 
     fun desiredStateJson(): String {
         val plan = desired ?: return "{}"
-        val context = ReconcileContext(
-            config = config,
-            state = state,
-            log = log,
-            ssh = ssh,
-            localHttp = localHttp,
-            dryRun = true,
-            diff = DiffCollector(),
-        )
-        val resourceRec = ResourceReconciler(context)
         val json = buildJsonObject {
             put("frontDoor", plan.frontDoor?.hostname)
             putJsonArray("services") {
@@ -1795,7 +1388,6 @@ class Controller(
                         put("protocol", service.protocol.label)
                         put("tls", service.tls.label)
                         put("access", service.access.label)
-                        put("auth", service.auth.label)
                         put("wildcard", service.wildcard)
                         put("regions", service.regions?.joinToString(",") ?: "all")
                         put("paused", service.paused)
@@ -1806,14 +1398,14 @@ class Controller(
                 plan.nodes.forEach { (id, nodePlan) ->
                     putJsonObject(id) {
                         put("managementHost", nodePlan.managementHost)
-                        put(
-                            "blueprint",
-                            resourceRec.displayBlueprint(
-                                nodePlan.publicResources.filter { !it.paused },
-                                nodePlan.privateResources.filter { !it.paused },
-                                config.siteNiceId(id),
-                            ),
-                        )
+                        putJsonArray("resources") {
+                            nodePlan.resources.forEach { resource ->
+                                val address = resource.fullDomain ?: ":${resource.proxyPort}"
+                                val target = "${resource.target.host}:${resource.target.port}"
+                                add("${resource.mode.wire} $address -> $target")
+                            }
+                        }
+                        putJsonArray("privateNames") { nodePlan.privateResources.forEach { add(it.alias) } }
                         putJsonArray("sniRoutes") { nodePlan.sniRoutes.forEach { add(NodeTemplates.sniRule(it)) } }
                         putJsonArray("rawPorts") { nodePlan.rawPorts.forEach { add(it.entryPoint) } }
                     }
@@ -1886,8 +1478,6 @@ class Controller(
             val (homelabDown, homelabUp) = speedTokens.live.hostCpu(token)
             val error = parsed.error
                 ?: if (!run.ok) run.stderr.trim().take(SPEED_ERROR_LENGTH).ifEmpty { "exit ${run.exitCode}" } else null
-            val mtu = cfg.tunnels.mtu ?: "default"
-            val wireguard = if (cfg.tunnels.native) ", kernel wireguard" else ""
             val result = SpeedTestResultDto(
                 id = newResultId(),
                 at = nowMillis(),
@@ -1906,7 +1496,7 @@ class Controller(
                 upCpu = parsed.upCpu,
                 homelabDownCpu = homelabDown,
                 homelabUpCpu = homelabUp,
-                client = "node $nodeId (newt mtu $mtu$wireguard)",
+                client = "node $nodeId (over the mesh)",
             )
             speedStore.add(result)
             val measured = listOf(
@@ -2170,11 +1760,10 @@ class Controller(
     }
 
     /**
-     * The nodes of the mesh and the cluster: the nodes in the config, and each removed node whose
-     * teardown did not start. A removed node stays in the cluster vote until then, so an undo of
-     * the removal needs no new join.
+     * The nodes of the mesh: the nodes in the config, and each removed node whose teardown did not
+     * start. A removed node stays in the mesh until then, so an undo of the removal needs no new join.
      */
-    private fun clusterNodes(cfg: AppConfig): List<NodeConfig> {
+    private fun activeNodes(cfg: AppConfig): List<NodeConfig> {
         val configured = cfg.nodes.map { it.id }.toSet()
         return cfg.nodes + state.snapshot().nodes.mapNotNull { (id, nodeState) ->
             // The pending flag is not a condition: a pass that began before an undo has the old config
@@ -2186,9 +1775,8 @@ class Controller(
     /**
      * Tears down a node already removed from config. The caller must give the node id to confirm.
      *
-     * The node leaves the cluster vote first. If the teardown fails, the node stays in the state
-     * with the error, because its stack can still run. A second call tries again. With [force],
-     * HomeGAP forgets the node without a teardown.
+     * If the teardown fails, the node stays in the state with the error, because its stack can still
+     * run. A second call tries again. With [force], HomeGAP forgets the node without a teardown.
      */
     suspend fun confirmDecommission(id: String, confirm: String, force: Boolean = false): String =
         onLoop { confirmDecommissionOnLoop(id, confirm, force) }
@@ -2201,22 +1789,12 @@ class Controller(
             state = state,
             log = log,
             ssh = ssh,
-            localHttp = localHttp,
             dryRun = dryRun,
             diff = DiffCollector(),
         )
         val node = removedNode(id, state.node(id))
         if (node != null && !dryRun && !force) {
             state.updateNode(id) { it.copy(pendingDecommission = true, teardownError = TEARDOWN_STARTED) }
-            if (config.cluster != null) {
-                runCatchingCancellable { clusterRec.dropMember(ctx, id) }.onFailure {
-                    log.warn(
-                        "cluster",
-                        "could not remove $id from the cluster vote before its teardown: ${it.message}",
-                        id,
-                    )
-                }
-            }
             try {
                 NodeReconciler(ctx).decommission(node)
             } catch (e: Exception) {
@@ -2234,7 +1812,6 @@ class Controller(
             }
         }
         state.removeNode(id)
-        TunnelReconciler(ctx).prune(config.nodes.map { it.id }.toSet())
         log.change("nodes", if (force) "forgotten without a teardown" else "decommissioned", id)
         trigger("decommission")
         return if (force) "Node $id forgotten" else "Node $id decommissioned"
@@ -2259,12 +1836,6 @@ internal fun isolationAfter(current: Pair<Long, Long?>?, reachable: List<Boolean
         else -> current
     }
 }
-
-/** A Pangolin API probe this much slower than the fastest probe of its node is slow, and the node degraded. */
-private const val API_PROBE_SLOW_MS = 300.0
-
-/** The limit of the Pangolin API probe of a node whose fastest probe took [best] ms. */
-internal fun apiSlowLimit(best: Double?): Double = (best ?: 0.0) + API_PROBE_SLOW_MS
 
 /** Above this, a service request through an edge is slow. */
 internal const val SERVICE_SLOW_MS = 1000.0
@@ -2312,20 +1883,22 @@ private val STATUS_SETTLE = 100.milliseconds
 private val DOCKER_RECONNECT_DELAY = 5.seconds
 private const val TEARDOWN_STARTED = "the teardown did not finish"
 
-private const val COMPOSE_SERVICE_LABEL = "com.docker.compose.service"
-
-/** The service of the homelab's etcd member in `deploy/compose.yml`. It runs in both homelab roles. */
-private const val HOMELAB_ETCD_SERVICE = "homegap-etcd"
 private const val OBSERVE_TIMEOUT_SECONDS = 60
 private const val SSH_ERROR_LENGTH = 200
 private const val DAY_MS = 86_400_000L
 
 /** A certificate with fewer days left degrades the node. */
 private const val CERT_EXPIRY_WARNING_DAYS = 14
-private const val LICENSE_REJECTED = "rejected: key bound to another instance"
 
 /** A tunnel status file older than this does not show a process that runs. */
-private const val TUNNEL_STATUS_FRESH_MS = 60_000L
+/** The containers of a node that the observation reads. */
+private const val OBSERVED_CONTAINERS = "traefik homegap-maintenance homegap-agent"
+
+/** The name of the check of the mesh link of a node. */
+private const val MESH_CHECK = "mesh"
+
+/** WireGuard makes a new handshake every two minutes on a link in use. Older than this, the link is down. */
+private const val MESH_LINK_MAX_AGE_MS = 200_000L
 private const val STACK_HASH_LENGTH = 8
 
 /** The facts of a node that the dashboard shows. */

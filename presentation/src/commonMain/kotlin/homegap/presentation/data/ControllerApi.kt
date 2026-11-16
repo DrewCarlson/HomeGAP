@@ -37,12 +37,6 @@ interface ControllerApi {
     /** Undoes an action whose response carried an undo id. */
     suspend fun undo(id: String): ActionResponse
 
-    /** A new invite link for an open invitation. */
-    suspend fun reissueInvitation(id: String): CreateAccessUserResponse
-
-    /** Asks the tunnel supervisor to restart [node]'s connector. */
-    suspend fun restartTunnel(node: String): ActionResponse
-
     /** Orders the certificate of the nodes now; with [replaceKey], a new key, and the old certificate is revoked. */
     suspend fun orderCertificate(replaceKey: Boolean): ActionResponse
 
@@ -94,16 +88,12 @@ interface ControllerApi {
     suspend fun updateZoneRecord(zone: String, id: String, record: ZoneRecordRequest): ActionResponse
     suspend fun deleteZoneRecord(zone: String, id: String): ActionResponse
 
-    /** Makes cluster member [to] the database primary now. */
-    suspend fun switchPrimary(to: String): ActionResponse
-
     suspend fun access(): AccessOverviewDto
     suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse
     suspend fun removeUser(id: String): ActionResponse
     suspend fun setUserRoles(id: String, roleIds: List<Int>): ActionResponse
-    suspend fun removeInvitation(id: String): ActionResponse
 
-    /** `archive`, `unarchive`, `block`, `unblock` or `delete`. */
+    /** `block`, `unblock` or `delete`. */
     suspend fun deviceAction(id: Int, action: String): ActionResponse
 
     /** Creates a machine: a device with no user. The answer has its secret once. */

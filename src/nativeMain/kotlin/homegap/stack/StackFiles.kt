@@ -153,11 +153,11 @@ class StackFiles(
          * orchestrator runs as the owner of [target], so the folders must be there before the start.
          */
         private val OWN_FOLDERS = mapOf(
-            "backups" to FOLDER,
             "data/orchestrator" to PRIVATE_FOLDER,
-            "data/tunnels" to FOLDER,
             "data/mesh" to FOLDER,
-            "data/cluster/config" to FOLDER,
+            "data/identity" to FOLDER,
+            "data/sign-in" to FOLDER,
+            "data/vpn" to FOLDER,
         )
     }
 }

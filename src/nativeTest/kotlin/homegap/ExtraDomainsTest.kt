@@ -12,8 +12,6 @@ import homegap.clients.BunnyRecord
 import homegap.config.ConfigLoader
 import homegap.model.Planner
 import homegap.model.ResourceMode
-import homegap.provision.NodeSecrets
-import homegap.provision.NodeTemplates
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -89,7 +87,7 @@ class ExtraDomainsTest {
         val resource = node.httpResources.single { it.fullDomain == "shop.other.example.org" }
         assertEquals(ResourceMode.HTTP, resource.mode)
         assertTrue(resource.meshPort != null, "the node sends the name over the mesh")
-        assertTrue(node.publicResources.none { it.fullDomain == "shop.other.example.org" }, "not in Pangolin")
+        assertTrue(node.publicResources.none { it.fullDomain == "shop.other.example.org" }, "not a stream")
         val records = plan.dns.filter { it.fqdn == "shop.other.example.org" }
         assertEquals(setOf("shop"), records.map { it.name }.toSet(), "the name is relative to the zone of its domain")
         assertTrue("shop.other.example.org" in CertNames.of(config, plan))
@@ -129,7 +127,7 @@ class ExtraDomainsTest {
 
         val caaAt = plan.dns.filter { it.type == "CAA" }.map { it.fqdn }.toSet()
         assertEquals(setOf("test.example.net", "other.example.org", "apps.example.io"), caaAt)
-        assertNull(plan.dns.firstOrNull { it.fqdn.startsWith("pangolin-") && !it.fqdn.endsWith(".test.example.net") })
+        assertNull(plan.dns.firstOrNull { it.fqdn.startsWith("node-") && !it.fqdn.endsWith(".test.example.net") })
 
         val onCertificate = CertNames.of(config, plan)
         assertTrue("*.other.example.org" in onCertificate && "other.example.org" in onCertificate)
@@ -148,18 +146,6 @@ class ExtraDomainsTest {
 
         assertFalse(plan.services.any { it.hostname == "vault.other.example.org" })
         assertTrue(plan.labelErrors.single().message.contains("*.other.example.org"))
-    }
-
-    @Test
-    fun pangolinKnowsEachDomain() {
-        val secrets = NodeSecrets("t".repeat(32), "server", "admin@test.example.net", "pw", "bk")
-        val yml = NodeTemplates.pangolinConfig(config, config.nodes.first(), secrets, slot = 0)
-
-        for (domain in config.serviceDomains) {
-            assertTrue("base_domain: \"$domain\"" in yml || "base_domain: $domain" in yml, "missing $domain in:\n$yml")
-        }
-        val plain = NodeTemplates.pangolinConfig(testConfig(), config.nodes.first(), secrets, slot = 0)
-        assertEquals(1, Regex("base_domain").findAll(plain).count(), "no extra domain, no extra entry")
     }
 
     @Test

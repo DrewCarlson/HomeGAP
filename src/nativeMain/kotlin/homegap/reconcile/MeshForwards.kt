@@ -5,6 +5,7 @@ import homegap.discovery.DockerContainerSummary
 import homegap.identity.Resource
 import homegap.identity.VpnAccess
 import homegap.model.DesiredState
+import homegap.model.HomelabServices
 import homegap.model.PublicResource
 import homegap.model.RawPort
 import homegap.model.ResourceMode
@@ -16,7 +17,7 @@ import homegap.provision.Mesh
  *
  * The homelab end has one port of its mesh address for each resource, to the target of the
  * resource. A node sends the traffic of the resource to that port: the Traefik of
- * the node for a resource of Pangolin, and the kernel of the node for a forwarded resource.
+ * the node for a route of its Traefik, and the kernel of the node for a forwarded resource.
  *
  * The target of a forward is an address. The orchestrator knows the address of each container
  * from Docker, and a Docker event starts a pass, so the mesh agent does not look names up.
@@ -84,7 +85,7 @@ object MeshForwards {
     ): Pair<List<PrivateTarget>, List<String>> {
         val addresses = addresses(plan, containers)
         val wanted = plan.nodes.values.flatMap { it.privateResources }
-            .filter { it.mode == HOST_MODE && !it.paused && it.alias.isNotBlank() }
+            .filter { it.mode == HOST_MODE && it.alias.isNotBlank() }
             .distinctBy { it.alias }
         val targets = wanted.mapNotNull { resource ->
             val host = resource.destination
@@ -103,7 +104,7 @@ object MeshForwards {
     fun of(plan: DesiredState, containers: List<DockerContainerSummary>): Result {
         val addresses = addresses(plan, containers)
         val wanted = plan.nodes.values.flatMap { it.resources }
-            .filter { portOf(it) != null && !it.paused }
+            .filter { portOf(it) != null }
             .distinctBy { protocolOf(it) to portOf(it) }
         val forwards = wanted.mapNotNull { resource ->
             addressOf(resource, addresses)?.let { address ->
@@ -137,11 +138,16 @@ object MeshForwards {
     private fun addresses(plan: DesiredState, containers: List<DockerContainerSummary>): Map<String, String> {
         val doors = plan.frontDoors.map { it.containerName }.toSet()
         val doorNetworks = containers.filter { it.name in doors }.flatMap { it.networkSettings.networks.keys }.toSet()
-        return containers.mapNotNull { container ->
+        val known = containers.mapNotNull { container ->
             val networks = container.networkSettings.networks.filter { it.value.ipAddress.isNotEmpty() }
             val shared = networks.filterKeys { it in doorNetworks }.values.firstOrNull()
-            (shared ?: networks.values.singleOrNull())?.let { container.name to it.ipAddress }
-        }.toMap()
+            (shared ?: networks.values.singleOrNull())?.let { container to it.ipAddress }
+        }
+        // Docker Compose gives a container the name of its project too: its service is its second name.
+        val byService = known.mapNotNull { (container, address) ->
+            container.labels[HomelabServices.COMPOSE_SERVICE]?.let { it to address }
+        }
+        return byService.toMap() + known.associate { (container, address) -> container.name to address }
     }
 
     private fun isAddress(host: String): Boolean = host.isNotEmpty() && host.all { it.isDigit() || it == '.' }

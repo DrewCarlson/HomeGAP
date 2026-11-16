@@ -369,7 +369,7 @@ td .reason { display:block; font-size:13px; font-weight:400; }
     });
     busy(false);
   }
-  // A Pangolin client reaches this page over the private path, and gets a link with no invite.
+  // A VPN device reaches this page over the private path, and gets a link with no invite.
   function vpnLink(otherwise) {
     return fetch('/speedtest/vpn-link', { method: 'POST', cache: 'no-store' }).then(function (r) {
       if (!r.ok) throw new Error(otherwise);

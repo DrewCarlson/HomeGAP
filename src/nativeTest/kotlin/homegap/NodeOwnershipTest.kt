@@ -2,7 +2,6 @@ package homegap
 
 import homegap.clients.SshSession
 import homegap.platform.Subprocess
-import homegap.provision.ExitNodes
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,25 +31,7 @@ class NodeOwnershipTest {
     }
 
     @Test
-    fun theClusterMembersDataStaysWithItsContainers() {
-        val own = SshSession.ownInstallDir("/opt/homegap")
-        assertEquals(
-            "hg_own '/opt/homegap' '/opt/homegap/cluster/etcd' '/opt/homegap/cluster/pgdata' " +
-                "'/opt/homegap/cluster/valkey' '/opt/homegap/cluster/sentinel'",
-            own,
-        )
-    }
-
-    @Test
-    fun scriptsFindTheDockerBinaryNotTheFunction() {
-        val script = ExitNodes.deployScript(
-            installDir = "/opt/homegap",
-            image = "img",
-            newtId = "id",
-            newtSecret = "s",
-        )
-        assertTrue("type -P docker" in script && "command -v docker" !in script)
-        val own = script.indexOf("hg_own")
-        assertTrue(own in 0 until script.indexOf("docker compose up"), "files change hands before Compose reads them")
+    fun theInstallDirChangesHands() {
+        assertEquals("hg_own '/opt/homegap'", SshSession.ownInstallDir("/opt/homegap"))
     }
 }

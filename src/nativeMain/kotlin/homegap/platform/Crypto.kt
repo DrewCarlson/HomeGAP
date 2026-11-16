@@ -4,12 +4,10 @@ import kotlinx.cinterop.*
 import platform.posix.*
 
 object Crypto {
-    private const val ALNUM_LOWER = "abcdefghijklmnopqrstuvwxyz0123456789"
     private const val ALNUM = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-    private const val SETUP_TOKEN_LENGTH = 32
     private const val PASSWORD_TOKEN_LENGTH = 28
 
-    /** One character of each class that the password policy of Pangolin asks for. */
+    /** One character of each class: upper, lower, digit and symbol. */
     private const val PASSWORD_SUFFIX = "-Aa1!"
 
     /** Cryptographically secure random bytes from the kernel CSPRNG. */
@@ -46,10 +44,7 @@ object Crypto {
         return text.toString()
     }
 
-    /** Pangolin requires a setup token that matches ^[a-z0-9]{32}$. */
-    fun setupToken(): String = token(SETUP_TOKEN_LENGTH, ALNUM_LOWER)
-
-    /** A password that satisfies the policy of Pangolin (upper, lower, digit, symbol). */
+    /** A new password with an upper and a lower case letter, a digit and a symbol. */
     fun password(): String = token(PASSWORD_TOKEN_LENGTH) + PASSWORD_SUFFIX
 
     /** Whether [first] and [second] are equal, in time that does not depend on where they differ. */

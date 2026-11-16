@@ -56,7 +56,6 @@ val Route.iconPath: String
         Route.Access -> "M12 12a4 4 0 1 0 0-8a4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0"
         Route.SpeedTest -> "M12 14l4-4M4 18a8 8 0 1 1 16 0"
         Route.Dns -> "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"
-        Route.Tunnels -> "M3 12h4M17 12h4M7 8h10v8H7z"
         Route.Activity -> "M3 12h4l3-8 4 16 3-8h4"
         Route.Diagnostics -> "M4 5h16v14H4zM7 9l3 3-3 3M12 15h5"
         else -> "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M14 4v4M8 10v4M16 16v4"

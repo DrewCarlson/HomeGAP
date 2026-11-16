@@ -198,7 +198,6 @@ private val SearchKind.iconPath: String
         SearchKind.Node -> "M7 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0M12 3v4M12 17v4M3 12h4M17 12h4"
         SearchKind.Service -> "M4 6h16M4 12h16M4 18h16"
         SearchKind.Dns -> "M3 12a9 9 0 1 0 18 0a9 9 0 1 0-18 0M3 12h18"
-        SearchKind.Tunnel -> "M3 12h4M17 12h4M7 8h10v8H7z"
         SearchKind.Page -> "M5 4h14v16H5zM5 9h14"
         SearchKind.Setting -> "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M14 4v4M8 10v4M16 16v4"
         SearchKind.Log -> "M3 12h4l3-8 4 16 3-8h4"

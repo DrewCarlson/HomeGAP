@@ -201,7 +201,7 @@ class NodeActions(
                 confirmLabel = "Decommission $id",
                 consequences = listOf(
                     "The node's containers and data under /opt/homegap are removed",
-                    "Its Pangolin site and DNS records are deleted",
+                    "Its mesh link and DNS records are removed",
                     "The server itself keeps running; delete it at your provider",
                 ),
                 typeToConfirm = id,
@@ -220,27 +220,13 @@ class NodeActions(
                 confirmLabel = "Forget $id",
                 consequences = listOf(
                     "If the server still runs, its stack and its secrets stay on it",
-                    "Its Pangolin site and DNS records are deleted",
+                    "Its mesh link and DNS records are removed",
                 ),
                 typeToConfirm = id,
                 danger = true,
             )
         ) {
             actions.run("Forget node") { api.decommission(id, id, force = true) }
-        }
-    }
-
-    fun switchPrimary(id: String) {
-        confirmations.ask(
-            ConfirmModel(
-                title = "Make $id the database primary?",
-                text = "Writes pause for a second or two while it switches. If $id isn't where the primary belongs, HomeGAP moves it back after the hold.",
-                confirmLabel = "Make $id primary",
-            )
-        ) {
-            pausedGuard.run("Making $id the primary") {
-                actions.run("Switch primary") { api.switchPrimary(id) }
-            }
         }
     }
 }

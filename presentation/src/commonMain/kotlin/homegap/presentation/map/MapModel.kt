@@ -69,20 +69,16 @@ fun homelabMarker(place: PlaceDto, info: MapInfo? = null): MapMarker =
 
 /**
  * The Overview map: every node and the homelab, with lines from the homelab to each node colored
- * by its tunnel. A node's card lists what's wrong, its tunnel and its round trip to the homelab.
+ * by its mesh link. A node's card lists what's wrong and its mesh link.
  */
 fun StatusSnapshot.overviewMap(now: Long): MapModel {
     val home = homelab
-    val meshRtt = mesh?.members.orEmpty().associate { m ->
-        m.id to m.peers.firstOrNull { it.id == "homelab" }?.probe?.rttMs
-    }
     val markers = nodes.mapNotNull { n ->
         val loc = n.location ?: return@mapNotNull null
         val failing = n.checks.filter { it.health != Health.OK && it.health != Health.UNKNOWN }
         val rows = buildList {
             add(MapInfoRow("Health", n.health.name.lowercase(), n.health))
-            add(MapInfoRow("Tunnel", if (n.tunnelUp) "healthy" else "failing", if (n.tunnelUp) Health.OK else Health.DOWN))
-            meshRtt[n.id]?.let { add(MapInfoRow("To homelab", homegap.presentation.format.formatMillis(it))) }
+            add(MapInfoRow("Mesh link", if (n.tunnelUp) "healthy" else "failing", if (n.tunnelUp) Health.OK else Health.DOWN))
             if (n.provider.isNotBlank()) add(MapInfoRow("Provider", n.provider))
             failing.take(4).forEach { add(MapInfoRow(it.name, it.detail.ifBlank { it.health.name.lowercase() }.take(48), it.health)) }
             n.lastProvisionAt?.let { add(MapInfoRow("Provisioned", ago(it, now))) }
@@ -97,7 +93,7 @@ fun StatusSnapshot.overviewMap(now: Long): MapModel {
     }
     val homeMarker = home?.let {
         val up = nodes.count { it.tunnelUp }
-        homelabMarker(it, MapInfo("Homelab", it.name, listOf(MapInfoRow("Tunnels up", "$up of ${nodes.size}", if (up == nodes.size) Health.OK else Health.DEGRADED))))
+        homelabMarker(it, MapInfo("Homelab", it.name, listOf(MapInfoRow("Mesh links up", "$up of ${nodes.size}", if (up == nodes.size) Health.OK else Health.DEGRADED))))
     }
     return MapModel(listOfNotNull(homeMarker) + markers, lines)
 }

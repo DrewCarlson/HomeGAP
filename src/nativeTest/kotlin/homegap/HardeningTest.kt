@@ -23,10 +23,10 @@ class HardeningTest {
 
     private fun crowdsecFile(failClosed: Boolean): String {
         val base = testConfig()
-        val config = base.copy(pangolin = base.pangolin.copy(crowdsec = true, crowdsecFailClosed = failClosed))
+        val config = base.copy(nodeStack = base.nodeStack.copy(crowdsec = true, crowdsecFailClosed = failClosed))
         val desired = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
-        val secrets = NodeSecrets("t", "s", "a@b", "p", "k")
-        return NodeTemplates.staticFiles(config, desired.node, secrets, slot = 0)
+        val secrets = NodeSecrets(crowdsecBouncerKey = "k")
+        return NodeTemplates.staticFiles(config, desired.node, secrets)
             .single { it.path.endsWith("homegap-crowdsec.yml") }
             .content
     }
@@ -34,7 +34,7 @@ class HardeningTest {
     @Test
     fun nodeFieldsThatGoIntoScriptsAreChecked() {
         assertTrue(ConfigLoader.nodeErrors(node()).isEmpty())
-        val named = node(host = "eu1.example.net", managementHost = "pangolin-eu1.example.net")
+        val named = node(host = "eu1.example.net", managementHost = "node-eu1.example.net")
         assertTrue(ConfigLoader.nodeErrors(named).isEmpty())
         assertTrue(ConfigLoader.nodeErrors(node(host = "2001:db8::30")).isEmpty())
         assertEquals(1, ConfigLoader.nodeErrors(node(host = "a b")).size)
@@ -54,10 +54,10 @@ class HardeningTest {
 
     @Test
     fun aLabelCannotClaimAHostnameOfHomeGAP() {
-        val app = container("app", "homegap.expose" to "pangolin-na1.test.example.net")
+        val app = container("app", "homegap.expose" to "node-na1.test.example.net")
         val plan = Planner.plan(testConfig(), listOf(TRAEFIK, app))
         assertTrue(plan.labelErrors.any { "reserved" in it.message })
-        assertTrue(plan.services.none { it.hostname == "pangolin-na1.test.example.net" })
+        assertTrue(plan.services.none { it.hostname == "node-na1.test.example.net" })
     }
 
     @Test
@@ -154,18 +154,17 @@ class HardeningTest {
         val config = testConfig().copy(statusPage = testConfig().statusPage.copy(enabled = true))
         val plan = Planner.plan(config, listOf(TRAEFIK))
         val desired = plan.nodes.getValue("na1")
-        val secrets = NodeSecrets("t", "s", "a@b", "p", "k")
-        val files = NodeTemplates.staticFiles(config, desired.node, secrets, slot = 0)
-            .associateBy { it.path }
+        val secrets = NodeSecrets(crowdsecBouncerKey = "k")
+        val files = NodeTemplates.staticFiles(config, desired.node, secrets).associateBy { it.path }
         val headers = files.getValue(NodeTemplates.DYNAMIC_HEADERS).content
         assertTrue("stsSeconds: 31536000" in headers, headers)
         assertTrue("includeSubdomains" !in headers.lowercase(), "a node sets no rule for other names")
         assertTrue("homegap-hsts@file" in files.getValue("config/traefik/traefik_config.yml").content)
-        val routes = NodeTemplates.dynamicRoutes(desired, emptyMap())
+        val routes = NodeTemplates.dynamicRoutes(desired)
         assertTrue("homegap-status-rate" in routes && "rateLimit" in routes, routes)
         // Without the status page, there is no limit to define.
         val off = Planner.plan(testConfig(), listOf(TRAEFIK)).nodes.getValue("na1")
-        assertTrue("homegap-status-rate" !in NodeTemplates.dynamicRoutes(off, emptyMap()))
+        assertTrue("homegap-status-rate" !in NodeTemplates.dynamicRoutes(off))
     }
 
     @Test

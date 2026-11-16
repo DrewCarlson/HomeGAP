@@ -5,7 +5,6 @@ import homegap.platform.Files
 import homegap.platform.ProcessResult
 import homegap.platform.Subprocess
 import homegap.platform.nowMillis
-import homegap.provision.ClusterTemplates
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.io.encoding.Base64
@@ -218,10 +217,8 @@ class SshSession(
             |}
         """.trimMargin()
 
-        /** `hg_own` for the install dir [dir]. It leaves the data of the cluster member to its containers. */
-        fun ownInstallDir(dir: String): String =
-            (listOf(dir) + ClusterTemplates.DATA_DIRS.map { "$dir/cluster/$it" })
-                .joinToString(" ", prefix = "hg_own ") { shQuote(it) }
+        /** `hg_own` for the install dir [dir]. */
+        fun ownInstallDir(dir: String): String = "hg_own ${shQuote(dir)}"
 
         fun shQuote(text: String): String = "'" + text.replace("'", "'\"'\"'") + "'"
     }

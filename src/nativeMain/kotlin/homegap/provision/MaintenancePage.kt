@@ -19,7 +19,7 @@ import kotlinx.serialization.json.putJsonObject
  * because the node holds no certificate for it.
  *
  * A small `maintenance` service on each node checks every few seconds that the homelab answers
- * through the tunnel, at the addresses of the services that Pangolin last generated. When no
+ * over the mesh, at the port of each service on the mesh address of the homelab. When no
  * address answers a few times in a row, it drops [routes] into Traefik's dynamic directory: one
  * HTTP router for the covered names, above every other router, that sends each request to the
  * service. The service answers with the page and a 503. When the homelab answers again, the
@@ -32,6 +32,9 @@ import kotlinx.serialization.json.putJsonObject
 object MaintenancePage {
     const val SERVICE = "maintenance"
     const val PORT = 8090
+
+    /** The name of the container of the service, which is its name for Traefik on the network of the stack. */
+    const val CONTAINER = "homegap-maintenance"
 
     /** The directory on the node where HomeGAP writes the files of the service. Traefik does not watch it. */
     const val DIR = "config/maintenance"
@@ -52,22 +55,16 @@ object MaintenancePage {
         "Managed by HomeGAP: added to Traefik by the maintenance service only while the homelab is unreachable."
 
     /**
-     * The targets that the service checks: each resource that reaches the homelab, with a name to
-     * send as SNI. A target over the mesh has its address. For a target of Pangolin, the service
-     * finds the resource in the generated routes of Pangolin as `<id>-<niceId>-service`. The list
-     * is empty if there is nothing to cover.
+     * The targets that the service checks: the port of each resource on the mesh address of the
+     * homelab, with a name to send as SNI. The list is empty if there is nothing to cover.
      */
-    fun probes(desired: NodeDesired, resourceIds: Map<String, Int>): String = buildJsonObject {
+    fun probes(desired: NodeDesired): String = buildJsonObject {
         putJsonArray("targets") {
-            if (covers(desired, resourceIds)) {
-                for (target in targets(desired, resourceIds)) {
+            if (covers(desired)) {
+                for (target in targets(desired)) {
                     add(
                         buildJsonObject {
-                            if (target.address != null) {
-                                put("address", target.address)
-                            } else {
-                                put("service_suffix", "-${target.niceId}-service")
-                            }
+                            put("address", target.address)
                             put("sni", target.sni)
                         },
                     )
@@ -76,37 +73,35 @@ object MaintenancePage {
         }
     }.toString() + "\n"
 
-    /** A resource to check, with a name for SNI. [address] is its port on the mesh, or null for Pangolin. */
-    private class Probe(val niceId: String, val sni: String, val address: String?)
+    /** A resource to check: its port on the mesh, with a name for SNI. */
+    private class Probe(val sni: String, val address: String)
 
-    /** The resources that reach the homelab: over the mesh, or through a resource that exists in Pangolin. */
-    private fun targets(desired: NodeDesired, resourceIds: Map<String, Int>): List<Probe> {
+    private fun targets(desired: NodeDesired): List<Probe> {
         val passthrough = desired.sniRoutes.mapNotNull { route ->
             val sni = route.exactHosts.firstOrNull { it !in route.excludeHosts }
                 ?: route.wildcardOf?.let { "homegap-probe.$it" }
-            sni?.let { Probe(route.resourceNiceId, it, desired.meshTarget(route)?.address) }
+            val address = desired.meshTarget(route)?.address
+            if (sni != null && address != null) Probe(sni, address) else null
         }
         val terminated = desired.httpResources
             .filter { it.ssl && it.fullDomain != null }
-            .map { resource ->
+            .mapNotNull { resource ->
                 val sni = resource.tlsServerName ?: resource.fullDomain!!.replace("*.", "homegap-probe.")
-                Probe(resource.niceId, sni, desired.meshUrl(resource))
+                desired.meshUrl(resource)?.let { Probe(sni, it) }
             }
-        return (passthrough + terminated).filter { it.address != null || resourceIds[it.niceId] != null }
+        return passthrough + terminated
     }
 
-    private fun covers(desired: NodeDesired, resourceIds: Map<String, Int>): Boolean {
+    private fun covers(desired: NodeDesired): Boolean {
         val hasNames = desired.maintenanceHosts.isNotEmpty() || desired.sniRoutes.isNotEmpty()
-        return hasNames && targets(desired, resourceIds).isNotEmpty()
+        return hasNames && targets(desired).isNotEmpty()
     }
 
     /** The Traefik override, or an empty file if there is nothing to cover. */
-    fun routes(desired: NodeDesired, resourceIds: Map<String, Int>): String {
+    fun routes(desired: NodeDesired): String {
         val hosts = desired.maintenanceHosts
-        if (!covers(desired, resourceIds)) return NOTHING_TO_COVER
-        val passthrough = desired.sniRoutes.filter {
-            desired.meshTarget(it) != null || resourceIds[it.resourceNiceId] != null
-        }
+        if (!covers(desired)) return NOTHING_TO_COVER
+        val passthrough = desired.sniRoutes.filter { desired.meshTarget(it) != null }
         val root = buildJsonObject {
             if (hosts.isNotEmpty()) {
                 putJsonObject("http") { putPageRoute(pageRule(desired)) }
@@ -128,8 +123,8 @@ object MaintenancePage {
                 "Host(`$host`)"
             }
         }
-        // The pages of Pangolin itself on the node do not need the homelab.
-        val own = listOfNotNull(desired.managementHost, desired.clientHost).filter { it !in hosts }
+        // The name of the node itself does not need the homelab.
+        val own = listOf(desired.managementHost).filter { it !in hosts }
         return "(${matches.joinToString(" || ")})" + own.joinToString("") { " && !Host(`$it`)" }
     }
 
@@ -145,7 +140,8 @@ object MaintenancePage {
             }
         }
         putJsonObject("services") {
-            putJsonObject("homegap-maintenance") { putLoadBalancer("url", "http://127.0.0.1:$PORT") }
+            @Suppress("HttpUrlsUsage") // The page is on the network of the stack of the node.
+            putJsonObject("homegap-maintenance") { putLoadBalancer("url", "http://$CONTAINER:$PORT") }
         }
     }
 
@@ -179,7 +175,7 @@ object MaintenancePage {
     /** The service: a probe loop and a small HTTP server. It uses only the standard library. */
     val SCRIPT = $$"""
         |# Managed by HomeGAP: shows the maintenance page while the homelab is unreachable.
-        |import concurrent.futures, http.client, http.server, json, os, re, shutil, socket, socketserver, ssl, threading, time
+        |import concurrent.futures, http.server, json, os, shutil, socket, socketserver, ssl, threading, time
         |
         |DIR = "/maintenance"
         |DYNAMIC = "/dynamic"
@@ -195,32 +191,6 @@ object MaintenancePage {
         |            return json.load(f)
         |    except Exception:
         |        return default
-        |
-        |def pangolin_routes():
-        |    # A cluster's Pangolin writes Traefik's config to a file; a standalone one serves it.
-        |    try:
-        |        with open(os.path.join(DYNAMIC, "router_config.yml")) as f:
-        |            return f.read()
-        |    except OSError:
-        |        pass
-        |    try:
-        |        c = http.client.HTTPConnection("pangolin", 3001, timeout=4)
-        |        c.request("GET", "/api/v1/traefik-config")
-        |        body = c.getresponse().read().decode()
-        |        c.close()
-        |        return body
-        |    except Exception:
-        |        return ""
-        |
-        |def addresses(routes, suffix):
-        |    # The servers of the first service named <id><suffix>, from YAML or JSON.
-        |    m = re.search(r'"?\d+' + re.escape(suffix) + r'"?\s*:', routes)
-        |    if not m:
-        |        return []
-        |    block = routes[m.end():]
-        |    nxt = re.search(r'"?[\w-]+-service"?\s*:', block)
-        |    block = block[: nxt.start()] if nxt else block
-        |    return re.findall(r'"?(?:address|url)"?\s*:\s*"?([^"\s,}]+)', block)
         |
         |def handshake(address, sni):
         |    # A TCP service has host:port and carries TLS. An HTTP service has a URL.
@@ -239,14 +209,9 @@ object MaintenancePage {
         |        return False
         |
         |def homelab_up(targets):
-        |    # Up when any service reaches the homelab (a TLS handshake, or a connection for http). A service
-        |    # Pangolin has dropped (its targets failed their health checks) counts as down.
+        |    # Up when any service reaches the homelab (a TLS handshake, or a connection for http).
         |    # The checks run side by side, so an unreachable homelab is noticed in one timeout.
-        |    routes = pangolin_routes()
-        |    checks = []
-        |    for t in targets:
-        |        found = [t["address"]] if "address" in t else addresses(routes, t["service_suffix"])
-        |        checks += [(a, t["sni"]) for a in found]
+        |    checks = [(t["address"], t["sni"]) for t in targets]
         |    if not checks:
         |        return False
         |    with concurrent.futures.ThreadPoolExecutor(len(checks)) as pool:
@@ -325,7 +290,7 @@ object MaintenancePage {
         |
         |threading.Thread(target=watch, daemon=True).start()
         |log("maintenance page ready on :$$PORT")
-        |Server(("127.0.0.1", $$PORT), Page).serve_forever()
+        |Server(("0.0.0.0", $$PORT), Page).serve_forever()
         |""".trimMargin()
 
     /**

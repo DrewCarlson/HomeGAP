@@ -998,12 +998,6 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
 .fleet-chart .chart-head .chart-label { display: none; }
 .check-dots { display: flex; gap: 3px; margin-top: 4px; }
 .check-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.db-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--rule); }
-.db-stat { padding: 12px 16px; border-right: 1px solid var(--rule); }
-.db-stat-value { margin-top: 4px; font: 500 16px var(--mono); }
-.db-members { list-style: none; margin: 0; padding: 0; }
-.db-members li { display: grid; grid-template-columns: 110px 140px minmax(0, 1fr) 120px 32px; align-items: center; gap: 12px; min-height: 44px; padding: 6px 16px; border-bottom: 1px solid var(--rule); font-size: 13px; }
-.db-action { justify-self: end; }
 .mesh td { text-align: center; }
 .mesh th { text-align: center; }
 .cell-detail { font-size: 10.5px; color: var(--ink-dim); }
@@ -1040,7 +1034,7 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
 .overlay-drawer:has(.wide-panel) { width: min(720px, 100vw); }
 .overlay-drawer .wide-panel, .overlay-full .wide-panel { height: 100%; max-height: none; }
 
-/* ---------------------------------------------------------------- services, dns, tunnels */
+/* ---------------------------------------------------------------- services, dns */
 .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .filter-field { flex: 1; min-width: 220px; flex-direction: row; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--panel); color: var(--ink-dim); }
 .filter-field input { flex: 1; height: 34px; border: 0; background: transparent; color: var(--ink); font: 13.5px var(--sans); outline: none; padding: 0; }
@@ -1082,7 +1076,6 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
 .qr-details .qr { margin-top: 10px; }
 .copy-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .people { list-style: none; margin: 0; padding: 0; }
-.person.invite { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto; }
 .person { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 52px; padding: 6px 16px; border-bottom: 1px solid var(--rule); }
 .person-name { display: flex; align-items: center; gap: 10px; color: var(--ink); min-width: 0; }
 .avatar { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--indigo); font-size: 12px; font-weight: 600; }
@@ -1157,8 +1150,6 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .page { padding: 20px 20px 40px; }
   .gauges { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .fleet-wide, .fleet th:nth-child(4), .fleet th:nth-child(5) { display: none; }
-  .db-members li { grid-template-columns: 90px minmax(0, 1fr) 100px 32px; }
-  .db-address { display: none; }
   .wide-only { display: none; }
   .device-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .person { grid-template-columns: minmax(0, 1fr) auto; }
@@ -1216,22 +1207,12 @@ a.path-names:hover { color: var(--ink); text-decoration: underline; }
   .fleet td.fleet-menu { position: absolute; top: 6px; right: 8px; width: auto; }
   .fleet td[data-label]::before { content: attr(data-label) " "; font: 11px var(--mono); color: var(--ink-faint); letter-spacing: .02em; }
   .fleet-chart { min-width: 0; }
-  .db-stats { grid-template-columns: 1fr; }
-  /* Name, role and ⋮ on the first line, lag under the name. */
-  .db-members li { grid-template-columns: minmax(0, 1fr) auto 32px; grid-template-areas: "name role menu" "lag lag menu"; row-gap: 2px; }
-  .db-members li > :nth-child(1) { grid-area: name; }
-  .db-members li > :nth-child(3) { grid-area: role; justify-self: end; }
-  .db-members li > :nth-child(4) { grid-area: lag; }
-  .db-members li > :nth-child(5) { grid-area: menu; }
   .record-set-head { grid-template-columns: 16px minmax(0, 1fr); }
   .record-set-head > span:nth-child(n+3) { grid-column: 2; }
   .record-members { padding-left: 16px; }
   .log-entry { grid-template-columns: max-content minmax(0, 1fr); column-gap: 10px; }
   .device-grid { grid-template-columns: 1fr; }
-  .person, .person.invite { grid-template-columns: minmax(0, 1fr); gap: 6px; padding-top: 10px; padding-bottom: 10px; }
-  .person.invite { grid-template-columns: minmax(0, 1fr) 32px; }
-  .person.invite > :not(.row-menu) { grid-column: 1; }
-  .person.invite > .row-menu { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .person { grid-template-columns: minmax(0, 1fr); gap: 6px; padding-top: 10px; padding-bottom: 10px; }
   .app-address { flex-direction: column; align-items: flex-start; }
   .log-domain { display: none; }
   .log-text { grid-column: 1 / -1; }

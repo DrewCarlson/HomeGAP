@@ -5,8 +5,8 @@
 # Each part below is an example. Remove the "#" of the lines that you use.
 
 services:
-  tunnels: {}
-  # tunnels:
+  homegap-mesh: {}
+  # homegap-mesh:
   #   networks:
   #     # A fixed address on the Traefik network, for homegap.proxy_protocol on the front door.
   #     traefik: { ipv4_address: 172.32.0.250 }
@@ -14,12 +14,6 @@ services:
   #     homegap-private: {}
   #     # The network of a service that HomeGAP exposes directly.
   #     other-stack: {}
-  #   sysctls:
-  #     # BBR. The host must have the module (modprobe tcp_bbr), or the container does not start.
-  #     net.ipv4.tcp_congestion_control: bbr
-  #   # A name for the host itself, for a host service in homegap.host.
-  #   extra_hosts:
-  #     - "host.docker.internal:host-gateway"
 
 # networks:
 #   homegap-private:

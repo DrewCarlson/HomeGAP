@@ -5,7 +5,6 @@ import homegap.presentation.ui.FieldKind
 import androidx.compose.runtime.key
 import homegap.presentation.access.AccessScreenModel
 import homegap.presentation.access.DeviceRowModel
-import homegap.presentation.access.InvitationRowModel
 import homegap.presentation.access.MachineSecretModel
 import homegap.presentation.access.NewMachineFormModel
 import homegap.presentation.access.NewUserFormModel
@@ -39,7 +38,6 @@ fun AccessScreen(
             model.clientAddress?.let { address ->
                 ClientAddress(
                     address = address,
-                    via = null,
                     qr = QrCode.encode(address),
                 )
             }
@@ -50,20 +48,12 @@ fun AccessScreen(
                 model = model,
                 onOpen = onOpen,
             )
-            if (model.invitations.isNotEmpty()) {
-                Invitations(
-                    rows = model.invitations,
-                    onReissue = model.onReissueInvitation,
-                    onRemove = model.onRemoveInvitation,
-                )
-            }
             Devices(
                 rows = model.devices,
                 onOpen = onOpen,
             )
             ClientAddress(
                 address = model.clientAddress,
-                via = model.via.ifEmpty { null },
                 qr = model.qr,
             )
             if (model.addMachineOpen) {
@@ -78,10 +68,10 @@ fun AccessScreen(
             if (model.addUserOpen) {
                 AddUser(
                     form = model.newUser,
-                    inviteLink = model.inviteLink,
+                    newPassword = model.newPassword,
                     passwordOwner = model.passwordOwner,
                     viewport = viewport,
-                    onDismissLink = model.onDismissInviteLink,
+                    onDismissPassword = model.onDismissNewPassword,
                     onClose = { onOpen(Location(Route.Access)) },
                 )
             }
@@ -90,8 +80,8 @@ fun AccessScreen(
 }
 
 @Composable
-private fun ClientAddress(address: String, via: String?, qr: QrCode?) {
-    Figure(title = "App address", note = via) {
+private fun ClientAddress(address: String, qr: QrCode?) {
+    Figure(title = "App address") {
         Div({ classes("app-address-text") }) {
             Div({ classes("copy-row") }) {
                 Span({ classes("mono", "app-address-value") }) { Text(address) }
@@ -180,51 +170,11 @@ private fun RoleChips(
 }
 
 @Composable
-private fun Invitations(
-    rows: List<InvitationRowModel>,
-    onReissue: (String) -> Unit,
-    onRemove: (String) -> Unit,
-) {
-    Figure(
-        title = "Open invitations",
-        flush = true,
-    ) {
-        Ul({ classes("people") }) {
-            rows.forEach { row ->
-                key(row.id) {
-                    Li({ classes("person", "invite") }) {
-                        Span({ classes("mono") }) { Text(row.email) }
-                        Span({ classes("muted", "small") }) { Text(row.roles) }
-                        row.expires?.let { Span({ classes("muted", "small", "wide-only") }) { Text(it) } }
-                        Span({ classes("row-menu") }) {
-                            KebabMenu(
-                                label = "Actions for the invitation to ${row.email}",
-                                items = listOf(
-                                    MenuItem(
-                                        label = "New link",
-                                        onClick = { onReissue(row.id) },
-                                    ),
-                                    MenuItem(
-                                        label = "Revoke",
-                                        danger = true,
-                                        onClick = { onRemove(row.id) },
-                                    ),
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun Devices(rows: List<DeviceRowModel>, onOpen: (Location) -> Unit) {
     Figure(
         title = "Devices",
         flush = true,
-        actions = { Span({ classes("caption", "muted") }) { Text("Pangolin apps and machine clients") } },
+        actions = { Span({ classes("caption", "muted") }) { Text("Devices of the VPN and machine clients") } },
     ) {
         if (rows.isEmpty()) {
             P({ classes("figure-note") }) { Text("No devices have connected yet.") }
@@ -360,10 +310,10 @@ private fun CopyValue(label: String, value: String) {
 @Composable
 private fun AddUser(
     form: NewUserFormModel,
-    inviteLink: String?,
+    newPassword: String?,
     passwordOwner: String?,
     viewport: Viewport,
-    onDismissLink: () -> Unit,
+    onDismissPassword: () -> Unit,
     onClose: () -> Unit,
 ) {
     // The same panel shows a new password of a user that exists.
@@ -392,14 +342,14 @@ private fun AddUser(
             }
             Div({ classes("form-body") }) {
                 ScrollHint()
-                if (inviteLink != null) {
+                if (newPassword != null) {
                     P { Text("Give this password to the person. HomeGAP shows it only once.") }
                     Div({ classes("copy-row") }) {
-                        Span({ classes("mono", "small", "ellipsis") }) { Text(inviteLink) }
+                        Span({ classes("mono", "small", "ellipsis") }) { Text(newPassword) }
                         ActionButton(
                             text = "Copy password",
                             small = true,
-                            onClick = { window.navigator.clipboard.writeText(inviteLink) },
+                            onClick = { window.navigator.clipboard.writeText(newPassword) },
                         )
                     }
                 } else {
@@ -441,12 +391,12 @@ private fun AddUser(
                 }
             }
             Div({ classes("form-actions") }) {
-                if (inviteLink != null) {
+                if (newPassword != null) {
                     ActionButton(
                         text = "Done",
                         style = ButtonStyle.Primary,
                         onClick = {
-                            onDismissLink()
+                            onDismissPassword()
                             onClose()
                         },
                     )

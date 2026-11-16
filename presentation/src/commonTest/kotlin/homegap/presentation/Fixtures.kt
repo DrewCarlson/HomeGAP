@@ -73,12 +73,10 @@ class FakeControllerApi(
     override suspend fun events(afterSeq: Long): Flow<ServerEvent> = flow { awaitCancellation() }
     override suspend fun resync() = ok("resync")
     override suspend fun applyOnce() = ok("apply once")
-    override suspend fun restartTunnel(node: String) = ok("restart tunnel $node")
     override suspend fun orderCertificate(replaceKey: Boolean) = ok(if (replaceKey) "replace key" else "order certificate")
     override suspend fun resendCertificate(node: String) = ok("resend certificate $node")
     override suspend fun checkCertificates() = ok("check certificates")
     override suspend fun undo(id: String) = ok("undo $id")
-    override suspend fun reissueInvitation(id: String) = CreateAccessUserResponse(true, "new link", "https://pangolin.x/invite?token=new").also { calls += "reissue $id" }
     override suspend fun provision(node: String) = ok("provision $node")
     override suspend fun startSpeedRun(streams: Int) = ok("speed run $streams")
     override suspend fun cancelSpeedRun() = ok("cancel speed run")
@@ -95,7 +93,7 @@ class FakeControllerApi(
     }
 
 
-    var accessValue = AccessOverviewDto(available = false, note = "no cluster")
+    var accessValue = AccessOverviewDto(available = false, note = "sign_in.url is not set")
     var lastCreate: CreateAccessUserRequest? = null
     override suspend fun access() = accessValue
     override suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse {
@@ -103,7 +101,6 @@ class FakeControllerApi(
         calls += "create ${request.email} ${request.roleIds} ${if (request.password != null) "password" else "generated"}"
         return CreateAccessUserResponse(true, "created", password = "made-by-homegap".takeIf { request.password == null })
     }
-    override suspend fun switchPrimary(to: String) = ok("switch $to")
     var locationsValue = LocationsResponse(listOf(
         LocationDto("us-dallas", "Dallas, Texas", "United States", "US", "NA", 32.78, -96.8, listOf("Vultr", "AWS"), builtIn = true),
         LocationDto("in-mumbai", "Mumbai", "India", "IN", "AS", 19.08, 72.88, listOf("AWS", "Vultr"), builtIn = true),
@@ -129,7 +126,6 @@ class FakeControllerApi(
     }
     override suspend fun removeUser(id: String) = ok("remove-user $id")
     override suspend fun setUserRoles(id: String, roleIds: List<Int>) = ok("roles $id $roleIds")
-    override suspend fun removeInvitation(id: String) = ok("remove-invite $id")
     override suspend fun deviceAction(id: Int, action: String) = ok("device $id $action")
     override suspend fun userAction(id: String, action: String) = ok("user $id $action")
     override suspend fun createMachine(request: CreateAccessMachineRequest): CreateAccessMachineResponse {
@@ -208,7 +204,7 @@ fun node(
     job: String? = null,
     waiting: String? = null,
 ) = NodeStatusDto(
-    id = id, region = "AS", provider = "vps", host = "10.0.0.1", managementHost = "pangolin-$id.x", health = health,
+    id = id, region = "AS", provider = "vps", host = "10.0.0.1", managementHost = "node-$id.x", health = health,
     reachable = true, tunnelUp = health == Health.OK, lastProvisionAt = NOW - 120_000, lastProvisionOk = true,
     facts = mapOf("os" to "ubuntu-26.10", "tcp_cc" to "bbr", "qdisc" to "fq", "edge_tcp" to "unknown"),
     job = job, updateWaiting = waiting, update = update,
@@ -216,10 +212,9 @@ fun node(
 
 fun snapshot(
     nodes: List<NodeStatusDto> = listOf(node("a1")),
-    tunnels: List<TunnelStatusDto> = listOf(TunnelStatusDto("a1", "homelab", "https://p", up = true, processRunning = true, siteOnline = true)),
     paused: Boolean = false,
 ) = StatusSnapshot(
     generatedAt = NOW, version = "0.1.0", dryRun = false, project = "homegap", domain = "example.net", paused = paused,
     lastReconcile = ReconcileSummaryDto(NOW - 30_000, NOW - 12_000, "periodic", ok = true, changes = 1, errors = 0),
-    nodes = nodes, tunnels = tunnels,
+    nodes = nodes,
 )

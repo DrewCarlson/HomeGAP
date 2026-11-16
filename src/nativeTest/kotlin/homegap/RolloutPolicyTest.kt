@@ -1,13 +1,14 @@
 package homegap
 
 import homegap.reconcile.NodeReconciler.Kind
+import homegap.reconcile.NodeSlots
 import homegap.reconcile.RolloutPolicy
 import homegap.reconcile.RolloutPolicy.Decision
-import homegap.reconcile.TunnelSlots
 import homegap.state.NodeState
 import homegap.state.UpdateState
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -82,12 +83,11 @@ class RolloutPolicyTest {
     }
 }
 
-class TunnelSlotsTest {
+class NodeSlotsTest {
     private fun good(slot: Int? = null) = NodeState(
         stackHash = "h",
-        siteId = 1,
         lastProvisionOk = true,
-        tunnelSlot = slot,
+        slot = slot,
     )
 
     @Test
@@ -95,29 +95,27 @@ class TunnelSlotsTest {
         val states = mapOf("a" to good(0), "b" to good(1), "c" to good(2))
         // b is gone from the config, but its state stays until the decommission.
         // c keeps 2, and a new node d gets neither.
-        val slots = TunnelSlots.assign(listOf("a", "c", "d"), states)
+        val slots = NodeSlots.assign(listOf("a", "c", "d"), states)
         assertEquals(0, slots["a"])
         assertEquals(2, slots["c"])
         assertEquals(3, slots["d"])
         // After the decommission of b (its state is gone), its slot is free again.
-        val afterDecommission = TunnelSlots.assign(listOf("a", "c", "d"), states - "b")
+        val afterDecommission = NodeSlots.assign(listOf("a", "c", "d"), states - "b")
         assertEquals(1, afterDecommission["d"])
     }
 
     @Test
-    fun legacyNodesStartFromTheirPosition() {
+    fun nodesWithNoSlotStartFromTheirPosition() {
         val states = mapOf("a" to good(), "c" to good(), "n" to NodeState())
-        val slots = TunnelSlots.assign(listOf("a", "c", "n"), states)
+        val slots = NodeSlots.assign(listOf("a", "c", "n"), states)
         assertEquals(0, slots["a"])
         assertEquals(1, slots["c"])
         assertEquals(2, slots["n"])
     }
 
     @Test
-    fun parsesSiteSubnets() {
-        assertEquals(0, TunnelSlots.fromSubnet("100.89.128.4/30"))
-        assertEquals(2, TunnelSlots.fromSubnet("100.89.136.4/30"))
-        assertEquals(null, TunnelSlots.fromSubnet("10.0.0.4/30"))
-        assertEquals("100.89.136.0/22", TunnelSlots.subnet(2))
+    fun thereIsNoSlotAfterTheLastOne() {
+        val full = (0 until NodeSlots.MAX).associate { "node$it" to good(it) }
+        assertFailsWith<IllegalStateException> { NodeSlots.assign(full.keys.toList() + "extra", full) }
     }
 }

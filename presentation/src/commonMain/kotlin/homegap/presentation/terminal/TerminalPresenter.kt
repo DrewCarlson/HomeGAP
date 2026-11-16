@@ -77,8 +77,7 @@ class TerminalPresenter(
         val COMMANDS = listOf(
             "docker ps --format 'table {{.Names}}\\t{{.Status}}'",
             "docker compose logs -f --tail 100 traefik",
-            "docker compose logs -f --tail 100 pangolin",
-            "docker compose logs -f --tail 100 gerbil",
+            "docker compose logs -f --tail 100 homegap-agent",
             "sudo wg show",
             "df -h /",
             "free -m",

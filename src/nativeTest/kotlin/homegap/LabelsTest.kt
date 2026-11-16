@@ -20,7 +20,6 @@ class LabelsTest {
         assertEquals(Protocol.HTTP, spec.protocol)
         assertEquals(TlsMode.TERMINATE, spec.tls, "plain http is always terminated on the node")
         assertEquals(Access.PUBLIC, spec.access)
-        assertEquals(AuthMode.NONE, spec.auth)
         assertNull(spec.regions)
         assertNull(spec.healthcheck)
         assertEquals("svc", spec.targetHost)
@@ -45,9 +44,12 @@ class LabelsTest {
         val reserved = parse(
             "homegap.expose" to "x.test.example.net",
             "homegap.protocol" to "tcp",
-            "homegap.port" to "8080",
+            "homegap.port" to "8091",
         )
-        assertTrue(reserved.errors.any { "reserved" in it })
+        assertTrue(reserved.errors.any { "public port 8091 is reserved" in it }, reserved.errors.toString())
+        for (port in listOf(80, 443, 8092)) {
+            assertTrue(port in RESERVED_NODE_PORTS, "the node uses $port itself")
+        }
         val ok = parse(
             "homegap.expose" to "x.test.example.net",
             "homegap.protocol" to "tcp",
@@ -66,24 +68,15 @@ class LabelsTest {
     }
 
     @Test
-    fun authIsNotAvailableInAnyTlsMode() {
-        val passthrough = parse(
-            "homegap.expose" to "a.test.example.net",
-            "homegap.protocol" to "https",
-            "homegap.auth" to "sso",
-        )
-        assertTrue(passthrough.errors.any { "homegap.auth=sso is not available" in it }, passthrough.errors.toString())
-        val terminate = parse(
-            "homegap.expose" to "a.test.example.net",
-            "homegap.protocol" to "https",
-            "homegap.tls" to "terminate",
-            "homegap.auth" to "sso",
-        )
-        assertTrue(terminate.errors.any { "homegap.auth=sso is not available" in it }, terminate.errors.toString())
-        val pin = parse("homegap.expose" to "a.test.example.net", "homegap.auth" to "pin")
-        assertTrue(pin.errors.any { "homegap.auth=pin is not available" in it }, pin.errors.toString())
-        val none = parse("homegap.expose" to "a.test.example.net", "homegap.auth" to "none")
-        assertTrue(none.errors.isEmpty(), none.errors.toString())
+    fun theLabelsOfTheSignInOfANodeAreNotKnown() {
+        for (label in listOf("homegap.auth" to "sso", "homegap.pin_env" to "PIN")) {
+            val result = parse("homegap.expose" to "a.test.example.net", label)
+            assertTrue(result.errors.isEmpty(), result.errors.toString())
+            assertTrue(
+                result.warnings.any { "unknown label '${label.first}' ignored" in it },
+                result.warnings.toString(),
+            )
+        }
     }
 
     @Test
@@ -136,20 +129,6 @@ class LabelsTest {
             assertTrue(event(action, "homegap.expose" to "app.test.example.net").concernsHomegap(), action)
         }
         assertTrue(event("start", "homegap.pause" to "true").concernsHomegap())
-    }
-
-    @Test
-    fun nodesPullTheExactImageTheHomelabRuns() {
-        val digest = "ghcr.io/example/homegap-cluster@sha256:abc"
-        val pulled = DockerImage("sha256:1", repoDigests = listOf(digest))
-        assertEquals(digest, pulled.pinned("ghcr.io/example/homegap-cluster:latest"))
-        assertEquals(digest, pulled.pinned("ghcr.io/example/homegap-cluster"))
-        // A registry with a port: the colon there is not a tag.
-        val local = DockerImage("sha256:2", repoDigests = listOf("registry.example:5000/cluster@sha256:def"))
-        assertEquals("registry.example:5000/cluster@sha256:def", local.pinned("registry.example:5000/cluster:7"))
-        // An image from a local build has no digest: other hosts get the reference as it is.
-        assertEquals("homegap-cluster:e2e", DockerImage("sha256:3", repoDigests = null).pinned("homegap-cluster:e2e"))
-        assertEquals("other/repo:1", pulled.pinned("other/repo:1"))
     }
 
     @Test

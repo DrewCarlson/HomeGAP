@@ -96,7 +96,7 @@ class ControllerSession(
 
     private val _accessRevision = MutableStateFlow(0L)
 
-    /** Changes when users, invitations or devices changed, so the Access page reloads. */
+    /** Changes when users, machines or devices changed, so the Access page reloads. */
     val accessRevision: StateFlow<Long> = _accessRevision.asStateFlow()
 
     /** The current snapshot's fields, which `patch` events update. */

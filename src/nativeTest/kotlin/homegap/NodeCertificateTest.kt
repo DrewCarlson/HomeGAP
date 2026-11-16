@@ -3,13 +3,11 @@ package homegap
 import homegap.acme.CertNames
 import homegap.acme.NodeCertificate
 import homegap.acme.X509
-import homegap.config.ClusterConfig
 import homegap.discovery.parseContainerLabels
 import homegap.model.Planner
 import homegap.provision.MaintenancePage
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
-import homegap.reconcile.ResourceReconciler
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -22,7 +20,7 @@ import kotlin.test.assertTrue
 
 /** The certificate of the nodes: its names, its dates, and what a node can terminate. */
 class NodeCertificateTest {
-    private val config = testConfig().copy(cluster = ClusterConfig(image = "example/cluster:7"))
+    private val config = testConfig()
     private val wiki = container("wiki", "homegap.expose" to "wiki.test.example.net", "homegap.port" to "80")
     private val git = container(
         "git",
@@ -43,8 +41,7 @@ class NodeCertificateTest {
         val plan = Planner.plan(config, listOf(TRAEFIK, wiki, git))
         val names = CertNames.of(config, plan)
         assertTrue("wiki.test.example.net" in names, "the node ends TLS for a service in terminate mode")
-        assertTrue("pangolin-na1.test.example.net" in names && "pangolin-as1.test.example.net" in names)
-        assertTrue(config.clientHost in names)
+        assertTrue("node-na1.test.example.net" in names && "node-as1.test.example.net" in names)
         assertFalse("git.test.example.net" in names, "a dedicated passthrough name")
         assertFalse("test.example.net" in names, "the passthrough front door")
         assertTrue(names.none { it.startsWith("*") }, "no wildcard: $names")
@@ -124,21 +121,12 @@ class NodeCertificateTest {
     fun nodesHaveNoCertificateResolver() {
         val plan = Planner.plan(config, listOf(TRAEFIK, wiki))
         val desired = plan.nodes.getValue("na1")
-        val secrets = NodeSecrets(
-            setupToken = "t",
-            serverSecret = "s",
-            adminEmail = "a@b",
-            adminPassword = "p",
-            crowdsecBouncerKey = "k",
-        )
-        val files = NodeTemplates.staticFiles(config, desired.node, secrets, slot = 0)
-            .associateBy { it.path }
+        val secrets = NodeSecrets(crowdsecBouncerKey = "k")
+        val files = NodeTemplates.staticFiles(config, desired.node, secrets).associateBy { it.path }
         val static = files.getValue("config/traefik/traefik_config.yml").content
         assertFalse("certificatesResolvers" in static || "acme" in static || "certResolver" in static, static)
         assertFalse("letsencrypt:/letsencrypt" in files.getValue("compose.yml").content)
-        assertTrue("cert_resolver: \"\"" in files.getValue("config/config.yml").content)
-        assertFalse("prefer_wildcard_cert" in files.getValue("config/config.yml").content)
-        val routes = NodeTemplates.dynamicRoutes(desired, mapOf(Planner.FRONTDOOR_TCP to 7), cluster = true)
+        val routes = NodeTemplates.dynamicRoutes(desired)
         assertFalse("certResolver" in routes, routes)
         assertTrue(
             files.keys.none { it.endsWith(".crt") || it.endsWith(".key") },
@@ -154,8 +142,7 @@ class NodeCertificateTest {
         val plan = Planner.plan(withStatusPage, listOf(TRAEFIK, wiki, git))
         val desired = plan.nodes.getValue("na1")
         assertEquals(listOf("status.test.example.net", "wiki.test.example.net"), desired.maintenanceHosts)
-        val ids = mapOf(Planner.FRONTDOOR_TCP to 7, "hg-wiki-test-example-net" to 8, "hg-git-test-example-net" to 9)
-        val tree = ResourceReconciler.yamlToJson(MaintenancePage.routes(desired, ids)).jsonObject
+        val tree = yamlToJson(MaintenancePage.routes(desired)).jsonObject
         val tcp = tree["tcp"]!!.jsonObject["routers"]!!.jsonObject
         assertTrue(
             tcp.values.all { it.jsonObject["tls"]!!.jsonObject["passthrough"]!!.jsonPrimitive.content == "true" },
@@ -166,27 +153,20 @@ class NodeCertificateTest {
         val rule = router["rule"]!!.jsonPrimitive.content
         assertTrue("Host(`wiki.test.example.net`)" in rule && "Host(`status.test.example.net`)" in rule, rule)
         assertFalse("git.test.example.net" in rule || "HostRegexp" in rule, rule)
-        val excluded = " && !Host(`${desired.managementHost}`) && !Host(`${withStatusPage.clientHost}`)"
+        val excluded = " && !Host(`${desired.managementHost}`)"
         assertTrue(rule.endsWith(excluded), rule)
         assertTrue(router["tls"]!!.jsonObject.isEmpty())
-        val targets = Json.parseToJsonElement(MaintenancePage.probes(desired, ids))
+        val targets = Json.parseToJsonElement(MaintenancePage.probes(desired))
             .jsonObject["targets"]!!
             .jsonArray
             .map { it.jsonObject }
-        // Each name goes over the mesh, so each check has the address and none goes through Pangolin.
+        // Each name goes over the mesh, so each check has the address.
         val frontDoorPort = desired.publicResources.single { it.niceId == Planner.FRONTDOOR_TCP }.proxyPort
         val wikiPort = desired.httpResources.single { it.niceId == "hg-wiki-test-example-net" }.meshPort
         val overMesh = targets.associate { it["sni"]!!.jsonPrimitive.content to it["address"]?.jsonPrimitive?.content }
         assertEquals("10.77.0.1:$frontDoorPort", overMesh["test.example.net"], targets.toString())
         assertEquals("http://10.77.0.1:$wikiPort", overMesh["wiki.test.example.net"], targets.toString())
-        assertTrue(targets.none { "service_suffix" in it }, targets.toString())
-        // The checks do not wait for Pangolin: they are the same before it has a resource.
-        val early = Json.parseToJsonElement(MaintenancePage.probes(desired, emptyMap()))
-            .jsonObject["targets"]!!
-            .jsonArray
-            .map { it.jsonObject }
-        assertEquals(targets, early)
-        assertTrue("homegap-frontdoor-unreachable" in MaintenancePage.routes(desired, emptyMap()))
+        assertTrue(targets.all { it.keys == setOf("address", "sni") }, targets.toString())
         // With the page off for the only terminated service and no shared name, the page covers nothing.
         val wikiWithoutPage = container(
             "wiki",

@@ -5,7 +5,7 @@ import com.charleskorn.kaml.YamlConfiguration
 import homegap.platform.Files
 import homegap.platform.nowMillis
 import homegap.provision.Mesh
-import homegap.reconcile.TunnelSlots
+import homegap.reconcile.NodeSlots
 import homegap.setup.SetupScripts
 import homegap.speedtest.TunnelSpeedTest
 import kotlinx.serialization.decodeFromString
@@ -54,7 +54,6 @@ object ConfigLoader {
             addAll(acmeErrors(config.acme))
             addAll(allNodeErrors(config))
             addAll(reconcileErrors(config.reconcile))
-            addAll(tunnelErrors(config.tunnels))
             addAll(statusPageErrors(config))
             addAll(homelabErrors(config.homelab))
             addAll(publishedDashboardErrors(config))
@@ -62,7 +61,7 @@ object ConfigLoader {
             addAll(dashboardErrors(config.dashboard))
             addAll(meshErrors(config.mesh))
             addAll(signInErrors(config.signIn))
-            addAll(clusterErrors(config.cluster))
+            addAll(vpnErrors(config.vpn))
         }
         require(errors.isEmpty()) {
             "Invalid configuration:\n  - " + errors.joinToString("\n  - ")
@@ -167,12 +166,6 @@ object ConfigLoader {
         }
     }
 
-    private fun tunnelErrors(tunnels: TunnelsConfig): List<String> = buildList {
-        if (tunnels.mtu != null && tunnels.mtu !in 1280..1500) {
-            add("tunnels.mtu must be between 1280 and 1500")
-        }
-    }
-
     private fun dashboardSsoErrors(dashboard: DashboardConfig): List<String> = buildList {
         val sso = dashboard.sso ?: return@buildList
         if (dashboard.hostname == null) {
@@ -201,7 +194,6 @@ object ConfigLoader {
         val taken = listOfNotNull(
             config.speedtest.hostname.takeIf { config.speedtest.enabled },
             config.statusPage.hostname.takeIf { config.statusPage.enabled },
-            config.cluster?.clientHostname,
         )
         if (hostname in taken) {
             add("dashboard.hostname '$hostname' is the name of a different page of HomeGAP")
@@ -288,40 +280,28 @@ object ConfigLoader {
             .getOrNull()
         if (subnet != null) {
             if (subnet.overlapsCgnat()) {
-                add("mesh.subnet must not overlap 100.64.0.0/10 (Pangolin's tunnel ranges)")
+                add("mesh.subnet must not overlap 100.64.0.0/10 (the addresses of the VPN)")
             }
-            if (!subnet.fits(TunnelSlots.MAX)) {
-                add("mesh.subnet is too small for ${TunnelSlots.MAX} nodes (use /26 or larger)")
+            if (!subnet.fits(NodeSlots.MAX)) {
+                add("mesh.subnet is too small for ${NodeSlots.MAX} nodes (use /26 or larger)")
             }
         }
         if (mesh.port !in 1..65535) {
             add("mesh.port must be 1-65535")
         }
-        if (mesh.port in GERBIL_PORTS) {
-            add("mesh.port must differ from Gerbil's ports (51820, 21820)")
-        }
     }
 
-    private fun clusterErrors(cluster: ClusterConfig?): List<String> = buildList {
-        if (cluster == null) {
-            return@buildList
+    private fun vpnErrors(vpn: VpnConfig): List<String> = buildList {
+        vpn.tunnelDns.resolvers.filterNot { SetupScripts.isIpAddress(it) }.forEach {
+            add("vpn.tunnel_dns.resolvers: '$it' is not an IP address")
         }
-        if (cluster.homelabRole !in HOMELAB_ROLES) {
-            add("cluster.homelab_role must be database or vote")
+        val ports = listOf(vpn.port, vpn.port + 1, vpn.exitPort, vpn.exitPort + 1)
+        if (ports.any { it !in 1..65535 } || ports.distinct().size != ports.size) {
+            add("vpn.port and vpn.exit_port must be different ports, and each needs the next port up too")
         }
-        if (cluster.primary.preferred != "homelab") {
-            add("cluster.primary.preferred must be homelab")
-        }
-        try {
-            cluster.primary.switchBackDelay
-        } catch (e: Exception) {
-            add("cluster.primary.switch_back_after: ${e.message}")
-        }
-        if (cluster.image.isBlank()) {
-            add("cluster.image must not be empty")
-        }
-        cluster.tunnelDns.resolvers.filterNot { SetupScripts.isIpAddress(it) }.forEach {
-            add("cluster.tunnel_dns.resolvers: '$it' is not an IP address")
+        // The devices of each node have their own part of the subnet, and the exits have its end.
+        if (!vpn.clientSubnet.endsWith("/16")) {
+            add("vpn.client_subnet must be a /16")
         }
     }
 
@@ -365,8 +345,6 @@ object ConfigLoader {
 
     private val BUNNY_ROUTINGS = setOf("geolocation", "latency", "none")
     private val BUNNY_MONITORS = setOf("http", "ping", "none")
-    private val HOMELAB_ROLES = setOf("database", "vote")
-    private val GERBIL_PORTS = setOf(51820, 21820)
 
     /** The first label of the hostname of the speed test and of the status page. */
     private val HOST_LABEL = Regex("^[a-z][a-z0-9]{0,20}$")

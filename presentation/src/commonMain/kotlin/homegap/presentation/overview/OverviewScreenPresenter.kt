@@ -19,7 +19,6 @@ import homegap.presentation.data.Preferences
 import homegap.presentation.data.Samples
 import homegap.presentation.format.TimeFormatter
 import homegap.presentation.format.ago
-import homegap.presentation.format.formatBytes
 import homegap.presentation.format.label
 import homegap.presentation.format.plural
 import homegap.presentation.map.overviewMap
@@ -124,30 +123,9 @@ class OverviewScreenPresenter(
 
     private fun gauges(status: StatusSnapshot): List<GaugeModel> = buildList {
         add(ratio("Nodes healthy", status.nodes.count { it.health == Health.OK }, status.nodes.size))
-        add(ratio("Tunnels healthy", status.tunnels.count { it.up }, status.tunnels.size))
+        add(ratio("Mesh links", status.nodes.count { it.tunnelUp }, status.nodes.size))
         add(ratio("Services healthy", status.services.count { it.reachable() }, status.services.size))
         add(ratio("DNS healthy", status.dns.count { it.inSync }, status.dns.size))
-        status.mesh?.let { mesh ->
-            val links = mesh.members.flatMap { it.peers }
-            val up = links.count { peer -> peer.probe?.let { it.rttMs != null } ?: (peer.lastHandshakeAt != null) }
-            add(ratio("Mesh links", up, links.size))
-        }
-        status.cluster?.let { cluster ->
-            val lag = cluster.members.mapNotNull { it.lagBytes }.maxOrNull()
-            val lagTime = cluster.members.mapNotNull { it.lagMs }.maxOrNull()
-            add(
-                GaugeModel(
-                    label = "Replica lag",
-                    value = lagTime?.let { homegap.presentation.nodes.formatDuration(it) } ?: lag?.let { formatBytes(it) } ?: "—",
-                    fraction = ((lag ?: 0L).toDouble() / LAG_FULL_SCALE).coerceIn(0.0, 1.0),
-                    health = when {
-                        lag == null -> Health.UNKNOWN
-                        lag > LAG_FULL_SCALE -> Health.DEGRADED
-                        else -> Health.OK
-                    },
-                )
-            )
-        }
     }
 
     private fun ratio(label: String, ok: Int, total: Int) = GaugeModel(
@@ -167,10 +145,8 @@ class OverviewScreenPresenter(
         facts = buildList {
             status.homelabContainers?.let { add(plural(it, "container")) }
             add(plural(status.services.size, "service"))
-            status.cluster?.primary?.let { add("database primary: $it") }
-            status.mesh?.let { mesh ->
-                val links = mesh.members.flatMap { it.peers }
-                add("mesh ${links.count { it.probe?.rttMs != null }}/${links.size}")
+            if (status.nodes.isNotEmpty()) {
+                add("mesh ${status.nodes.count { it.tunnelUp }}/${status.nodes.size}")
             }
         },
     )
@@ -183,11 +159,8 @@ class OverviewScreenPresenter(
             id = node.id,
             place = node.location?.name ?: node.region,
             health = node.health,
-            api = listOfNotNull(
-                "API ${node.apiProbe() ?: "—"} ms",
-                samples?.get("rps")?.latest?.let { "${formatMeasure(it, "r/s")} r/s" },
-            ).joinToString(" · "),
-            mesh = samples?.get("mesh")?.latest?.let { "mesh ${wholeMillis(it)} ms" },
+            requests = samples?.get("rps")?.latest?.let { "${formatMeasure(it, "r/s")} r/s" },
+            meshLink = if (node.tunnelUp) "link up" else "link down",
             names = when {
                 names.isEmpty() -> "no services"
                 names.size <= 3 -> names.joinToString(", ")
@@ -197,29 +170,24 @@ class OverviewScreenPresenter(
         )
     }
 
-    private fun edgeCard(node: NodeStatusDto, samples: Map<String, Samples>?, now: Long): EdgeCardModel {
-        val api = node.checks.firstOrNull { it.name == "pangolin-api" }
-        return EdgeCardModel(
-            id = node.id,
-            place = node.location?.name ?: node.region,
-            health = node.health,
-            status = node.health.label,
-            chart = chartOf(
-                label = "Pangolin API probe",
-                samples = samples?.get("api"),
-                nowSeconds = now / 1000,
-                threshold = api?.threshold,
-            ),
-            facts = listOfNotNull(
-                samples?.get("rps")?.latest?.let { "${formatMeasure(it, "r/s")} r/s" },
-                samples?.get("egress")?.latest?.let { "egress ${formatMeasure(it, "Mb/s")} Mb/s" },
-                samples?.get("mesh")?.latest?.let { "mesh ${wholeMillis(it)} ms" },
-                samples?.get("in")?.latest?.let { "in ${formatMeasure(it, "Mb/s")} Mb/s" },
-                samples?.get("out")?.latest?.let { "out ${formatMeasure(it, "Mb/s")} Mb/s" },
-            ),
-            location = Location(Route.Overview, node.id),
-        )
-    }
+    private fun edgeCard(node: NodeStatusDto, samples: Map<String, Samples>?, now: Long) = EdgeCardModel(
+        id = node.id,
+        place = node.location?.name ?: node.region,
+        health = node.health,
+        status = node.health.label,
+        chart = chartOf(
+            label = "Requests served",
+            samples = samples?.get("rps"),
+            nowSeconds = now / 1000,
+            unit = "r/s",
+        ),
+        facts = listOfNotNull(
+            samples?.get("egress")?.latest?.let { "egress ${formatMeasure(it, "Mb/s")} Mb/s" },
+            samples?.get("in")?.latest?.let { "mesh in ${formatMeasure(it, "Mb/s")} Mb/s" },
+            samples?.get("out")?.latest?.let { "mesh out ${formatMeasure(it, "Mb/s")} Mb/s" },
+        ),
+        location = Location(Route.Overview, node.id),
+    )
 
     private fun matrix(status: StatusSnapshot): MatrixModel {
         val edges = status.nodes.map { it.id }
@@ -253,11 +221,6 @@ class OverviewScreenPresenter(
     }
 
     private fun system(status: StatusSnapshot, now: Long): List<FactRow> = buildList {
-        status.cluster?.let { cluster ->
-            add(FactRow("Database", "primary ${cluster.primary ?: "none"} · ${plural(cluster.members.count { it.role == "replica" }, "replica")}"))
-            cluster.valkeyPrimary?.let { add(FactRow("Cache", "primary $it")) }
-            cluster.quorum?.let { add(FactRow("Cluster vote", if (it) "majority" else "no majority")) }
-        }
         status.lastReconcile?.let { pass ->
             add(FactRow("Reconcile", "last pass ${ago(pass.finishedAt, now)} · ${plural(pass.changes, "change")}"))
         }
@@ -311,12 +274,8 @@ class OverviewScreenPresenter(
         const val VIEW_KEY = "overview.network"
         const val MATRIX_ROWS = 8
         const val RECENT_CHANGES = 6
-        const val LAG_FULL_SCALE = 1024L * 1024L
     }
 }
-
-/** Whole milliseconds, and "<1" for a time that rounds to nothing. */
-private fun wholeMillis(value: Double): String = if (value < 1) "<1" else value.toLong().toString()
 
 /** How many edges serve, and how many of them with a warning: a warning is not an outage. */
 internal fun edgesSentence(nodes: List<NodeStatusDto>): String {
@@ -337,9 +296,6 @@ private fun ServiceStatusDto.rank(): Int = when {
     perNode.any { it.health == Health.DEGRADED } -> 1
     else -> 2
 }
-
-/** The node's last Pangolin API probe, in whole milliseconds. */
-internal fun NodeStatusDto.apiProbe(): Long? = checks.firstOrNull { it.name == "pangolin-api" }?.value?.toLong()
 
 /** The attention items, each item that follows from another folded under it. */
 internal fun attentionRows(status: StatusSnapshot, now: Long): List<AttentionRowModel> {

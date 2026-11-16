@@ -13,27 +13,9 @@ private const val RUN_HISTORY_SIZE = 10
 /** The mode of the state files: only the owner can read and write them. */
 private val OWNER_ONLY = "600".toInt(8)
 
-/**
- * Per-node identity and minted credentials. The node itself keeps an authoritative copy of its
- * secrets (`<install_dir>/secrets/node.json`). If this cache is lost, the orchestrator reads them
- * from the node again.
- */
+/** What the orchestrator knows about one node: its slot, its mesh key and its last runs. */
 @Serializable
 data class NodeState(
-    val setupToken: String? = null,
-    val serverSecret: String? = null,
-    val adminEmail: String? = null,
-    val adminPassword: String? = null,
-    val apiKeyId: String? = null,
-    val apiKey: String? = null,
-    val siteId: Int? = null,
-    val newtId: String? = null,
-    val newtSecret: String? = null,
-    /** The node's exit site (cluster.exit_nodes.nodes) and its connector's credentials. */
-    val exitSiteId: Int? = null,
-    val exitNewtId: String? = null,
-    val exitNewtSecret: String? = null,
-    val licenseActivated: Boolean = false,
     val lastProvisionAt: Long? = null,
     val lastProvisionOk: Boolean? = null,
     val lastProvisionError: String? = null,
@@ -42,17 +24,12 @@ data class NodeState(
     val facts: Map<String, String> = emptyMap(),
     val drift: List<String> = emptyList(),
     val pendingDecommission: Boolean = false,
-    /**
-     * Why the teardown of a removed node did not finish. The node is out of the cluster vote from
-     * the start of its teardown, so a value here also means that it is not a member.
-     */
+    /** Why the teardown of a removed node did not finish. */
     val teardownError: String? = null,
     /** Outcome of the last stack update that did not go through (rolled back or skipped). */
     val update: UpdateState? = null,
-    /** Permanent tunnel slot (subnet, interface name, local ports). See TunnelSlots. */
-    val tunnelSlot: Int? = null,
-    /** [tunnelSlot] matched the node's live site subnet at least once. */
-    val tunnelSlotConfirmed: Boolean = false,
+    /** The permanent slot of the node, which gives its mesh address. See NodeSlots. */
+    val slot: Int? = null,
     /** The node's mesh public key, learned from the node (its private key never leaves it). */
     val meshPublicKey: String? = null,
     /** The last provisioning and update runs, newest first. */
@@ -100,31 +77,6 @@ data class Pauses(
     val services: Set<String> = emptySet(),
 )
 
-/**
- * The one Pangolin of the cluster. Every node shares it (one database), so the store keeps its
- * secrets, admin, API key and license once, not for each node.
- */
-@Serializable
-data class ClusterPangolinState(
-    val serverSecret: String,
-    val setupToken: String,
-    val adminEmail: String,
-    val adminPassword: String,
-    val apiKeyId: String? = null,
-    val apiKey: String? = null,
-    /** A node's Pangolin has migrated the database and the server admin and org exist. */
-    val bootstrapped: Boolean = false,
-    val licenseActivated: Boolean = false,
-    /** Hash of a key that the license server refused, so a pass does not try that key again. */
-    val licenseRejected: String? = null,
-    /** Nodes whose running Pangolin has not seen the license activated through another node. */
-    val licenseRecheck: Set<String> = emptySet(),
-    /** Hash of each shared resource's last applied blueprint (`private:<id>` for private ones, `base`). */
-    val blueprints: Map<String, String> = emptyMap(),
-    /** Hash of the action set last granted to the API key. */
-    val keyActions: String? = null,
-)
-
 @Serializable
 data class ControllerState(
     val version: Int = 1,
@@ -136,7 +88,6 @@ data class ControllerState(
     val bunnyZoneName: String? = null,
     /** The id of the Bunny zone of each extra domain, by the name of the zone. */
     val bunnyZoneIds: Map<String, Long> = emptyMap(),
-    val clusterPangolin: ClusterPangolinState? = null,
 )
 
 class StateStore(private val path: String) {

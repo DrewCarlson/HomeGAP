@@ -11,7 +11,6 @@ import homegap.api.ApiJson
 import homegap.api.LogLevel
 import homegap.api.LogResponse
 import homegap.api.MeshPeerDto
-import homegap.api.MeshProbeDto
 import homegap.api.MetricsResponse
 import homegap.api.ServerEvent
 import homegap.api.SetupJobDto
@@ -232,13 +231,6 @@ internal fun StatusSnapshot.withoutLiveValues(): StatusSnapshot = copy(
     services = services.map { service ->
         service.copy(perNode = service.perNode.map { it.copy(ms = null) })
     },
-    tunnels = tunnels.map { tunnel ->
-        tunnel.copy(
-            bytesIn = null,
-            bytesOut = null,
-            updatedAt = null,
-        )
-    },
     mesh = mesh?.let { mesh ->
         mesh.copy(
             members = mesh.members.map { member ->
@@ -246,24 +238,12 @@ internal fun StatusSnapshot.withoutLiveValues(): StatusSnapshot = copy(
             },
         )
     },
-    cluster = cluster?.let { cluster ->
-        cluster.copy(members = cluster.members.map { it.copy(lagBytes = null) })
-    },
 )
 
 private fun MeshPeerDto.withoutLiveValues(): MeshPeerDto = copy(
     lastHandshakeAt = null,
     rxBytes = 0,
     txBytes = 0,
-    probe = probe?.withoutLiveValues(),
-    containerProbe = containerProbe?.withoutLiveValues(),
-)
-
-private fun MeshProbeDto.withoutLiveValues(): MeshProbeDto = copy(
-    rttMs = null,
-    lossPercent = 0.0,
-    sent = 0,
-    at = 0,
 )
 
 /** `GET /log`: the reconcile log. */

@@ -13,7 +13,6 @@ import homegap.api.NodeStatusDto
 import homegap.api.ServiceNodeHealthDto
 import homegap.api.ServiceStatusDto
 import homegap.api.StatusSnapshot
-import homegap.api.TunnelStatusDto
 
 private const val DETAIL_LENGTH = 160
 private const val SECONDS_PER_DAY = 86_400
@@ -37,15 +36,13 @@ private fun plural(count: Int, noun: String) = if (count == 1) "1 $noun" else "$
  */
 internal fun attentionItems(snapshot: StatusSnapshot, since: Map<String, Long>): List<AttentionItemDto> {
     val list = AttentionList(snapshot, since)
-    // Certificate faults first: node and tunnel items that follow from one fold under it.
+    // Certificate faults first: node items that follow from one fold under it.
     val certCause = list.addCertificateItems()
     list.addHomelabIsolation()
     snapshot.nodes.forEach { list.addNodeItems(it, certCause) }
     snapshot.services.forEach { list.addServiceItems(it) }
     snapshot.labelErrors.forEach { list.addLabelError(it) }
     snapshot.dns.forEach { list.addDnsItem(it) }
-    snapshot.tunnels.filter { !it.up }.forEach { list.addTunnelDown(it, certCause) }
-    list.addClusterAlerts()
     return list.sorted()
 }
 
@@ -241,7 +238,7 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
                 id = "node:${node.id}:waiting",
                 severity = Health.DEGRADED,
                 title = "${node.id} waits for its certificate",
-                detail = "its tunnel connects after the order with ${node.managementHost}",
+                detail = "it serves its default certificate until the order with ${node.managementHost} completes",
                 route = "certificates",
                 selection = "node:${node.id}",
                 parent = certCause,
@@ -336,7 +333,7 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
         )
     }
 
-    // ------------------------------------------------------------------ services, DNS, tunnels, cluster
+    // ------------------------------------------------------------------ services and DNS
 
     /** Adds one item for the edges where the service fails and one for those where it is slow. */
     fun addServiceItems(service: ServiceStatusDto) {
@@ -406,39 +403,6 @@ private class AttentionList(private val snapshot: StatusSnapshot, private val si
         }
         add(finding)
     }
-
-    fun addTunnelDown(tunnel: TunnelStatusDto, certCause: String?) {
-        val waiting = snapshot.nodes.any { it.id == tunnel.nodeId && it.waitingForCertificate }
-        add(
-            Finding(
-                id = "tunnel:${tunnel.nodeId}",
-                severity = if (waiting) Health.DEGRADED else Health.DOWN,
-                title = "Tunnel to ${tunnel.nodeId} is down",
-                detail = when {
-                    waiting -> "${tunnel.nodeId} serves the default certificate until its order completes"
-                    else -> tunnel.lastExit.orEmpty()
-                },
-                route = "tunnels",
-                selection = tunnel.nodeId,
-                parent = if (waiting) certCause ?: "node:${tunnel.nodeId}:waiting" else null,
-            ),
-        )
-    }
-
-    fun addClusterAlerts() {
-        snapshot.cluster?.alerts?.forEachIndexed { index, alert ->
-            if (alert.health != Health.DOWN && alert.health != Health.DEGRADED) return@forEachIndexed
-            add(
-                Finding(
-                    id = "cluster:$index:${alert.message.hashCode()}",
-                    severity = alert.health,
-                    title = alert.message,
-                    detail = "",
-                    route = "nodes",
-                ),
-            )
-        }
-    }
 }
 
 /**
@@ -450,13 +414,9 @@ internal fun attentionSince(items: List<AttentionItemDto>, previous: Map<String,
 
 /** The dashboard's name for a check. */
 internal fun checkName(name: String): String = when (name) {
-    "pangolin-api" -> "Pangolin API probe"
     "ssh" -> "SSH"
-    "tunnel" -> "Tunnel"
-    "gerbil-udp" -> "Gerbil UDP"
+    "mesh" -> "Mesh link"
     "tls-mgmt" -> "Management certificate"
     "tls-root" -> "Root name TLS"
-    "cluster-proxy" -> "Cluster proxy"
-    "ee-license" -> "EE license"
     else -> name
 }

@@ -50,8 +50,6 @@ import homegap.presentation.access.AccessScreenPresenter
 import homegap.presentation.access.AccessScreenProps
 import homegap.presentation.speedtest.SpeedTestScreenPresenter
 import homegap.presentation.speedtest.SpeedTestScreenProps
-import homegap.presentation.tunnels.TunnelsScreenPresenter
-import homegap.presentation.tunnels.TunnelsScreenProps
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Clock
 
@@ -86,7 +84,6 @@ class AppPresenter(
     private val dns: DnsScreenPresenter,
     private val certificates: homegap.presentation.certificates.CertificatesScreenPresenter,
     private val zoneRecords: homegap.presentation.zone.ZoneRecordsScreenPresenter,
-    private val tunnels: TunnelsScreenPresenter,
     private val speedTest: SpeedTestScreenPresenter,
     private val access: AccessScreenPresenter,
     private val activity: ActivityScreenPresenter,
@@ -374,14 +371,6 @@ class AppPresenter(
                 )
             )
         }
-        Route.Tunnels -> tunnels.model(
-            TunnelsScreenProps(
-                status = status,
-                now = now,
-                metrics = metrics,
-                selection = props.selection,
-            )
-        )
         Route.SpeedTest -> speedTest.model(SpeedTestScreenProps(now, status))
         Route.Access -> {
             val currentRouter by rememberUpdatedState(props.router)
@@ -440,7 +429,7 @@ class AppPresenter(
         confirmations.ask(
             ConfirmModel(
                 title = "Pause all changes?",
-                text = "HomeGAP only observes. It applies nothing to the nodes, DNS or the tunnels until you resume.",
+                text = "HomeGAP only observes. It applies nothing to the nodes, DNS or the mesh until you resume.",
                 confirmLabel = "Pause changes",
             )
         ) {
@@ -624,17 +613,17 @@ internal fun noLiveUpdates(reason: String) = BannerModel(
 )
 
 internal fun StatusSnapshot.banners(): List<BannerModel> = buildList {
-    if (dryRun) add(BannerModel(BannerKind.Warn, "Dry-run mode: discovery and planning only. Nothing is written to nodes, Pangolin or DNS."))
+    if (dryRun) add(BannerModel(BannerKind.Warn, "Dry-run mode: discovery and planning only. Nothing is written to nodes or DNS."))
     homelabIsolation?.let { iso ->
         val minutes = { ms: Long -> (ms / 60_000).coerceAtLeast(1) }
         val end = iso.endedAt
         when {
             end == null -> add(BannerModel(BannerKind.Error,
-                "The homelab can't reach any node (for ${minutes(generatedAt - iso.startedAt)} min). Check the homelab's internet connection; " +
-                    "the nodes keep serving, and fail the database over to one of them if this lasts."))
+                "The homelab can't reach any node (for ${minutes(generatedAt - iso.startedAt)} min). " +
+                    "Check the homelab's internet connection."))
             generatedAt - end < 3_600_000L -> add(BannerModel(BannerKind.Info,
                 "The homelab couldn't reach any node for ${minutes(end - iso.startedAt)} min, until ${minutes(generatedAt - end)} min ago. " +
-                    "Nodes reaching each other meanwhile (see the mesh probes) means it was the homelab's connection."))
+                    "Nodes reaching each other meanwhile (see the mesh handshakes) means it was the homelab's connection."))
         }
     }
     if (paused) {

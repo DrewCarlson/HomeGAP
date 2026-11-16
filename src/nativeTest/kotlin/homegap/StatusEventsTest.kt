@@ -1,12 +1,13 @@
 package homegap
 
 import homegap.api.ApiJson
+import homegap.api.CheckDto
+import homegap.api.Health
 import homegap.api.MeshMemberDto
 import homegap.api.MeshPeerDto
-import homegap.api.MeshProbeDto
 import homegap.api.MeshStatusDto
+import homegap.api.NodeStatusDto
 import homegap.api.StatusSnapshot
-import homegap.api.TunnelStatusDto
 import homegap.routes.respondRevalidated
 import homegap.routes.withoutLiveValues
 import io.ktor.client.request.get
@@ -30,15 +31,16 @@ class StatusEventsTest {
         project = "p",
         domain = "example.net",
         paused = false,
-        tunnels = listOf(
-            TunnelStatusDto(
-                nodeId = "a1",
-                siteNiceId = "s",
-                endpoint = "e",
-                up = up,
-                processRunning = true,
-                siteOnline = true,
-                bytesIn = bytesIn,
+        nodes = listOf(
+            NodeStatusDto(
+                id = "a1",
+                region = "NA",
+                provider = "",
+                host = "203.0.113.10",
+                managementHost = "node-a1.example.net",
+                health = if (up) Health.OK else Health.DOWN,
+                reachable = up,
+                checks = listOf(CheckDto("mesh", if (up) Health.OK else Health.DOWN, value = rttMs, unit = "ms")),
             ),
         ),
         mesh = MeshStatusDto(
@@ -50,7 +52,8 @@ class StatusEventsTest {
                     peers = listOf(
                         MeshPeerDto(
                             id = "a1",
-                            probe = MeshProbeDto(rttMs = rttMs, at = 5),
+                            lastHandshakeAt = bytesIn,
+                            rxBytes = bytesIn,
                         ),
                     ),
                 ),
@@ -67,7 +70,7 @@ class StatusEventsTest {
     }
 
     @Test
-    fun aTunnelGoingDownIsAStateChange() {
+    fun aNodeGoingDownIsAStateChange() {
         assertNotEquals(
             snapshot(rttMs = 12.0, bytesIn = 100).withoutLiveValues(),
             snapshot(rttMs = 12.0, bytesIn = 100, up = false).withoutLiveValues(),

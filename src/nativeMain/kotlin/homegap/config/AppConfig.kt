@@ -26,9 +26,9 @@ data class AppConfig(
     @SerialName("data_dir") val dataDir: String = "/data",
     val reconcile: ReconcileConfig = ReconcileConfig(),
     val bunny: BunnyConfig,
-    val pangolin: PangolinNodeDefaults = PangolinNodeDefaults(),
+    /** What each node runs: the images, the install folder and the options of its Traefik. */
+    @SerialName("node_stack") val nodeStack: NodeStackConfig = NodeStackConfig(),
     val acme: AcmeConfig = AcmeConfig(),
-    val tunnels: TunnelsConfig = TunnelsConfig(),
     /** The private WireGuard mesh between the homelab and each node. It is always on. */
     val mesh: MeshConfig = MeshConfig(),
     /** HomeGAP's own sign-in for the apps. */
@@ -37,8 +37,6 @@ data class AppConfig(
     val vpn: VpnConfig = VpnConfig(),
     /** The agent of HomeGAP that each node runs. */
     val agent: AgentConfig = AgentConfig(),
-    /** One Pangolin cluster across the nodes. With null, each node has its own Pangolin. */
-    val cluster: ClusterConfig? = null,
     val nodes: List<NodeConfig> = emptyList(),
     val dashboard: DashboardConfig = DashboardConfig(),
     val speedtest: SpeedtestConfig = SpeedtestConfig(),
@@ -77,12 +75,11 @@ data class AppConfig(
         return if (fqdn == zone) "" else fqdn.removeSuffix(".$zone")
     }
 
-    /** The cluster's client address (see [ClusterConfig.clientHostname]), or null without a cluster. */
-    val clientHost: String? get() = cluster?.let { "${it.clientHostname}.$domain" }
+    /** The name of the sign-in, which the apps connect to, or null if it has no public address. */
+    val signInHost: String? get() = signIn.url?.removePrefix("https://")?.substringBefore('/')?.lowercase()
 
     /** The hostnames that HomeGAP routes itself. A service label cannot claim one of them. */
     fun reservedHosts(): Set<String> = buildSet {
-        clientHost?.let(::add)
         for (node in nodes) {
             add(node.managementHost(domain))
             if (speedtest.enabled) add(speedtest.nodeHost(domain, node.id))
@@ -92,13 +89,6 @@ data class AppConfig(
         if (statusPage.enabled) add(statusPage.autoHost(domain))
         dashboard.publishedHost(domain)?.let(::add)
     }.mapTo(mutableSetOf()) { it.lowercase() }
-
-    /**
-     * The homelab's site on a node. A cluster has one org that all nodes share, so each node gets
-     * its own site there. HomeGAP creates the site through that node, which pins it to the exit
-     * node of that node.
-     */
-    fun siteNiceId(nodeId: String): String = if (cluster != null) "${pangolin.siteName}-$nodeId" else pangolin.siteName
 
     fun node(id: String): NodeConfig? = nodes.firstOrNull { it.id == id }
 }
@@ -158,26 +148,12 @@ data class BunnyConfig(
 }
 
 @Serializable
-data class PangolinNodeDefaults(
-    @SerialName("pangolin_image") val pangolinImage: String = "docker.io/fosrl/pangolin:ee-1.26.0",
-    @SerialName("gerbil_image") val gerbilImage: String = "docker.io/fosrl/gerbil:1.6.0",
+data class NodeStackConfig(
     @SerialName("traefik_image") val traefikImage: String = "docker.io/traefik:v3.7.16",
-    /**
-     * Runs the page that a node shows while it cannot reach the homelab, on nodes without
-     * `cluster:`. The page needs only the standard library of Python. A node in a cluster runs the
-     * page from the cluster image.
-     */
+    /** Runs the page that a node shows while it cannot reach the homelab. The page needs only the standard library of Python. */
     @SerialName("maintenance_image") val maintenanceImage: String = "docker.io/library/python:3.13-alpine",
     @SerialName("crowdsec_image") val crowdsecImage: String = "docker.io/crowdsecurity/crowdsec:v1.8.2",
-    @SerialName("badger_version") val badgerVersion: String = "v1.8.0",
     @SerialName("crowdsec_bouncer_version") val crowdsecBouncerVersion: String = "v1.4.6",
-    @SerialName("acme_email") val acmeEmail: String? = null,
-    @SerialName("org_id") val orgId: String = "homegap",
-    @SerialName("org_name") val orgName: String = "HomeGAP",
-    /** The email of the admin account that HomeGAP creates on each node. The default is `admin@<domain>`. */
-    @SerialName("admin_email") val adminEmail: String? = null,
-    @SerialName("license_key_env") val licenseKeyEnv: String? = null,
-    @SerialName("license_key_file") val licenseKeyFile: String? = null,
     @SerialName("install_dir") val installDir: String = "/opt/homegap",
     /** Enables the CrowdSec bouncer on the Traefik of each node. */
     val crowdsec: Boolean = false,
@@ -186,53 +162,23 @@ data class PangolinNodeDefaults(
      * it (true) or let it through (false).
      */
     @SerialName("crowdsec_fail_closed") val crowdsecFailClosed: Boolean = false,
-    /** The name of the homelab site on the Pangolin of each node. */
-    @SerialName("site_name") val siteName: String = "homelab",
-    /** A Pangolin blueprint (YAML or JSON) that each node gets before the managed resources. Null for none. */
-    @SerialName("base_blueprint") val baseBlueprint: String? = null,
-    /** The start of the range of internal proxy ports for SNI passthrough resources. No node publishes them. */
-    @SerialName("passthrough_port_base") val passthroughPortBase: Int = 40000,
+    /**
+     * The start of the range of ports on the mesh address of the homelab. Each service that a
+     * node reaches by name gets one. No node publishes them.
+     */
+    @SerialName("mesh_port_base") val meshPortBase: Int = 40000,
     /**
      * Tunes TCP on each node for long paths with high bandwidth: BBR congestion control, the fq
      * qdisc, larger socket buffers and MTU probing. The settings are in
      * `/etc/sysctl.d/99-homegap.conf`.
      */
     @SerialName("tcp_tuning") val tcpTuning: Boolean = true,
-) {
-    fun licenseKey(): SecretRef? {
-        if (licenseKeyEnv == null && licenseKeyFile == null) {
-            return null
-        }
-        return SecretRef("pangolin.license_key", envVar = licenseKeyEnv, file = licenseKeyFile)
-    }
-
-    /**
-     * The Pangolin image a node runs. A cluster needs the PostgreSQL build, so `ee-<version>` becomes
-     * `ee-postgresql-<version>`. Each other tag stays as it is.
-     */
-    fun pangolinImage(cluster: Boolean): String {
-        if (!cluster) {
-            return pangolinImage
-        }
-        val tagAt = pangolinImage.lastIndexOf(':')
-        if (tagAt < 0 || '/' in pangolinImage.substring(tagAt)) {
-            return pangolinImage
-        }
-        val tag = pangolinImage.substring(tagAt + 1)
-        if (!tag.startsWith(EE_TAG) || tag.startsWith(EE_POSTGRESQL_TAG)) {
-            return pangolinImage
-        }
-        return pangolinImage.substring(0, tagAt + 1) + EE_POSTGRESQL_TAG + tag.removePrefix(EE_TAG)
-    }
-}
-
-private const val EE_TAG = "ee-"
-private const val EE_POSTGRESQL_TAG = "ee-postgresql-"
+)
 
 /** How HomeGAP orders the certificate that the nodes serve. See [homegap.acme.NodeCertificate]. */
 @Serializable
 data class AcmeConfig(
-    /** The contact address of the ACME account. The default is `pangolin.acme_email`, then the admin email. */
+    /** The contact address of the ACME account. The default is `admin@<domain>`. */
     val email: String? = null,
     /** The ACME directory. The default is Let's Encrypt, or its staging directory with [staging]. */
     val directory: String? = null,
@@ -246,41 +192,6 @@ data class AcmeConfig(
     companion object {
         const val PRODUCTION = "https://acme-v02.api.letsencrypt.org/directory"
         const val STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
-    }
-}
-
-/** The cluster: what the nodes and the homelab share. */
-@Serializable
-data class ClusterConfig(
-    val primary: PrimaryConfig = PrimaryConfig(),
-    /**
-     * What the homelab is in the cluster. With `database` (the default), it is a full member: it
-     * holds a copy of the database and of Valkey, and it is the preferred primary. With `vote`, it
-     * only votes (etcd and Sentinel). Then the database and Valkey are only on the nodes, so no
-     * database process that a node controls runs at home. Set the role before you create the cluster.
-     */
-    @SerialName("homelab_role") val homelabRole: String = "database",
-    /** The cluster image every member runs (PostgreSQL with Patroni, etcd, Valkey, HAProxy). */
-    val image: String = defaultImage(),
-    /**
-     * `<client_hostname>.<domain>` is the address that Pangolin clients and the login pages use.
-     * Each node serves it, and DNS sends a client to the nearest healthy node.
-     */
-    @SerialName("client_hostname") val clientHostname: String = "pangolin",
-    /** The internet exits that the Pangolin apps can select: each node, the homelab, or both. */
-    @SerialName("exit_nodes") val exitNodes: ExitNodesConfig = ExitNodesConfig(),
-    /** The DNS resolvers that the Pangolin apps can reach through the tunnel, without an exit node. */
-    @SerialName("tunnel_dns") val tunnelDns: TunnelDnsConfig = TunnelDnsConfig(),
-) {
-    companion object {
-        const val IMAGE_REPOSITORY = "ghcr.io/drewcarlson/homegap-cluster"
-
-        /**
-         * The cluster image with the tag of the homelab's stack, the value of `HOMEGAP_VERSION`. Without
-         * that variable, the tag is the version of this release.
-         */
-        fun defaultImage(stackTag: String? = env("HOMEGAP_VERSION")): String =
-            "$IMAGE_REPOSITORY:${stackTag?.trim()?.ifEmpty { null } ?: VERSION}"
     }
 }
 
@@ -326,6 +237,10 @@ data class VpnConfig(
      * homelab. It must go to a node. With null, it is the name of the sign-in.
      */
     val endpoint: String? = null,
+    /** The exits that the apps can select: each node, the homelab, or both. */
+    @SerialName("exit_nodes") val exitNodes: ExitNodesConfig = ExitNodesConfig(),
+    /** The DNS servers that the apps reach through the tunnel. */
+    @SerialName("tunnel_dns") val tunnelDns: TunnelDnsConfig = TunnelDnsConfig(),
 )
 
 @Serializable
@@ -345,87 +260,45 @@ data class AgentConfig(
     }
 }
 
-/** The homelab only votes: it runs no PostgreSQL and no Valkey (`cluster.homelab_role: vote`). */
-val ClusterConfig.homelabVotesOnly: Boolean get() = homelabRole == "vote"
-
 /**
- * With "DNS over tunnel", a Pangolin app sends its DNS lookups through the tunnel to its upstream
- * DNS server. That server is 8.8.8.8 unless the user changes it in the app, and it must be a
- * resource that the app can reach. Each resolver here becomes such a resource.
- *
- * When the nodes are exits, the resource is on the exit site of each node, and a lookup leaves from
- * the node nearest the device. If not, it is on the homelab site of each node, and a lookup leaves
- * from home.
+ * With "DNS over tunnel", an app sends its DNS lookups through the tunnel to these servers. The
+ * peer of the homelab sends them on, so a lookup leaves from home. HomeGAP sets the servers in the
+ * app when a device connects.
  */
 @Serializable
 data class TunnelDnsConfig(
-    /** IPv4 or IPv6 addresses of DNS servers. An empty list disables it. The default of the apps is 8.8.8.8. */
+    /** IPv4 addresses of DNS servers. An empty list disables it. */
     val resolvers: List<String> = listOf("8.8.8.8"),
     /** The roles that can use them. Admin always can. */
     val roles: List<String> = listOf("Member"),
 )
 
 /**
- * Exit nodes ("Exit via <node>", "Exit via homelab"). A Pangolin client that selects one sends all
- * its traffic through it, and the traffic leaves for the internet there. The exit of a node is a
- * second Newt connector on the node itself. The exit of the homelab uses the homelab sites.
+ * Exits ("Exit via <node>", "Exit via homelab"). A device that selects one sends all its traffic
+ * through it, and the traffic leaves for the internet there. An exit gives no way into a private
+ * network.
  */
 @Serializable
 data class ExitNodesConfig(
     /** Each node offers "Exit via <node>". */
     val nodes: Boolean = false,
-    /** "Exit via homelab": the nearest node relays the traffic, which leaves from the homelab. */
+    /** "Exit via homelab": a node relays the traffic, which leaves from the homelab. */
     val homelab: Boolean = false,
     /** The roles that can use the exits. Admin always can. */
     val roles: List<String> = emptyList(),
-    /** The connector image that the exit of a node runs. */
-    @SerialName("newt_image") val newtImage: String = "docker.io/fosrl/newt:1.20.0",
 )
 
 /**
- * Where the database primary is. While the cluster cannot reach the preferred member, the primary
- * moves to a node. HomeGAP moves it back after that member is a replica with no lag for
- * [switchBackAfter].
- */
-@Serializable
-data class PrimaryConfig(
-    /** `homelab` is the only value that HomeGAP supports. */
-    val preferred: String = "homelab",
-    @SerialName("switch_back_after") val switchBackAfter: String = "10m",
-) {
-    val switchBackDelay: Duration get() = parseDuration(switchBackAfter)
-}
-
-/**
- * The private WireGuard mesh between the homelab and each node. Cluster traffic (the database,
- * Valkey, the node API of Gerbil) goes only through the mesh. The homelab dials out, so it works
- * behind NAT and no record publishes its address.
+ * The private WireGuard mesh between the homelab and each node. Each node sends the traffic for
+ * the homelab through it. The homelab dials out, so it works behind NAT and no record publishes
+ * its address.
  */
 @Serializable
 data class MeshConfig(
-    /** The IPv4 subnet of the mesh addresses. It must not overlap Pangolin's 100.64.0.0/10 tunnel ranges. */
+    /** The IPv4 subnet of the mesh addresses. It must not overlap 100.64.0.0/10, where the VPN has its addresses. */
     val subnet: String = "10.77.0.0/24",
     /** The UDP port that each node listens on. The firewall of the node opens it. */
     val port: Int = 51821,
-)
-
-@Serializable
-data class TunnelsConfig(
-    /** The directory that the orchestrator shares with the `homegap tunnels` supervisor. */
-    @SerialName("state_dir") val stateDir: String? = null,
-    @SerialName("newt_binary") val newtBinary: String = "/usr/local/bin/newt",
-    /**
-     * The WireGuard MTU of each Newt connector and of the Gerbil of each node. The two ends of a
-     * tunnel must have the same value. Null keeps the upstream default (1280). 1420 fits most paths
-     * without fragmentation. Use a lower value for PPPoE or nested tunnels.
-     */
-    val mtu: Int? = null,
-    /**
-     * Runs each Newt main tunnel on a kernel WireGuard interface, not on the userspace network
-     * stack of Newt. The kernel interface is faster. The `tunnels` container then needs
-     * `cap_add: [NET_ADMIN]`, `/dev/net/tun` and a host kernel with WireGuard.
-     */
-    val native: Boolean = false,
 )
 
 @Serializable
@@ -444,7 +317,7 @@ data class SpeedtestConfig(
     @SerialName("link_budget_gb") val linkBudgetGb: Int = 20,
     /** The parallel TCP streams of a homelab <-> node test. The dashboard can set a different number for a run. */
     val streams: Int = 4,
-    /** Pangolin clients open the test page with no link from the dashboard. The front door needs a private path. */
+    /** Devices of the VPN open the test page with no link from the dashboard. The front door needs a private path. */
     @SerialName("vpn_access") val vpnAccess: Boolean = false,
 ) {
     val host: String get() = bind.substringBeforeLast(":")
@@ -487,7 +360,7 @@ data class HomelabConfig(
     val ssh: HomelabSshConfig = HomelabSshConfig(),
 )
 
-/** SSH to the homelab host for Pangolin clients: a private service that the config turns on. */
+/** SSH to the homelab host for devices of the VPN: a private service that the config turns on. */
 @Serializable
 data class HomelabSshConfig(
     val enabled: Boolean = false,
@@ -525,12 +398,11 @@ data class NodeConfig(
     @SerialName("ssh_key_file") val sshKeyFile: String,
     val location: GeoLocation? = null,
     @SerialName("latency_zone") val latencyZone: String? = null,
-    /** The hostname of the node's Pangolin API (Newt/Olm endpoint). The default is `pangolin-<id>.<domain>`. */
+    /**
+     * The name of the node itself, which goes only to this node. HomeGAP checks the certificate of
+     * the node there. The default is `node-<id>.<domain>`.
+     */
     @SerialName("management_host") val managementHost: String? = null,
-    /** Routes the node's Pangolin web UI publicly on the management host. The SSO and PIN login pages need it. */
-    @SerialName("dashboard_public") val dashboardPublic: Boolean = false,
-    @SerialName("license_key_env") val licenseKeyEnv: String? = null,
-    @SerialName("license_key_file") val licenseKeyFile: String? = null,
     /** Manages `ufw` on the node. Disable it only where a different firewall has the authority. */
     val firewall: Boolean = true,
     /**
@@ -543,18 +415,11 @@ data class NodeConfig(
     /** Installs Docker Engine if the node does not have it. Disable it for a host that comes with a runtime. */
     @SerialName("install_docker") val installDocker: Boolean = true,
 ) {
-    fun managementHost(domain: String): String = managementHost ?: "pangolin-$id.$domain"
+    fun managementHost(domain: String): String = managementHost ?: "node-$id.$domain"
 
     fun ipv4(): String? = publicIpv4 ?: host.takeIf { isIpv4(it) }
 
     fun effectiveLocation(): GeoLocation? = location ?: REGION_CENTROIDS[region.uppercase()]
-
-    fun licenseKey(defaults: PangolinNodeDefaults): SecretRef? {
-        if (licenseKeyEnv == null && licenseKeyFile == null) {
-            return defaults.licenseKey()
-        }
-        return SecretRef("nodes.$id.license_key", envVar = licenseKeyEnv, file = licenseKeyFile)
-    }
 
     val sshKey: SecretRef get() = SecretRef("nodes.$id.ssh_key", envVar = null, file = sshKeyFile)
 }
@@ -570,7 +435,7 @@ data class DashboardConfig(
     val terminal: Boolean = true,
     /** Host label: the homelab Traefik serves the dashboard at `<hostname>.<domain>`. Null gives no route. */
     val hostname: String? = null,
-    /** Who reaches [hostname]: `private` (Pangolin clients only) or `public`. */
+    /** Who reaches [hostname]: `private` (devices of the VPN only) or `public`. */
     val access: String = "private",
     /** Sign-in through a forward-auth middleware of the homelab Traefik. It needs [hostname]. */
     val sso: DashboardSsoConfig? = null,

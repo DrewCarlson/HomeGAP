@@ -9,25 +9,15 @@
 #      version of the new image (see below);
 #   2. recreates the orchestrator (the control plane only: traffic never goes through it) and
 #      the mesh agent (the mesh interface stays up without it);
-#   3. moves the database and Valkey primaries to a node and holds them there
-#      (`homegap maintenance start`);
-#   4. recreates the homelab's cluster containers one at a time, waiting for each to serve again;
-#   5. recreates the tunnel connectors only if their code or Newt changed (see below);
-#   6. ends the hold (`homegap maintenance end`); the primaries return to the homelab once it has
-#      been caught up for the cluster's switch-back delay.
+#   3. recreates the sign-in. A device that is connected keeps its tunnel and connects to the
+#      sign-in again.
 #
-# If the orchestrator or a cluster container does not serve with its new image, the script puts
-# that service back on the image it had, and stops. It gives the old image the tag of the compose
-# file, so a later `docker compose pull` gets the new image again.
+# If the orchestrator does not start with its new image, the script puts it back on the image it
+# had, and stops. It gives the old image the tag of the compose file, so a later
+# `docker compose pull` gets the new image again.
 #
 # The mesh container (homegap-mesh) is never recreated: the mesh and everything in its network
-# namespace would restart with it.
-#
-# The tunnels container restarts every Newt connector at once, so every node loses the homelab
-# for a few seconds. It is only recreated when the image's tunnels version differs from the one
-# it runs (the tunnel supervisor's code, its platform layer, dependency versions and Newt), or
-# with --tunnels. Until then it keeps running the previous image, so Docker keeps that image too.
-# --no-pull uses the images already on the host.
+# namespace would restart with it. --no-pull uses the images already on the host.
 #
 # The files of the stack come from the new image (`homegap init --refresh`). A file that you did
 # not change gets its new version. For a file that you changed, the script asks. Without a
@@ -36,34 +26,27 @@
 # step. Other arguments go to every `docker compose` call, and they also skip this step.
 #
 # Over SSH, run the script in screen or tmux. A connection that drops stops the script before it
-# ends, and the upgrade can restart the tunnel that carries the connection. Without screen or
-# tmux, the script stops and tells you. HG_ALLOW_SSH=1 runs it anyway.
+# ends. Without screen or tmux, the script stops and tells you. HG_ALLOW_SSH=1 runs it anyway.
 set -euo pipefail
 
-FORCE_TUNNELS=no
 PULL=yes
 REFRESH=yes
 ORIGINAL=("$@")
 ARGS=()
 for a in "$@"; do
   case "$a" in
-    --tunnels) FORCE_TUNNELS=yes ;;
     --no-pull) PULL=no ;;
     --no-refresh) REFRESH=no ;;
-    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) ARGS+=("$a") ;;
   esac
 done
 
 ORCHESTRATOR=orchestrator
 MESH_AGENT=homegap-mesh-agent
-MESH_ROUTE=homegap-mesh-route
-TUNNELS=tunnels
-# The cluster services with their roles, in the order of the restarts.
-CLUSTER="homegap-etcd:etcd homegap-sentinel:sentinel homegap-valkey:valkey homegap-db:patroni"
+SIGN_IN=homegap-sign-in
 # This script started itself again after it got its new version: the pull and the refresh are done.
 REFRESHED=${HG_REFRESHED:-}
-TUNNELS_VERSION_FILE=/usr/share/homegap/tunnels-version
 
 dc() { docker compose ${ARGS[@]+"${ARGS[@]}"} "$@"; }
 # `exec` never reads this script's stdin (which may be the script itself, when piped into bash).
@@ -100,8 +83,7 @@ if over_ssh; then
     again=$(printf '%q ' "$0" "$@")
     printf '\033[31merror:\033[0m this is an SSH session without screen or tmux.\n' >&2
     cat >&2 <<EOF
-If the connection drops, the upgrade stops before it ends. The upgrade can also restart
-the tunnel connectors, which ends an SSH connection that goes through HomeGAP.
+If the connection drops, the upgrade stops before it ends.
 Run the upgrade in screen or tmux:
 
   screen -S homegap-upgrade ${again% }
@@ -114,19 +96,12 @@ EOF
 fi
 
 services=""
-cluster_services=()
 # Reads the services of the compose project. Stops if the project has no orchestrator.
 read_services() {
-  local pair
   services=$(dc config --services)
   has "$ORCHESTRATOR" || die "no '$ORCHESTRATOR' service in this compose project"
-  cluster_services=()
-  for pair in $CLUSTER; do
-    if has "${pair%%:*}"; then cluster_services+=("$pair"); fi
-  done
 }
 has() { printf '%s\n' "$services" | grep -qx "$1"; }
-running() { [ -n "$(dc ps -q --status running "$1" 2>/dev/null)" ]; }
 
 # The image id that the container of service $1 runs now, or nothing.
 image_of() {
@@ -186,8 +161,7 @@ if [ "$PULL" = yes ] && [ -z "$REFRESHED" ]; then
   say "Pulling images"
   pull=("$ORCHESTRATOR")
   has "$MESH_AGENT" && pull+=("$MESH_AGENT")
-  has "$TUNNELS" && pull+=("$TUNNELS")
-  for pair in ${cluster_services[@]+"${cluster_services[@]}"}; do pull+=("${pair%%:*}"); done
+  has "$SIGN_IN" && pull+=("$SIGN_IN")
   dc pull "${pull[@]}"
 fi
 
@@ -210,78 +184,15 @@ if ! wait_until 120 dx "$ORCHESTRATOR" homegap version; then
   fi
   die "the orchestrator did not start; see: docker compose logs $ORCHESTRATOR"
 fi
-if has "$MESH_ROUTE"; then
-  # It is in the network namespace of the orchestrator, which is new with the new container.
-  say "Updating the mesh route"
-  dc up -d --no-deps --force-recreate "$MESH_ROUTE"
-fi
 if has "$MESH_AGENT"; then
   say "Updating the mesh agent"
   dc up -d --no-deps "$MESH_AGENT"
 fi
 
-held=no
-# Runs at every exit, so an upgrade that stops early does not leave the hold in place.
-end_maintenance() {
-  [ "$held" = yes ] || return 0
-  held=no
-  say "Ending maintenance"
-  dx "$ORCHESTRATOR" homegap maintenance end || warn "could not end maintenance; the hold expires on its own within 30 minutes"
-}
-trap end_maintenance EXIT
-if [ ${#cluster_services[@]} -gt 0 ]; then
-  say "Moving the cluster primaries off the homelab"
-  echo "(a planned switchover of the database and a Sentinel failover of Valkey; usually under a minute)"
-  out=""
-  for attempt in 1 2 3 4 5 6; do
-    if out=$(dx "$ORCHESTRATOR" homegap maintenance start --minutes 30 2>&1); then held=yes; break; fi
-    case "$out" in
-      *"cluster is not enabled"*) break ;;
-      # The dashboard API is not up yet right after the restart, or its first pass has not read
-      # the cluster yet.
-      *"Connection refused"*|*"ConnectException"*|*"not been read yet"*)
-        echo "  not ready yet (attempt $attempt of 6): $(printf '%s' "$out" | tail -n 1)"
-        echo "  the orchestrator's log shows what it is doing: docker compose logs -f $ORCHESTRATOR"
-        sleep 10 ;;
-      *) break ;;
-    esac
-  done
-  echo "$out"
-  if [ "$held" != yes ]; then
-    case "$out" in
-      *"cluster is not enabled"*) cluster_services=() ;;
-      *) die "could not move the primaries off the homelab, so its cluster containers were left alone. Fix the cause and run this again." ;;
-    esac
-  fi
+if has "$SIGN_IN"; then
+  say "Updating the sign-in"
+  dc up -d --no-deps "$SIGN_IN"
 fi
-
-for pair in ${cluster_services[@]+"${cluster_services[@]}"}; do
-  svc=${pair%%:*} role=${pair#*:}
-  say "Updating $svc"
-  previous=$(image_of "$svc")
-  dc up -d --no-deps "$svc"
-  if ! wait_until "$READY_TIMEOUT" dx "$svc" hg-member ready "$role"; then
-    dc logs --tail 20 "$svc" >&2 || true
-    if rollback "$svc" "$previous" && wait_until "$READY_TIMEOUT" dx "$svc" hg-member ready "$role"; then
-      die "$svc did not serve with the new image. It runs the previous image again. The cluster containers after it keep their previous image too."
-    fi
-    die "$svc is not serving after $READY_TIMEOUT seconds; the primaries stay on the nodes until the homelab member is healthy. See: docker compose logs $svc"
-  fi
-done
-
-if has "$TUNNELS"; then
-  # A one-off container of the service reads the version of the image in the compose file.
-  new=$(dc run --rm --no-deps -T --entrypoint cat "$TUNNELS" "$TUNNELS_VERSION_FILE" </dev/null 2>/dev/null || echo unknown)
-  current=$(dx "$TUNNELS" cat "$TUNNELS_VERSION_FILE" 2>/dev/null || echo none)
-  if [ "$FORCE_TUNNELS" = yes ] || ! running "$TUNNELS" || [ "$new" != "$current" ] || [ "$new" = unknown ]; then
-    say "Updating the tunnel connectors (every node reconnects to the homelab: a few seconds without access)"
-    dc up -d --no-deps "$TUNNELS"
-  else
-    say "Tunnel connectors unchanged (version $current): left running"
-  fi
-fi
-
-end_maintenance
 
 say "Done"
 dc ps

@@ -28,7 +28,7 @@ data class PublicNode(
 
 /**
  * The homelab on the map. A public visitor gets only its region (the centre and the name of that
- * region), never where it is. A Pangolin client gets the location from the config, and [exact]
+ * region), never where it is. A VPN device gets the location from the config, and [exact]
  * is true.
  */
 @Serializable
@@ -48,7 +48,7 @@ data class PublicStatusDto(
     val nodes: List<PublicNode>,
     val at: Long,
     val home: PublicHome? = null,
-    /** True if the visitor is a Pangolin client, who gets the page from the homelab and not from a node. */
+    /** True if the visitor is a VPN device, who gets the page from the homelab and not from a node. */
     val vpn: Boolean = false,
 )
 
@@ -84,7 +84,7 @@ class PublicStatus(
     /** The view of the visitor whose request the proxy of the homelab got from [address]. */
     fun viewer(address: String): PublicViewer = Viewers.of(address, privateRange())
 
-    /** The data of the page at [host]. With [vpn], the visitor is a Pangolin client. */
+    /** The data of the page at [host]. With [vpn], the visitor is a VPN device. */
     fun build(host: String, vpn: Boolean = false): PublicStatusDto {
         val cfg = config()
         val now = nowMillis()
@@ -127,7 +127,7 @@ class PublicStatus(
             return PublicHome(code, "Home · ${REGION_NAMES[code] ?: code}", centre.latitude, centre.longitude)
         }
 
-        /** The homelab where the config puts it, for a Pangolin client. */
+        /** The homelab where the config puts it, for a VPN device. */
         fun homeLocation(cfg: AppConfig): PublicHome? {
             val home = cfg.homelab.location ?: return null
             val region = homeRegion(cfg)?.region.orEmpty()

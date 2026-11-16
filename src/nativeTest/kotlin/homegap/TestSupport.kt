@@ -1,9 +1,21 @@
 package homegap
 
+import com.charleskorn.kaml.Yaml
+import com.charleskorn.kaml.YamlList
+import com.charleskorn.kaml.YamlMap
+import com.charleskorn.kaml.YamlNode
+import com.charleskorn.kaml.YamlNull
+import com.charleskorn.kaml.YamlScalar
+import com.charleskorn.kaml.YamlTaggedNode
 import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.discovery.DockerContainerSummary
 import homegap.platform.Crypto
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 val TEST_CONFIG = """
 domain: test.example.net
@@ -38,3 +50,21 @@ val TRAEFIK = container(
     "homegap.protocol" to "https",
     "homegap.tls" to "passthrough",
 )
+
+private val YAML_INT = Regex("^-?(0|[1-9]\\d*)$")
+
+/** The YAML [text] as a JSON tree, so a test reads a rendered file by its keys. */
+fun yamlToJson(text: String): JsonElement = toJson(Yaml.default.parseToYamlNode(text))
+
+private fun toJson(node: YamlNode): JsonElement = when (node) {
+    is YamlMap -> JsonObject(node.entries.entries.associate { (key, value) -> key.content to toJson(value) })
+    is YamlList -> JsonArray(node.items.map { toJson(it) })
+    is YamlNull -> JsonNull
+    is YamlTaggedNode -> toJson(node.innerNode)
+    is YamlScalar -> when {
+        YAML_INT.matches(node.content) -> JsonPrimitive(node.content.toLong())
+        node.content == "true" -> JsonPrimitive(true)
+        node.content == "false" -> JsonPrimitive(false)
+        else -> JsonPrimitive(node.content)
+    }
+}

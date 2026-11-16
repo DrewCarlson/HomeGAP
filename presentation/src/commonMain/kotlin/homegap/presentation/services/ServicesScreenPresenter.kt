@@ -93,7 +93,7 @@ class ServicesScreenPresenter(
         hostname = hostname,
         container = container + name?.let { " · $it" }.orEmpty(),
         publishedAs = if (ports.isNotEmpty()) ports.joinToString(", ") else listOfNotNull(protocol, tlsLine(tls) ?: tls).joinToString(" · "),
-        access = access + if (auth != "none") " · $auth" else "",
+        access = access,
         paused = paused,
         health = health(),
         cells = edges.map { edge ->

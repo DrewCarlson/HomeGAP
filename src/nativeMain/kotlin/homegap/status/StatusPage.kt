@@ -9,7 +9,7 @@ import homegap.brand.Brand
  * node. Each request crosses that node and its tunnel to the homelab. The round trip comes from
  * Resource Timing (from the sent request to the first byte), so the time to connect does not count.
  * The page also reads `/status/client`, and shows the address of the visitor or that the visitor
- * is a Pangolin client. Such a client gets the page from the homelab, with no node in between.
+ * is a VPN device. Such a client gets the page from the homelab, with no node in between.
  * Its round trip is to the homelab, and the map shows where the homelab is.
  */
 object StatusPage {

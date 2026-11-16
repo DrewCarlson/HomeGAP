@@ -13,10 +13,8 @@ bunny:
   zone: example.net                # equal to `domain`, or a parent of it
   api_key_env: BUNNY_API_KEY
 
-pangolin:
-  acme_email: you@example.net      # the address of the Let's Encrypt account
-  # The Pangolin EE license, optional. Remove the `#` after you set the key in .env.
-  # license_key_env: PANGOLIN_LICENSE_KEY
+acme:
+  email: you@example.net           # the address of the Let's Encrypt account
 
 reconcile:
   # The first start is a dry run: HomeGAP shows its plan in the log and on the Config page of
@@ -35,14 +33,14 @@ nodes: []
 #     ssh_key_file: /data/ssh/na1  # the file data/orchestrator/ssh/na1 of this folder
 #     location: { latitude: 40.71, longitude: -74.01, name: "New York" }
 
-# Cluster mode: one Pangolin on all nodes, with a shared database. Remove the `#`, and also set
-# COMPOSE_PROFILES=cluster in .env.
-# cluster: {}
+# The sign-in of the apps and the VPN. Set the address that the apps connect to.
+# sign_in:
+#   url: https://vpn.example.net
 
 dashboard:
   bind: 0.0.0.0:8088
   auth_token_env: HOMEGAP_DASHBOARD_TOKEN
-  # To serve the dashboard at orc.<domain> through your Traefik, for Pangolin clients only:
+  # To serve the dashboard at orc.<domain> through your Traefik, for VPN devices only:
   # hostname: orc
   # access: private
 

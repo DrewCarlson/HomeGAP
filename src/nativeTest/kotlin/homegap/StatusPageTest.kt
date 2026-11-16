@@ -4,7 +4,6 @@ import homegap.api.Health
 import homegap.api.NodeStatusDto
 import homegap.brand.Brand
 import homegap.config.ConfigLoader
-import homegap.discovery.AuthMode
 import homegap.model.Planner
 import homegap.provision.NodeTemplates
 import homegap.status.PublicHome
@@ -40,7 +39,7 @@ class StatusPageTest {
         val desired = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("as1")
         assertTrue("status.test.example.net" in desired.sniRoutes.single().excludeHosts)
         assertEquals("status.test.example.net" to "status-as1.test.example.net", desired.statusRedirect)
-        val routes = NodeTemplates.dynamicRoutes(desired, emptyMap())
+        val routes = NodeTemplates.dynamicRoutes(desired)
         assertTrue("Host(`status.test.example.net`)" in routes)
         assertTrue(
             "Host: \"status-as1.test.example.net\"" in routes || "Host: status-as1.test.example.net" in routes,
@@ -72,11 +71,12 @@ class StatusPageTest {
             "homegap.tls" to "terminate",
         )
         val node = Planner.plan(config, listOf(frontDoor)).nodes.getValue("na1")
-        val resource = node.httpResources.single { it.niceId == Planner.STATUS }
+        val niceId = Planner.perNode(Planner.STATUS, "na1")
+        val resource = node.httpResources.single { it.niceId == niceId }
         assertEquals("status-na1.test.example.net", resource.fullDomain)
-        assertEquals(AuthMode.NONE, resource.auth)
+        assertTrue(resource.roles.isEmpty(), "each visitor reaches the page")
         assertNotNull(resource.meshPort, "the node sends the name over the mesh")
-        assertTrue(node.publicResources.none { it.niceId == Planner.STATUS }, "not in Pangolin")
+        assertTrue(node.publicResources.none { it.niceId == niceId }, "not a stream of the node")
     }
 
     @Test
@@ -93,7 +93,7 @@ class StatusPageTest {
             region = "",
             provider = "p",
             host = "203.0.113.99",
-            managementHost = "pangolin-$id.test.example.net",
+            managementHost = "node-$id.test.example.net",
             health = health,
             reachable = true,
             tunnelUp = tunnel,
@@ -110,7 +110,7 @@ class StatusPageTest {
         assertEquals("degraded", page.nodes.first().state)
         assertEquals("https://status-na1.test.example.net/status/ping", page.nodes.single { it.id == "na1" }.pingUrl)
         val json = Json.encodeToString(PublicStatusDto.serializer(), page)
-        assertFalse("203.0.113" in json || "2001:db8" in json || "pangolin-" in json, json)
+        assertFalse("203.0.113" in json || "2001:db8" in json || "node-" in json, json)
     }
 
     @Test
@@ -123,7 +123,7 @@ class StatusPageTest {
     }
 
     @Test
-    fun aRequestFromThePrivateNetworkIsAPangolinClient() {
+    fun aRequestFromThePrivateNetworkIsAVpnDevice() {
         val range = "172.29.0.3/24"
         assertEquals(PublicViewer(vpn = true), Viewers.of("172.29.0.250", range))
         assertEquals(PublicViewer(vpn = false, address = "203.0.113.7"), Viewers.of("203.0.113.7", range))
@@ -136,7 +136,7 @@ class StatusPageTest {
     }
 
     @Test
-    fun onlyAPangolinClientGetsTheLocationOfTheHomelab() {
+    fun onlyAVpnDeviceGetsTheLocationOfTheHomelab() {
         val located = ConfigLoader.parse(
             "$TEST_CONFIG\nstatus_page:\n  enabled: true\nhomelab:\n" +
                 "  location: { latitude: 32.78, longitude: -96.8, name: \"Dallas, Texas\" }\n"

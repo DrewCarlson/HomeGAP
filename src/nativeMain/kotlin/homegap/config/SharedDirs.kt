@@ -12,21 +12,12 @@ import homegap.platform.env
  */
 object SharedDirs {
     const val MESH = "/mesh"
-    const val TUNNELS = "/tunnels"
-    const val CLUSTER_CONFIG = "/cluster-config"
     const val IDENTITY = "/identity"
     const val SIGN_IN = "/sign-in"
     const val VPN = "/vpn"
 
     /** What the orchestrator and the mesh agent of the homelab (`homegap mesh`) tell each other. */
     fun mesh(dataDir: String): String = resolve("HOMEGAP_MESH_DIR", MESH, "$dataDir/mesh")
-
-    /** Connector specs and their status files, shared with the `tunnels` container. */
-    fun tunnels(dataDir: String): String = resolve("HOMEGAP_TUNNELS_DIR", TUNNELS, "$dataDir/tunnels")
-
-    /** The config of the cluster containers of the homelab, which read it. */
-    fun clusterConfig(dataDir: String): String =
-        resolve("HOMEGAP_CLUSTER_CONFIG_DIR", CLUSTER_CONFIG, "$dataDir/cluster/config")
 
     /** The signed directory of users and the public key of the homelab, which the sign-in server reads. */
     fun identity(dataDir: String): String = resolve("HOMEGAP_IDENTITY_DIR", IDENTITY, "$dataDir/identity")
@@ -64,8 +55,6 @@ object SharedDirs {
     }
 }
 
-val AppConfig.clusterConfigDir: String get() = SharedDirs.clusterConfig(dataDir)
-
 val AppConfig.identityDir: String get() = SharedDirs.identity(dataDir)
 
 val AppConfig.signInDir: String get() = SharedDirs.signIn(dataDir)
@@ -77,8 +66,6 @@ val AppConfig.authorityDir: String get() = "$dataDir/authority"
 
 val AppConfig.meshDir: String get() = SharedDirs.mesh(dataDir)
 
-val AppConfig.tunnelsDir: String get() = tunnels.stateDir ?: SharedDirs.tunnels(dataDir)
-
 /** One line for each shared directory of this config that is not a volume. */
 fun AppConfig.sharedDirProblems(): List<String> = buildList {
     fun check(path: String, folder: String, other: String) {
@@ -88,10 +75,8 @@ fun AppConfig.sharedDirProblems(): List<String> = buildList {
     }
 
     if (nodes.isNotEmpty()) {
-        check(tunnelsDir, folder = "data/tunnels", other = "tunnels")
-    }
-    if (cluster != null) {
         check(meshDir, folder = "data/mesh", other = "homegap-mesh-agent")
-        check(clusterConfigDir, folder = "data/cluster/config", other = "cluster")
+        check(identityDir, folder = "data/identity", other = "homegap-sign-in")
+        check(vpnDir, folder = "data/vpn", other = "homegap-sign-in")
     }
 }

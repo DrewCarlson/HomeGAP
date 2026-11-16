@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Asserts the data plane end to end on every node: viewer -> node :443 (SNI passthrough or edge
-# termination) -> Newt tunnel -> homelab Traefik -> the service. With the cluster on, the shared
-# client address (login pages and client API) is checked on every node too.
+# termination) -> mesh -> homelab Traefik -> the service. The address of the sign-in is checked
+# on every node too.
 set -euo pipefail
 cd "$(dirname "$0")"
 v() { docker compose exec -T viewer "$@"; }
@@ -20,14 +20,9 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
   v sh -c "curl -sS --cacert /certs/trust.pem --resolve test.example.net:443:$ip -o /dev/null -w '%{http_code} ' https://test.example.net/grafana; curl -sS --cacert /certs/trust.pem --resolve test.example.net:443:$ip -o /dev/null -w '%{http_code}\n' https://test.example.net/"
   echo "--- passthrough wildcard"
   v sh -c "curl -sS --cacert /certs/trust.pem --resolve media.test.example.net:443:$ip https://media.test.example.net/ | grep -E 'Host:|Hostname'"
-  echo "--- management API is served by the node itself, with the certificate that HomeGAP ordered (expect issuer Pebble)"
-  v sh -c "curl -sS -v --cacert /certs/trust.pem --resolve pangolin-$id.test.example.net:443:$ip https://pangolin-$id.test.example.net/api/v1/ 2>&1 | grep -E 'issuer:|HTTP/'"
-  if grep -q '^cluster:' config.e2e.yml; then
-    echo "--- cluster client address: login page and API on this node (expect issuer Pebble)"
-    v sh -c "curl -sS -v --cacert /certs/trust.pem --resolve pangolin.test.example.net:443:$ip https://pangolin.test.example.net/auth/login 2>&1 | grep -E 'issuer:|^< HTTP/'"
-    v sh -c "curl -sS --cacert /certs/trust.pem --resolve pangolin.test.example.net:443:$ip -o /dev/null -w 'api %{http_code}\n' https://pangolin.test.example.net/api/v1/"
-  fi
-  echo "--- the status page tells a public visitor that it is no Pangolin client (expect {\"vpn\":false})"
+  echo "--- the sign-in through this node, with the certificate that HomeGAP ordered (expect issuer Pebble and 200)"
+  v sh -c "curl -sS -v --cacert /certs/trust.pem --resolve signin.test.example.net:443:$ip https://signin.test.example.net/api/v1/ 2>&1 | grep -E 'issuer:|^< HTTP/'"
+  echo "--- the status page tells a public visitor that it is no VPN device (expect {\"vpn\":false})"
   v sh -c "curl -sS --cacert /certs/trust.pem --resolve status.test.example.net:443:$ip https://status.test.example.net/status/client; echo"
   echo "--- the shared status and speed test names name this node, with no redirect (expect 200 \"via\":\"$id\" 200 \"node\":\"$id\")"
   v sh -c "curl -sS --cacert /certs/trust.pem --resolve status.test.example.net:443:$ip -o /dev/null -w '%{http_code} ' https://status.test.example.net/; curl -sS --cacert /certs/trust.pem --resolve status.test.example.net:443:$ip https://status.test.example.net/status/nodes | grep -o '\"via\":\"[^\"]*\"'"
@@ -47,14 +42,14 @@ for node in na1:172.30.0.10 as1:172.30.0.11; do
     *'*.test.example.net'*|*" git.test.example.net "*|*" test.example.net "*|*" media.test.example.net "*) echo "FAIL: the node holds a certificate for a wildcard or a passthrough name"; exit 1 ;;
   esac
   # The front door of the extra domain is in terminate mode, so its root and its wildcard are on the certificate.
-  case " $names" in *" *.other.example.org other.example.org "*) ;; *) echo "FAIL: the names of the extra domain are not on the certificate"; exit 1 ;; esac
+  case " $names" in *" *.other.example.org "*" other.example.org "*) ;; *) echo "FAIL: the names of the extra domain are not on the certificate"; exit 1 ;; esac
   case " $names" in *" wiki.test.example.net "*) ;; *) echo "FAIL: the terminate name is not on the certificate"; exit 1 ;; esac
   echo "--- the node has no ACME account and no resolver (expect {} and 0)"
   docker compose exec -T "node-$id" sh -c 'cat /opt/homegap/config/letsencrypt/acme.json; cat /opt/homegap/config/traefik/traefik_config.yml /opt/homegap/config/traefik/dynamic/homegap-routes.yml | grep -c -i "letsencrypt\|certificatesResolvers" || true'
   echo "--- a node cannot answer a passthrough name with its own certificate (expect the origin certificate)"
   v sh -c "curl -sS -v --cacert /certs/trust.pem --resolve git.test.example.net:443:$ip https://git.test.example.net/ 2>&1 | grep -E 'issuer:'"
   echo "--- raw tcp on public port 19000 (expect echo)"
-  v sh -c "(printf 'ping-through-tunnel\n'; sleep 2) | nc $ip 19000"
+  v sh -c "(printf 'ping-through-mesh\n'; sleep 2) | nc $ip 19000"
   echo "--- port list: 7881/tcp and 3478/tcp (expect two echoes)"
   v sh -c "(printf 'rtc-tcp\n'; sleep 2) | nc $ip 7881; (printf 'turn-tcp\n'; sleep 2) | nc $ip 3478"
   echo "--- port list: 3478/udp, and the named service's 17000/udp to the container's 7000 (expect two replies)"
@@ -76,16 +71,16 @@ for ip in 172.30.0.10 172.30.0.11; do
   [ "$code" = 403 ] || { echo "FAIL: the private dashboard answers the public with $code"; exit 1; }
 done
 private=$(docker inspect homelab-traefik -f '{{range $name, $net := .NetworkSettings.Networks}}{{$name}}={{$net.IPAddress}} {{end}}' | tr ' ' '\n' | grep -i priv | cut -d= -f2)
-code=$(docker compose exec -T tunnels sh -c "curl -sk --resolve orc.test.example.net:443:$private -o /dev/null -w '%{http_code}' https://orc.test.example.net/")
+code=$(docker run --rm --network homegap-e2e_e2e-private --entrypoint sh "$(docker inspect homegap-e2e-viewer-1 --format '{{.Config.Image}}')" -c "curl -sk --resolve orc.test.example.net:443:$private -o /dev/null -w '%{http_code}' https://orc.test.example.net/")
 echo "private network ($private): $code"
 [ "$code" = 200 ] || { echo "FAIL: the private dashboard answers the private network with $code"; exit 1; }
 echo "================ homelab host"
-echo "--- homelab.ssh is a private service to the address that the tunnels container found (expect the gateway twice)"
-gateway=$(cat work/tunnels/host-gateway)
-route=$(docker compose exec -T tunnels sh -c "ip route | sed -n 's/^default via \\([0-9.]*\\).*/\\1/p'" | tr -d '\r')
+echo "--- homelab.ssh is a private service to the address that the mesh agent found (expect the gateway twice)"
+gateway=$(cat work/mesh/host-gateway)
+route=$(docker compose exec -T mesh-agent sh -c "ip route | sed -n 's/^default via \\([0-9.]*\\).*/\\1/p'" | tr -d '\r')
 echo "$route"
 echo "$gateway"
-[ -n "$gateway" ] && [ "$gateway" = "$route" ] || { echo "FAIL: the tunnels container wrote '$gateway', its default route is '$route'"; exit 1; }
+[ -n "$gateway" ] && [ "$gateway" = "$route" ] || { echo "FAIL: the mesh agent wrote '$gateway', its default route is '$route'"; exit 1; }
 curl -s -H "Authorization: Bearer $(cat work/data/dashboard-token)" http://127.0.0.1:18088/api/status | python3 -c '
 import json, sys
 services = [s for s in json.load(sys.stdin)["services"] if s["hostname"] == "hostssh.test.example.net"]
@@ -122,6 +117,6 @@ v sh -c "curl -s -H 'AccessKey: e2e-bunny-key' http://bunny-mock:8080/dnszone/7"
 import json, sys
 print(sum(1 for r in json.load(sys.stdin)["Records"] if r["Name"].startswith("_acme-challenge")))
 '
-echo "--- the dashboard through the sign-in of the homelab Traefik: a Pangolin client needs no token, and the public gets no access (expect 200 403)"
+echo "--- the dashboard through the sign-in of the homelab Traefik: a VPN device needs no token, and the public gets no access (expect 200 403)"
 docker run --rm --network homegap-e2e_e2e-private --entrypoint sh "$(docker inspect homegap-e2e-viewer-1 --format '{{.Config.Image}}')" -c "curl -sSk --resolve orc.test.example.net:443:172.29.0.3 -o /dev/null -w '%{http_code} ' https://orc.test.example.net/api/status"
 v sh -c "curl -sSk --resolve orc.test.example.net:443:172.30.0.140 -H 'Remote-User: evil' -H 'Remote-Groups: admins' -o /dev/null -w '%{http_code}\n' https://orc.test.example.net/api/status"

@@ -4,11 +4,8 @@
 #   ./gradlew linkReleaseExecutableLinuxX64 linkReleaseExecutableLinuxArm64
 # then:  docker buildx build --platform linux/amd64,linux/arm64 -t homegap .
 #
-# The same image runs the controller (`homegap run`, default) and the tunnel supervisor
-# (`homegap tunnels`), which keeps one Newt connector per regional node.
-
-ARG NEWT_VERSION=1.20.0
-FROM docker.io/fosrl/newt:${NEWT_VERSION} AS newt
+# The same image runs the orchestrator (`homegap run`, default), the mesh agent (`homegap mesh`),
+# the sign-in (`homegap sign-in`) and the agent of a node (`homegap node-agent`).
 
 # Lego orders the certificate of the nodes (see docs/configuration/certificates.md).
 FROM docker.io/library/alpine:3.20 AS lego
@@ -32,17 +29,6 @@ RUN apk add --no-cache bash curl
 COPY tools/build-map.sh /src/tools/build-map.sh
 RUN cd /src && PROTOMAPS_BUILD="$PROTOMAPS_BUILD" bash tools/build-map.sh tiles
 
-# What the tunnel supervisor's behaviour depends on: its own code, the platform layer under it,
-# the dependency versions and Newt. deploy/upgrade.sh recreates the tunnels container (dropping
-# every connector for a moment) only when this changes between the running and the new image.
-FROM --platform=$BUILDPLATFORM docker.io/library/alpine:3.20 AS tunnels-version
-ARG NEWT_VERSION
-COPY src/nativeMain/kotlin/homegap/tunnels /v/tunnels
-COPY src/nativeMain/kotlin/homegap/platform /v/platform
-COPY gradle/libs.versions.toml /v/
-RUN echo "newt ${NEWT_VERSION}" > /v/newt \
-    && cd /v && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -c1-16 > /tunnels-version
-
 # The documentation, served by the dashboard at /docs/ (the pages for this image's version).
 FROM --platform=$BUILDPLATFORM docker.io/library/python:3.14-alpine AS docs
 ARG VERSION=dev
@@ -61,16 +47,14 @@ FROM docker.io/library/ubuntu:24.04
 ARG TARGETARCH
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates openssh-client tini iputils-ping iproute2 iptables wireguard-tools redis-tools libnss-wrapper \
+    && apt-get install -y --no-install-recommends ca-certificates openssh-client tini iputils-ping iproute2 iptables wireguard-tools libnss-wrapper \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home-dir /data --shell /usr/sbin/nologin homegap \
     && install -d -o homegap -g homegap -m 0700 /data \
-    && install -d -m 0755 /mesh /tunnels /cluster-config /identity /sign-in /vpn
+    && install -d -m 0755 /mesh /identity /sign-in /vpn
 
-COPY --from=newt /usr/local/bin/newt /usr/local/bin/newt
 COPY --from=lego /usr/local/bin/lego /usr/local/bin/lego
 COPY --from=map /src/map/world.pmtiles /usr/share/homegap/map/world.pmtiles
-COPY --from=tunnels-version /tunnels-version /usr/share/homegap/tunnels-version
 COPY --from=docs /site /usr/share/homegap/docs
 # The files of the homelab stack, which `homegap init` and upgrade.sh write to the folder of the user.
 COPY deploy/compose.yml deploy/upgrade.sh deploy/.env.example deploy/compose.override.example.yml /usr/share/homegap/deploy/

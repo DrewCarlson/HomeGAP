@@ -53,7 +53,7 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
         val pageHosts = HomelabTraefik.pageHosts(config)
         // A name that this configuration sends to the orchestrator is not a name of the nodes only.
         val misdirected = plan
-            ?.let { HomelabTraefik.nodeOnlyNames(it, config.clientHost, controller.homelabRouters) }
+            ?.let { HomelabTraefik.nodeOnlyNames(it, config.signInHost, controller.homelabRouters) }
             .orEmpty()
             .filter { it !in pageHosts }
         // Traefik reads this configuration from the orchestrator, so the same host has the pages.
@@ -63,7 +63,7 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
         call.respondText(answer.toString(), ContentType.Application.Json)
     }
 
-    /** The route of the status page for Pangolin clients. The pass finds the private network of the front door. */
+    /** The route of the status page for VPN devices. The pass finds the private network of the front door. */
     private fun privateStatus(): HomelabTraefik.PrivateStatus? {
         val config = controller.config
         val range = controller.privateSourceRange?.takeIf { config.statusPage.enabled } ?: return null
@@ -71,7 +71,7 @@ class TraefikRoutes(private val controller: Controller) : OpenRoutingController 
     }
 
     /**
-     * The route of the dashboard, if the config gives it a name. A dashboard for Pangolin clients
+     * The route of the dashboard, if the config gives it a name. A dashboard for VPN devices
      * only has a route after the pass finds the private network of the front door.
      */
     @Suppress("HttpUrlsUsage")

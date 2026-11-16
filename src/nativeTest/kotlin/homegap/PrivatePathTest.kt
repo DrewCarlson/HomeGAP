@@ -1,8 +1,6 @@
 package homegap
 
-import homegap.clients.SshPool
-import homegap.config.AppConfig
-import homegap.config.ClusterConfig
+import homegap.config.ConfigLoader
 import homegap.discovery.ContainerNetworkSettings
 import homegap.discovery.NetworkEndpoint
 import homegap.discovery.TraefikRouter
@@ -12,21 +10,12 @@ import homegap.model.DesiredState
 import homegap.model.Planner
 import homegap.model.ResourceMode
 import homegap.provision.NodeTemplates
-import homegap.reconcile.DiffCollector
-import homegap.reconcile.ReconcileContext
-import homegap.reconcile.ReconcileLog
-import homegap.reconcile.ResourceReconciler
-import homegap.state.StateStore
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.mock.MockEngine
-import io.ktor.client.engine.mock.respondOk
-import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.*
 
-/** The viewer's address (PROXY protocol) and the private path for Pangolin clients. */
+/** The viewer's address (PROXY protocol) and the private path for VPN devices. */
 class PrivatePathTest {
     private fun parse(vararg labels: Pair<String, String>) = parseLabels(
         containerId = "id",
@@ -55,16 +44,6 @@ class PrivatePathTest {
 
     private fun frontDoorTcp(plan: DesiredState) =
         plan.nodes.getValue("na1").publicResources.single { it.niceId == Planner.FRONTDOOR_TCP }
-
-    private fun reconcileContext(config: AppConfig) = ReconcileContext(
-        config = config,
-        state = StateStore(tmpPath("state")),
-        log = ReconcileLog(),
-        ssh = SshPool(controlDir = tmpPath("ssh"), knownHostsFile = tmpPath("kh")),
-        localHttp = HttpClient(MockEngine { respondOk() }),
-        dryRun = false,
-        diff = DiffCollector(),
-    )
 
     @Test
     fun proxyProtocolOnlyRidesTcpStreams() {
@@ -119,14 +98,14 @@ class PrivatePathTest {
             "homegap.private_network" to "p",
         )
         assertNull(privateAccess.spec)
-        assertTrue(aliasCovers("*.test.example.net", "pangolin.test.example.net"))
-        assertFalse(aliasCovers("*.home.test.example.net", "pangolin.test.example.net"))
+        assertTrue(aliasCovers("*.test.example.net", "vpn.test.example.net"))
+        assertFalse(aliasCovers("*.home.test.example.net", "vpn.test.example.net"))
         assertTrue(aliasCovers("host-0?.test.example.net", "host-07.test.example.net"))
     }
 
     @Test
     fun theFrontDoorSendsTheViewersAddressAndClientsGetAPrivatePath() {
-        val config = testConfig().copy(cluster = ClusterConfig())
+        val config = testConfig()
         val plan = Planner.plan(config, listOf(frontDoor("homegap.private_hosts" to "jellyfin,*.home")))
         assertTrue(plan.labelErrors.isEmpty(), plan.labelErrors.toString())
         val node = plan.nodes.getValue("na1")
@@ -137,25 +116,29 @@ class PrivatePathTest {
         )
         val private = node.privateResources.associateBy { it.alias }
         assertEquals(setOf("jellyfin.test.example.net", "*.home.test.example.net"), private.keys)
-        // The address on the private network (compose prefixes it with the project), not a name:
-        // Pangolin only takes a wildcard alias with an IP destination.
+        // The address on the private network (compose prefixes it with the project), not a name.
         assertTrue(private.values.all { it.destination == "172.33.0.2" && it.tcpPorts == "80,443" })
         assertEquals("hg-private--wildcard-home-test-example-net", private.getValue("*.home.test.example.net").niceId)
 
-        val context = reconcileContext(config)
-        val blueprint = ResourceReconciler(context).buildBlueprint(node.publicResources, node.privateResources)
-        val tcpResource = blueprint["public-resources"]!!.jsonObject.getValue(Planner.FRONTDOOR_TCP).jsonObject
-        assertTrue(tcpResource.getValue("proxy-protocol").jsonPrimitive.boolean)
-        assertEquals(2, tcpResource.getValue("proxy-protocol-version").jsonPrimitive.int)
+        val tcp = yamlToJson(NodeTemplates.dynamicRoutes(node)).jsonObject.getValue("tcp").jsonObject
+        val service = tcp.getValue("services").jsonObject.getValue("homegap-mesh-${Planner.FRONTDOOR_TCP}").jsonObject
+        val transport = service.getValue("loadBalancer").jsonObject.getValue("serversTransport").jsonPrimitive.content
+        val proxyProtocol = tcp.getValue("serversTransports").jsonObject.getValue(transport).jsonObject
+        assertEquals(2, proxyProtocol.getValue("proxyProtocol").jsonObject.getValue("version").jsonPrimitive.int)
         val plain = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
-        val unchanged = ResourceReconciler(context).buildBlueprint(plain.publicResources, plain.privateResources)
-        val unchangedTcp = unchanged["public-resources"]!!.jsonObject.getValue(Planner.FRONTDOOR_TCP).jsonObject
-        assertNull(unchangedTcp["proxy-protocol"], "off unless asked: the origin must accept it first")
+        val unchanged = yamlToJson(NodeTemplates.dynamicRoutes(plain)).jsonObject.getValue("tcp").jsonObject
+        val unchangedServices = unchanged.getValue("services").jsonObject
+        val unchangedBalancer = unchangedServices.getValue("homegap-mesh-${Planner.FRONTDOOR_TCP}").jsonObject
+        assertNull(
+            unchangedBalancer.getValue("loadBalancer").jsonObject["serversTransport"],
+            "off unless asked: the origin must accept it first",
+        )
+        assertNull(unchanged["serversTransports"])
     }
 
     @Test
     fun publicTrafficNeverTakesThePrivateNetwork() {
-        val config = testConfig().copy(cluster = ClusterConfig())
+        val config = testConfig()
         // By name, Docker can answer with the private address: the target is the other one.
         val shared = frontDoorTcp(Planner.plan(config, listOf(frontDoor())))
         assertEquals("172.32.0.5", shared.target.host)
@@ -175,10 +158,10 @@ class PrivatePathTest {
 
     @Test
     fun aClientsOwnAddressIsNeverCaptured() {
-        val config = testConfig().copy(cluster = ClusterConfig())
+        val config = ConfigLoader.parse("$TEST_CONFIG\nsign_in:\n  url: https://vpn.test.example.net\n")
         val plan = Planner.plan(config, listOf(frontDoor("homegap.private_hosts" to "*,jellyfin")))
         assertTrue(
-            plan.labelErrors.any { "covers pangolin.test.example.net" in it.message },
+            plan.labelErrors.any { "covers vpn.test.example.net" in it.message },
             plan.labelErrors.toString(),
         )
         assertEquals(listOf("jellyfin.test.example.net"), plan.nodes.getValue("na1").privateResources.map { it.alias })
@@ -188,7 +171,7 @@ class PrivatePathTest {
 
     @Test
     fun routersUsingThePrivateMiddlewareNameTheirHosts() {
-        val config = testConfig().copy(cluster = ClusterConfig())
+        val config = testConfig()
         // From the front door's API: a subfolder service on the root and a subdomain one (from the
         // file provider). Then one with HostRegexp, a public one and a disabled one.
         val routers = listOf(
@@ -255,16 +238,6 @@ class PrivatePathTest {
             elsewhere.labelErrors.any { "http://other:9000 has not answered" in it.message },
             elsewhere.labelErrors.toString(),
         )
-    }
-
-    @Test
-    fun standaloneNodesDefineThePangolinTransport() {
-        val node = Planner.plan(testConfig(), listOf(frontDoor())).nodes.getValue("na1")
-        val ids = mapOf(Planner.FRONTDOOR_TCP to 7)
-        val transport = NodeTemplates.PROXY_PROTOCOL_TRANSPORT
-        assertTrue(transport in NodeTemplates.dynamicRoutes(node, ids, cluster = false))
-        // Clustered nodes read Pangolin's own definition from its file. A second one clashes with it.
-        assertFalse(transport in NodeTemplates.dynamicRoutes(node, ids, cluster = true))
     }
 
     @Test

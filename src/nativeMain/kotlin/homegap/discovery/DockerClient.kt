@@ -52,15 +52,6 @@ class DockerClient(
             json.decodeFromString<List<DockerContainerSummary>>(bodyOf(response))
         }
 
-    /** A local image by reference (`repo:tag`, `repo@digest` or id), or null when it isn't here. */
-    suspend fun image(ref: String): DockerImage? = withTimeout(requestTimeout) {
-        val response = httpClient.get("$baseUrl/images/$ref/json")
-        if (response.status.value == NOT_FOUND) {
-            return@withTimeout null
-        }
-        json.decodeFromString<DockerImage>(bodyOf(response))
-    }
-
     /** Returns the body of [response]. Throws with the start of the body if the status is an error. */
     private suspend fun bodyOf(response: HttpResponse): String {
         val status = response.status.value
@@ -89,7 +80,6 @@ class DockerClient(
 
     private companion object {
         const val API_VERSION = "v1.43"
-        const val NOT_FOUND = 404
         const val ERROR_BODY_CHARS = 200
     }
 }
@@ -123,34 +113,11 @@ data class DockerEvent(
     @SerialName("Action") val action: String = "",
     @SerialName("Actor") val actor: DockerEventActor = DockerEventActor(),
 )
-
-@Serializable
-data class DockerImage(
-    @SerialName("Id") val id: String = "",
-    @SerialName("RepoDigests") val repoDigests: List<String>? = null,
-    /**
-     * When the image was built. Unlike [id] (the config digest in Docker's classic store, the
-     * manifest digest in its containerd store) this is the same on every host.
-     */
-    @SerialName("Created") val created: String = "",
-) {
-    /**
-     * Returns [ref] with the registry digest of this image (`repo@sha256:…`), so another host pulls
-     * exactly this image. Returns [ref] itself for an image that did not come from a registry.
-     */
-    fun pinned(ref: String): String {
-        val name = ref.substringBefore('@')
-        val hasTag = name.lastIndexOf(':') > name.lastIndexOf('/')
-        val repo = if (hasTag) name.substringBeforeLast(':') else name
-        return repoDigests.orEmpty().firstOrNull { it.substringBefore('@') == repo } ?: ref
-    }
-}
-
 /**
  * Whether a container event can change what HomeGAP exposes: only containers carrying `homegap.*`
  * labels. Docker sends a container's labels with every event about it, its stop and removal
  * included, so a labeled container going away is still seen. Unlabeled containers (a crash-looping
- * app, HomeGAP's own cluster and tunnel containers) never trigger a pass.
+ * app, HomeGAP's own containers) never trigger a pass.
  */
 fun DockerEvent.concernsHomegap(): Boolean = actor.attributes.keys.any { it.startsWith(Labels.PREFIX) }
 

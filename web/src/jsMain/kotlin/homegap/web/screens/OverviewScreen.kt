@@ -208,7 +208,7 @@ private fun ViewButton(label: String, active: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** The homelab in one line, then a row for each node: tunnel, node with its probe, the names it serves. */
+/** The homelab in one line, then a row for each node: mesh link, node with its requests, the names it serves. */
 @Composable
 private fun TrafficPath(network: NetworkModel, onOpen: (Location) -> Unit) {
     Div({ classes("path") }) {
@@ -236,7 +236,7 @@ private fun TrafficPath(network: NetworkModel, onOpen: (Location) -> Unit) {
 private fun PathRow(edge: EdgeModel, onOpen: (Location) -> Unit) {
     Div({ classes("path-row") }) {
         Div({ classes("path-line", edge.health.toneClass) }) {
-            Span({ classes("mono") }) { Text(edge.mesh ?: "tunnel") }
+            Span({ classes("mono") }) { Text(edge.meshLink) }
         }
         NavLink(
             href = HashRouter.href(edge.location),
@@ -247,7 +247,7 @@ private fun PathRow(edge: EdgeModel, onOpen: (Location) -> Unit) {
                 B { Text(edge.id) }
                 Span({ classes("muted") }) { Text(" ${edge.place}") }
             }
-            Span({ classes("mono") }) { Text(edge.api) }
+            edge.requests?.let { Span({ classes("mono") }) { Text(it) } }
         }
         NavLink(
             href = HashRouter.href(Route.Services),

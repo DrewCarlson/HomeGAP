@@ -22,11 +22,11 @@ class PlannerTest {
         assertEquals(Planner.FRONTDOOR_TCP, route.resourceNiceId)
         assertEquals("test.example.net", route.wildcardOf)
         assertTrue(
-            "pangolin-na1.test.example.net" in route.excludeHosts,
+            "node-na1.test.example.net" in route.excludeHosts,
             "management host must not be swallowed by the wildcard",
         )
-        // The health resource probes the front door over the mesh. Pangolin does not get it.
-        val health = node.httpResources.single { it.niceId == Planner.HEALTH }
+        // The health resource probes the front door over the mesh. It is not a stream of the node.
+        val health = node.httpResources.single { it.niceId == Planner.perNode(Planner.HEALTH, "na1") }
         assertEquals("https", health.target.method)
         assertEquals("test.example.net", health.hostHeader)
         assertTrue(health.meshPort!! in 45000 until 50000)
@@ -44,13 +44,13 @@ class PlannerTest {
             "homegap.tls" to "terminate",
         )
         val node = Planner.plan(config, listOf(terminate)).nodes.getValue("na1")
-        val resources = node.httpResources.filter { it.niceId != Planner.HEALTH }
+        val resources = node.httpResources.filter { !Planner.isHealth(it.niceId) }
         assertEquals(setOf("test.example.net", "*.test.example.net"), resources.map { it.fullDomain }.toSet())
         assertTrue(node.sniRoutes.isEmpty())
         assertTrue(resources.all { it.mode == ResourceMode.HTTP && it.target.method == "https" })
         val meshPorts = node.httpResources.map { it.meshPort }
         assertTrue(meshPorts.all { it != null } && meshPorts.distinct().size == meshPorts.size, meshPorts.toString())
-        assertTrue(node.publicResources.isEmpty(), "Pangolin gets no HTTP resource")
+        assertTrue(node.publicResources.isEmpty(), "an HTTP resource is not a stream")
     }
 
     @Test
@@ -62,7 +62,7 @@ class PlannerTest {
         assertEquals("http", resource.target.method)
         assertEquals("wiki", resource.target.host)
         assertTrue(resource.meshPort != null, "the node sends the name over the mesh")
-        assertTrue(node.publicResources.none { it.fullDomain == "wiki.test.example.net" }, "not in Pangolin")
+        assertTrue(node.publicResources.none { it.fullDomain == "wiki.test.example.net" }, "not a stream")
     }
 
     @Test
@@ -124,7 +124,7 @@ class PlannerTest {
         val as1 = root.single { it.nodeId == "as1" && it.type == "A" }
         assertNotNull(as1.latitude, "region code AS falls back to a centroid")
         val management = plan.dns.filter { it.purpose == "management" }
-        assertEquals(setOf("pangolin-na1.test", "pangolin-as1.test"), management.map { it.name }.toSet())
+        assertEquals(setOf("node-na1.test", "node-as1.test"), management.map { it.name }.toSet())
         assertTrue(management.none { it.geo })
     }
 
@@ -152,7 +152,7 @@ class PlannerTest {
         val node = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
         val rule = NodeTemplates.sniRule(node.sniRoutes.single())
         assertTrue(rule.startsWith("(HostSNI(`test.example.net`) || HostSNIRegexp(`(?i)^"))
-        assertTrue(rule.endsWith("&& !HostSNI(`pangolin-na1.test.example.net`)"))
+        assertTrue(rule.endsWith("&& !HostSNI(`node-na1.test.example.net`)"))
         val pattern = NodeTemplates.wildcardRegex("test.example.net").removePrefix("(?i)")
         val regex = Regex(pattern, RegexOption.IGNORE_CASE)
         assertTrue(regex.matches("media.test.example.net"))

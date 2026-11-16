@@ -25,13 +25,10 @@ data class StatusSnapshot(
     val nodes: List<NodeStatusDto> = emptyList(),
     val services: List<ServiceStatusDto> = emptyList(),
     val dns: List<DnsRecordStatusDto> = emptyList(),
-    val tunnels: List<TunnelStatusDto> = emptyList(),
     val labelErrors: List<LabelErrorDto> = emptyList(),
     val pauses: PausesDto = PausesDto(),
-    /** The cluster mesh. Null when the cluster is not configured. */
+    /** The mesh between the homelab and the nodes. Null before the first pass that reads it. */
     val mesh: MeshStatusDto? = null,
-    /** The cluster's database layer. Null when the cluster is not configured. */
-    val cluster: ClusterStatusDto? = null,
     /** Where the homelab is (`homelab.location`). Null when not set. */
     val homelab: PlaceDto? = null,
     /** The last time the homelab could reach none of the nodes. Null if it hasn't happened. */
@@ -163,7 +160,7 @@ data class ReconcileSummaryDto(
 
 /**
  * One check of a node. Measured checks also carry their [value] and the [threshold] above which
- * the check is degraded, in [unit] (`pangolin-api`: 412 ms against 300 ms).
+ * the check is degraded, in [unit] (412 ms against 300 ms).
  */
 @Serializable
 data class CheckDto(
@@ -258,7 +255,6 @@ data class ServiceStatusDto(
     val protocol: String,
     val tls: String,
     val access: String,
-    val auth: String,
     val regions: List<String>,
     val kind: String,
     val paused: Boolean,
@@ -301,28 +297,6 @@ data class DnsRecordStatusDto(
      */
     val changedAt: Long? = null,
 )
-
-@Serializable
-data class TunnelStatusDto(
-    val nodeId: String,
-    val siteNiceId: String,
-    val endpoint: String,
-    val up: Boolean,
-    val processRunning: Boolean,
-    val siteOnline: Boolean?,
-    val restarts: Int = 0,
-    val lastExit: String? = null,
-    val bytesIn: Long? = null,
-    val bytesOut: Long? = null,
-    val updatedAt: Long? = null,
-    /** Why the connector stopped, newest first. */
-    val exits: List<TunnelExitDto> = emptyList(),
-    /** The Newt version the node's Pangolin reports for the site. */
-    val newtVersion: String? = null,
-)
-
-@Serializable
-data class TunnelExitDto(val at: Long, val reason: String)
 
 @Serializable
 data class LabelErrorDto(val container: String, val message: String)
@@ -426,7 +400,7 @@ data class ConfigResponse(
 data class SpeedTestResultDto(
     val id: String,
     val at: Long,
-    /** `tunnel` (node -> homelab through the Newt tunnel) or `device` (browser -> node -> homelab). */
+    /** `tunnel` (node -> homelab over the mesh) or `device` (browser -> node -> homelab). */
     val kind: String,
     val nodeId: String? = null,
     /** Device test entered through the auto (geo DNS) hostname. */
@@ -438,7 +412,7 @@ data class SpeedTestResultDto(
     val pingSamples: Int = 0,
     val error: String? = null,
     val client: String? = null,
-    /** A device test of a Pangolin client, who got the test page with no link from the dashboard. */
+    /** A device test of a VPN device, which got the test page with no link from the dashboard. */
     val vpn: Boolean = false,
     /** Parallel TCP streams (tunnel tests). Rates are the sum over all streams. */
     val streams: Int? = null,
@@ -518,7 +492,7 @@ data class DeviceResultRequest(
     val error: String? = null,
 )
 
-/** The cluster's WireGuard mesh, as each member sees it. */
+/** The WireGuard mesh between the homelab and the nodes, as each member sees it. */
 @Serializable
 data class MeshStatusDto(
     val subnet: String,
@@ -545,34 +519,7 @@ data class MeshPeerDto(
     val lastHandshakeAt: Long? = null,
     val rxBytes: Long = 0,
     val txBytes: Long = 0,
-    /** The member's continuous probe of this peer's mesh address from the host. Null without one. */
-    val probe: MeshProbeDto? = null,
-    /**
-     * The same probe from inside the member's Docker network (HAProxy's checks), the path Pangolin's
-     * database traffic takes. Null without one.
-     */
-    val containerProbe: MeshProbeDto? = null,
 )
-
-/**
- * One member's view of a peer from its mesh probe (a ping every second over the mesh). Loss and
- * outages cover [windowMs]. An outage is three or more probes in a row without a reply.
- */
-@Serializable
-data class MeshProbeDto(
-    /** The latest reply's round trip, in milliseconds. Null when the last probe was lost. */
-    val rttMs: Double? = null,
-    val lossPercent: Double = 0.0,
-    val sent: Long = 0,
-    val windowMs: Long = 0,
-    /** Outages in the window, newest first. */
-    val outages: List<MeshOutageDto> = emptyList(),
-    /** When the probe last reported (epoch ms). */
-    val at: Long = 0,
-)
-
-@Serializable
-data class MeshOutageDto(val startAt: Long, val endAt: Long? = null)
 
 /** A text report from a node: its logs or the diagnostics bundle. */
 @Serializable
@@ -582,102 +529,25 @@ data class NodeTextDto(val node: String, val title: String, val text: String, va
 object NodeLogServices {
     /** Id to label, in display order. */
     val ALL: List<Pair<String, String>> = listOf(
-        "pangolin" to "Pangolin",
-        "gerbil" to "Gerbil",
         "traefik" to "Traefik",
-        "haproxy" to "Cluster proxy (HAProxy)",
-        "db" to "Database (Patroni)",
-        "valkey" to "Valkey",
-        "sentinel" to "Sentinel",
-        "etcd" to "etcd",
-        "probe" to "Mesh probe",
-        "newt" to "Exit connector (Newt)",
+        "homegap-agent" to "HomeGAP agent",
+        "maintenance" to "Maintenance page",
+        "crowdsec" to "CrowdSec",
     )
 }
 
-/** The cluster's database layer: where the primaries are and each member's part. */
-@Serializable
-data class ClusterStatusDto(
-    /** The member that holds the PostgreSQL primary. Null while there is none. */
-    val primary: String? = null,
-    /** The member that holds the Valkey primary. */
-    val valkeyPrimary: String? = null,
-    /** Where the primary belongs (`homelab`). Null when the homelab only votes and holds no database. */
-    val preferred: String? = "homelab",
-    /** What the switch-back is waiting for, when the primary is away from [preferred]. */
-    val switchBack: String? = null,
-    /** When the switch-back is due (epoch ms), once [preferred] is caught up and the hold runs. */
-    val switchBackAt: Long? = null,
-    /** A majority of the vote (etcd) is healthy, so a primary can be elected. Null when unknown. */
-    val quorum: Boolean? = null,
-    val members: List<ClusterMemberDto> = emptyList(),
-    /** Changes of the PostgreSQL primary, newest first. */
-    val history: List<PrimaryChangeDto> = emptyList(),
-    /** Problems worth acting on, most severe first. */
-    val alerts: List<ClusterAlertDto> = emptyList(),
-)
-
-@Serializable
-data class PrimaryChangeDto(
-    val at: Long,
-    /** The previous primary (null for the first one seen). */
-    val from: String? = null,
-    val to: String,
-    /** `initial`, `failover` (elected by the cluster), `switch-back` (HomeGAP, after the hold) or `manual`. */
-    val cause: String,
-)
-
-@Serializable
-data class ClusterAlertDto(val health: Health, val message: String)
-
-@Serializable
-data class SwitchoverRequest(
-    /** The member to make primary (a caught-up replica). */
-    val to: String,
-)
-
-@Serializable
-data class ClusterMemberDto(
-    val id: String,
-    val address: String,
-    /** etcd: `voter`, `joining` (learner), `not joined` or `unknown`. */
-    val vote: String,
-    /** Patroni role: `leader`, `replica`, … (null when the member's database is not running). */
-    val role: String? = null,
-    /** Patroni state: `running`, `streaming`, … */
-    val state: String? = null,
-    /** Replication lag in bytes (replicas). */
-    val lagBytes: Long? = null,
-    val timeline: Int? = null,
-    /** Valkey: `master` or `slave` (replica). Null when it does not answer. */
-    val valkeyRole: String? = null,
-    /** The member's etcd answers its health check (it is part of a working majority). */
-    val etcdHealthy: Boolean? = null,
-    /** The member only votes (the homelab with `cluster.homelab_role: vote`): no database, no Valkey. */
-    val voteOnly: Boolean = false,
-    /**
-     * How far behind the primary this replica's replay is, in milliseconds: the time since it
-     * replayed the last transaction. Only set while [lagBytes] is above zero, since an idle primary
-     * writes nothing to replay.
-     */
-    val lagMs: Long? = null,
-)
-
 /**
- * The cluster's users and devices (one Pangolin across every node). [available] is false without
- * a cluster or while HomeGAP can reach the Pangolin of no node. [note] says why.
+ * The users, machines and devices of HomeGAP's own sign-in. [available] is false while the sign-in
+ * has no public address. [note] says why.
  */
 @Serializable
 data class AccessOverviewDto(
     val available: Boolean,
     val note: String? = null,
-    /** What to put into the Pangolin apps: `https://<client_hostname>.<domain>`. */
+    /** What to put into the apps: the address of the sign-in. */
     val clientAddress: String? = null,
-    /** The node whose Pangolin answered. */
-    val via: String? = null,
     val roles: List<AccessRoleDto> = emptyList(),
     val users: List<AccessUserDto> = emptyList(),
-    val invitations: List<AccessInvitationDto> = emptyList(),
     val devices: List<AccessDeviceDto> = emptyList(),
 )
 
@@ -692,21 +562,12 @@ data class AccessUserDto(
     val name: String? = null,
     val roleIds: List<Int> = emptyList(),
     val roles: List<String> = emptyList(),
-    /** The server admin HomeGAP created: never removed from the dashboard. */
+    /** The only admin who is not blocked. HomeGAP keeps this user and its admin role. */
     val owner: Boolean = false,
-    val twoFactor: Boolean = false,
     /** `internal` (password) or an identity provider. */
     val type: String? = null,
     /** A blocked user cannot sign in, and each device of the user is disconnected. */
     val blocked: Boolean = false,
-)
-
-@Serializable
-data class AccessInvitationDto(
-    val id: String,
-    val email: String,
-    val roles: List<String> = emptyList(),
-    val expiresAt: Long? = null,
 )
 
 @Serializable
@@ -720,11 +581,10 @@ data class AccessDeviceDto(
     /** App and version, e.g. `Olm CLI 1.10.1`. */
     val agent: String? = null,
     val online: Boolean = false,
-    val archived: Boolean = false,
     val blocked: Boolean = false,
     /** The node the device relays through (online devices). */
     val viaNode: String? = null,
-    /** When the device last checked in (epoch ms), as Pangolin saw it. */
+    /** When the device last checked in (epoch ms). */
     val lastSeen: Long? = null,
 )
 
@@ -739,7 +599,6 @@ data class CreateAccessUserRequest(val email: String, val roleIds: List<Int>, va
 data class CreateAccessUserResponse(
     val ok: Boolean,
     val message: String,
-    val inviteLink: String? = null,
     /** The password that HomeGAP made for the user. It shows once: HomeGAP keeps only its hash. */
     val password: String? = null,
 )

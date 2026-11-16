@@ -22,7 +22,6 @@ import homegap.presentation.routing.NavGroup
 import homegap.presentation.routing.Route
 import homegap.presentation.services.ServicesScreenModel
 import homegap.presentation.speedtest.SpeedTestScreenModel
-import homegap.presentation.tunnels.TunnelsScreenModel
 import homegap.web.routing.HashRouter
 import homegap.web.screens.*
 import homegap.web.terminal.TerminalPanel
@@ -245,10 +244,6 @@ private fun Screen(
         is homegap.presentation.zone.ZoneRecordsScreenModel -> ZoneRecordsScreen(
             model = screen,
             viewport = viewport,
-            onOpen = onOpen,
-        )
-        is TunnelsScreenModel -> TunnelsScreen(
-            model = screen,
             onOpen = onOpen,
         )
         is SpeedTestScreenModel -> SpeedTestScreen(screen)

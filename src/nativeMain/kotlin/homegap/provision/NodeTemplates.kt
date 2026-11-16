@@ -2,34 +2,20 @@ package homegap.provision
 
 import homegap.config.AppConfig
 import homegap.config.NodeConfig
-import homegap.discovery.slug
 import homegap.model.MeshTarget
 import homegap.model.NodeDesired
 import homegap.model.PublicResource
 import homegap.model.SniRoute
 import homegap.node.AgentSpec
-import homegap.reconcile.TunnelSlots
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
-/** The secrets of a node. The copy on the node is the authority, and the orchestrator writes it there. */
+/** The secrets of a node that HomeGAP makes. The orchestrator keeps them and writes them to the node. */
 @Serializable
 data class NodeSecrets(
-    val setupToken: String,
-    val serverSecret: String,
-    val adminEmail: String,
-    val adminPassword: String,
+    /** The key of the CrowdSec bouncer in the Traefik of the node. */
     val crowdsecBouncerKey: String,
-    /** True if the server secret and the admin are those of the cluster, which all the nodes share. */
-    val cluster: Boolean = false,
 )
-
-/**
- * The values that the stack of a node needs to run as part of the cluster: its mesh address and
- * the shared database passwords. Pangolin reaches the current primaries through `cluster-proxy`
- * and reads from the database member of its own node.
- */
-data class ClusterLink(val meshIp: String, val db: ClusterSecrets)
 
 data class RenderedFile(val path: String, val content: String, val mode: String = "0644") {
     /** The compose service to restart after a change of this file (a bind-mounted config). */
@@ -37,8 +23,8 @@ data class RenderedFile(val path: String, val content: String, val mode: String 
 }
 
 /**
- * Renders the stack of a regional node: Pangolin EE, Gerbil and Traefik, and CrowdSec if the
- * config enables it. The paths are relative to the install directory of the node.
+ * Renders the stack of a node: Traefik, the maintenance page, the agent of HomeGAP, and CrowdSec
+ * if the config enables it. The paths are relative to the install directory of the node.
  */
 object NodeTemplates {
     /** The metrics entry point of Traefik on each node. It is only on the loopback of the container. */
@@ -55,18 +41,13 @@ object NodeTemplates {
 
     const val DYNAMIC_ROUTES = "config/traefik/dynamic/homegap-routes.yml"
 
-    /**
-     * The PROXY protocol version that HomeGAP asks Pangolin for. Pangolin gives such a TCP service
-     * its `pp-transport-v<N>@file` transport. Pangolin defines that transport itself only in a
-     * file on a clustered node. A standalone node gets it from the routes file of HomeGAP.
-     */
+    /** The PROXY protocol version that a node sends to the homelab. */
     const val PROXY_PROTOCOL_VERSION = 2
-    const val PROXY_PROTOCOL_TRANSPORT = "pp-transport-v$PROXY_PROTOCOL_VERSION"
 
     private const val HTTPS = "https"
     private const val WILDCARD = "*."
 
-    /** The transport of the streams over the mesh. Pangolin has its own with the other name. */
+    /** The transport of the streams over the mesh that carry a PROXY protocol header. */
     private const val MESH_PROXY_TRANSPORT = "homegap-mesh-proxy"
     const val DYNAMIC_TLS = "config/traefik/dynamic/homegap-tls.yml"
     const val DYNAMIC_HEADERS = "config/traefik/dynamic/homegap-headers.yml"
@@ -79,18 +60,6 @@ object NodeTemplates {
     const val CERT = "config/traefik/certs/homegap.crt"
     const val KEY = "config/traefik/certs/homegap.key"
 
-    /** Pangolin writes this resolver name into its routes. Traefik reads an empty name as no resolver. */
-    const val NO_RESOLVER = ""
-    const val SECRETS = "secrets/node.json"
-
-    /** The routes of Pangolin itself in a cluster (file mode), in the dynamic directory with those of HomeGAP. */
-    const val PANGOLIN_ROUTES = "/var/dynamic/router_config.yml"
-
-    /** Under the `config/` of the node, which Pangolin sees as `/app/config`. */
-    const val AI_CATALOG = "config/ai-model-catalog.json"
-    const val GERBIL_API_PORT = 3004
-    private val PRETTY_JSON = Json { prettyPrint = true }
-
     /**
      * HomeGAP renders this file into the install directory, so the file has a hash and a drift
      * check. The node installs it into /etc/sysctl.d.
@@ -100,8 +69,6 @@ object NodeTemplates {
     private const val HEADER = "Managed by HomeGAP. Manual edits are reverted on the next reconcile\n" +
         "unless this node is paused from the dashboard."
 
-    private const val CLUSTER_NETWORK_KEY = "cluster"
-
     // Names in the routes file of HomeGAP.
     private const val WEB = "web"
     private const val WEBSECURE = "websecure"
@@ -109,13 +76,10 @@ object NodeTemplates {
     private const val REDIRECT_HTTPS = "homegap-redirect-https"
     private const val HEALTH_PATH = "homegap-health-path"
     private const val STATUS_RATE_LIMIT = "homegap-status-rate"
-    private const val PANGOLIN_API = "homegap-pangolin-api"
-    private const val PANGOLIN_NEXT = "homegap-pangolin-next"
     private const val UNAVAILABLE = "homegap-unavailable"
 
     // Router priorities. A higher number wins.
     private const val TOP_PRIORITY = 10000
-    private const val UI_PRIORITY = 9999
     private const val RESOURCE_PRIORITY = 100
     private const val WILDCARD_PRIORITY = 90
     private const val AGENT_MOUNT = "/agent"
@@ -133,39 +97,26 @@ object NodeTemplates {
     private const val HTTPS_REDIRECT_PRIORITY = 10
     private const val MISDIRECTED_PRIORITY = 1
 
-    fun adminEmail(config: AppConfig) = config.pangolin.adminEmail ?: "admin@${config.domain}"
+    /** The contact address of the ACME account when the config gives none. */
+    fun adminEmail(config: AppConfig) = "admin@${config.domain}"
 
-    fun staticFiles(
-        config: AppConfig,
-        node: NodeConfig,
-        secrets: NodeSecrets,
-        slot: Int,
-        cluster: ClusterLink? = null,
-    ): List<RenderedFile> {
+    fun staticFiles(config: AppConfig, node: NodeConfig, secrets: NodeSecrets): List<RenderedFile> {
+        val stack = config.nodeStack
         val files = mutableListOf(
-            RenderedFile("compose.yml", compose(config, cluster)),
-            RenderedFile(".env", envFile(secrets, config.pangolin.crowdsec), "0600"),
-            RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot, cluster), "0600")
-                .restarting("pangolin"),
-            RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, cluster != null))
-                .restarting("traefik"),
-            RenderedFile(SECRETS, PRETTY_JSON.encodeToString(secrets), "0600"),
-            RenderedFile(AI_CATALOG, OutsideCalls.EMPTY_AI_CATALOG),
+            RenderedFile("compose.yml", compose(config)),
+            RenderedFile(".env", envFile(secrets, stack.crowdsec), "0600"),
+            RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config)).restarting("traefik"),
         )
         files += RenderedFile(DYNAMIC_HEADERS, headersDynamic())
         files += RenderedFile("${MaintenancePage.DIR}/server.py", MaintenancePage.SCRIPT)
             .restarting(MaintenancePage.SERVICE)
         files += RenderedFile("${MaintenancePage.DIR}/index.html", MaintenancePage.page(config.domain, node.id))
-        if (cluster != null) {
-            files += RenderedFile("config/privateConfig.yml", pangolinPrivateConfig(node, cluster), "0600")
-                .restarting("pangolin")
-        }
-        if (config.pangolin.crowdsec) {
+        if (stack.crowdsec) {
             files += RenderedFile("config/crowdsec/acquis.d/traefik.yaml", crowdsecAcquisition())
                 .restarting("crowdsec")
             files += RenderedFile(
                 path = "config/traefik/dynamic/homegap-crowdsec.yml",
-                content = crowdsecDynamic(secrets, config.pangolin.crowdsecFailClosed),
+                content = crowdsecDynamic(secrets, stack.crowdsecFailClosed),
                 mode = "0600",
             )
         }
@@ -185,16 +136,14 @@ object NodeTemplates {
 
     // ------------------------------------------------------------------ compose
 
-    fun compose(config: AppConfig, cluster: ClusterLink? = null): String {
+    fun compose(config: AppConfig): String {
         val root = buildJsonObject {
             put("name", "homegap")
             putJsonObject("services") {
-                putJsonObject("pangolin") { pangolinContainer(config, cluster) }
-                putJsonObject("gerbil") { gerbilContainer(config, cluster) }
-                putJsonObject("traefik") { traefikContainer(config, cluster) }
-                putJsonObject(MaintenancePage.SERVICE) { maintenanceContainer(config, cluster) }
+                putJsonObject("traefik") { traefikContainer(config) }
+                putJsonObject(MaintenancePage.SERVICE) { maintenanceContainer(config) }
                 putJsonObject(AgentSpec.SERVICE) { agentContainer(config) }
-                if (config.pangolin.crowdsec) {
+                if (config.nodeStack.crowdsec) {
                     putJsonObject("crowdsec") { crowdsecContainer(config) }
                 }
             }
@@ -203,118 +152,40 @@ object NodeTemplates {
                     put("driver", "bridge")
                     put("name", "homegap_node")
                 }
-                // The cluster member of the node (its own compose project) makes this network before the stack starts.
-                if (cluster != null) {
-                    putJsonObject(CLUSTER_NETWORK_KEY) {
-                        put("external", true)
-                        put("name", ClusterTemplates.NETWORK)
-                    }
-                }
             }
         }
         return YamlEmitter.emit(root, HEADER)
     }
 
-    private fun JsonObjectBuilder.pangolinContainer(config: AppConfig, cluster: ClusterLink?) {
-        put("image", config.pangolin.pangolinImage(cluster != null))
-        put("container_name", "pangolin")
+    /** Traefik has the web ports of the node. The kernel and the agent of the node serve each other port. */
+    private fun JsonObjectBuilder.traefikContainer(config: AppConfig) {
+        put("image", config.nodeStack.traefikImage)
+        put("container_name", "traefik")
         put("restart", "unless-stopped")
-        putJsonArray("env_file") { add(".env") }
-        putJsonArray("extra_hosts") { OutsideCalls.PANGOLIN.forEach { add("$it=${OutsideCalls.NOWHERE}") } }
-        putJsonArray("volumes") {
-            add("./config:/app/config")
-            if (cluster != null) {
-                // File mode: Pangolin writes its routes where the file provider of Traefik reads.
-                add("./config/traefik/dynamic:/var/dynamic")
-                add("./config/certificates:/var/certificates")
-            }
-        }
-        if (cluster != null) {
-            putJsonArray("networks") {
-                add("default")
-                add(CLUSTER_NETWORK_KEY)
-            }
-        }
-        // Loopback only: the orchestrator reaches these ports through SSH port-forwarding.
-        putJsonArray("ports") {
-            add("127.0.0.1:3000:3000")
-            add("127.0.0.1:3002:3002")
-            add("127.0.0.1:3003:3003")
-        }
-        putJsonObject("healthcheck") {
-            putJsonArray("test") {
-                add("CMD")
-                add("curl")
-                add("-f")
-                add("http://localhost:3001/api/v1/")
-            }
-            put("interval", "10s")
-            put("timeout", "10s")
-            put("retries", 15)
-        }
-    }
-
-    /** In a cluster, the Pangolin of each node reaches this Gerbil over the mesh, which encrypts the plain HTTP. */
-    @Suppress("HttpUrlsUsage")
-    private fun JsonObjectBuilder.gerbilContainer(config: AppConfig, cluster: ClusterLink?) {
-        put("image", config.pangolin.gerbilImage)
-        put("container_name", "gerbil")
-        put("restart", "unless-stopped")
-        putJsonObject("depends_on") { putJsonObject("pangolin") { put("condition", "service_healthy") } }
-        putJsonArray("command") {
-            add("--reachableAt=http://${cluster?.meshIp ?: "gerbil"}:$GERBIL_API_PORT")
-            add("--generateAndSaveKeyTo=/var/config/key")
-            add("--remoteConfig=http://pangolin:3001/api/v1/")
-            config.tunnels.mtu?.let { add("--mtu=$it") }
-        }
-        putJsonArray("volumes") { add("./config/:/var/config") }
-        putJsonArray("cap_add") {
-            add("NET_ADMIN")
-            add("SYS_MODULE")
-        }
+        putJsonArray("command") { add("--configFile=/etc/traefik/traefik_config.yml") }
         // The TCP settings belong to a network namespace: the sysctl.d of the host does not
-        // reach containers. Traefik shares this namespace, so each node -> homelab and
-        // node -> viewer connection starts here. The namespace gets the congestion control
-        // of the host when Docker makes it.
-        if (config.pangolin.tcpTuning) {
+        // reach containers. Each node -> homelab and node -> visitor connection starts here. The
+        // namespace gets the congestion control of the host when Docker makes it.
+        if (config.nodeStack.tcpTuning) {
             putJsonObject("sysctls") { CONTAINER_SYSCTLS.forEach { (name, value) -> put(name, value) } }
         }
         putJsonArray("ports") {
-            add("51820:51820/udp")
-            add("21820:21820/udp")
             add("443:443")
             add("443:443/udp")
             add("80:80")
-            // The mesh address only: the API of Gerbil must never be public.
-            cluster?.let { add("${it.meshIp}:$GERBIL_API_PORT:$GERBIL_API_PORT") }
         }
-    }
-
-    private fun JsonObjectBuilder.traefikContainer(config: AppConfig, cluster: ClusterLink?) {
-        put("image", config.pangolin.traefikImage)
-        put("container_name", "traefik")
-        put("restart", "unless-stopped")
-        put("network_mode", "service:gerbil")
-        putJsonObject("depends_on") { putJsonObject("pangolin") { put("condition", "service_healthy") } }
-        putJsonArray("command") { add("--configFile=/etc/traefik/traefik_config.yml") }
         putJsonArray("volumes") {
             add("./config/traefik:/etc/traefik:ro")
             add("./config/traefik/logs:/var/log/traefik")
-            if (cluster != null) add("./config/certificates:/var/certificates:ro")
         }
     }
 
-    private fun JsonObjectBuilder.maintenanceContainer(config: AppConfig, cluster: ClusterLink?) {
-        // A clustered node already has the cluster image (with Python). Only a standalone node
-        // pulls an image for the page alone.
-        put("image", config.cluster?.takeIf { cluster != null }?.image ?: config.pangolin.maintenanceImage)
+    private fun JsonObjectBuilder.maintenanceContainer(config: AppConfig) {
+        put("image", config.nodeStack.maintenanceImage)
         put("container_name", "homegap-maintenance")
         put("restart", "unless-stopped")
         put("stop_grace_period", "2s")
-        // The namespace of Gerbil: the tunnel addresses that the service checks have a route
-        // only there, and Traefik (also in it) reaches the page on loopback.
-        put("network_mode", "service:gerbil")
-        putJsonObject("depends_on") { putJsonObject("gerbil") { put("condition", "service_started") } }
+        // On the network of the stack, with no published port: only Traefik reaches the page.
         putJsonArray("entrypoint") {
             add("python3")
             add("-u")
@@ -361,7 +232,7 @@ object NodeTemplates {
     }
 
     private fun JsonObjectBuilder.crowdsecContainer(config: AppConfig) {
-        put("image", config.pangolin.crowdsecImage)
+        put("image", config.nodeStack.crowdsecImage)
         put("container_name", "crowdsec")
         put("restart", "unless-stopped")
         putJsonObject("environment") {
@@ -399,7 +270,7 @@ object NodeTemplates {
      * TCP does not read that as loss, which decreases the congestion window.
      */
     fun sysctlConf(): String = """
-        |# Managed by HomeGAP (pangolin.tcp_tuning). Removed when tuning is disabled.
+        |# Managed by HomeGAP (node_stack.tcp_tuning). Removed when tuning is disabled.
         |net.core.default_qdisc = fq
         |net.ipv4.tcp_congestion_control = bbr
         |net.core.rmem_max = 67108864
@@ -414,142 +285,13 @@ object NodeTemplates {
     """.trimMargin()
 
     fun envFile(secrets: NodeSecrets, crowdsec: Boolean): String = buildString {
-        appendLine("PANGOLIN_SETUP_TOKEN=${secrets.setupToken}")
         if (crowdsec) appendLine("CROWDSEC_BOUNCER_KEY=${secrets.crowdsecBouncerKey}")
     }
 
-    // ------------------------------------------------------------------ Pangolin
-
-    fun pangolinConfig(
-        config: AppConfig,
-        node: NodeConfig,
-        secrets: NodeSecrets,
-        slot: Int,
-        cluster: ClusterLink? = null,
-    ): String {
-        val managementHost = node.managementHost(config.domain)
-        // In a cluster, links and redirects use the shared client address.
-        val dashboard = config.clientHost.takeIf { cluster != null } ?: managementHost
-        val root = buildJsonObject {
-            putJsonObject("gerbil") {
-                put("start_port", 51820)
-                put("base_endpoint", managementHost)
-                put("exit_node_name", "homegap-${node.id}")
-                // Each node has its own tunnel subnet (from its permanent slot), so the homelab
-                // can hold the tunnel of each node in one network namespace. With one subnet, the
-                // kernel WireGuard routes collide. Slot 0 keeps the default first block of Pangolin.
-                put("subnet_group", TunnelSlots.subnet(slot))
-            }
-            putJsonObject("app") {
-                put("dashboard_url", "https://$dashboard")
-                put("log_level", "info")
-                putJsonObject("telemetry") { put("anonymous_usage", false) }
-                // Without this, the dashboard asks the API of Fossorial for product news and the newest version.
-                putJsonObject("notifications") {
-                    put("product_updates", false)
-                    put("new_releases", false)
-                }
-            }
-            // Without this, Pangolin downloads the model catalog (AI pricing) from Fossorial every few hours.
-            putJsonObject("ai") { putJsonObject("model_catalog") { put("file", "/app/$AI_CATALOG") } }
-            putJsonObject("domains") {
-                putJsonObject("homegap") {
-                    put("base_domain", config.domain)
-                    // No resolver: a node orders no certificate. See [homegap.acme.NodeCertificate].
-                    put("cert_resolver", NO_RESOLVER)
-                }
-                for (extra in config.extraDomains) {
-                    putJsonObject("homegap-${slug(extra.domain)}") {
-                        put("base_domain", extra.domain)
-                        put("cert_resolver", NO_RESOLVER)
-                    }
-                }
-            }
-            if (cluster != null) {
-                putJsonObject("postgres") {
-                    // Writes go to the current primary through HAProxy. Reads use the member of this node.
-                    val primary = ClusterTemplates.PROXY_HOST to ClusterTemplates.PROXY_POSTGRES_PORT
-                    val replica = cluster.meshIp to ClusterTemplates.POSTGRES_PORT
-                    put("connection_string", postgresUrl(cluster, primary))
-                    putJsonArray("replicas") {
-                        addJsonObject { put("connection_string", postgresUrl(cluster, replica)) }
-                    }
-                }
-            }
-            putJsonObject("server") {
-                put("secret", secrets.serverSecret)
-                putJsonObject("cors") {
-                    val origins = listOf(dashboard, managementHost).distinct()
-                    putJsonArray("origins") { origins.forEach { add("https://$it") } }
-                    putJsonArray("methods") { listOf("GET", "POST", "PUT", "DELETE", "PATCH").forEach { add(it) } }
-                    putJsonArray("allowed_headers") {
-                        add("X-CSRF-Token")
-                        add("Content-Type")
-                    }
-                    put("credentials", false)
-                }
-            }
-            putJsonObject("traefik") {
-                put("cert_resolver", NO_RESOLVER)
-                put("http_entrypoint", WEB)
-                put("https_entrypoint", WEBSECURE)
-                if (cluster != null) {
-                    // Each node writes the routes for its own sites. Traefik never polls a Pangolin.
-                    put("file_mode", true)
-                    put("dynamic_router_config_path", PANGOLIN_ROUTES)
-                    putJsonArray("site_types") { add("newt") }
-                }
-            }
-            putJsonObject("flags") {
-                put("require_email_verification", false)
-                put("disable_signup_without_invite", true)
-                put("disable_user_create_org", true)
-                put("allow_raw_resources", true)
-                put("enable_integration_api", true)
-                if (cluster != null) {
-                    put("disable_local_sites", true)
-                    put("disable_basic_wireguard_sites", true)
-                }
-            }
-        }
-        return YamlEmitter.emit(root, HEADER)
-    }
-
-    /**
-     * The cluster settings that Pangolin reads from `privateConfig.yml`: the region of the node,
-     * Valkey, and its local Gerbil. The region pins the sites that a client makes through the
-     * node to the exit node of that node. The Gerbil URL uses plain HTTP on the Docker network
-     * of the stack.
-     */
-    @Suppress("HttpUrlsUsage")
-    fun pangolinPrivateConfig(node: NodeConfig, cluster: ClusterLink): String = YamlEmitter.emit(
-        buildJsonObject {
-            putJsonObject("app") { put("region", node.id) }
-            putJsonObject("redis") {
-                put("host", ClusterTemplates.PROXY_HOST)
-                put("port", ClusterTemplates.PROXY_VALKEY_PORT)
-                put("password", cluster.db.valkey)
-            }
-            putJsonObject("gerbil") { put("local_exit_node_reachable_at", "http://gerbil:$GERBIL_API_PORT") }
-            putJsonObject("flags") { put("enable_redis", true) }
-        },
-        HEADER,
-    )
-
-    private fun postgresUrl(cluster: ClusterLink, server: Pair<String, Int>): String {
-        val (host, port) = server
-        val credentials = "${ClusterTemplates.PANGOLIN_USER}:${cluster.db.pangolin}"
-        return "postgresql://$credentials@$host:$port/${ClusterTemplates.PANGOLIN_DB}"
-    }
-
-    /** The Traefik service that Pangolin generates for a resource, as the routes of HomeGAP name it. */
-    fun pangolinService(resourceId: Int, niceId: String, cluster: Boolean) =
-        "$resourceId-$niceId-service@${if (cluster) "file" else "http"}"
-
     // ------------------------------------------------------------------ Traefik static config
 
-    fun traefikStatic(config: AppConfig, cluster: Boolean = false): String {
-        val pangolin = config.pangolin
+    fun traefikStatic(config: AppConfig): String {
+        val stack = config.nodeStack
         val root = buildJsonObject {
             // No version check (update.traefik.io) and no usage data.
             putJsonObject("global") {
@@ -561,36 +303,26 @@ object NodeTemplates {
                 put("dashboard", false)
             }
             putJsonObject("providers") {
-                if (!cluster) {
-                    putJsonObject("http") {
-                        put("endpoint", "http://pangolin:3001/api/v1/traefik-config")
-                        put("pollInterval", "5s")
-                    }
-                }
                 putJsonObject("file") {
                     put("directory", "/etc/traefik/dynamic")
                     put("watch", true)
                 }
             }
-            putJsonObject("experimental") {
-                putJsonObject("plugins") {
-                    putJsonObject("badger") {
-                        put("moduleName", "github.com/fosrl/badger")
-                        put("version", pangolin.badgerVersion)
-                    }
-                    if (pangolin.crowdsec) {
+            if (stack.crowdsec) {
+                putJsonObject("experimental") {
+                    putJsonObject("plugins") {
                         putJsonObject("crowdsec") {
                             put("moduleName", "github.com/maxlerebourg/crowdsec-bouncer-traefik-plugin")
-                            put("version", pangolin.crowdsecBouncerVersion)
+                            put("version", stack.crowdsecBouncerVersion)
                         }
                     }
                 }
             }
             putJsonObject("log") {
                 put("level", "INFO")
-                put("format", if (pangolin.crowdsec) "json" else "common")
+                put("format", if (stack.crowdsec) "json" else "common")
             }
-            if (pangolin.crowdsec) {
+            if (stack.crowdsec) {
                 putJsonObject("accessLog") {
                     put("filePath", "/var/log/traefik/access.log")
                     put("format", "json")
@@ -606,7 +338,7 @@ object NodeTemplates {
                         putJsonObject("tls") {}
                         putJsonArray("middlewares") {
                             add("$HSTS@file")
-                            if (pangolin.crowdsec) add("crowdsec@file")
+                            if (stack.crowdsec) add("crowdsec@file")
                         }
                         putJsonObject("encodedCharacters") {
                             put("allowEncodedSlash", true)
@@ -627,8 +359,8 @@ object NodeTemplates {
                     put("addServicesLabels", false)
                 }
             }
-            // The hop to the origin runs in the WireGuard tunnel to the Traefik of the homelab.
-            // A short dial timeout: a dead tunnel answers 502 fast, and the health probes do not hang.
+            // The hop to the origin runs in the mesh to the homelab.
+            // A short dial timeout: a dead mesh answers 502 fast, and the health probes do not hang.
             putJsonObject("serversTransport") {
                 put("insecureSkipVerify", true)
                 putJsonObject("forwardingTimeouts") { put("dialTimeout", "5s") }
@@ -681,28 +413,18 @@ object NodeTemplates {
     // ------------------------------------------------------------------ dynamic routes
 
     /**
-     * The routing file, which Traefik loads again after each change: the management API, the SNI
-     * passthrough routers, the HTTP->HTTPS redirects and the health endpoint on port 80 that the
-     * monitor of Bunny probes.
-     *
-     * [resourceIds] gives the numeric id of each Pangolin resource niceId. The Traefik service
-     * names that Pangolin generates include the id. The file has no route for a resource that
-     * does not exist yet.
+     * The routing file, which Traefik loads again after each change: the routers of the names
+     * that the node ends TLS for, the SNI passthrough routers, the HTTP->HTTPS redirects and the
+     * health endpoint on port 80 that the monitor of Bunny probes. Each service is a port of the
+     * mesh address of the homelab.
      */
-    fun dynamicRoutes(desired: NodeDesired, resourceIds: Map<String, Int>, cluster: Boolean = false): String {
+    fun dynamicRoutes(desired: NodeDesired): String {
         val sniRoutes = desired.sniRoutes.mapNotNull { route ->
-            val mesh = desired.meshTarget(route)
-            val pangolin = resourceIds[route.resourceNiceId]?.let { pangolinService(it, route.resourceNiceId, cluster) }
-            when {
-                mesh != null -> Stream(route, meshService(route), mesh)
-                pangolin != null -> Stream(route, pangolin, mesh = null)
-                else -> null
-            }
+            desired.meshTarget(route)?.let { Stream(route, meshService(route), it) }
         }
         val misdirected = misdirectedRule(sniRoutes.map { it.route }, ownNames(desired))
         val sharedNames = sharedNamesOf(desired)
-        val proxyTransport = !cluster && desired.publicResources.any { it.proxyProtocol }
-        val overMesh = desired.httpResources.filter { desired.meshUrl(it) != null && !it.paused }
+        val overMesh = desired.httpResources.filter { desired.meshUrl(it) != null }
         val root = buildJsonObject {
             if (misdirected != null) {
                 putJsonObject("tls") {
@@ -718,7 +440,6 @@ object NodeTemplates {
                 }
                 putJsonObject("routers") {
                     misdirected?.let { misdirectedRouter(it) }
-                    pangolinRouters(desired)
                     sharedNames.forEach { sharedNameRouters(it) }
                     overMesh.forEach { resourceRouter(it) }
                     redirectRouter("homegap-mgmt-redirect", "Host(`${desired.managementHost}`)", TOP_PRIORITY)
@@ -737,8 +458,6 @@ object NodeTemplates {
                             signInServices(desired, resource, control)
                         }
                     }
-                    putJsonObject(PANGOLIN_API) { loadBalancer("http://pangolin:3000") }
-                    putJsonObject(PANGOLIN_NEXT) { loadBalancer("http://pangolin:3002") }
                     putJsonObject(UNAVAILABLE) { loadBalancer("http://127.0.0.1:9") }
                 }
                 val encrypted = overMesh.filter { it.target.method == HTTPS }
@@ -749,7 +468,7 @@ object NodeTemplates {
                             putJsonObject(shared.key) {
                                 put("serverName", shared.own)
                                 // The connection goes to the :443 of this node. From there it goes,
-                                // still encrypted, through the front door and the tunnel to the
+                                // still encrypted, through the front door and the mesh to the
                                 // Traefik of the homelab. The node already ends the TLS of the
                                 // visitor for this name, and there is no other hop here.
                                 put("insecureSkipVerify", true)
@@ -758,8 +477,8 @@ object NodeTemplates {
                     }
                 }
             }
-            if (sniRoutes.isNotEmpty() || proxyTransport) {
-                putJsonObject("tcp") { tcpRoutes(sniRoutes, proxyTransport) }
+            if (sniRoutes.isNotEmpty()) {
+                putJsonObject("tcp") { tcpRoutes(sniRoutes) }
             }
         }
         return YamlEmitter.emit(root, HEADER)
@@ -809,34 +528,6 @@ object NodeTemplates {
             putJsonObject("tls") { put("options", ELSEWHERE_TLS_OPTIONS) }
         }
     }
-
-    /** The routers for the API and the pages of Pangolin, on the management host and on the client host. */
-    private fun JsonObjectBuilder.pangolinRouters(desired: NodeDesired) {
-        val managementHost = desired.managementHost
-        httpsRouter("homegap-mgmt-api", apiRoute(managementHost))
-        if (desired.node.dashboardPublic) {
-            httpsRouter("homegap-mgmt-ui", pagesRoute(managementHost))
-        }
-        // The client address of the cluster: the login pages of Pangolin and the API (with the
-        // client websocket) on each node.
-        desired.clientHost?.let { client ->
-            httpsRouter("homegap-client-api", apiRoute(client))
-            httpsRouter("homegap-client-ui", pagesRoute(client))
-            redirectRouter("homegap-client-redirect", "Host(`$client`)", TOP_PRIORITY)
-        }
-    }
-
-    private fun apiRoute(host: String) = HttpRoute(
-        rule = "Host(`$host`) && PathPrefix(`/api/v1`)",
-        service = PANGOLIN_API,
-        priority = TOP_PRIORITY,
-    )
-
-    private fun pagesRoute(host: String) = HttpRoute(
-        rule = "Host(`$host`)",
-        service = PANGOLIN_NEXT,
-        priority = UI_PRIORITY,
-    )
 
     /**
      * The routers for a shared name (status.<domain>, speedtest.<domain>). The node that DNS
@@ -968,25 +659,19 @@ object NodeTemplates {
         httpRouter("homegap-health-fallback", fallback)
     }
 
-    /** A passthrough route and its service. [mesh] is null for a service that Pangolin makes. */
-    private class Stream(val route: SniRoute, val service: String, val mesh: MeshTarget?)
+    /** A passthrough route and its service on the mesh. */
+    private class Stream(val route: SniRoute, val service: String, val mesh: MeshTarget)
 
     private fun meshService(route: SniRoute) = meshService(route.resourceNiceId)
 
     private fun meshService(niceId: String) = "homegap-mesh-$niceId"
 
-    private fun JsonObjectBuilder.tcpRoutes(streams: List<Stream>, proxyTransport: Boolean) {
-        val overMesh = streams.filter { it.mesh != null }.distinctBy { it.service }
-        val transports = buildList {
-            if (proxyTransport) add(PROXY_PROTOCOL_TRANSPORT)
-            if (overMesh.any { it.mesh!!.proxyProtocol }) add(MESH_PROXY_TRANSPORT)
-        }
-        if (transports.isNotEmpty()) {
+    private fun JsonObjectBuilder.tcpRoutes(streams: List<Stream>) {
+        val overMesh = streams.distinctBy { it.service }
+        if (overMesh.any { it.mesh.proxyProtocol }) {
             putJsonObject("serversTransports") {
-                for (transport in transports) {
-                    putJsonObject(transport) {
-                        putJsonObject("proxyProtocol") { put("version", PROXY_PROTOCOL_VERSION) }
-                    }
+                putJsonObject(MESH_PROXY_TRANSPORT) {
+                    putJsonObject("proxyProtocol") { put("version", PROXY_PROTOCOL_VERSION) }
                 }
             }
         }
@@ -1006,7 +691,7 @@ object NodeTemplates {
         if (overMesh.isNotEmpty()) {
             putJsonObject("services") {
                 for (stream in overMesh) {
-                    putJsonObject(stream.service) { meshLoadBalancer(stream.mesh!!) }
+                    putJsonObject(stream.service) { meshLoadBalancer(stream.mesh) }
                 }
             }
         }
@@ -1119,17 +804,16 @@ object NodeTemplates {
         return if (except.isEmpty()) matches else "($matches)" + except.joinToString("") { " && !Host(`$it`)" }
     }
 
-    /** The names that this node serves itself: its management host, the client host, the shared names. */
+    /** The names that this node serves itself: its own name and the shared names. */
     private fun ownNames(desired: NodeDesired): List<String> = buildList {
         add(desired.managementHost)
-        desired.clientHost?.let(::add)
         for (shared in sharedNamesOf(desired)) {
             add(shared.shared)
             add(shared.own)
         }
     }
 
-    /** A pattern that matches one label before [domain], as the wildcard of Pangolin does. */
+    /** A pattern that matches one label before [domain]. */
     fun wildcardRegex(domain: String): String =
         "(?i)^[a-z0-9]([a-z0-9-]*[a-z0-9])?\\." + domain.replace(".", "\\.") + "$"
 

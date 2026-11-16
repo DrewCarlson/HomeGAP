@@ -3,10 +3,8 @@ package homegap.web.screens
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
-import homegap.presentation.nodes.DatabasePanelModel
 import homegap.presentation.nodes.FleetRowModel
 import homegap.presentation.nodes.MeshMatrixModel
-import homegap.presentation.nodes.MeshMode
 import homegap.presentation.nodes.NodesScreenModel
 import homegap.presentation.nodes.RolloutStripModel
 import homegap.presentation.routing.Location
@@ -15,7 +13,7 @@ import homegap.web.routing.HashRouter
 import homegap.web.ui.*
 import org.jetbrains.compose.web.dom.*
 
-/** The fleet of edges and the cluster they share; per-node actions live in the Inspector. */
+/** The fleet of nodes and the mesh they share. Per-node actions live in the Inspector. */
 @Composable
 fun NodesScreen(
     model: NodesScreenModel,
@@ -28,12 +26,6 @@ fun NodesScreen(
         selected = model.selected,
         onOpen = onOpen,
     )
-    model.database?.let { database ->
-        Database(
-            database = database,
-            onSwitchPrimary = model.onSwitchPrimary,
-        )
-    }
     model.mesh?.let { Mesh(it) }
 }
 
@@ -67,8 +59,8 @@ private fun Fleet(rows: List<FleetRowModel>, filter: ProblemsFilterModel, select
         listOf(
             "Node",
             "Health",
-            "API probe, last hour",
-            "Tunnel",
+            "Requests, last hour",
+            "Mesh link",
             "Certificate",
         )
     }
@@ -120,7 +112,7 @@ private fun Fleet(rows: List<FleetRowModel>, filter: ProblemsFilterModel, select
                                     compact = true,
                                 )
                             }
-                            Td({ classes("fleet-wide", if (row.tunnel == "healthy") "tone-ok" else "tone-down") }) { Text(row.tunnel) }
+                            Td({ classes("fleet-wide", row.meshLinkHealth.toneClass) }) { Text(row.meshLink) }
                             Td({ classes("fleet-wide", "mono", row.certificateHealth.toneClass) }) { Text(row.certificate) }
                             if (row.menu.isNotEmpty()) {
                                 Td({
@@ -148,105 +140,14 @@ private fun Fleet(rows: List<FleetRowModel>, filter: ProblemsFilterModel, select
 }
 
 @Composable
-private fun Database(
-    database: DatabasePanelModel,
-    onSwitchPrimary: (String) -> Unit,
-) {
-    Figure(
-        title = "Database",
-        flush = true,
-    ) {
-        Div({ classes("db-stats") }) {
-            // One primary for the database and the cache is said once.
-            if (database.primary.text == database.valkeyPrimary.text) {
-                DbStat(label = "Primary", badge = database.primary)
-            } else {
-                DbStat(label = "Database primary", badge = database.primary)
-                DbStat(label = "Cache primary", badge = database.valkeyPrimary)
-            }
-            DbStat(label = "Cluster vote", badge = database.quorum)
-        }
-        database.switchBack?.let { note ->
-            P({ classes("figure-note") }) { Text(note) }
-        }
-        database.alerts.forEach { alert ->
-            P({ classes("figure-note", alert.health.toneClass) }) { Text(alert.text) }
-        }
-        Ul({ classes("db-members") }) {
-            database.members.forEach { member ->
-                key(member.id) {
-                    Li {
-                        B { Text(member.id) }
-                        Span({ classes("mono", "muted", "db-address") }) { Text(member.address) }
-                        Span({ classes(member.database.health.toneClass) }) { Text(member.database.text) }
-                        Span({ classes("mono") }) { Text("lag ${member.lag}") }
-                        Span({ classes("db-action") }) {
-                            if (member.canBecomePrimary) {
-                                KebabMenu(
-                                    label = "Actions for ${member.id}",
-                                    items = listOf(
-                                        MenuItem(
-                                            label = "Make primary…",
-                                            onClick = { onSwitchPrimary(member.id) },
-                                        ),
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        database.history.firstOrNull()?.let { last ->
-            P({ classes("figure-note") }) {
-                Text("Last change ${last.time}: ${last.change} (${last.cause.text})")
-            }
-        }
-    }
-}
-
-@Composable
-private fun DbStat(label: String, badge: homegap.presentation.common.Badge) {
-    Div({ classes("db-stat") }) {
-        Div({ classes("caption") }) { Text(label) }
-        Div({
-            classes("db-stat-value", badge.health.toneClass)
-            badge.tooltip?.let { title(it) }
-        }) {
-            Text(badge.text)
-        }
-    }
-}
-
-@Composable
 private fun Mesh(mesh: MeshMatrixModel) {
     Figure(
         title = "Mesh",
-        note = "${mesh.links}, last hour.",
+        note = "${mesh.links}.",
         flush = true,
-        actions = {
-            Div({
-                classes("segmented")
-                attr("role", "group")
-                attr("aria-label", "Mesh view")
-            }) {
-                MeshMode.entries.forEach { mode ->
-                    Button({
-                        if (mesh.mode == mode) {
-                            classes("active")
-                        }
-                        attr("aria-pressed", (mesh.mode == mode).toString())
-                        onClick { mesh.onMode(mode) }
-                    }) {
-                        Text(mode.label)
-                    }
-                }
-            }
-        },
     ) {
         Div({ classes("matrix-wrap") }) {
             ScrollHint()
-            ScrollReset(mesh.mode)
             Table({ classes("matrix", "mesh") }) {
                 Thead {
                     Tr {

@@ -38,7 +38,7 @@ data class AgentSpec(
         /** The spec for [desired]: one listener for each raw TCP port with PROXY protocol. */
         fun of(desired: NodeDesired): AgentSpec {
             val home = desired.meshHome ?: return AgentSpec(exit = desired.exit)
-            val listeners = desired.proxiedResources.filter { !it.paused }.mapNotNull { resource ->
+            val listeners = desired.proxiedResources.mapNotNull { resource ->
                 resource.proxyPort?.let { Listener(it, "$home:$it") }
             }
             return AgentSpec(listeners.sortedBy { it.port }, desired.exit)

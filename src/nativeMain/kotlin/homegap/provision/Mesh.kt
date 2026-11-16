@@ -7,7 +7,7 @@ import homegap.platform.Crypto
 import kotlinx.serialization.Serializable
 
 /**
- * The private WireGuard mesh of the cluster: the homelab and each node. Each member is a peer of
+ * The private WireGuard mesh: the homelab and each node. Each member is a peer of
  * all the other members.
  *
  * - The addresses are fixed. The homelab is host 1 of the subnet. A node is host `10 + slot`,
@@ -47,7 +47,7 @@ object Mesh {
         /** Returns true if the subnet has room for the homelab and [nodes] node slots. */
         fun fits(nodes: Int): Boolean = NODE_HOST_BASE + nodes < size - 1
 
-        /** Returns true if the subnet overlaps 100.64.0.0/10. Pangolin takes its tunnel and client subnets from it. */
+        /** Returns true if the subnet overlaps 100.64.0.0/10. The devices of the VPN have their addresses in it. */
         fun overlapsCgnat(): Boolean {
             val cgnat = parseIp("100.64.0.0")
             val cgnatEnd = cgnat + (1L shl 22) - 1
@@ -83,13 +83,12 @@ object Mesh {
      */
     fun nodeConfig(mesh: MeshConfig, address: String, peers: List<Peer>): String = buildString {
         val prefix = parseSubnet(mesh.subnet).prefix
-        appendLine("# Managed by HomeGAP: the cluster mesh. Changes are overwritten.")
+        appendLine("# Managed by HomeGAP: the mesh. Changes are overwritten.")
         appendLine("[Interface]")
         appendLine("Address = $address/$prefix")
         appendLine("ListenPort = ${mesh.port}")
         appendLine("PrivateKey = $KEY_PLACEHOLDER")
         // At boot, before Docker starts and makes its rules.
-        appendLine("PostUp = $GUARD_COMMAND")
         appendLine("PostUp = [ ! -x $FORWARDS_FILE ] || $FORWARDS_FILE")
         for (peer in peers.sortedBy { it.id }) {
             appendLine()
@@ -162,7 +161,7 @@ object Mesh {
             |fi
             |if [ -d /run/systemd/system ]; then
             |  systemctl enable "wg-quick@$IFACE" >/dev/null 2>&1 || true
-            |  # Containers publish ports on the mesh address (Gerbil's API), so Docker starts after it.
+            |  # Containers publish ports on the mesh address, so Docker starts after it.
             |  DROPIN=$${shQuote(DOCKER_DROPIN)}
             |  WANT="$(printf '[Unit]\nWants=wg-quick@%s.service\nAfter=wg-quick@%s.service' "$IFACE" "$IFACE")"
             |  if [ "$(cat "$DROPIN" 2>/dev/null)" != "$WANT" ]; then
@@ -268,6 +267,14 @@ object Mesh {
         |true
     """.trimMargin()
 
+    /** Removes the exit of a node from the host (decommission). The agent of the node is gone by then. */
+    val EXIT_TEARDOWN: String get() = $$"""
+        |ip link show $${shQuote(EXIT_INTERFACE)} >/dev/null 2>&1 && ip link del $${shQuote(EXIT_INTERFACE)}
+        |$${EXIT_JUMPS.joinToString("\n") { (table, chain, target) -> dropChain(table, chain, target) }}
+        |iptables -t filter -F HG-EXIT-OUT 2>/dev/null; iptables -t filter -X HG-EXIT-OUT 2>/dev/null
+        |true
+    """.trimMargin()
+
     private fun dropChain(table: String, chain: String, target: String): String {
         val iptables = "iptables -t $table"
         return listOf("-D $chain -j $target", "-F $target", "-X $target").joinToString("; ") { "$iptables $it 2>/dev/null" }
@@ -276,26 +283,13 @@ object Mesh {
     private const val DOCKER_DROPIN ="/etc/systemd/system/docker.service.d/10-homegap-mesh.conf"
 
     /**
-     * Adds the rule of [FirewallRules.containerGuard] if it is not there. Docker keeps the chain.
-     * A host can have the nftables and the legacy rule sets, and Docker uses one of them, so the
-     * rule goes into each set that has the chain.
-     */
-    private val GUARD_COMMAND = run {
-        val guard = FirewallRules.containerGuard
-        val eachRuleSet = $$"for t in iptables iptables-legacy; do $t -S DOCKER-USER >/dev/null 2>&1 || continue"
-        val addGuard = $$"$t -C $$guard 2>/dev/null || $t -I $$guard || true"
-        "iptables -N DOCKER-USER 2>/dev/null || true; $eachRuleSet; $addGuard; done"
-    }
-
-    /**
-     * Opens the mesh in an active ufw, and removes each HomeGAP rule for the mesh interface or the
-     * cluster bridge that is not wanted, so a rule that admits more does not stay. Each `ufw` call
+     * Opens the mesh in an active ufw, and removes each HomeGAP rule for the mesh interface that
+     * is not wanted, so a rule that admits more does not stay. Each `ufw` call
      * takes a moment, so the step adds only a rule that ufw does not have.
      */
     private fun firewallStep(port: Int): String {
         val wanted = FirewallRules.meshSpecs(port)
         return $$"""
-            |$$GUARD_COMMAND
             |if command -v ufw >/dev/null 2>&1 && ufw status | grep -q '^Status: active'; then
             |  WANTED=$(cat <<'HOMEGAP_MESH_RULES'
             |$${wanted.joinToString("\n")}
@@ -305,7 +299,7 @@ object Mesh {
             |  printf '%s\n' "$WANTED" | while IFS= read -r spec; do
             |    printf '%s\n' "$ADDED" | grep -qxF "$spec" || ufw $spec comment homegap >/dev/null
             |  done
-            |  printf '%s\n' "$ADDED" | { grep -E ' on ($${INTERFACE}|$${ClusterTemplates.BRIDGE})( |$)' || true; } | while IFS= read -r spec; do
+            |  printf '%s\n' "$ADDED" | { grep -E ' on $${INTERFACE}( |$)' || true; } | while IFS= read -r spec; do
             |    printf '%s\n' "$WANTED" | grep -qxF "$spec" || { ufw delete $spec >/dev/null && echo "CHANGED ufw removed $spec"; }
             |  done
             |fi
@@ -314,6 +308,9 @@ object Mesh {
 
     /** The file that the orchestrator writes for the mesh agent of the homelab: the interface that the agent keeps. */
     const val SPEC_FILE = "mesh.json"
+
+    /** The file that the mesh agent writes: the address of the homelab host, as the mesh namespace reaches it. */
+    const val HOST_GATEWAY_FILE = "host-gateway"
 
     /** The file that the mesh agent writes: its key, the spec that it applied and the peers that it sees. */
     const val STATUS_FILE = "status.json"

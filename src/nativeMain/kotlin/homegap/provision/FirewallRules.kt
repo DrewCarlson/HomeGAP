@@ -15,47 +15,21 @@ object FirewallRules {
     }
 
     /**
-     * The `ufw` rule specs (the arguments after `ufw`) for [node]. [meshPort] opens the cluster mesh.
-     * The raw ports of the services are not here: [Mesh.forwardScript] opens them, before `ufw`.
+     * The `ufw` rule specs (the arguments after `ufw`) for [node]. [meshPort] opens the mesh.
+     * The raw ports of the services, the port of the VPN and the exit of the node are not here:
+     * HomeGAP opens them in its own chains, before `ufw` ([Mesh.forwardScript], [Mesh.exitFirewall]).
      */
     fun specs(node: NodeConfig, meshPort: Int? = null): List<String> = buildList {
         addAll(sshSpecs(node))
         add("allow 80/tcp")
         add("allow 443/tcp")
         add("allow 443/udp")
-        add("allow 51820/udp")
-        add("allow 21820/udp")
         // WireGuard authenticates each packet, and the address of the homelab is not fixed.
         meshPort?.let { addAll(meshSpecs(it)) }
     }.distinct()
 
-    /**
-     * The rules for the cluster mesh on [port]. The other members reach only the cluster ports on
-     * the mesh address. The containers of the node (HAProxy, Pangolin) reach the database, Valkey
-     * and the Patroni health check from the cluster bridge, and no other port. See
-     * [containerGuard] for the paths of a container to the other members.
-     */
-    fun meshSpecs(port: Int): List<String> = buildList {
-        add("allow $port/udp")
-        (ClusterTemplates.MESH_PORTS + NodeTemplates.GERBIL_API_PORT).sorted().forEach {
-            add("allow in on ${Mesh.INTERFACE} to any port $it proto tcp")
-        }
-        ClusterTemplates.BRIDGE_PORTS.sorted().forEach {
-            add("allow in on ${ClusterTemplates.BRIDGE} to any port $it proto tcp")
-        }
-    }
-
-    /**
-     * The `iptables` arguments of the rule that keeps containers off the control ports of the
-     * other members. Docker forwards a container to the mesh as the node itself, so the other
-     * member cannot tell the container from the node. `DOCKER-USER` sees each forwarded packet
-     * before the rules of Docker. The etcd client port stays open for the mesh probe of HAProxy,
-     * and etcd asks for a password there.
-     */
-    val containerGuard: String = run {
-        val controlPorts = ClusterTemplates.CONTROL_PORTS.sorted().joinToString(",")
-        "DOCKER-USER -o ${Mesh.INTERFACE} -p tcp -m multiport --dports $controlPorts -j DROP"
-    }
+    /** The rules for the mesh on [port]. No port of a node is open on the mesh interface by `ufw`. */
+    fun meshSpecs(port: Int): List<String> = listOf("allow $port/udp")
 
     /**
      * Applies [specs]. The script adds the wanted rules first, then removes the HomeGAP rules

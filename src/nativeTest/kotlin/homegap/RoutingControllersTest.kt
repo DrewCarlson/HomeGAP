@@ -12,7 +12,7 @@ import homegap.dashboard.DashboardUser
 import homegap.dashboard.DashboardSso
 import homegap.dashboard.DashboardRole
 import homegap.config.DashboardSsoConfig
-import homegap.api.SwitchoverRequest
+import homegap.api.PauseRequest
 import homegap.config.ConfigLoader
 import homegap.dashboard.DashboardAuth
 import homegap.dashboard.DashboardServer
@@ -105,7 +105,7 @@ class RoutingControllersTest {
     fun aBodyThatTheApiCannotReadIsABadRequest() = testApplication {
         val echo = object : RoutingController {
             override fun init(parent: Route) {
-                parent.post("/echo") { call.respond(call.receive<SwitchoverRequest>()) }
+                parent.post("/echo") { call.respond(call.receive<PauseRequest>()) }
             }
         }
         val routes = RoutingControllers(setOf(echo), DashboardAuth("s3cret", null), emptySet())

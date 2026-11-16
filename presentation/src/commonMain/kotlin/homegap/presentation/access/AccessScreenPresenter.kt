@@ -17,7 +17,6 @@ import homegap.presentation.core.runCatchingCancellable
 import homegap.presentation.data.ActionRunner
 import homegap.presentation.data.AppCoroutineScope
 import homegap.presentation.data.ControllerApi
-import homegap.presentation.format.TimeFormatter
 import homegap.presentation.format.plural
 import homegap.presentation.data.Confirmations
 import homegap.presentation.routing.Location
@@ -33,8 +32,6 @@ import homegap.presentation.ui.MarkRow
 import homegap.presentation.ui.PageHeadModel
 import homegap.presentation.ui.QrCode
 import homegap.presentation.ui.Severity
-import homegap.presentation.ui.StatusLineModel
-import homegap.presentation.ui.StatusMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -54,7 +51,6 @@ class AccessScreenPresenter(
     private val session: homegap.presentation.data.ControllerSession,
     private val actions: ActionRunner,
     private val confirmations: Confirmations,
-    private val timeFormatter: TimeFormatter,
     @AppCoroutineScope private val appScope: CoroutineScope,
 ) : Presenter<AccessScreenProps, AccessScreenModel> {
     @Composable
@@ -78,7 +74,7 @@ class AccessScreenPresenter(
         var chosenRoles by remember { mutableStateOf<Set<Int>?>(null) }
         var submitting by remember { mutableStateOf(false) }
         var formError by remember { mutableStateOf<String?>(null) }
-        var inviteLink by remember { mutableStateOf<String?>(null) }
+        var newPassword by remember { mutableStateOf<String?>(null) }
         var passwordOwner by remember { mutableStateOf<String?>(null) }
         var machineName by remember { mutableStateOf("") }
         var machineRoles by remember { mutableStateOf<Set<Int>?>(null) }
@@ -112,7 +108,7 @@ class AccessScreenPresenter(
                 runCatchingCancellable { api.createUser(latestRequest) }
                     .onSuccess { r ->
                         actions.notify(r.message)
-                        inviteLink = r.password
+                        newPassword = r.password
                         passwordOwner = null
                         if (r.password == null) {
                             props.onOpen(Location(Route.Access))
@@ -151,22 +147,11 @@ class AccessScreenPresenter(
         }
 
         val online = current.devices.count { it.online && !it.blocked }
-        val expiring = current.invitations.filter { it.expiresAt != null }.minByOrNull { it.expiresAt ?: Long.MAX_VALUE }
         val selection = props.selection
         return AccessScreenModel.Ready(
             head = PageHeadModel(
                 caption = "Access",
                 headline = "${plural(current.users.size, "user")}, ${plural(current.devices.size, "device")}, $online online.",
-                statusLine = expiring?.let { invite ->
-                    StatusLineModel(
-                        listOf(
-                            StatusMessage(
-                                severity = Severity.Info,
-                                text = "${plural(current.invitations.size, "open invitation")}, ${invite.email}'s expires ${invite.expiresAt?.let { expiresIn(it, props.now) }}.",
-                            )
-                        )
-                    )
-                },
                 actions = listOf(
                     ActionModel(
                         label = "+ Add machine",
@@ -208,7 +193,7 @@ class AccessScreenPresenter(
                             appScope.launch {
                                 runCatchingCancellable { api.newUserPassword(user.id) }
                                     .onSuccess { response ->
-                                        inviteLink = response.password
+                                        newPassword = response.password
                                         passwordOwner = user.email ?: user.username
                                         props.onOpen(Location(Route.Access, ADD_USER))
                                     }
@@ -230,7 +215,6 @@ class AccessScreenPresenter(
             },
             clientAddress = address,
             qr = remember(address) { QrCode.encode(address) },
-            via = "",
             newUser = NewUserFormModel(
                 email = email,
                 setPassword = setPassword,
@@ -270,22 +254,14 @@ class AccessScreenPresenter(
                     badges = buildList {
                         if (u.blocked) add(Badge(Health.DOWN, "blocked"))
                         if (u.owner) add(Badge(Health.OK, "only admin"))
-                        if (u.twoFactor) add(Badge(Health.OK, "2FA"))
                         if (u.type != null && u.type != "internal") add(Badge(Health.UNKNOWN, u.type!!))
                     },
                     editable = !u.owner,
                     devices = current.devices.count { it.user == (u.email ?: u.username) },
                 )
             },
-            invitations = current.invitations.map { i ->
-                InvitationRowModel(
-                    i.id,
-                    i.email,
-                    i.roles.joinToString(),
-                    i.expiresAt?.let { "expires ${expiresIn(it, props.now)}" })
-            },
             devices = current.devices.map { it.toRow() },
-            inviteLink = inviteLink,
+            newPassword = newPassword,
             passwordOwner = passwordOwner,
             addMachineOpen = selection == ADD_MACHINE,
             newMachine = NewMachineFormModel(
@@ -309,8 +285,8 @@ class AccessScreenPresenter(
             ),
             machineSecret = machineSecret,
             onDismissMachineSecret = { machineSecret = null },
-            onDismissInviteLink = {
-                inviteLink = null
+            onDismissNewPassword = {
+                newPassword = null
                 passwordOwner = null
             },
             onRemoveUser = { id ->
@@ -323,30 +299,6 @@ class AccessScreenPresenter(
                     val next = if (roleId in user.roleIds) user.roleIds - roleId else user.roleIds + roleId
                     if (next.isEmpty()) actions.notify("A user needs at least one role", isError = true)
                     else change("Change roles") { api.setUserRoles(userId, next) }
-                }
-            },
-            onRemoveInvitation = { id ->
-                val invite = current.invitations.firstOrNull { it.id == id }
-                confirmations.ask(
-                    ConfirmModel(
-                        title = "Revoke the invitation for ${invite?.email ?: id}?",
-                        text = "The link stops working. You can invite the person again later.",
-                        confirmLabel = "Revoke",
-                        danger = true,
-                    )
-                ) {
-                    change("Revoke invitation") { api.removeInvitation(id) }
-                }
-            },
-            onReissueInvitation = { id ->
-                appScope.launch {
-                    runCatchingCancellable { api.reissueInvitation(id) }
-                        .onSuccess { response ->
-                            inviteLink = response.inviteLink
-                            reload++
-                            props.onOpen(Location(Route.Access, ADD_USER))
-                        }
-                        .onFailure { actions.notify("New link failed: ${it.message}", isError = true) }
                 }
             },
             onDeviceAction = { id, action ->
@@ -489,7 +441,6 @@ class AccessScreenPresenter(
         title = device.name,
         status = when {
             device.blocked -> "blocked"
-            device.archived -> "archived"
             device.online -> "online" + device.viaNode?.let { " · via $it" }.orEmpty()
             else -> "offline"
         },
@@ -527,7 +478,6 @@ class AccessScreenPresenter(
         agent = agent,
         status = when {
             blocked -> Badge(Health.DOWN, "blocked")
-            archived -> Badge(Health.UNKNOWN, "archived")
             online -> Badge(Health.OK, "online")
             else -> Badge(Health.UNKNOWN, "offline")
         },
@@ -562,16 +512,5 @@ class AccessScreenPresenter(
             setPassword && (request.password?.length ?: 0) < MIN_PASSWORD -> PASSWORD_RULE
             else -> null
         }
-    }
-}
-
-/** "in 6 days", "in 5 h", "in 20 min", or "now" once it has passed. Days are rounded. */
-internal fun expiresIn(at: Long, now: Long): String {
-    val minutes = (at - now) / 60_000
-    return when {
-        minutes <= 0 -> "now"
-        minutes < 90 -> "in $minutes min"
-        minutes < 48 * 60 -> "in ${minutes / 60} h"
-        else -> "in ${(minutes + 12 * 60) / (24 * 60)} days"
     }
 }

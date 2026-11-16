@@ -85,7 +85,6 @@ class FetchControllerApi(
 
     override suspend fun resync(): ActionResponse = http.post("/api/resync").body()
     override suspend fun applyOnce(): ActionResponse = http.post("/api/resync") { parameter("apply", "once") }.body()
-    override suspend fun restartTunnel(node: String): ActionResponse = http.post("/api/tunnels/$node/restart").body()
 
     override suspend fun orderCertificate(replaceKey: Boolean): ActionResponse =
         http.post(if (replaceKey) "/api/certificates/replace-key" else "/api/certificates/order").body()
@@ -94,8 +93,6 @@ class FetchControllerApi(
 
     override suspend fun checkCertificates(): ActionResponse = http.post("/api/certificates/check").body()
     override suspend fun undo(id: String): ActionResponse = http.post("/api/undo/$id").body()
-    override suspend fun reissueInvitation(id: String): CreateAccessUserResponse =
-        http.post("/api/access/invitations/$id/reissue").body()
     override suspend fun provision(node: String): ActionResponse = http.post("/api/nodes/$node/provision").body()
     override suspend fun retryUpdate(node: String): ActionResponse = http.post("/api/nodes/$node/update/retry").body()
     override suspend fun skipUpdate(node: String): ActionResponse = http.post("/api/nodes/$node/update/skip").body()
@@ -185,11 +182,6 @@ class FetchControllerApi(
     override suspend fun deleteZoneRecord(zone: String, id: String): ActionResponse =
         http.delete("/api/dns/zones/$zone/records/$id").body()
 
-    override suspend fun switchPrimary(to: String): ActionResponse =
-        http.post("/api/cluster/switchover") {
-            setBody(SwitchoverRequest(to))
-        }.body()
-
     override suspend fun access(): AccessOverviewDto = http.get("/api/access").body()
     override suspend fun createUser(request: CreateAccessUserRequest): CreateAccessUserResponse =
         http.post("/api/access/users") {
@@ -203,9 +195,6 @@ class FetchControllerApi(
         http.put("/api/access/users/$id/roles") {
             setBody(SetAccessRolesRequest(roleIds))
         }.body()
-
-    override suspend fun removeInvitation(id: String): ActionResponse =
-        http.delete("/api/access/invitations/$id").body()
 
     override suspend fun deviceAction(id: Int, action: String): ActionResponse =
         http.post("/api/access/devices/$id/$action").body()

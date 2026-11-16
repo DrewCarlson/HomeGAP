@@ -56,7 +56,7 @@ fun serviceInspector(
                         FactRow("Kind", service.kind),
                         FactRow("Protocol", if (service.ports.isNotEmpty()) service.ports.joinToString(", ") else "${service.protocol} · ${service.tls}"),
                         tlsLine(service.tls)?.let { FactRow("Certificate", it) },
-                        FactRow("Access", service.access + if (service.auth != "none") " · ${service.auth}" else ""),
+                        FactRow("Access", service.access),
                         FactRow("Regions", service.regions.joinToString(", ")),
                         FactRow("Container", service.container + service.name?.let { " · $it" }.orEmpty(), mono = true),
                         if (service.wildcard) FactRow("Wildcard", "*.${service.hostname}", mono = true) else null,

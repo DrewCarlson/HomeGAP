@@ -15,7 +15,6 @@ enum class SearchKind(val title: String) {
     Node("Nodes"),
     Service("Services"),
     Dns("DNS"),
-    Tunnel("Tunnels"),
     Page("Pages"),
     Setting("Settings"),
     Log("Log"),
@@ -79,10 +78,7 @@ fun searchIndex(
         SearchHit(
             kind = SearchKind.Node,
             title = "Homelab",
-            subtitle = listOfNotNull(
-                snapshot.homelab?.name,
-                snapshot.cluster?.primary?.let { "database primary: $it" },
-            ).joinToString(" · "),
+            subtitle = snapshot.homelab?.name.orEmpty(),
             location = Location(Route.Nodes),
             keywords = "homelab origin",
         )
@@ -94,17 +90,7 @@ fun searchIndex(
                 title = "${member.id} on the mesh",
                 subtitle = member.address,
                 location = Location(Route.Nodes),
-                keywords = "mesh wireguard cluster",
-            )
-        )
-    }
-    snapshot.tunnels.forEach { tunnel ->
-        add(
-            SearchHit(
-                kind = SearchKind.Tunnel,
-                title = "Tunnel to ${tunnel.nodeId}",
-                subtitle = if (tunnel.up) "healthy" else "failing",
-                location = Location(Route.Tunnels, tunnel.nodeId),
+                keywords = "mesh wireguard link",
             )
         )
     }
@@ -216,7 +202,6 @@ fun suggestions(snapshot: StatusSnapshot, actions: List<SearchHit>): List<Search
                     Route.Nodes -> SearchKind.Node
                     Route.Services -> SearchKind.Service
                     Route.Dns -> SearchKind.Dns
-                    Route.Tunnels -> SearchKind.Tunnel
                     else -> SearchKind.Page
                 },
                 title = item.selection ?: item.title,
@@ -241,11 +226,10 @@ private const val LOG_ENTRIES_SEARCHED = 300
 
 /** Words for the things on a page that have no result of their own. */
 private val PAGE_WORDS = mapOf(
-    Route.Nodes to "edge fleet mesh cluster database primary replica homelab",
-    Route.Tunnels to "newt connector site",
+    Route.Nodes to "edge fleet mesh wireguard link handshake homelab",
     Route.Certificates to "tls acme caa renew",
     Route.ZoneRecords to "dns record txt mx cname add edit",
-    Route.Access to "users people roles devices invite",
+    Route.Access to "users people roles devices machines vpn password",
     Route.Config to "secrets yaml diff",
     Route.Activity to "log events",
 )

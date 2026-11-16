@@ -1,9 +1,10 @@
-package homegap.tunnels
+package homegap.mesh
 
 /**
  * The address of the Docker host, as a container reaches it: the gateway of the default route of
- * the container. The tunnel connectors open their connections from the `tunnels` container, so
- * this is the address of a service on the homelab host itself.
+ * the container. The VPN peer of the homelab sends the traffic of a device from the mesh
+ * namespace, so this is the address of a service on the homelab host itself, as that namespace
+ * reaches it.
  */
 object HostGateway {
     const val ROUTE_TABLE = "/proc/net/route"

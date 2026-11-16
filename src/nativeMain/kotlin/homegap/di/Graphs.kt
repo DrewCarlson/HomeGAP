@@ -21,7 +21,6 @@ import homegap.speedtest.SpeedTestStore
 import homegap.speedtest.SpeedTestTokens
 import homegap.state.StateStore
 import homegap.status.PublicStatus
-import homegap.tunnels.TunnelSupervisor
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.engine.curl.*
@@ -31,22 +30,12 @@ import kotlinx.serialization.json.Json
 /** Command-line inputs of `homegap run`. */
 data class RunOptions(val configPath: String, val dryRun: Boolean, val once: Boolean)
 
-/** Command-line inputs of `homegap tunnels`. */
-data class TunnelOptions(
-    val dir: String,
-    val newtBinary: String,
-    /** The file for the endpoint pins ([homegap.tunnels.HostsPins]): the hosts file of the container. */
-    val hostsFile: String = "/etc/hosts",
-)
-
-/** Plain HTTP over loopback and unix sockets (Docker, SSH-forwarded Pangolin APIs). */
+/** Plain HTTP over loopback and unix sockets (Docker). */
 @Qualifier annotation class LocalHttp
 
-/** TLS-capable client for external APIs (Bunny, the primary Pangolin). */
+/** TLS-capable client for external APIs (Bunny). */
 @Qualifier annotation class ExternalHttp
 
-/** Scope of the tunnel supervisor process. */
-abstract class TunnelScope private constructor()
 
 /**
  * `homegap run`: the controller, its dashboard and the speed test origin. Only the graph that
@@ -145,25 +134,5 @@ interface ControllerGraph {
     @DependencyGraph.Factory
     fun interface Factory {
         fun create(@Provides options: RunOptions): ControllerGraph
-    }
-}
-
-/** `homegap tunnels`: the Newt connector supervisor. */
-@DependencyGraph(TunnelScope::class)
-interface TunnelsGraph {
-    val supervisor: TunnelSupervisor
-
-    @Provides @SingleIn(TunnelScope::class)
-    fun http(): HttpClient = HttpClient(CIO) {
-        install(HttpTimeout) {
-            requestTimeoutMillis = 3_000
-            connectTimeoutMillis = 1_000
-        }
-        expectSuccess = false
-    }
-
-    @DependencyGraph.Factory
-    fun interface Factory {
-        fun create(@Provides options: TunnelOptions): TunnelsGraph
     }
 }

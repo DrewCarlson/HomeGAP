@@ -33,7 +33,7 @@ private fun verdict(title: String, lines: List<String>): ReportSection {
     fun section(health: Health, summary: String) = ReportSection(title, health, summary)
     return when {
         lines.isEmpty() -> section(Health.UNKNOWN, "no output")
-        title.endsWith("stack") || title == "Cluster member" || title == "Exit connector" -> {
+        title.endsWith("stack") -> {
             if (lower.startsWith("no ")) {
                 section(Health.UNKNOWN, lines.first())
             } else {

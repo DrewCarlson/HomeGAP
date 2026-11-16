@@ -30,15 +30,12 @@ sealed interface AccessScreenModel : ScreenModel {
         val clientAddress: String,
         /** The address as a QR code, for phones. */
         val qr: QrCode?,
-        /** A note under the app address, or empty. */
-        val via: String,
         val newUser: NewUserFormModel,
         val users: List<UserRowModel>,
-        val invitations: List<InvitationRowModel>,
         val devices: List<DeviceRowModel>,
         /** The password that HomeGAP made for a user, to hand over. It shows once. */
-        val inviteLink: String?,
-        /** The user that [inviteLink] is for, if it is a new password of a user that exists. */
+        val newPassword: String?,
+        /** The user that [newPassword] is for, if it is a new password of a user that exists. */
         val passwordOwner: String? = null,
         /** Whether the Add machine form is open. */
         val addMachineOpen: Boolean = false,
@@ -46,12 +43,9 @@ sealed interface AccessScreenModel : ScreenModel {
         /** The id and the secret of the machine just created, to hand over. They show once. */
         val machineSecret: MachineSecretModel? = null,
         val onDismissMachineSecret: () -> Unit = {},
-        val onDismissInviteLink: () -> Unit,
+        val onDismissNewPassword: () -> Unit,
         val onRemoveUser: (userId: String) -> Unit,
         val onToggleRole: (userId: String, roleId: Int) -> Unit,
-        val onRemoveInvitation: (inviteId: String) -> Unit,
-        /** A new invite link for an open invitation, shown to copy. */
-        val onReissueInvitation: (inviteId: String) -> Unit,
         val onDeviceAction: (deviceId: Int, action: String) -> Unit,
     ) : AccessScreenModel
 }
@@ -118,14 +112,6 @@ data class UserRowModel(
     val editable: Boolean,
     val devices: Int = 0,
     val location: Location = Location(Route.Access, "user:$id"),
-)
-
-@Immutable
-data class InvitationRowModel(
-    val id: String,
-    val email: String,
-    val roles: String,
-    val expires: String?
 )
 
 @Immutable

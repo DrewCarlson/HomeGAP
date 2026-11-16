@@ -3,7 +3,7 @@ package homegap.status
 import kotlinx.serialization.Serializable
 
 /**
- * What the status page tells a visitor about the own connection. A Pangolin client gets no
+ * What the status page tells a visitor about the own connection. A VPN device gets no
  * address, because the request arrives from the private network of the homelab.
  */
 @Serializable
@@ -32,7 +32,7 @@ object Viewers {
 
     /**
      * The view of the visitor at [address]. [privateRange] is the private network of the front
-     * door as `address/prefix`. A request from it comes from a Pangolin client. The result has an
+     * door as `address/prefix`. A request from it comes from a VPN device. The result has an
      * address only if it is a public address: without the PROXY protocol, the proxy of the homelab
      * sees an address of Docker for each visitor.
      */

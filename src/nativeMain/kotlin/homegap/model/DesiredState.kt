@@ -5,7 +5,6 @@ import homegap.acme.CertNames
 import homegap.config.AppConfig
 import homegap.config.NodeConfig
 import homegap.discovery.Access
-import homegap.discovery.AuthMode
 import homegap.discovery.DockerContainerSummary
 import homegap.discovery.HealthCheck
 import homegap.discovery.Labels
@@ -34,13 +33,6 @@ data class DesiredState(
 ) {
     /** Each front door: the one of the platform domain first. */
     val frontDoors: List<ServiceSpec> get() = listOfNotNull(frontDoor) + extraFrontDoors
-
-    /**
-     * The addresses this plan publishes for [nodeId]'s management host (its A and AAAA records),
-     * the same values the DNS domain writes to Bunny.
-     */
-    fun managementAddresses(nodeId: String): List<String> =
-        dns.filter { it.purpose == "management" && it.nodeId == nodeId }.map { it.value }
 }
 
 data class LabelIssue(val container: String, val message: String)
@@ -52,7 +44,7 @@ data class NodeDesired(
     val privateResources: List<PrivateResource>,
     /**
      * The raw TCP and UDP resources that the node forwards in the kernel to the homelab over the
-     * mesh. Pangolin and the Traefik of the node have no part in them.
+     * mesh. The Traefik of the node has no part in them.
      */
     val forwardedResources: List<PublicResource> = emptyList(),
     /**
@@ -83,8 +75,6 @@ data class NodeDesired(
     val speedtestRedirect: Pair<String, String>? = null,
     /** The status page's shared name -> this node's name, answered the same way. */
     val statusRedirect: Pair<String, String>? = null,
-    /** The cluster's client address, served by this node's Pangolin (login pages and API). */
-    val clientHost: String? = null,
     /**
      * The names for which the node shows the maintenance page while the homelab is unreachable.
      * The node ends TLS for each of them. `*.<domain>` stands for each name one label under the
@@ -93,7 +83,7 @@ data class NodeDesired(
     val maintenanceHosts: List<String> = emptyList(),
     /**
      * The mesh address of the homelab. The node sends the streams of its passthrough routes to a
-     * port of this address. With null, the streams go through Pangolin.
+     * port of this address. With null, the node has no stream ports.
      */
     val meshHome: String? = null,
     /** The exit of the node for the devices of the VPN, or null if the node is no exit. */
@@ -101,7 +91,7 @@ data class NodeDesired(
 ) {
     val id: String get() = node.id
 
-    /** The port of [meshHome] for the stream of [route], or null if the stream goes through Pangolin. */
+    /** The port of [meshHome] for the stream of [route], or null if the node has no stream ports. */
     fun meshTarget(route: SniRoute): MeshTarget? {
         val home = meshHome ?: return null
         val resource = publicResources.firstOrNull { it.niceId == route.resourceNiceId } ?: return null
@@ -150,9 +140,7 @@ data class PublicResource(
     val proxyPort: Int?,
     val ssl: Boolean,
     val target: Target,
-    val auth: AuthMode = AuthMode.NONE,
     val roles: List<String> = emptyList(),
-    val pinEnv: String? = null,
     val hostHeader: String? = null,
     val tlsServerName: String? = null,
     val healthcheck: HealthCheck? = null,
@@ -180,7 +168,7 @@ data class PrivateResource(
 
 data class SniRoute(
     val name: String,
-    /** The niceId of the Pangolin TCP resource whose service carries the stream. */
+    /** The niceId of the TCP resource whose service carries the stream. */
     val resourceNiceId: String,
     val exactHosts: List<String>,
     /** If not null, the route also matches each name one label under this domain (`*.domain`). */
@@ -232,16 +220,16 @@ object Planner {
     private const val FRONTDOOR_SNI_PRIORITY = 100
     private const val SERVICE_SNI_PRIORITY = 200
 
-    /** The number of internal proxy ports from `pangolin.passthrough_port_base` up. */
+    /** The number of internal proxy ports from `node_stack.mesh_port_base` up. */
     private const val PORT_WINDOW = 5000
+
+    /** The one place that serves the private names: the VPN peer of the homelab. */
+    private const val HOMELAB_SITE = "homelab"
     private const val FNV_OFFSET_BASIS = 2166136261u
     private const val FNV_PRIME = 16777619u
 
-    /**
-     * A resource only one node serves (its health check, its speed test host). In a cluster all
-     * nodes share one org, so these get the node's id.
-     */
-    fun perNode(config: AppConfig, base: String, nodeId: String) = if (config.cluster != null) "$base-$nodeId" else base
+    /** The id of a resource that only one node serves (its health check, its speed test host). */
+    fun perNode(base: String, nodeId: String) = "$base-$nodeId"
 
     fun isHealth(niceId: String) = niceId == HEALTH || niceId.startsWith("$HEALTH-")
 
@@ -296,7 +284,7 @@ object Planner {
     }
 
     /**
-     * A dashboard for Pangolin clients only uses the private path of the front door: its name is
+     * A dashboard for VPN devices only uses the private path of the front door: its name is
      * one more private name of the front door. Without that path, the dashboard has no route.
      */
     private fun withPrivateDashboard(
@@ -317,9 +305,9 @@ object Planner {
     }
 
     /**
-     * A Pangolin client gets the pages of HomeGAP from the homelab, not from a node: the shared
+     * A VPN device gets the pages of HomeGAP from the homelab, not from a node: the shared
      * name of each page is one more private name of the front door. The request then arrives on
-     * the private network, and the page knows that the visitor is a Pangolin client. The status
+     * the private network, and the page knows that the visitor is a VPN device. The status
      * page always has this name. The speed test has it with `speedtest.vpn_access`. Without a
      * private path, such a client gets each page as each other visitor does.
      */
@@ -383,9 +371,10 @@ object Planner {
         val warnings = mutableListOf<LabelIssue>()
         private val nodeIds = config.nodes.map { it.id }.toSet()
 
-        /** The names that a Pangolin client must reach directly, not through the tunnel. */
+        /** The names that a device of the VPN must reach directly, not through the tunnel. */
         private val clientHosts =
-            listOfNotNull(config.clientHost) + config.nodes.map { it.managementHost(config.domain) }
+            listOfNotNull(config.signInHost, config.vpn.endpoint) +
+                config.nodes.map { it.managementHost(config.domain) }
 
         fun resolve(spec: ServiceSpec, container: DockerContainerSummary): ServiceSpec {
             val issues = ServiceIssues(this, container.name, spec.issuePrefix)
@@ -459,7 +448,7 @@ object Planner {
 
         /**
          * Public traffic must not reach the service over the private network. By name, Docker can
-         * answer with that address (the tunnels container is on both networks), and the service
+         * answer with that address (the mesh namespace is on both networks), and the service
          * would see public traffic come from the private range. So public traffic goes to the
          * address on the other network of the container, unless `homegap.host` names one.
          */
@@ -486,8 +475,8 @@ object Planner {
         }
 
         /**
-         * A client resolves each name that an alias covers into the tunnel, its own Pangolin address
-         * too. Then it loses the cluster on its next reconnect. So an alias cannot cover such a name.
+         * A client resolves each name that an alias covers into the tunnel, its own tunnel address
+         * too. Then it loses the sign-in on its next reconnect. So an alias cannot cover such a name.
          */
         private fun allowedPrivateHosts(spec: ServiceSpec, issues: ServiceIssues): List<String> {
             val (clash, allowed) = spec.privateHosts.partition { alias -> clientHosts.any { aliasCovers(alias, it) } }
@@ -495,7 +484,7 @@ object Planner {
                 val covered = clientHosts.first { aliasCovers(alias, it) }
                 issues.error(
                     "${Labels.PRIVATE_HOSTS}: '$alias' covers $covered, " +
-                        "which Pangolin clients must reach directly; name the services instead"
+                        "which VPN devices must reach directly; name the services instead"
                 )
             }
             return allowed
@@ -552,7 +541,7 @@ object Planner {
         }
         val ports = service.publicPorts()
         if (ports.any { it.port == claims.meshPort && it.protocol == "udp" }) {
-            return "public port ${claims.meshPort}/udp is the port of the cluster mesh"
+            return "public port ${claims.meshPort}/udp is the port of the mesh"
         }
         claims.sshClash(service)?.let { node ->
             val remedy = "move the SSH server with nodes[].ssh_port, or publish the service on a different port"
@@ -604,7 +593,7 @@ object Planner {
         ports.flatMap { mapping -> mapping.protocols.map { RawPort(mapping.publicPort, it.label) } }.toSet()
 
     /**
-     * The Pangolin resource of a raw service for one port and protocol. A top-level service with a
+     * The resource of a raw service for one port and protocol. A top-level service with a
      * single port keeps the id from before port lists (`hg-<host>-tcp`), so an upgrade creates no
      * resource again. Each other resource adds the public port.
      */
@@ -636,7 +625,7 @@ object Planner {
         nodeExtraDoors.forEach { plan.addExtraFrontDoor(it, dedicated) }
         dedicated.forEach { plan.addDedicated(it) }
 
-        val site = config.siteNiceId(node.id)
+        val site = HOMELAB_SITE
         val privateServices = mine.filter { it.access == Access.PRIVATE }.map { privateResource(it, site) }
         val privatePaths = mine.filter { it.access == Access.PUBLIC && it.privateHost != null }
             .flatMap { privatePath(it, site) }
@@ -698,7 +687,7 @@ object Planner {
         /** The front door of the platform domain. It also carries the pages of the node. */
         fun addFrontDoor(frontDoor: ServiceSpec, dedicated: List<ServiceSpec>) {
             if (frontDoor.isPassthroughDoor()) {
-                val nodeHosts = listOfNotNull(managementHost, config.clientHost) + pages.shared
+                val nodeHosts = listOf(managementHost) + pages.shared
                 val route = DoorRoute(
                     niceId = FRONTDOOR_TCP,
                     name = "homegap-frontdoor",
@@ -766,10 +755,10 @@ object Planner {
         /** The speed test and the status page of the node, which go to the homelab through [frontDoor]. */
         private fun addPageResources(frontDoor: ServiceSpec) {
             if (pages.speedtestNode != null) {
-                publicResources += openResource(perNode(config, SPEEDTEST, node.id), frontDoor, pages.speedtestNode)
+                publicResources += openResource(perNode(SPEEDTEST, node.id), frontDoor, pages.speedtestNode)
             }
             if (pages.statusNode != null) {
-                publicResources += openResource(perNode(config, STATUS, node.id), frontDoor, pages.statusNode)
+                publicResources += openResource(perNode(STATUS, node.id), frontDoor, pages.statusNode)
             }
         }
 
@@ -834,7 +823,7 @@ object Planner {
             // Stable internal proxy ports for passthrough TCP resources (never published).
             val ports = allocatePorts(
                 keys = passthroughKeys,
-                base = config.pangolin.passthroughPortBase,
+                base = config.nodeStack.meshPortBase,
                 avoid = rawPorts.map { it.port }.toSet(),
             )
             val withPorts = publicResources.map { resource ->
@@ -858,7 +847,6 @@ object Planner {
                 healthPath = (healthTarget?.healthcheck as? HealthCheck.Http)?.path ?: "/",
                 speedtestRedirect = redirect(pages.speedtestShared, pages.speedtestNode),
                 statusRedirect = redirect(pages.statusShared, pages.statusNode),
-                clientHost = config.clientHost,
                 // The node ends TLS for the shared names in each mode, so they always get the page.
                 maintenanceHosts = (maintenanceHosts + pages.shared).distinct().sorted(),
                 meshHome = Mesh.homelabAddress(config.mesh),
@@ -869,7 +857,7 @@ object Planner {
             if (shared != null && ofNode != null) shared to ofNode else null
 
         private fun healthResource(target: ServiceSpec) = PublicResource(
-            niceId = perNode(config, HEALTH, node.id),
+            niceId = perNode(HEALTH, node.id),
             serviceKey = target.key,
             mode = ResourceMode.HTTP,
             fullDomain = "homegap-health-${node.id}.${config.domain}",
@@ -889,16 +877,14 @@ object Planner {
         proxyPort = null,
         ssl = true,
         target = Target(service.targetHost, service.port, service.scheme),
-        auth = service.auth,
         roles = service.roles,
-        pinEnv = service.pinEnv,
         healthcheck = service.healthcheck,
         paused = service.paused,
     )
 
-    /** An HTTP resource of [service] that has no authentication: the speed test and the status page. */
+    /** An HTTP resource of [service] that every visitor reaches: the speed test and the status page. */
     private fun openResource(niceId: String, service: ServiceSpec, fullDomain: String) =
-        httpResource(niceId, service, fullDomain).copy(auth = AuthMode.NONE, roles = emptyList(), pinEnv = null)
+        httpResource(niceId, service, fullDomain).copy(roles = emptyList())
 
     /** The TCP resource that carries the TLS stream of [service] to the homelab. [NodePlan.build] sets its port. */
     private fun passthroughResource(niceId: String, service: ServiceSpec) = PublicResource(
@@ -915,11 +901,11 @@ object Planner {
     )
 
     /**
-     * The private path of a public service (`homegap.private_network`). Pangolin clients resolve
+     * The private path of a public service (`homegap.private_network`). VPN devices resolve
      * its names to private resources that go to the address of the container on that network. So
      * the service sees their traffic arrive from that network and not as public traffic.
      *
-     * Each name in [ServiceSpec.privateHosts] gets one resource. Pangolin takes a wildcard alias
+     * Each name in [ServiceSpec.privateHosts] gets one resource. A device takes a wildcard name
      * only when the destination is an IP address, so the destination is the address, not a name.
      */
     private fun privatePath(service: ServiceSpec, site: String): List<PrivateResource> {
@@ -1017,8 +1003,6 @@ object Planner {
                 plan.addNodeRecords(config.statusPage.nodeHost(domain, node.id), "status", node)
             }
         }
-        // Every node serves the cluster's login pages and client API.
-        config.clientHost?.let { plan.addGeoSet(it, "client", nodes) }
         for (node in nodes) {
             plan.addNodeRecords(node.managementHost(domain), "management", node)
         }
@@ -1120,7 +1104,7 @@ object Planner {
     private fun sharePassthroughPorts(config: AppConfig, nodes: Map<String, NodeDesired>): Map<String, NodeDesired> {
         val keys = nodes.values.flatMap { node -> node.sniRoutes.map { it.resourceNiceId } }
         val avoid = nodes.values.flatMap { node -> node.rawPorts.map { it.port } }.toSet()
-        val ports = allocatePorts(keys, config.pangolin.passthroughPortBase, avoid)
+        val ports = allocatePorts(keys, config.nodeStack.meshPortBase, avoid)
         return nodes.mapValues { (_, node) ->
             node.copy(publicResources = node.publicResources.map { resource ->
                 ports[resource.niceId]?.let { resource.copy(proxyPort = it) } ?: resource
@@ -1135,7 +1119,7 @@ object Planner {
     private fun withMeshPorts(config: AppConfig, nodes: Map<String, NodeDesired>): Map<String, NodeDesired> {
         val keys = nodes.values.flatMap { node -> node.httpResources.map { it.niceId } }
         val avoid = nodes.values.flatMap { node -> node.rawPorts.map { it.port } }.toSet()
-        val ports = allocatePorts(keys, config.pangolin.passthroughPortBase + PORT_WINDOW, avoid)
+        val ports = allocatePorts(keys, config.nodeStack.meshPortBase + PORT_WINDOW, avoid)
         return nodes.mapValues { (_, node) ->
             node.copy(httpResources = node.httpResources.map { it.copy(meshPort = ports[it.niceId]) })
         }

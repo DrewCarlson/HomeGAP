@@ -1,9 +1,9 @@
 package homegap
 
 import homegap.config.ConfigLoader
+import homegap.mesh.HostGateway
 import homegap.model.HomelabServices
 import homegap.model.Planner
-import homegap.tunnels.HostGateway
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -40,6 +40,22 @@ class HomelabSshTest {
         assertEquals(listOf("Member"), resource.roles)
         assertTrue(plan.dns.none { it.fqdn == "ssh.test.example.net" }, "a private service has no public record")
         assertEquals(HomelabServices.HOST_NAME, plan.services.single { it.hostname == "ssh.test.example.net" }.containerName)
+    }
+
+    @Test
+    fun theNameOfTheSignInIsAServiceOfEachNode() {
+        val signIn = ConfigLoader.parse("$TEST_CONFIG\nsign_in:\n  url: https://vpn.test.example.net/\n")
+        val containers = HomelabServices.containers(signIn, hostAddress = null)
+        val plan = Planner.plan(signIn, listOf(TRAEFIK) + containers)
+
+        assertTrue(plan.labelErrors.isEmpty(), plan.labelErrors.toString())
+        for (node in plan.nodes.values) {
+            val resource = node.httpResources.single { it.fullDomain == "vpn.test.example.net" }
+            assertEquals(HomelabServices.SIGN_IN_CONTAINER, resource.target.host)
+            assertEquals(HomelabServices.SIGN_IN_PORT, resource.target.port)
+            assertTrue("vpn.test.example.net" !in node.sniRoutes.flatMap { it.exactHosts }, "the node ends TLS for it")
+        }
+        assertTrue(HomelabServices.containers(testConfig(), hostAddress = null).isEmpty(), "no address, no service")
     }
 
     @Test

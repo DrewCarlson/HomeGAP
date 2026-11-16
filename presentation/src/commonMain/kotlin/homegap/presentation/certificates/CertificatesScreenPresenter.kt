@@ -262,7 +262,7 @@ internal class CertificatesView(
         val waiting = certs.delivery.filter { it.state == "waiting" }.map { it.node }
         val keep = issued?.let { " The nodes keep the certificate of ${date(it.notBefore)}." }
             ?: " There is no certificate yet, so the nodes answer with a default certificate."
-        val wait = waiting.takeIf { it.isNotEmpty() }?.let { " ${it.joinToString()} ${if (it.size == 1) "waits" else "wait"} for an order with ${if (it.size == 1) "its name" else "their names"}, so the tunnel waits." }.orEmpty()
+        val wait = waiting.takeIf { it.isNotEmpty() }?.let { " ${it.joinToString()} ${if (it.size == 1) "waits" else "wait"} for an order with ${if (it.size == 1) "its name" else "their names"}, so the mesh link waits." }.orEmpty()
         return OrderFailureModel(
             title = "Order failed · ${order.causeText ?: "the ACME client failed"}",
             text = (CAUSES[order.cause] ?: CAUSES.getValue("other")) + keep + wait,
@@ -496,7 +496,7 @@ internal class CertificatesView(
             row.missing.takeIf { it.isNotEmpty() }?.let { InspectorSection.Code("Names it lacks", it.joinToString("\n")) },
             InspectorSection.Note(
                 when (row.state) {
-                    "waiting" -> "Not broken. Its tunnel connects once an order with its management name completes."
+                    "waiting" -> "Not broken. Its mesh link connects once an order with its management name completes."
                     "unknown" -> "The node did not answer the last probe. The values above are from before."
                     "default" -> "The node answers its names with the default certificate. Send again, or see the last order."
                     else -> "The next reconcile pass sends the current certificate. The node stack does not restart."

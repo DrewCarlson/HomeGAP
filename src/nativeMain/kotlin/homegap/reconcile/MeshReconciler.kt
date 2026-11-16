@@ -2,23 +2,17 @@ package homegap.reconcile
 
 import homegap.api.MeshMemberDto
 import homegap.api.MeshPeerDto
-import homegap.api.MeshProbeDto
 import homegap.api.MeshStatusDto
 import homegap.config.MeshConfig
 import homegap.config.NodeConfig
-import homegap.platform.nowMillis
 import homegap.platform.runCatchingCancellable
-import homegap.provision.ClusterTemplates
 import homegap.provision.Mesh
-import homegap.provision.MeshProbe
-import io.ktor.client.plugins.timeout
-import io.ktor.client.request.get
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 /**
- * Mesh domain: keeps the WireGuard mesh of the cluster ([Mesh]) in step with the configured nodes.
+ * Mesh domain: keeps the WireGuard mesh ([Mesh]) in step with the configured nodes.
  *
  * In each pass, every node gets its setup script over SSH. The script creates the key of the node
  * once, writes the peer list and applies changes in place. The homelab interface follows. The
@@ -29,9 +23,6 @@ import kotlinx.coroutines.coroutineScope
  */
 class MeshReconciler(private val homelab: HomelabMesh) {
     private val lastErrors = mutableMapOf<String, String>()
-    private val nodeProbes = MeshProbe.History()
-    private val containerProbes = MeshProbe.History()
-    private val homelabProbe = HomelabProbe()
 
     /** The members of the mesh in one pass, and the address of each. */
     private class Layout(
@@ -42,7 +33,6 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         val forwards: MeshForwards.Result,
     ) {
         val homelabAddress = Mesh.homelabAddress(mesh)
-        val memberIds = members.map { it.id }.toSet()
 
         fun addressOf(node: NodeConfig): String = addresses.getValue(node.id)
     }
@@ -53,8 +43,6 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         val address: String,
         val peers: List<Mesh.PeerStatus>?,
         val error: String?,
-        val probe: Map<String, MeshProbeDto> = emptyMap(),
-        val containerProbe: Map<String, MeshProbeDto> = emptyMap(),
     ) {
         /** WireGuard names a peer by its public key. [idByKey] gives the member that has each key. */
         fun dto(idByKey: Map<String, String>) = MeshMemberDto(
@@ -70,8 +58,6 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             lastHandshakeAt = peer.latestHandshake.takeIf { it > 0 }?.let { it * 1000 },
             rxBytes = peer.rxBytes,
             txBytes = peer.txBytes,
-            probe = probe[peerId],
-            containerProbe = containerProbe[peerId],
         )
     }
 
@@ -99,12 +85,6 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             else -> homelabState(layout, peers = null, error = "homelab mesh key: ${failure.message}")
         }
         report(ctx, Mesh.HOMELAB, homelabState.error)
-        if (homelabState.peers != null) {
-            ctx.times.measure("mesh.probe") { probeFromHomelab(ctx, layout) }
-        }
-
-        nodeProbes.retain(layout.memberIds + Mesh.HOMELAB)
-        containerProbes.retain(layout.memberIds + Mesh.HOMELAB)
         return status(ctx, layout, homelabState, nodeStates)
     }
 
@@ -161,15 +141,7 @@ class MeshReconciler(private val homelab: HomelabMesh) {
                 "$forwards\n$mesh"
             }
         }
-        val probes = listOf(
-            "echo $PROBE_BEGIN",
-            MeshProbe.READ_CMD,
-            "echo $PROBE_END",
-            "echo $CONTAINER_PROBE_BEGIN",
-            MeshProbe.containerReadCmd(ctx.config.pangolin.installDir),
-            "echo $CONTAINER_PROBE_END",
-        ).joinToString("; ")
-        val result = ctx.ssh.session(node).runScript("$setup\n$probes", SCRIPT_TIMEOUT_SECONDS)
+        val result = ctx.ssh.session(node).runScript(setup, SCRIPT_TIMEOUT_SECONDS)
         check(result.ok) {
             result.stderr.trim()
                 .ifEmpty { result.stdout.trim() }
@@ -192,19 +164,8 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         ctx.log.change(DOMAIN, "joined the mesh at $address", node.id)
     }
 
-    private fun memberState(node: NodeConfig, address: String, output: String): MemberState {
-        val now = nowMillis()
-        val probeText = output.substringAfter(PROBE_BEGIN, "").substringBefore(PROBE_END)
-        val containerText = output.substringAfter(CONTAINER_PROBE_BEGIN, "").substringBefore(CONTAINER_PROBE_END)
-        return MemberState(
-            id = node.id,
-            address = address,
-            peers = Mesh.parseDump(Mesh.dumpSection(output)),
-            error = null,
-            probe = nodeProbes.record(node.id, MeshProbe.parse(probeText), now),
-            containerProbe = containerProbes.record(node.id, MeshProbe.parseContainer(containerText, now), now),
-        )
-    }
+    private fun memberState(node: NodeConfig, address: String, output: String): MemberState =
+        MemberState(node.id, address, Mesh.parseDump(Mesh.dumpSection(output)), error = null)
 
     // ------------------------------------------------------------------ homelab
 
@@ -219,32 +180,6 @@ class MeshReconciler(private val homelab: HomelabMesh) {
 
     private fun homelabState(layout: Layout, peers: List<Mesh.PeerStatus>?, error: String?) =
         MemberState(Mesh.HOMELAB, layout.homelabAddress, peers, error)
-
-    /**
-     * Sends one timed request from the homelab to the Patroni of each member. The request uses
-     * plain HTTP, because the mesh encrypts it.
-     */
-    @Suppress("HttpUrlsUsage")
-    private suspend fun probeFromHomelab(ctx: ReconcileContext, layout: Layout) {
-        homelabProbe.retain(layout.memberIds)
-        coroutineScope {
-            layout.members.map { node ->
-                async {
-                    val url = "http://${layout.addressOf(node)}:${ClusterTemplates.PATRONI_PORT}/liveness"
-                    val started = nowMillis()
-                    val answered = runCatchingCancellable {
-                        ctx.localHttp.get(url) { timeout { requestTimeoutMillis = PROBE_TIMEOUT_MS } }
-                    }.isSuccess
-                    val now = nowMillis()
-                    homelabProbe.record(
-                        peer = node.id,
-                        at = now,
-                        rttMs = if (answered) (now - started).toDouble() else null,
-                    )
-                }
-            }.awaitAll()
-        }
-    }
 
     // ------------------------------------------------------------------ peers and status
 
@@ -273,17 +208,9 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             layout.homelabKey?.let { put(it, Mesh.HOMELAB) }
             memberKeys(ctx, layout).forEach { (id, key) -> if (key != null) put(key, id) }
         }
-        // The probe of the homelab has the readings of this pass only now.
-        val homelabView = MemberState(
-            id = homelabState.id,
-            address = homelabState.address,
-            peers = homelabState.peers,
-            error = homelabState.error,
-            probe = homelabProbe.view(),
-        )
         return MeshStatusDto(
             subnet = layout.mesh.subnet,
-            members = (listOf(homelabView) + nodeStates).map { it.dto(idByKey) },
+            members = (listOf(homelabState) + nodeStates).map { it.dto(idByKey) },
         )
     }
 
@@ -313,7 +240,6 @@ class MeshReconciler(private val homelab: HomelabMesh) {
     private companion object {
         const val DOMAIN = "mesh"
         const val SCRIPT_TIMEOUT_SECONDS = 300
-        const val PROBE_TIMEOUT_MS = 3_000L
         const val ERROR_TEXT_LENGTH = 400
 
         /** The script for a paused node. It reads the status and changes nothing. */
@@ -322,9 +248,5 @@ class MeshReconciler(private val homelab: HomelabMesh) {
         // Lines and sections in the output of the node script.
         const val CHANGED = "CHANGED "
         const val PUBLIC_KEY = "PUBKEY="
-        const val PROBE_BEGIN = "PROBE-BEGIN"
-        const val PROBE_END = "PROBE-END"
-        const val CONTAINER_PROBE_BEGIN = "CPROBE-BEGIN"
-        const val CONTAINER_PROBE_END = "CPROBE-END"
     }
 }

@@ -70,7 +70,7 @@ class TerminalSessions(private val controller: Controller, private val ssh: SshP
                 "$nodeId has $MAX_PER_NODE terminals open. Close one first."
             }
         }
-        val argv = ssh.session(node).interactive(shellCommand(controller.config.pangolin.installDir))
+        val argv = ssh.session(node).interactive(shellCommand(controller.config.nodeStack.installDir))
         val pty = withContext(Dispatchers.IO) {
             Pty.spawn(argv, rows, columns, env = mapOf("TERM" to "xterm-256color"))
         }

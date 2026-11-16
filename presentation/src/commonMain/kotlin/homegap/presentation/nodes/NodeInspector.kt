@@ -18,8 +18,8 @@ import homegap.presentation.ui.Severity
 import homegap.presentation.ui.chartOf
 
 /**
- * [node] in the Inspector: its graphs (Pangolin API probe, mesh round trip, tunnel throughput),
- * its checks, what it runs on, and its actions.
+ * [node] in the Inspector: its checks, its graphs (requests, egress, mesh link throughput),
+ * what it runs on, and its actions.
  */
 fun nodeInspector(
     node: NodeStatusDto,
@@ -29,16 +29,7 @@ fun nodeInspector(
     certificates: homegap.api.CertificatesDto? = null,
 ): InspectorModel {
     val nowSeconds = now / 1000
-    val api = node.checks.firstOrNull { it.name == "pangolin-api" }
     val charts = buildList {
-        add(
-            chartOf(
-                label = "Pangolin API probe",
-                samples = samples?.get("api"),
-                nowSeconds = nowSeconds,
-                threshold = api?.threshold,
-            )
-        )
         samples?.get("rps")?.let {
             add(
                 chartOf(
@@ -57,19 +48,10 @@ fun nodeInspector(
                 )
             )
         }
-        samples?.get("mesh")?.let {
-            add(
-                chartOf(
-                    label = "Mesh round trip to the homelab",
-                    samples = it,
-                    nowSeconds = nowSeconds,
-                )
-            )
-        }
         samples?.get("in")?.let {
             add(
                 chartOf(
-                    label = "Tunnel in, homelab to node",
+                    label = "Mesh link in, homelab to node",
                     samples = it,
                     nowSeconds = nowSeconds,
                 )
@@ -78,7 +60,7 @@ fun nodeInspector(
         samples?.get("out")?.let {
             add(
                 chartOf(
-                    label = "Tunnel out, node to homelab",
+                    label = "Mesh link out, node to homelab",
                     samples = it,
                     nowSeconds = nowSeconds,
                 )
@@ -100,7 +82,7 @@ fun nodeInspector(
             if (node.waitingForCertificate) {
                 add(
                     InspectorSection.Note(
-                        text = "Not broken: ${node.id} waits for its certificate. Its tunnel connects once an order with ${node.managementHost} completes.",
+                        text = "Not broken: ${node.id} waits for its certificate. Its mesh link connects once an order with ${node.managementHost} completes.",
                         severity = Severity.Info,
                     )
                 )
@@ -214,14 +196,13 @@ fun CheckDto.toMark(): MarkRow = MarkRow(
 
 /** The dashboard's name for a check. */
 fun checkTitle(name: String): String = when (name) {
-    "pangolin-api" -> "Pangolin API probe"
     "ssh" -> "SSH"
     "docker" -> "Docker"
-    "tunnel" -> "Tunnel"
-    "gerbil-udp" -> "WireGuard port"
+    "mesh" -> "Mesh link"
+    "traefik" -> "Traefik"
+    "homegap-maintenance" -> "Maintenance page"
+    "homegap-agent" -> "HomeGAP agent"
     "tls-mgmt" -> "Management certificate"
     "tls-root" -> "Root name TLS"
-    "cluster-proxy" -> "Cluster proxy"
-    "ee-license" -> "EE license"
     else -> name.replaceFirstChar { it.uppercase() }
 }

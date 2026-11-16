@@ -13,8 +13,8 @@ import homegap.api.CheckDto
 import homegap.api.Health
 import homegap.api.NodeStatusDto
 import homegap.api.StatusSnapshot
-import homegap.api.TunnelStatusDto
-import homegap.config.ClusterConfig
+import homegap.config.ConfigLoader
+import homegap.model.HomelabServices
 import homegap.model.Planner
 import homegap.reconcile.attentionItems
 import kotlinx.serialization.json.Json
@@ -27,9 +27,10 @@ import kotlin.test.assertTrue
 
 /** The `certificates` part of the status: its facts, its states, and what it never holds. */
 class CertificatesStatusTest {
-    private val config = testConfig().copy(cluster = ClusterConfig(image = "example/cluster:7"))
+    private val config = ConfigLoader.parse("$TEST_CONFIG\nsign_in:\n  url: https://vpn.test.example.net\n")
     private val wiki = container("wiki", "homegap.expose" to "wiki.test.example.net", "homegap.port" to "80")
-    private val plan = Planner.plan(config, listOf(TRAEFIK, wiki))
+    private val signIn = HomelabServices.containers(config, hostAddress = null)
+    private val plan = Planner.plan(config, listOf(TRAEFIK, wiki) + signIn)
     private val now = X509.epochSeconds(2026, 12, 1, 0, 0, 0)
 
     @Test
@@ -49,9 +50,9 @@ class CertificatesStatusTest {
     @Test
     fun eachNameHasTheReasonThatPutsItOnTheCertificate() {
         val entries = CertNames.entries(config, plan).associateBy { it.name }
-        assertEquals("management", entries.getValue("pangolin-na1.test.example.net").reason)
-        assertEquals("na1", entries.getValue("pangolin-na1.test.example.net").subject)
-        assertEquals("client", entries.getValue(config.clientHost!!).reason)
+        assertEquals("management", entries.getValue("node-na1.test.example.net").reason)
+        assertEquals("na1", entries.getValue("node-na1.test.example.net").subject)
+        assertEquals("service", entries.getValue(config.signInHost!!).reason)
         assertEquals("service", entries.getValue("wiki.test.example.net").reason)
         assertEquals(CertNames.of(config, plan), CertNames.entries(config, plan).map { it.name })
         assertTrue(
@@ -144,7 +145,7 @@ class CertificatesStatusTest {
                 "na1" to probes(
                     installed = null,
                     names = CertNames.of(config, plan),
-                    default = setOf("pangolin-na1.test.example.net"),
+                    default = setOf("node-na1.test.example.net"),
                 ),
                 "as1" to probes(installed = "old", names = CertNames.of(config, plan)),
             ),
@@ -156,7 +157,7 @@ class CertificatesStatusTest {
         assertEquals("behind", as1.state)
         assertEquals("0a0a0a", as1.installed)
         assertEquals(listOf("wiki.test.example.net"), as1.missing)
-        assertEquals(listOf("pangolin-na1.test.example.net"), status.pendingAdd)
+        assertEquals(listOf("node-na1.test.example.net"), status.pendingAdd)
         assertEquals("homelab", status.probes.first { it.name == "test.example.net" }.kind)
         assertEquals("11e7cc", status.issued?.version)
     }
@@ -209,18 +210,10 @@ class CertificatesStatusTest {
             region = "NA",
             provider = "",
             host = "",
-            managementHost = "pangolin-na1.test.example.net",
+            managementHost = "node-na1.test.example.net",
             health = Health.DEGRADED,
             reachable = true,
             waitingForCertificate = true,
-        )
-        val tunnel = TunnelStatusDto(
-            nodeId = "na1",
-            siteNiceId = "s",
-            endpoint = "e",
-            up = false,
-            processRunning = false,
-            siteOnline = false,
         )
         val snapshot = StatusSnapshot(
             generatedAt = now * 1000,
@@ -230,7 +223,6 @@ class CertificatesStatusTest {
             domain = config.domain,
             paused = false,
             nodes = listOf(node),
-            tunnels = listOf(tunnel),
             certificates = certs,
         )
         val items = attentionItems(snapshot, emptyMap())
@@ -238,7 +230,6 @@ class CertificatesStatusTest {
         assertEquals(Health.DOWN, order.severity)
         assertEquals("certificates", order.route)
         assertEquals("certificates:order", items.first { it.id == "node:na1:waiting" }.parent)
-        assertEquals("certificates:order", items.first { it.id == "tunnel:na1" }.parent)
         assertNull(items.firstOrNull { it.id == "node:na1:down" })
     }
 
@@ -261,7 +252,7 @@ class CertificatesStatusTest {
                 region = "NA",
                 provider = "",
                 host = "",
-                managementHost = "pangolin-na1.test.example.net",
+                managementHost = "node-na1.test.example.net",
                 health = Health.DEGRADED,
                 reachable = true,
                 checks = listOf(CheckDto("tls-mgmt", Health.DEGRADED, "1 days left")),

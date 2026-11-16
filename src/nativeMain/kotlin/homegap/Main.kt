@@ -1,21 +1,15 @@
 package homegap
 
 import dev.zacsweers.metro.createGraphFactory
-import homegap.api.ActionResponse
-import homegap.config.AppConfig
 import homegap.config.ConfigLoader
 import homegap.config.SharedDirs
 import homegap.config.SignInConfig
 import homegap.config.VpnConfig
-import homegap.dashboard.DashboardAuth
 import homegap.di.ControllerGraph
 import homegap.di.RunOptions
-import homegap.di.TunnelOptions
-import homegap.di.TunnelsGraph
 import homegap.discovery.DockerContainerSummary
 import homegap.mesh.MeshAgent
 import homegap.platform.Identity
-import homegap.mesh.MeshRoute
 import homegap.model.HomelabServices
 import homegap.identity.MachineCommand
 import homegap.identity.UserCommand
@@ -35,14 +29,8 @@ import homegap.stack.StackFiles
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.github.oshai.kotlinlogging.KotlinLoggingConfiguration
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
 import io.ktor.client.engine.curl.Curl
 import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.HttpHeaders
-import io.ktor.http.isSuccess
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -56,28 +44,18 @@ const val VERSION = "0.1.0"
 
 private const val EXIT_FAILURE = 1
 private const val EXIT_USAGE = 2
-private const val EXIT_STALE_NAMESPACE = 3
 private const val DEFAULT_CONFIG = "/config/config.yml"
-private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
-private const val DEFAULT_MESH_HOST = "homegap-mesh"
 private const val DEFAULT_AGENT_DIR = "/agent"
 private const val DEFAULT_AGENT_STATE_DIR = "/agent-state"
 private const val DEFAULT_SIGN_IN_PORT = 8090
 private const val PROVIDER_TIMEOUT_MS = 15_000L
-private const val DEFAULT_MAINTENANCE_MINUTES = 30
 private const val DEFAULT_STACK_FILES = "/usr/share/homegap/deploy"
 private const val DEFAULT_STACK_FOLDER = "/work"
 private const val INSTALL_PAGE = "https://drewcarlson.github.io/HomeGAP/latest/getting-started/install/"
 
 /** The answers that replace a file that the user changed. */
 private val YES_ANSWERS = setOf("y", "yes")
-
-/**
- * The orchestrator waits up to 10 minutes for a node that updates its own member, and then it
- * moves the primaries. The request must not end before that.
- */
-private const val MAINTENANCE_TIMEOUT_MS = 15 * 60_000L
 
 /** The options that are commands: `homegap --version` does not start the controller. */
 private val COMMAND_OPTIONS = setOf("--version", "--help")
@@ -91,14 +69,11 @@ private const val USAGE = """homegap $VERSION — Home Global Access Platform or
 
 Usage:
   homegap [run] [--config PATH] [--dry-run] [--once]   Run the controller (default)
-  homegap tunnels [--dir PATH] [--newt PATH]           Run the Newt tunnel supervisor
-  homegap mesh [--dir PATH]                            Run the homelab's mesh agent (cluster mode)
-  homegap mesh-route [--dir PATH]                      Keep the orchestrator's route to the mesh (cluster mode)
-  homegap node-agent [--dir PATH] [--state PATH]                    Run the agent of a node (on the node)
+  homegap mesh [--dir PATH]                            Run the mesh agent of the homelab (the mesh and the VPN peer)
+  homegap node-agent [--dir PATH] [--state PATH]       Run the agent of a node (on the node)
   homegap validate [--config PATH]                     Validate the config file
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
-  homegap maintenance start [--minutes N] | end       Move the cluster primaries off the homelab (and back) around an upgrade
   homegap machine list | add NAME [--role ROLE]... | remove NAME
                                                        Manage the devices with no user (servers that need access)
   homegap sign-in [--config PATH] [--dir PATH] [--identity PATH] [--port N]
@@ -109,7 +84,7 @@ Usage:
   homegap version
 
 Environment: HOMEGAP_CONFIG (default /config/config.yml), HOMEGAP_DRY_RUN, DOCKER_SOCKET, DOCKER_HOST,
-HOMEGAP_CLUSTER_CONFIG_DIR, HOMEGAP_TUNNELS_DIR, HOMEGAP_MESH_DIR, HOMEGAP_MESH_HOST, HOMEGAP_STACK_FILES."""
+HOMEGAP_MESH_DIR, HOMEGAP_IDENTITY_DIR, HOMEGAP_SIGN_IN_DIR, HOMEGAP_VPN_DIR, HOMEGAP_STACK_FILES."""
 
 /** The command and the arguments after it. With no command, the command is `run`. */
 private class CommandLine(args: Array<String>) {
@@ -134,11 +109,6 @@ fun main(args: Array<String>) {
             "validate" -> validate(configPath)
             "plan" -> printPlan(configPath, line)
             "render-node" -> renderNode(configPath, line)
-            "maintenance" -> {
-                val action = line.rest.firstOrNull { it == "start" || it == "end" } ?: error("maintenance start|end")
-                val minutes = line.option("--minutes")?.toIntOrNull() ?: DEFAULT_MAINTENANCE_MINUTES
-                maintenance(configPath, action, minutes)
-            }
             "init" -> initStack(line)
             "sign-in" -> runSignIn(configPath, line)
             "machine" -> MachineCommand(ConfigLoader.load(configPath), line.rest).run()
@@ -147,18 +117,9 @@ fun main(args: Array<String>) {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
                 runMesh(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
             }
-            "mesh-route" -> {
-                val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
-                runMeshRoute(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
-            }
             "node-agent" -> runBlocking {
                 val state = line.option("--state") ?: DEFAULT_AGENT_STATE_DIR
                 NodeAgent(line.option("--dir") ?: DEFAULT_AGENT_DIR, state).run()
-            }
-            "tunnels" -> {
-                val dir = line.option("--dir") ?: SharedDirs.tunnels(DEFAULT_DATA_DIR)
-                val shared = sharedDir(dir, folder = "data/tunnels", other = "orchestrator")
-                runTunnels(shared, newt = line.option("--newt") ?: env("HOMEGAP_NEWT") ?: DEFAULT_NEWT)
             }
             "run" -> {
                 val dryRun = line.flag("--dry-run") || env("HOMEGAP_DRY_RUN")?.lowercase() in TRUE_VALUES
@@ -231,18 +192,13 @@ private fun renderNode(configPath: String, line: CommandLine) {
         ?: error("node id required")
     val node = config.node(id) ?: error("unknown node $id")
     val plan = Planner.plan(config, emptyList())
-    val files = NodeTemplates.staticFiles(
-        config = config,
-        node = node,
-        secrets = placeholderSecrets(config),
-        slot = config.nodes.indexOf(node),
-    )
+    val files = NodeTemplates.staticFiles(config, node, NodeSecrets(crowdsecBouncerKey = "<bouncer-key>"))
     for ((path, content, mode) in files) {
         println("=== $path ($mode)")
         println(content)
     }
     println("=== ${NodeTemplates.DYNAMIC_ROUTES}")
-    println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id), emptyMap()))
+    println(NodeTemplates.dynamicRoutes(plan.nodes.getValue(id)))
 }
 
 /**
@@ -275,7 +231,7 @@ private fun initStack(line: CommandLine) {
 private val NEXT_STEPS = """
 Next:
   1. Put your Bunny API key in .env.
-  2. Set domain, bunny.zone and pangolin.acme_email in config/config.yml.
+  2. Set domain, bunny.zone and acme.email in config/config.yml.
   3. Put your own changes to the stack in compose.override.yml (see compose.override.example.yml).
   4. Start the stack: docker compose up -d
 All steps: $INSTALL_PAGE""".trimEnd()
@@ -300,14 +256,6 @@ private fun outcomeLine(outcome: FileOutcome): String {
         FileResult.KEPT -> "kept       $path (the file of this version is ${path + StackFiles.NEW_SUFFIX})"
     }
 }
-
-private fun placeholderSecrets(config: AppConfig) = NodeSecrets(
-    setupToken = "<setup-token>",
-    serverSecret = "<server-secret>",
-    adminEmail = NodeTemplates.adminEmail(config),
-    adminPassword = "<password>",
-    crowdsecBouncerKey = "<bouncer-key>",
-)
 
 private fun runController(configPath: String, dryRun: Boolean, once: Boolean) = runBlocking {
     val options = RunOptions(configPath = configPath, dryRun = dryRun, once = once)
@@ -370,43 +318,6 @@ private fun runSignIn(configPath: String, line: CommandLine) = runBlocking {
 
 private fun runMesh(dir: String) = runBlocking {
     MeshAgent(dir, SharedDirs.vpn(DEFAULT_DATA_DIR)).run()
-}
-
-private fun runMeshRoute(dir: String) {
-    val gateway = env("HOMEGAP_MESH_HOST")?.takeIf { it.isNotBlank() } ?: DEFAULT_MESH_HOST
-    runBlocking { MeshRoute(dir, gateway).run() }
-    // The helper is in a namespace with no network. Docker starts it again in the new one.
-    exitProcess(EXIT_STALE_NAMESPACE)
-}
-
-private fun runTunnels(dir: String, newt: String) = runBlocking {
-    createGraphFactory<TunnelsGraph.Factory>().create(TunnelOptions(dir, newt)).supervisor.run()
-}
-
-/**
- * Asks the running orchestrator (same container, its dashboard API) to start or end maintenance.
- * The request uses plain HTTP, because it does not leave the container.
- */
-@Suppress("HttpUrlsUsage")
-private fun maintenance(configPath: String, action: String, minutes: Int) = runBlocking {
-    val config = ConfigLoader.load(configPath)
-    val token = DashboardAuth.current(config)
-    val host = config.dashboard.host.let { if (it == "0.0.0.0" || it.isEmpty()) "127.0.0.1" else it }
-    val url = "http://$host:${config.dashboard.port}/api/cluster/maintenance/$action?minutes=$minutes"
-    HttpClient(CIO) {
-        install(HttpTimeout) { requestTimeoutMillis = MAINTENANCE_TIMEOUT_MS }
-    }.use { http ->
-        val response = http.post(url) {
-            token?.let { header(HttpHeaders.Authorization, "Bearer $it") }
-        }
-        val body = response.bodyAsText()
-        val message = runCatching { Json.decodeFromString<ActionResponse>(body).message }.getOrDefault(body)
-        if (!response.status.isSuccess()) {
-            eprintln("homegap maintenance $action: $message")
-            exitProcess(EXIT_FAILURE)
-        }
-        println(message)
-    }
 }
 
 /** Returns [path], and says so on stderr if it is not a mount that the [other] container can see. */

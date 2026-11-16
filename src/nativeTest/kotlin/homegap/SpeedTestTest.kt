@@ -3,28 +3,16 @@ package homegap
 import homegap.api.NodeCpuDto
 import homegap.config.ConfigLoader
 import homegap.model.Planner
-import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.speedtest.CpuCounters
 import homegap.speedtest.SpeedTestLive
 import homegap.speedtest.SpeedTestTokens
 import homegap.speedtest.TunnelSpeedTest
-import homegap.tunnels.TunnelFiles
-import homegap.tunnels.TunnelSpec
 import kotlin.math.round
 import kotlin.test.*
 
 class SpeedTestTest {
-    private val config = ConfigLoader.parse(
-        "$TEST_CONFIG\nspeedtest:\n  enabled: true\ntunnels:\n  mtu: 1420\n  native: true\n",
-    )
-    private val secrets = NodeSecrets(
-        setupToken = "a".repeat(32),
-        serverSecret = "s",
-        adminEmail = "admin@test.example.net",
-        adminPassword = "p",
-        crowdsecBouncerKey = "bk",
-    )
+    private val config = ConfigLoader.parse("$TEST_CONFIG\nspeedtest:\n  enabled: true\n")
 
     @Test
     fun perNodeHostnamesGetDnsAndAutoRidesTheWildcard() {
@@ -64,7 +52,7 @@ class SpeedTestTest {
             "speedtest.test.example.net" in node.sniRoutes.single().excludeHosts,
             "never passed through: the node answers it",
         )
-        val routes = NodeTemplates.dynamicRoutes(node, emptyMap())
+        val routes = NodeTemplates.dynamicRoutes(node)
         // HTTPS on the shared name goes back into port 443 of the node as speedtest-as1. The front
         // door carries that name home, and the homelab sees the node of each request.
         assertTrue("Host(`speedtest.test.example.net`)" in routes)
@@ -78,7 +66,7 @@ class SpeedTestTest {
         )
         assertTrue("https://127.0.0.1:443" in routes)
         assertFalse("via=auto" in routes, "no redirect: the address bar keeps the shared name")
-        // The terminate mode also needs no Pangolin resource for the shared name.
+        // The terminate mode also needs no stream for the shared name.
         val terminate = container(
             "traefik",
             "homegap.expose" to "test.example.net",
@@ -88,23 +76,19 @@ class SpeedTestTest {
         )
         val terminateNode = Planner.plan(config, listOf(terminate)).nodes.getValue("as1")
         assertTrue(terminateNode.publicResources.none { it.fullDomain == "speedtest.test.example.net" })
-        assertTrue("Host(`speedtest.test.example.net`)" in NodeTemplates.dynamicRoutes(terminateNode, emptyMap()))
+        assertTrue("Host(`speedtest.test.example.net`)" in NodeTemplates.dynamicRoutes(terminateNode))
     }
 
     @Test
-    fun tuningRendersGerbilMtuAndSysctls() {
-        val node = config.node("na1")!!
-        val files = NodeTemplates.staticFiles(config, node, secrets, slot = 0)
-        assertTrue(files.single { it.path == "compose.yml" }.content.contains("--mtu=1420"))
+    fun tuningRendersTheSysctls() {
         assertTrue(NodeTemplates.sysctlConf().contains("tcp_congestion_control = bbr"))
-        // The edge namespace (Gerbil + Traefik) gets its own TCP buffers.
+        // The namespace of Traefik gets its own TCP buffers.
         val compose = NodeTemplates.compose(config)
         assertTrue("net.ipv4.tcp_wmem" in compose && "4096 65536 67108864" in compose)
         assertTrue("net.ipv4.tcp_reordering" in compose)
         assertTrue(TunnelSpeedTest.script(host = "h", token = "t", seconds = 8, streams = 4).contains("seq 1 4"))
-        val untuned = ConfigLoader.parse("$TEST_CONFIG\npangolin:\n  tcp_tuning: false\n")
+        val untuned = ConfigLoader.parse("$TEST_CONFIG\nnode_stack:\n  tcp_tuning: false\n")
         assertFalse(NodeTemplates.compose(untuned).contains("sysctls"))
-        assertFalse(NodeTemplates.compose(untuned).contains("--mtu"))
     }
 
     @Test
@@ -180,15 +164,6 @@ class SpeedTestTest {
     }
 
     @Test
-    fun tunnelSpecDefaultsStayCompatible() {
-        // Specs written before tuning existed must decode and compare equal to untuned ones.
-        val old = """{"nodeId":"na1","endpoint":"https://x","newtId":"i","newtSecret":"s","adminPort":47900}"""
-        val spec = TunnelFiles.json.decodeFromString(TunnelSpec.serializer(), old)
-        assertNull(spec.mtu)
-        assertNull(spec.nativeInterface)
-    }
-
-    @Test
     fun aTunnelTestShowsTheCpuOfTheNodeInEachPhase() {
         val output = """
             P 0 0.1 204
@@ -245,7 +220,7 @@ class SpeedTestTest {
     }
 
     @Test
-    fun onlyTheLinkOfAPangolinClientIsAVpnLink() {
+    fun onlyTheLinkOfAVpnDeviceIsAVpnLink() {
         val tokens = SpeedTestTokens()
         val (invited, _) = tokens.issue(60_000)
         val (client, _) = tokens.issue(60_000, vpn = true)

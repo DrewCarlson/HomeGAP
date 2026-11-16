@@ -21,28 +21,20 @@ bunny:
   api_key_env: BUNNY_API_KEY
   ttl: 60
   routing: geolocation        # geolocation | latency | none
-  monitor: http               # http (port 80, through the tunnel) | ping | none
+  monitor: http               # http (port 80 of the node, through to the homelab) | ping | none
 
-pangolin:
-  acme_email: ops@test.example.net
-  org_id: homegap
-  # Pangolin EE license (free below the commercial threshold). Required for wildcard
-  # resources in `terminate` mode; passthrough works without it.
-  # A key is bound to ONE Pangolin instance when it is first activated.
-  # - With `cluster:`, every node is one Pangolin: this one key covers them all, and per-node
-  #   keys are ignored.
-  # - Without it, each node needs its own key (nodes[].license_key_env); this default only
-  #   suits a single node.
-  # See https://drewcarlson.github.io/HomeGAP/latest/configuration/licenses/
-  # license_key_env: PANGOLIN_LICENSE_KEY
+# What each node runs: Traefik, the maintenance page, the agent of HomeGAP and, with `crowdsec`,
+# CrowdSec. Each key has a default.
+node_stack:
   crowdsec: false
-  # base_blueprint: /config/blueprints/base.yml
+  # install_dir: /opt/homegap
+  # tcp_tuning: true          # BBR and larger TCP buffers on the node
 
 # The certificate of the nodes. HomeGAP orders it from Let's Encrypt with the DNS challenge, for
 # the names that a node terminates and no others. A node never gets a certificate for a
 # passthrough name. See https://drewcarlson.github.io/HomeGAP/latest/configuration/certificates/
 acme:
-  # email: ops@test.example.net   # default: pangolin.acme_email
+  email: ops@test.example.net     # the address of the Let's Encrypt account
   # staging: true                 # Let's Encrypt staging, for tests
   # CAA records for the domain: only Let's Encrypt, only with the DNS challenge. They also apply
   # to the Traefik of your homelab. Set false if it uses another authority or challenge.
@@ -58,27 +50,30 @@ acme:
 # agent:
 #   image: ghcr.io/drewcarlson/homegap:0.1.0
 
-# Optional: clustered Pangolin and its shared database (PostgreSQL and Valkey on the homelab and
-# every node), over the mesh.
-# cluster:
-#   # The tag of the default image is the value of HOMEGAP_VERSION. Without that variable, the tag is
-#   # the version of the orchestrator.
-#   # image: ghcr.io/drewcarlson/homegap-cluster:0.1
-#   # What the homelab is in the cluster. Set it before the cluster first starts; it does not change later.
-#   #   database (default): the homelab holds a copy of the database and is the primary whenever it can.
-#   #   vote: the homelab only votes. The database lives on the nodes, with a daily dump kept at home.
-#   homelab_role: database
-#   primary:
-#     preferred: homelab     # where the database primary lives whenever it can
-#     switch_back_after: 10m # how long the homelab must be caught up before it takes over again
-#   client_hostname: pangolin  # pangolin.<domain>: what the Pangolin apps connect to (nearest node)
-#   exit_nodes:              # internet exits the Pangolin apps can pick (all traffic, like a VPN)
-#     nodes: true            # "Exit via <node>": leaves with that node's address
-#     homelab: true          # "Exit via homelab": relayed by the nearest node, leaves from home
-#     roles: [Member]        # who may use them (Admin always can)
-#   tunnel_dns:              # DNS servers the apps reach with "DNS over tunnel", no exit needed
-#     resolvers: ["8.8.8.8"] # set the same address as the upstream DNS in each app; [] turns it off
-#     roles: [Member]        # who may use them (Admin always can)
+# HomeGAP's own sign-in for the apps. A user signs in with a HomeGAP password, or through an
+# OpenID Connect provider such as Authelia. The provider proves who the user is. The user must
+# exist in HomeGAP with the same email address. Without `url`, there is no sign-in and no VPN.
+# sign_in:
+#   url: https://vpn.test.example.net   # the address to put into the apps. Each node serves it.
+#   passwords: true          # false: accept only the provider
+#   oidc:
+#     name: Authelia         # the name on the button
+#     issuer: https://auth.example.net
+#     client_id: homegap
+#     client_secret_env: HOMEGAP_OIDC_CLIENT_SECRET   # a variable of the sign-in container
+#     # The redirect address to give the provider is <url>/auth/oidc/callback.
+
+# The VPN of the devices that sign in.
+# vpn:
+#   port: 51830              # udp on each node, which forwards it to the homelab
+#   exit_port: 51840         # udp on each node, for the devices that use the node as their exit
+#   exit_nodes:              # internet exits that the apps can pick (all traffic)
+#     nodes: true            # "Exit via <node>": leaves with the address of that node
+#     homelab: true          # "Exit via homelab": leaves from home
+#     roles: [Member]        # who can use them (Admin always can)
+#   tunnel_dns:              # DNS servers that the apps reach with "DNS over tunnel", with no exit
+#     resolvers: ["8.8.8.8"] # set the same address as the upstream DNS in each app. [] turns it off
+#     roles: [Member]        # who can use them (Admin always can)
 
 nodes:
   - id: na1
@@ -88,7 +83,6 @@ nodes:
     os: ubuntu-24.04
     ssh_user: deploy
     ssh_key_file: /data/ssh/na1
-    license_key_env: PANGOLIN_LICENSE_KEY_NA1
     # Optional: allow SSH through the firewall only from these sources. Locks the orchestrator
     # out if its public IP leaves the list; see
     # https://drewcarlson.github.io/HomeGAP/latest/getting-started/add-node/#4-firewall
@@ -101,14 +95,7 @@ nodes:
     os: ubuntu-22.04
     ssh_user: deploy
     ssh_key_file: /data/ssh/na2
-    license_key_env: PANGOLIN_LICENSE_KEY_NA2
     location: { latitude: 47.61, longitude: -122.33, name: Seattle }
-
-# Tunnel tuning; see https://drewcarlson.github.io/HomeGAP/latest/operations/performance/
-tunnels:
-  mtu: 1420
-  # Kernel WireGuard for Newt; the tunnels container needs NET_ADMIN and /dev/net/tun.
-  native: false
 
 # Speed tests (dashboard "Speed test" tab). Route speedtest*.<domain> to port 8089 in the homelab proxy.
 speedtest:
@@ -116,7 +103,7 @@ speedtest:
   hostname: speedtest
   bind: 0.0.0.0:8089
   link_ttl: 2h
-  # vpn_access: true        # Pangolin clients open the page with no link (needs homegap.private_network)
+  # vpn_access: true        # VPN devices open the page with no link (needs homegap.private_network)
   streams: 4                # parallel streams for homelab <-> node tests
 
 # A public status page at status.<domain>: the visitor's node, every node's state and the visitor's
@@ -125,22 +112,9 @@ speedtest:
 # The public status page only ever shows its region.
 # homelab:
 #   location: { latitude: 32.78, longitude: -96.8, name: "Dallas, Texas" }
-#   ssh:                     # SSH to the homelab host, for Pangolin clients only
-#     enabled: true          # the alias is ssh.<domain>
+#   ssh:                     # SSH to the homelab host, for VPN devices only
+#     enabled: true          # the name is ssh.<domain>
 #     roles: [Member]        # who may use it (Admin always can)
-
-# HomeGAP's own sign-in for the apps. A user signs in with a HomeGAP password, or through an
-# OpenID Connect provider such as Authelia. The provider proves who the user is. The user must
-# exist in HomeGAP with the same email address.
-# sign_in:
-#   url: https://vpn.example.net
-#   passwords: true          # false: accept only the provider
-#   oidc:
-#     name: Authelia         # the name on the button
-#     issuer: https://auth.example.net
-#     client_id: homegap
-#     client_secret_env: HOMEGAP_OIDC_CLIENT_SECRET   # a variable of the sign-in container
-#     # The redirect address to give the provider is <url>/auth/oidc/callback.
 
 status_page:
   enabled: false
@@ -154,7 +128,7 @@ dashboard:
   auth_token_env: HOMEGAP_DASHBOARD_TOKEN
   allow_config_edits: true
   # hostname: orc            # your Traefik serves the dashboard at orc.<domain>
-  # access: private          # private: Pangolin clients only (needs homegap.private_network on
+  # access: private          # private: VPN devices only (needs homegap.private_network on
   #                          # the front door). public: everybody, with only the token as protection.
   # sso:                     # sign-in through a forward-auth middleware of your Traefik (Authelia)
   #   middleware: authelia@docker
