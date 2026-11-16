@@ -2071,6 +2071,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#check-the-sign-in-through-authelia" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the sign-in through Authelia
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-verifysh-checks" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2275,6 +2286,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#check-the-sign-in-through-authelia" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Check the sign-in through Authelia
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-verifysh-checks" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2422,6 +2444,11 @@
 <li>It starts all services with <code>docker compose up -d --build</code>.</li>
 <li>It runs <code>e2e/load-images.sh</code>, which loads <code>homegap:e2e</code> into the Docker daemon of each fake node. The agent of a node runs this image, and a node cannot pull a local image from a registry.</li>
 </ol>
+<h2 id="check-the-sign-in-through-authelia">Check the sign-in through Authelia<a class="headerlink" href="#check-the-sign-in-through-authelia" title="Permanent link">&para;</a></h2>
+<p><code>e2e/verify-oidc.sh</code> signs a device in through Authelia as a browser does. Give it a user of the harness Authelia. The last line is <code>approved</code> or <code>refused</code>.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>e2e/verify-oidc.sh<span class="w"> </span>eve
+</code></pre></div>
+<p>The harness maps the groups of Authelia to roles (<code>sign_in.oidc.group_roles</code>) and makes users at the first sign-in. <code>ada</code> is in a group that gives <code>Admin</code>, <code>eve</code> in one that gives <code>Member</code>, and <code>mallory</code> in none, so HomeGAP refuses <code>mallory</code>.</p>
 <h2 id="what-verifysh-checks">What verify.sh checks<a class="headerlink" href="#what-verifysh-checks" title="Permanent link">&para;</a></h2>
 <p><code>e2e/verify.sh</code> does these checks on every node:</p>
 <ul>
@@ -2459,10 +2486,10 @@
 <p>The <code>client</code> service connects to <code>https://signin.test.example.net</code> as a machine. <code>CLIENT_NODE_IP</code> takes the role of DNS: it sends the device to one node. The default is the address of <code>node-as1</code>.</p>
 <ol>
 <li>Create a machine. The command prints its id and its secret.
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>e2e/compose.yml<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>machine<span class="w"> </span>add<span class="w"> </span>e2e-client
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>e2e/compose.yml<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>orchestrator<span class="w"> </span>homegap<span class="w"> </span>machine<span class="w"> </span>add<span class="w"> </span>e2e-client
 </code></pre></div></li>
 <li>Start the client with the id and the secret. This example sends the device to <code>node-na1</code>.
-    <div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nv">OLM_ID</span><span class="o">=</span>&lt;id&gt;<span class="w"> </span><span class="nv">OLM_SECRET</span><span class="o">=</span>&lt;secret&gt;<span class="w"> </span><span class="nv">CLIENT_NODE_IP</span><span class="o">=</span><span class="m">172</span>.30.0.10<span class="w"> </span>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>e2e/compose.yml<span class="w"> </span>--profile<span class="w"> </span>client<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>client
+    <div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">OLM_ID</span><span class="o">=</span>&lt;id&gt;<span class="w"> </span><span class="nv">OLM_SECRET</span><span class="o">=</span>&lt;secret&gt;<span class="w"> </span><span class="nv">CLIENT_NODE_IP</span><span class="o">=</span><span class="m">172</span>.30.0.10<span class="w"> </span>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>e2e/compose.yml<span class="w"> </span>--profile<span class="w"> </span>client<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>client
 </code></pre></div></li>
 </ol>
 <p>The client has its local API on <code>127.0.0.1:9452</code> in the container. Use it to read the state of the client and to select an exit.</p>

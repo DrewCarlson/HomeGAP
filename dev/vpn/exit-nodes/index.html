@@ -2379,7 +2379,7 @@
 <p>The traffic leaves with the public address of the node. This exit continues to work while the homelab is down.</p>
 <p>The agent of the node (<code>homegap-agent</code>) keeps a WireGuard interface for the exit, <code>hg-exit</code>. The device connects to it on UDP port <code>vpn.exit_port</code> of the node. The address of the exit is <code>100.90.255.&lt;n&gt;</code> with the default subnet, where <code>n</code> is the last part of the mesh address of the node.</p>
 <p>The mesh agent of the homelab sends each node the devices that have a role for the exits. It sends the full list over the mesh every 15 seconds and after each change. The agent of the node admits the WireGuard key of each device at the tunnel address of that device. The node accepts the list only from the mesh address of the homelab.</p>
-<p>The app lists the exit of a node only after that node has the key of the device. A node that does not answer the mesh agent is not in the list.</p>
+<p>The app gets the exit of a node only after that node has the key of the device. A node that gets the key after the device connected sends its exit to the app at that time. The device needs no new connection. A node that does not answer the mesh agent is not in the list.</p>
 <p>Through this exit, a device reaches the internet. It does not reach a private range, the mesh or another device. On the node itself, it reaches only the probe of the app and ping.</p>
 <p>The key of the exit stays on the node, in the folder <code>agent-state</code> of the install folder.</p>
 <h2 id="exit-via-homelab">Exit via homelab<a class="headerlink" href="#exit-via-homelab" title="Permanent link">&para;</a></h2>

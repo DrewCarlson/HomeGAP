@@ -1043,6 +1043,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#users-and-roles-from-the-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Users and roles from the provider
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#accept-only-the-provider" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2310,6 +2321,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#users-and-roles-from-the-provider" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Users and roles from the provider
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#accept-only-the-provider" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2403,7 +2425,7 @@
 </ul>
 <h2 id="openid-connect">OpenID Connect<a class="headerlink" href="#openid-connect" title="Permanent link">&para;</a></h2>
 <p>With <code>sign_in.oidc</code>, the sign-in page has a button for your provider, for example Authelia. HomeGAP uses the authorization code flow with PKCE (S256).</p>
-<p>The provider proves the email address of the user. The user must exist in HomeGAP with the same email address, and HomeGAP gives the roles. HomeGAP creates no user from the provider, and the groups of the provider do not become roles.</p>
+<p>The provider proves the email address of the user. Without the settings of <a href="#users-and-roles-from-the-provider">Users and roles from the provider</a>, the user must exist in HomeGAP with the same email address, and HomeGAP gives the roles.</p>
 <table>
 <thead>
 <tr>
@@ -2437,6 +2459,26 @@
 <td><code>sign_in.oidc.scopes</code></td>
 <td><code>[openid, email, profile]</code></td>
 <td>The scopes that HomeGAP asks for. The list must have <code>openid</code>. HomeGAP needs the email address, so keep <code>email</code>.</td>
+</tr>
+<tr>
+<td><code>sign_in.oidc.create_users</code></td>
+<td><code>false</code></td>
+<td>Makes a user for a person that the provider accepts and that HomeGAP does not have.</td>
+</tr>
+<tr>
+<td><code>sign_in.oidc.group_roles</code></td>
+<td>Empty</td>
+<td>The roles that each group of the provider gives. With an entry, the provider decides the roles.</td>
+</tr>
+<tr>
+<td><code>sign_in.oidc.default_roles</code></td>
+<td>Empty</td>
+<td>The roles of a person who is in no group of <code>group_roles</code>.</td>
+</tr>
+<tr>
+<td><code>sign_in.oidc.groups_claim</code></td>
+<td><code>groups</code></td>
+<td>The claim of the provider that has the groups.</td>
 </tr>
 </tbody>
 </table>
@@ -2495,15 +2537,44 @@
 <!-- FACT-CHECK: the harness tests Authelia 4.39 with the policy `one_factor` only. A sign-in with `two_factor` is not confirmed. -->
 
 <p>If the variable of the client secret is empty, the sign-in container does not start. Its log names the variable.</p>
-<h3 id="accept-only-the-provider">Accept only the provider<a class="headerlink" href="#accept-only-the-provider" title="Permanent link">&para;</a></h3>
-<p>To remove the password form from the page, set <code>passwords</code> to <code>false</code>:</p>
+<h3 id="users-and-roles-from-the-provider">Users and roles from the provider<a class="headerlink" href="#users-and-roles-from-the-provider" title="Permanent link">&para;</a></h3>
+<p>The provider can decide who gets a user and which roles the user has. Then you manage the people in one place, for example in the user file of Authelia.</p>
 <div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">sign_in</span><span class="p">:</span>
 <a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vpn.example.net</span>
-<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">passwords</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
-<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">oidc</span><span class="p">:</span>
-<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Authelia</span>
-<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://auth.example.net</span>
-<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">homegap</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">oidc</span><span class="p">:</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Authelia</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://auth.example.net</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">homegap</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">create_users</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">    </span><span class="nt">group_roles</span><span class="p">:</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">      </span><span class="nt">vpn-admins</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">Admin</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">      </span><span class="nt">family</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">Member</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<p>With <code>group_roles</code>, the groups of the person give the roles at each sign-in through the provider:</p>
+<ul>
+<li>A person gets the roles of each of their groups that the list has.</li>
+<li>A person in none of these groups gets the roles of <code>default_roles</code>. With no <code>default_roles</code>, the person gets no access, and the page shows "This account has no access to HomeGAP. Ask your admin."</li>
+<li>HomeGAP cannot change the roles of such a user. The <strong>Access</strong> page shows the name of the provider on the user and the text "The roles come from the groups of Authelia. Change them there."</li>
+<li>HomeGAP asks the provider for the scope <code>groups</code>. The client at the provider must permit it. In Authelia, add <code>groups</code> to the <code>scopes</code> of the client.</li>
+</ul>
+<p>With <code>create_users</code>, a person that the provider accepts and that has a role gets a HomeGAP user at the first sign-in. The user has no password. Without <code>create_users</code>, you add each user first, as before.</p>
+<p>A user that exists in HomeGAP with the same email address stays the same user. At the next sign-in through the provider, the user gets the name that the provider gives, and with <code>group_roles</code> also the roles. The password and the devices of the user stay. The name is the <code>name</code> claim, which is the <code>displayname</code> of the user in Authelia.</p>
+<p>A change of the groups at the provider applies at the next sign-in of the person. A session is valid for 30 days. To end the access of a person at once, click <strong>Block</strong> on the <strong>Access</strong> page.</p>
+<p>HomeGAP keeps one admin. If the groups remove the role <code>Admin</code> from the only admin who has no block, that user keeps the role.</p>
+<div class="admonition danger">
+<p class="admonition-title">Warning</p>
+<p>With <code>group_roles</code>, the provider decides who is an admin of your VPN. A person who can change the groups at the provider can get each private service.</p>
+</div>
+<p>After a change of these keys, recreate the sign-in container.</p>
+<h3 id="accept-only-the-provider">Accept only the provider<a class="headerlink" href="#accept-only-the-provider" title="Permanent link">&para;</a></h3>
+<p>To remove the password form from the page, set <code>passwords</code> to <code>false</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">sign_in</span><span class="p">:</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://vpn.example.net</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">passwords</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">oidc</span><span class="p">:</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Authelia</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://auth.example.net</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">    </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">homegap</span>
 </code></pre></div>
 <p>HomeGAP refuses a config with <code>passwords: false</code> and no <code>oidc</code>.</p>
 <div class="admonition warning">
@@ -2537,8 +2608,8 @@
 <td>The password is wrong, or HomeGAP has no user with this address.</td>
 </tr>
 <tr>
-<td>"You have no HomeGAP user with this email address. Ask your admin."</td>
-<td>The provider accepts the person, and HomeGAP has no user with that address.</td>
+<td>"This account has no access to HomeGAP. Ask your admin."</td>
+<td>The provider accepts the person, and HomeGAP has no user with that address, or the groups of the person give no role.</td>
 </tr>
 <tr>
 <td>"Too many attempts. Try again in 15 minutes."</td>

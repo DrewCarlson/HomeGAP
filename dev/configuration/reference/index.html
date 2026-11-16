@@ -3023,6 +3023,30 @@
 <td><code>["openid", "email", "profile"]</code></td>
 <td>The scopes that HomeGAP requests. The list must contain <code>openid</code>.</td>
 </tr>
+<tr>
+<td><code>oidc.create_users</code></td>
+<td>boolean</td>
+<td><code>false</code></td>
+<td>Makes a user for a person that the provider accepts and that HomeGAP does not have. The person must get a role.</td>
+</tr>
+<tr>
+<td><code>oidc.group_roles</code></td>
+<td>map</td>
+<td><code>{}</code></td>
+<td>The roles that each group of the provider gives, for example <code>vpn-admins: [Admin]</code>. With an entry, the provider decides the roles of each person who signs in through it.</td>
+</tr>
+<tr>
+<td><code>oidc.default_roles</code></td>
+<td>list</td>
+<td><code>[]</code></td>
+<td>The roles of a person who is in no group of <code>group_roles</code>. With an empty list, that person gets no access.</td>
+</tr>
+<tr>
+<td><code>oidc.groups_claim</code></td>
+<td>string</td>
+<td><code>groups</code></td>
+<td>The claim of the provider that has the groups of the person.</td>
+</tr>
 </tbody>
 </table>
 <p>The <code>oidc</code> object is optional. See <a href="../../vpn/sign-in/">Sign-in</a>.</p>
