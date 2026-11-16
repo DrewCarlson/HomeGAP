@@ -6,8 +6,8 @@ import homegap.discovery.slug
 import homegap.model.MeshTarget
 import homegap.model.NodeDesired
 import homegap.model.PublicResource
-import homegap.model.RawPort
 import homegap.model.SniRoute
+import homegap.node.AgentSpec
 import homegap.reconcile.TunnelSlots
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
@@ -118,6 +118,7 @@ object NodeTemplates {
     private const val UI_PRIORITY = 9999
     private const val RESOURCE_PRIORITY = 100
     private const val WILDCARD_PRIORITY = 90
+    private const val AGENT_MOUNT = "/agent"
     private const val HEALTH_PRIORITY = 60
     private const val HEALTH_FALLBACK_PRIORITY = 50
     private const val HTTPS_REDIRECT_PRIORITY = 10
@@ -129,16 +130,15 @@ object NodeTemplates {
         config: AppConfig,
         node: NodeConfig,
         secrets: NodeSecrets,
-        rawPorts: List<RawPort>,
         slot: Int,
         cluster: ClusterLink? = null,
     ): List<RenderedFile> {
         val files = mutableListOf(
-            RenderedFile("compose.yml", compose(config, rawPorts, cluster)),
+            RenderedFile("compose.yml", compose(config, cluster)),
             RenderedFile(".env", envFile(secrets, config.pangolin.crowdsec), "0600"),
             RenderedFile("config/config.yml", pangolinConfig(config, node, secrets, slot, cluster), "0600")
                 .restarting("pangolin"),
-            RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, rawPorts, cluster != null))
+            RenderedFile("config/traefik/traefik_config.yml", traefikStatic(config, cluster != null))
                 .restarting("traefik"),
             RenderedFile(SECRETS, PRETTY_JSON.encodeToString(secrets), "0600"),
             RenderedFile(AI_CATALOG, OutsideCalls.EMPTY_AI_CATALOG),
@@ -176,14 +176,15 @@ object NodeTemplates {
 
     // ------------------------------------------------------------------ compose
 
-    fun compose(config: AppConfig, rawPorts: List<RawPort>, cluster: ClusterLink? = null): String {
+    fun compose(config: AppConfig, cluster: ClusterLink? = null): String {
         val root = buildJsonObject {
             put("name", "homegap")
             putJsonObject("services") {
                 putJsonObject("pangolin") { pangolinContainer(config, cluster) }
-                putJsonObject("gerbil") { gerbilContainer(config, rawPorts, cluster) }
+                putJsonObject("gerbil") { gerbilContainer(config, cluster) }
                 putJsonObject("traefik") { traefikContainer(config, cluster) }
                 putJsonObject(MaintenancePage.SERVICE) { maintenanceContainer(config, cluster) }
+                putJsonObject(AgentSpec.SERVICE) { agentContainer(config) }
                 if (config.pangolin.crowdsec) {
                     putJsonObject("crowdsec") { crowdsecContainer(config) }
                 }
@@ -246,7 +247,7 @@ object NodeTemplates {
 
     /** In a cluster, the Pangolin of each node reaches this Gerbil over the mesh, which encrypts the plain HTTP. */
     @Suppress("HttpUrlsUsage")
-    private fun JsonObjectBuilder.gerbilContainer(config: AppConfig, rawPorts: List<RawPort>, cluster: ClusterLink?) {
+    private fun JsonObjectBuilder.gerbilContainer(config: AppConfig, cluster: ClusterLink?) {
         put("image", config.pangolin.gerbilImage)
         put("container_name", "gerbil")
         put("restart", "unless-stopped")
@@ -275,7 +276,6 @@ object NodeTemplates {
             add("443:443")
             add("443:443/udp")
             add("80:80")
-            rawPorts.forEach { add("${it.port}:${it.port}/${it.protocol}") }
             // The mesh address only: the API of Gerbil must never be public.
             cluster?.let { add("${it.meshIp}:$GERBIL_API_PORT:$GERBIL_API_PORT") }
         }
@@ -315,6 +315,27 @@ object NodeTemplates {
             add("./${MaintenancePage.DIR}:/maintenance:ro")
             add("./config/traefik/dynamic:/dynamic")
         }
+    }
+
+    /**
+     * The agent is in the network of the host: it opens and closes public ports while it runs, and
+     * a published port of a container needs a new container. It can bind a port and no more.
+     */
+    private fun JsonObjectBuilder.agentContainer(config: AppConfig) {
+        put("image", config.agent.image)
+        put("container_name", AgentSpec.SERVICE)
+        put("restart", "unless-stopped")
+        put("network_mode", "host")
+        putJsonArray("command") {
+            add("node-agent")
+            add("--dir")
+            add(AGENT_MOUNT)
+        }
+        put("read_only", true)
+        putJsonArray("cap_drop") { add("ALL") }
+        putJsonArray("cap_add") { add("NET_BIND_SERVICE") }
+        putJsonArray("security_opt") { add("no-new-privileges:true") }
+        putJsonArray("volumes") { add("./${AgentSpec.DIR}:$AGENT_MOUNT:ro") }
     }
 
     private fun JsonObjectBuilder.crowdsecContainer(config: AppConfig) {
@@ -505,7 +526,7 @@ object NodeTemplates {
 
     // ------------------------------------------------------------------ Traefik static config
 
-    fun traefikStatic(config: AppConfig, rawPorts: List<RawPort>, cluster: Boolean = false): String {
+    fun traefikStatic(config: AppConfig, cluster: Boolean = false): String {
         val pangolin = config.pangolin
         val root = buildJsonObject {
             // No version check (update.traefik.io) and no usage data.
@@ -570,9 +591,6 @@ object NodeTemplates {
                             put("allowEncodedQuestionMark", true)
                         }
                     }
-                }
-                for (rawPort in rawPorts) {
-                    putJsonObject(rawPort.entryPoint) { put("address", ":${rawPort.port}/${rawPort.protocol}") }
                 }
                 // Request and byte counters for the dashboard, which reads them with `docker exec`.
                 // The entry point is on the loopback of the container, so nothing outside the

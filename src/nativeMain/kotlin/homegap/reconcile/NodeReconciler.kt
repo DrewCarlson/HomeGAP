@@ -7,6 +7,7 @@ import homegap.clients.SshSession
 import homegap.clients.SshSession.Companion.shQuote
 import homegap.config.NodeConfig
 import homegap.model.NodeDesired
+import homegap.node.AgentSpec
 import homegap.platform.Crypto
 import homegap.platform.nowMillis
 import homegap.platform.runCatchingCancellable
@@ -129,7 +130,7 @@ class NodeReconciler(
         }
 
         val secrets = ensureSecrets(node, ssh)
-        val files = renderAll(node, desired, secrets, slot)
+        val files = renderAll(node, secrets, slot)
         val stackHash = hash(files)
         val checkInterval = ctx.config.reconcile.nodeCheck.inWholeMilliseconds
         val checkDue = nodeState.lastCheckAt == null || nowMillis() - nodeState.lastCheckAt > checkInterval
@@ -179,7 +180,7 @@ class NodeReconciler(
         } else {
             nodeState.toSecrets()
         }
-        val files = renderAll(node, desired, knownSecrets ?: placeholderSecrets(), slot)
+        val files = renderAll(node, knownSecrets ?: placeholderSecrets(), slot)
         val stackHash = hash(files)
         val rawPorts = desired.rawPorts.joinToString { it.entryPoint }.ifEmpty { "none" }
         log.info(
@@ -256,7 +257,7 @@ class NodeReconciler(
         var stackChanged = false
         val failure = runCatchingCancellable {
             phase(PHASE_HOST)
-            provisionHost(node, ssh, a.desired)
+            provisionHost(node, ssh)
             if (clustered) {
                 phase(PHASE_CLUSTER)
                 awaitClusterMember(node, waitForCluster)
@@ -611,7 +612,7 @@ class NodeReconciler(
         return secrets
     }
 
-    fun renderAll(node: NodeConfig, desired: NodeDesired, secrets: NodeSecrets, slot: Int): List<RenderedFile> {
+    fun renderAll(node: NodeConfig, secrets: NodeSecrets, slot: Int): List<RenderedFile> {
         val link = ctx.config.cluster?.let {
             val database = if (ctx.dryRun || cluster == null) placeholderClusterSecrets() else cluster.secrets()
             ClusterLink(Mesh.nodeAddress(ctx.config.mesh, slot), database)
@@ -620,7 +621,6 @@ class NodeReconciler(
             config = ctx.config,
             node = node,
             secrets = secrets,
-            rawPorts = desired.traefikPorts,
             slot = slot,
             cluster = link,
         )
@@ -635,7 +635,7 @@ class NodeReconciler(
     // ---------------------------------------------------------------- provisioning steps
 
     /** Steps 1-4: everything the node needs before its stack (and its cluster member). */
-    private suspend fun provisionHost(node: NodeConfig, ssh: SshSession, desired: NodeDesired) {
+    private suspend fun provisionHost(node: NodeConfig, ssh: SshSession) {
         // 1. Preflight
         val facts = preflight(node, ssh)
         ctx.state.updateNode(node.id) { it.copy(facts = it.facts + facts + ("reachable" to "true")) }
@@ -650,7 +650,7 @@ class NodeReconciler(
 
         // 3. Firewall
         if (node.firewall) {
-            ssh.runScriptOrThrow("firewall", firewallScript(node, desired), timeoutSeconds = 300)
+            ssh.runScriptOrThrow("firewall", firewallScript(node), timeoutSeconds = 300)
         }
 
         // 4. Kernel network tuning (best effort: some virtualization types lock these knobs).
@@ -730,8 +730,8 @@ class NodeReconciler(
         return facts.mapKeys { (name, _) -> name.lowercase() } + ("os" to "ubuntu-$version")
     }
 
-    private fun firewallScript(node: NodeConfig, desired: NodeDesired): String =
-        FirewallRules.script(FirewallRules.specs(node, desired.rawPorts, ctx.config.mesh.port))
+    private fun firewallScript(node: NodeConfig): String =
+        FirewallRules.script(FirewallRules.specs(node, ctx.config.mesh.port))
 
     private fun stackScript(files: List<RenderedFile>): String = buildString {
         val installDir = shQuote(dir)
@@ -744,6 +744,7 @@ class NodeReconciler(
             "/config/traefik/logs",
             "/config/certificates",
             "/${MaintenancePage.DIR}",
+            "/${AgentSpec.DIR}",
         ).joinToString(" ") { "$installDir$it" }
         appendLine("install -d -m 0755 $publicDirs")
         appendLine("install -d -m 0700 $installDir/secrets $installDir/config/traefik/certs")
@@ -804,7 +805,7 @@ class NodeReconciler(
                 appendLine("$decode | cmp -s - $target 2>/dev/null || echo \"DRIFT file $path\"")
             }
             appendLine("cd ${shQuote(dir)} 2>/dev/null || { echo 'DRIFT install dir missing'; exit 0; }")
-            appendLine("for s in pangolin gerbil traefik; do $containerStatus; $reportStopped; done")
+            appendLine("for s in pangolin gerbil traefik ${AgentSpec.SERVICE}; do $containerStatus; $reportStopped; done")
         }
         val result = ssh.runScript(script, timeoutSeconds = 120)
         if (!result.ok) return listOf("check failed: ${result.stderr.trim().take(ERROR_SUMMARY_LENGTH)}")

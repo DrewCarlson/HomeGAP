@@ -141,7 +141,7 @@ class MeshTest {
 
     @Test
     fun nodeForwardsItsRawPortsToTheHomelabOverTheMesh() {
-        val script = Mesh.forwardScript("10.77.0.1", listOf(RawPort(3478, "udp"), RawPort(22, "tcp")))
+        val script = Mesh.forwardScript("10.77.0.1", listOf(RawPort(3478, "udp"), RawPort(22, "tcp")), listOf(2222))
         val toHome = "-A HG-RAW ! -i hg-mesh -p tcp -m addrtype --dst-type LOCAL --dport 22 -j DNAT --to-destination 10.77.0.1:22"
         assertTrue(toHome in script)
         assertTrue("-p udp -m addrtype --dst-type LOCAL --dport 3478 -j DNAT --to-destination 10.77.0.1:3478" in script)
@@ -150,6 +150,9 @@ class MeshTest {
         // Before the rules of Docker and of ufw, and only for a connection that the node changed.
         assertTrue("iptables -t filter -I FORWARD 1 -j HG-RAW-FWD" in script)
         assertTrue("-A HG-RAW-FWD -o hg-mesh -m conntrack --ctstate DNAT -j ACCEPT" in script)
+        // The firewall of the node accepts a port of the agent, before the rules of ufw.
+        assertTrue("-A HG-RAW-IN ! -i hg-mesh -p tcp --dport 2222 -j ACCEPT" in script)
+        assertTrue("iptables -t filter -I INPUT 1 -j HG-RAW-IN" in script)
         // A node with no raw port still gets the script, so an old rule does not stay.
         assertFalse("DNAT --to-destination" in Mesh.forwardScript("10.77.0.1", emptyList()))
         assertTrue("PostUp = [ ! -x /etc/wireguard/hg-mesh-forwards.sh ]" in Mesh.nodeConfig(mesh, "10.77.0.10", emptyList()))

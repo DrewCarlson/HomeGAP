@@ -187,8 +187,15 @@ object Mesh {
      *   passes only a connection that `HG-RAW` changed, and the answers.
      * - `HG-RAW-NAT` gives the packet the mesh address of the node, which is the only source
      *   that the homelab accepts from the node.
+     * - `HG-RAW-IN` is the first rule of `INPUT`, before the rules of `ufw`. It accepts the TCP
+     *   ports that the agent of the node serves ([agentPorts]). The firewall of the node thus
+     *   follows a new port at once.
      */
-    fun forwardScript(homelabAddress: String, ports: List<RawPort>): String = buildString {
+    fun forwardScript(
+        homelabAddress: String,
+        ports: List<RawPort>,
+        agentPorts: List<Int> = emptyList(),
+    ): String = buildString {
         appendLine("#!/bin/sh")
         appendLine("# Managed by HomeGAP: the raw ports that this node forwards. Changes are overwritten.")
         appendLine("iptables-restore --noflush <<'HOMEGAP_RULES'")
@@ -205,6 +212,8 @@ object Mesh {
         appendLine(":HG-RAW-FWD - [0:0]")
         appendLine("-A HG-RAW-FWD -o $INTERFACE -m conntrack --ctstate DNAT -j ACCEPT")
         appendLine("-A HG-RAW-FWD -i $INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        appendLine(":HG-RAW-IN - [0:0]")
+        agentPorts.sorted().forEach { appendLine("-A HG-RAW-IN ! -i $INTERFACE -p tcp --dport $it -j ACCEPT") }
         appendLine("COMMIT")
         appendLine("HOMEGAP_RULES")
         for ((table, chain, target) in NODE_FORWARD_JUMPS) {
@@ -243,6 +252,7 @@ object Mesh {
         Triple("nat", "PREROUTING", "HG-RAW"),
         Triple("nat", "POSTROUTING", "HG-RAW-NAT"),
         Triple("filter", "FORWARD", "HG-RAW-FWD"),
+        Triple("filter", "INPUT", "HG-RAW-IN"),
     )
 
     /** Removes a node from the mesh (decommission). The script does what it can and never fails. */

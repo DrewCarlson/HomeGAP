@@ -131,7 +131,7 @@ class NodeCertificateTest {
             adminPassword = "p",
             crowdsecBouncerKey = "k",
         )
-        val files = NodeTemplates.staticFiles(config, desired.node, secrets, desired.rawPorts, slot = 0)
+        val files = NodeTemplates.staticFiles(config, desired.node, secrets, slot = 0)
             .associateBy { it.path }
         val static = files.getValue("config/traefik/traefik_config.yml").content
         assertFalse("certificatesResolvers" in static || "acme" in static || "certResolver" in static, static)
@@ -148,6 +148,7 @@ class NodeCertificateTest {
     }
 
     @Test
+    @Suppress("HttpUrlsUsage")
     fun theMaintenancePageCoversOnlyNamesTheNodeTerminates() {
         val withStatusPage = config.copy(statusPage = config.statusPage.copy(enabled = true))
         val plan = Planner.plan(withStatusPage, listOf(TRAEFIK, wiki, git))

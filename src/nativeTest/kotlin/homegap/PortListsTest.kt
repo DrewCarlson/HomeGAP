@@ -4,6 +4,7 @@ import homegap.discovery.*
 import homegap.model.Planner
 import homegap.model.RawPort
 import homegap.model.ResourceMode
+import homegap.node.AgentSpec
 import kotlin.test.*
 
 /** Port lists (`7881/tcp,7882/udp`), `tcp+udp`, and several named services on one container. */
@@ -179,12 +180,12 @@ class PortListsTest {
         assertTrue(published.all { it in node.rawPorts })
         // The node forwards each of them in the kernel. Pangolin and Traefik get none.
         assertEquals(published.toSet(), node.forwardedPorts.toSet())
-        assertTrue(node.traefikPorts.isEmpty())
+        assertTrue(node.proxiedResources.isEmpty())
         assertTrue(node.publicResources.none { it.mode != ResourceMode.HTTP && it.proxyPort in published.map(RawPort::port) })
     }
 
     @Test
-    fun aPortWithProxyProtocolStaysWithTraefik() {
+    fun theAgentServesAPortWithProxyProtocol() {
         val git = container(
             "git",
             "homegap.expose" to "git.test.example.net",
@@ -192,9 +193,13 @@ class PortListsTest {
             "homegap.proxy_protocol" to "true",
         )
         val node = Planner.plan(testConfig(), listOf(git)).nodes.getValue("na1")
-        assertEquals(listOf(RawPort(2222, "tcp")), node.traefikPorts)
         assertTrue(node.forwardedResources.isEmpty())
-        assertTrue(node.publicResources.any { it.proxyPort == 2222 && it.proxyProtocol })
+        assertTrue(node.publicResources.none { it.proxyPort == 2222 })
+        assertEquals(listOf(2222), node.proxiedResources.map { it.proxyPort })
+        assertEquals(listOf(RawPort(2222, "tcp")), node.rawPorts)
+        // The agent sends the port to the same port of the mesh address of the homelab.
+        assertEquals(listOf(AgentSpec.Listener(2222, "10.77.0.1:2222")), AgentSpec.of(node).listeners)
+        assertEquals(AgentSpec.of(node), AgentSpec.parse(AgentSpec.of(node).render()))
     }
 
     @Test

@@ -9,6 +9,7 @@ private val SCAN_INTERVAL = 3.seconds
 
 /** Development hosts only: a scan at a fixed interval. */
 actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): Flow<Unit> = flow {
+    emit(Unit)
     while (true) {
         delay(SCAN_INTERVAL)
         emit(Unit)

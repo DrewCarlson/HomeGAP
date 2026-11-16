@@ -94,17 +94,17 @@ class SpeedTestTest {
     @Test
     fun tuningRendersGerbilMtuAndSysctls() {
         val node = config.node("na1")!!
-        val files = NodeTemplates.staticFiles(config, node, secrets, rawPorts = emptyList(), slot = 0)
+        val files = NodeTemplates.staticFiles(config, node, secrets, slot = 0)
         assertTrue(files.single { it.path == "compose.yml" }.content.contains("--mtu=1420"))
         assertTrue(NodeTemplates.sysctlConf().contains("tcp_congestion_control = bbr"))
         // The edge namespace (Gerbil + Traefik) gets its own TCP buffers.
-        val compose = NodeTemplates.compose(config, emptyList())
+        val compose = NodeTemplates.compose(config)
         assertTrue("net.ipv4.tcp_wmem" in compose && "4096 65536 67108864" in compose)
         assertTrue("net.ipv4.tcp_reordering" in compose)
         assertTrue(TunnelSpeedTest.script(host = "h", token = "t", seconds = 8, streams = 4).contains("seq 1 4"))
         val untuned = ConfigLoader.parse("$TEST_CONFIG\npangolin:\n  tcp_tuning: false\n")
-        assertFalse(NodeTemplates.compose(untuned, emptyList()).contains("sysctls"))
-        assertFalse(NodeTemplates.compose(untuned, emptyList()).contains("--mtu"))
+        assertFalse(NodeTemplates.compose(untuned).contains("sysctls"))
+        assertFalse(NodeTemplates.compose(untuned).contains("--mtu"))
     }
 
     @Test

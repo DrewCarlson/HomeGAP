@@ -3,6 +3,7 @@ package homegap
 import com.charleskorn.kaml.Yaml
 import com.charleskorn.kaml.YamlMap
 import homegap.model.Planner
+import homegap.model.RawPort
 import homegap.provision.NodeSecrets
 import homegap.provision.NodeTemplates
 import homegap.provision.YamlEmitter
@@ -56,17 +57,21 @@ class TemplatesTest {
             "homegap.protocol" to "udp",
         )
         val plan = Planner.plan(config, listOf(TRAEFIK, game))
-        val desired = plan.nodes.getValue("na1")
-        val files = NodeTemplates.staticFiles(config, config.node("na1")!!, secrets, desired.rawPorts, slot = 0)
+        assertEquals(listOf(RawPort(27015, "udp")), plan.nodes.getValue("na1").rawPorts)
+        val files = NodeTemplates.staticFiles(config, config.node("na1")!!, secrets, slot = 0)
         for ((path, content) in files.filter { it.path.endsWith(".yml") || it.path.endsWith(".yaml") }) {
             val node = Yaml.default.parseToYamlNode(content)
             assertTrue(node is YamlMap, "$path should parse as a mapping")
         }
         val compose = files.single { it.path == "compose.yml" }.content
-        assertTrue("\"27015:27015/udp\"" in compose)
+        // No container publishes a raw port: the kernel or the agent of the node serves it.
+        assertFalse("27015" in compose)
+        val agent = compose.substringAfter("  homegap-agent:")
+        assertTrue("network_mode: \"host\"" in agent && "./agent:/agent:ro" in agent)
+        assertTrue("NET_BIND_SERVICE" in agent && "read_only: true" in agent)
         assertTrue("\"127.0.0.1:3003:3003\"" in compose, "integration API must be loopback only")
         val traefik = files.single { it.path.endsWith("traefik_config.yml") }.content
-        assertTrue("udp-27015" in traefik)
+        assertFalse("27015" in traefik)
         val pangolin = files.single { it.path == "config/config.yml" }.content
         assertTrue("enable_integration_api: true" in pangolin)
         assertTrue("\"secret\\\"quote\"" in pangolin, "secrets are escaped, not interpolated raw")
@@ -108,9 +113,8 @@ class TemplatesTest {
 
     @Test
     fun nodesRunTheMaintenancePageWithoutScripts() {
-        val desired = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
         val node = config.node("na1")!!
-        val files = NodeTemplates.staticFiles(config, node, secrets, desired.rawPorts, slot = 0)
+        val files = NodeTemplates.staticFiles(config, node, secrets, slot = 0)
         val compose = files.single { it.path == "compose.yml" }.content
         // Standalone nodes have no cluster image, so they pull one only for the page.
         assertTrue("docker.io/library/python:3.13-alpine" in compose)
@@ -124,8 +128,7 @@ class TemplatesTest {
 
     @Test
     fun nodesCallNoOutsideServiceOnTheirOwn() {
-        val desired = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
-        val files = NodeTemplates.staticFiles(config, config.node("na1")!!, secrets, desired.rawPorts, slot = 0)
+        val files = NodeTemplates.staticFiles(config, config.node("na1")!!, secrets, slot = 0)
             .associateBy { it.path }
         val traefik = files.getValue("config/traefik/traefik_config.yml").content
         assertTrue("checkNewVersion: false" in traefik && "sendAnonymousUsage: false" in traefik, traefik)

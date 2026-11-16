@@ -37,6 +37,8 @@ actual fun watchDirectory(dir: String, accept: (fileName: String) -> Boolean): F
     try {
         val mask = (IN_CLOSE_WRITE or IN_MOVED_TO or IN_MOVED_FROM or IN_DELETE or IN_CREATE).toUInt()
         check(inotify_add_watch(fd, dir, mask) >= 0) { "inotify_add_watch($dir) failed" }
+        // A file that a process wrote before the watch started gets no event.
+        emit(Unit)
         val buffer = ByteArray(EVENT_BUFFER_SIZE)
         while (true) {
             // Blocks this IO thread until something changes. An idle watch does not wake the thread.

@@ -26,7 +26,7 @@ class HardeningTest {
         val config = base.copy(pangolin = base.pangolin.copy(crowdsec = true, crowdsecFailClosed = failClosed))
         val desired = Planner.plan(config, listOf(TRAEFIK)).nodes.getValue("na1")
         val secrets = NodeSecrets("t", "s", "a@b", "p", "k")
-        return NodeTemplates.staticFiles(config, desired.node, secrets, desired.rawPorts, slot = 0)
+        return NodeTemplates.staticFiles(config, desired.node, secrets, slot = 0)
             .single { it.path.endsWith("homegap-crowdsec.yml") }
             .content
     }
@@ -155,7 +155,7 @@ class HardeningTest {
         val plan = Planner.plan(config, listOf(TRAEFIK))
         val desired = plan.nodes.getValue("na1")
         val secrets = NodeSecrets("t", "s", "a@b", "p", "k")
-        val files = NodeTemplates.staticFiles(config, desired.node, secrets, desired.rawPorts, slot = 0)
+        val files = NodeTemplates.staticFiles(config, desired.node, secrets, slot = 0)
             .associateBy { it.path }
         val headers = files.getValue(NodeTemplates.DYNAMIC_HEADERS).content
         assertTrue("stsSeconds: 31536000" in headers, headers)

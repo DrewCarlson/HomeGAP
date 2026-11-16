@@ -210,7 +210,6 @@ class ClusterTest {
             config,
             config.node("na1")!!,
             clusterNodeSecrets,
-            rawPorts = emptyList(),
             slot = 0,
             cluster = na1Link,
         )
@@ -234,7 +233,6 @@ class ClusterTest {
             config,
             node,
             clusterNodeSecrets,
-            rawPorts = emptyList(),
             slot = 0,
             cluster = na1Link,
         ).associateBy { it.path }
@@ -282,7 +280,6 @@ class ClusterTest {
             config,
             config.node("na1")!!,
             NodeSecrets("t", "s", "a@b", "p", "k"),
-            rawPorts = emptyList(),
             slot = 0,
         ).associateBy { it.path }
         assertNull(files["config/privateConfig.yml"])

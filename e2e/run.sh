@@ -35,5 +35,5 @@ rm -f work/certs/acme-root.new
 cat work/certs/ca.pem work/certs/acme-root.pem > work/certs/trust.pem
 docker compose up -d --build
 if [ -n "$NEW_ROOT" ]; then docker compose restart orchestrator tunnels >/dev/null; fi
-./load-cluster-image.sh
+./load-images.sh
 echo "dashboard: http://127.0.0.1:18088  (token: e2e/work/data/dashboard-token; logs: docker compose -f e2e/compose.yml logs -f orchestrator)"

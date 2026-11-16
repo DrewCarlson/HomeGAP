@@ -23,6 +23,7 @@ import homegap.model.Planner
 import homegap.model.PrivateResource
 import homegap.model.PublicResource
 import homegap.model.ResourceMode
+import homegap.node.AgentSpec
 import homegap.platform.Crypto
 import homegap.platform.Files
 import homegap.platform.runCatchingCancellable
@@ -416,7 +417,8 @@ class ResourceReconciler(
         val content = NodeTemplates.dynamicRoutes(desired, ids, ctx.config.cluster != null)
         val maintenance = MaintenancePage.routes(desired, ids)
         val probes = MaintenancePage.probes(desired, ids)
-        val hash = Crypto.fnv64(content + maintenance + probes + certificate?.hash)
+        val agent = AgentSpec.of(desired).render()
+        val hash = Crypto.fnv64(content + maintenance + probes + agent + certificate?.hash)
         val state = ctx.state.node(nodeId)
         val resend = state.facts[CERT_RESEND] != null && certificate != null
         val lastCheckAt = state.lastCheckAt ?: 0L
@@ -424,7 +426,7 @@ class ResourceReconciler(
         val due = state.facts[ROUTES_HASH_FACT] != hash || state.drift.isNotEmpty() || lastCheckAt > routesCheckedAt
         if (!due) return
 
-        val script = routesScript(content, maintenance, probes, resend)
+        val script = routesScript(RouteFiles(content, maintenance, probes, agent), resend)
         val output = ctx.ssh.session(ready.node).runScriptOrThrow("routes", script, ROUTES_TIMEOUT_SECONDS)
         if (output.contains("CERTIFICATE installed")) {
             val names = certificate?.names?.size
@@ -442,11 +444,15 @@ class ResourceReconciler(
         ctx.state.updateNode(nodeId) { it.copy(facts = it.facts - CERT_RESEND + checked) }
     }
 
-    private fun routesScript(content: String, maintenance: String, probes: String, resend: Boolean): String {
+    /** The files of a node that change with the services: no container starts again for them. */
+    private class RouteFiles(val routes: String, val maintenance: String, val probes: String, val agent: String)
+
+    private fun routesScript(files: RouteFiles, resend: Boolean): String {
         val file = shQuote("$installDir/${NodeTemplates.DYNAMIC_ROUTES}")
-        val encoded = Base64.encode(content.encodeToByteArray())
-        val writeMaintenance = SshSession.writeFileSnippet("$installDir/${MaintenancePage.ROUTES}", maintenance)
-        val writeProbes = SshSession.writeFileSnippet("$installDir/${MaintenancePage.PROBES}", probes)
+        val encoded = Base64.encode(files.routes.encodeToByteArray())
+        val writeMaintenance = SshSession.writeFileSnippet("$installDir/${MaintenancePage.ROUTES}", files.maintenance)
+        val writeProbes = SshSession.writeFileSnippet("$installDir/${MaintenancePage.PROBES}", files.probes)
+        val writeAgent = SshSession.writeFileSnippet("$installDir/${AgentSpec.PATH}", files.agent)
         val maintenanceDir = shQuote("$installDir/${MaintenancePage.DIR}")
         val writeCertificate = certificateScript(resend)
         return """
@@ -456,6 +462,7 @@ class ResourceReconciler(
             |hg_own $file
             |$writeMaintenance
             |$writeProbes
+            |$writeAgent
             |hg_own $maintenanceDir
             |$writeCertificate
         """.trimMargin()

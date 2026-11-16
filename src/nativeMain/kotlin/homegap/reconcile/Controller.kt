@@ -1330,7 +1330,8 @@ class Controller(
                 .filter { it.serviceKey == service.key && !Planner.isHealth(it.niceId) }
             val privateWanted = nodePlan.privateResources.filter { it.serviceKey == service.key }
             if (wanted.isEmpty() && privateWanted.isEmpty()) {
-                val overMesh = (nodePlan.forwardedResources + nodePlan.httpResources)
+                // No resource of Pangolin, so each resource of the service here is on the mesh.
+                val overMesh = nodePlan.resources
                     .any { it.serviceKey == service.key && !Planner.isHealth(it.niceId) }
                 if (overMesh) healthByService[service.key] = meshHealth(nodeId)
                 continue

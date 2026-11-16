@@ -56,6 +56,11 @@ data class NodeDesired(
      */
     val forwardedResources: List<PublicResource> = emptyList(),
     /**
+     * The raw TCP resources with PROXY protocol. The agent of the node accepts each connection and
+     * sends it to the homelab over the mesh, with the header first.
+     */
+    val proxiedResources: List<PublicResource> = emptyList(),
+    /**
      * The HTTP resources: the names that the node ends TLS for, and the health check. The Traefik
      * of the node sends each to its [PublicResource.meshPort] on the mesh address of the homelab.
      */
@@ -66,7 +71,7 @@ data class NodeDesired(
     val httpsRedirectHosts: List<String>,
     /** The domains whose names one label below also get that redirect. */
     val wildcardRedirectDomains: List<String>,
-    /** Each raw TCP/UDP port that the node serves (firewall). See [forwardedPorts] and [traefikPorts]. */
+    /** Each raw TCP/UDP port that the node serves (firewall). See [forwardedPorts] and [proxiedResources]. */
     val rawPorts: List<RawPort>,
     val healthResourceNiceId: String?,
     val healthPath: String,
@@ -101,12 +106,13 @@ data class NodeDesired(
         return resource.proxyPort?.let { MeshTarget("$home:$it", resource.proxyProtocol) }
     }
 
-    /** Each resource that the node serves to the public, in each of the three lists. */
+    /** Each resource that the node serves to the public, in each of the four lists. */
     val resources: List<PublicResource>
         get() = buildList {
             addAll(publicResources)
             addAll(httpResources)
             addAll(forwardedResources)
+            addAll(proxiedResources)
         }
 
     /** The URL of [resource] (one of the [httpResources]) on the mesh, or null if it has no port there. */
@@ -120,9 +126,6 @@ data class NodeDesired(
         get() = forwardedResources.mapNotNull { resource ->
             resource.proxyPort?.let { RawPort(it, resource.mode.wire) }
         }
-
-    /** The raw ports that the Traefik of the node serves: the ports with PROXY protocol. */
-    val traefikPorts: List<RawPort> get() = rawPorts - forwardedPorts.toSet()
 }
 
 /** Where a node sends a stream over the mesh. With [proxyProtocol], it sends a PROXY protocol header first. */
@@ -671,6 +674,7 @@ object Planner {
         private val managementHost = node.managementHost(config.domain)
         private val publicResources = mutableListOf<PublicResource>()
         private val forwardedResources = mutableListOf<PublicResource>()
+        private val proxiedResources = mutableListOf<PublicResource>()
         private val sniRoutes = mutableListOf<SniRoute>()
         private val redirectHosts = mutableListOf<String>()
         private val rawPorts = mutableSetOf<RawPort>()
@@ -805,8 +809,8 @@ object Planner {
                 for (protocol in mapping.protocols.sortedBy { it.ordinal }) {
                     val tcp = protocol == Protocol.TCP
                     rawPorts += RawPort(mapping.publicPort, protocol.label)
-                    // The kernel cannot add a PROXY protocol header, so such a port stays with Traefik.
-                    val resources = if (service.proxyProtocol && tcp) publicResources else forwardedResources
+                    // The kernel cannot add a PROXY protocol header, so the agent serves such a port.
+                    val resources = if (service.proxyProtocol && tcp) proxiedResources else forwardedResources
                     resources += PublicResource(
                         niceId = rawNiceId(service, mapping, protocol),
                         serviceKey = service.key,
@@ -843,6 +847,7 @@ object Planner {
                 httpResources = http.sortedBy { it.niceId },
                 privateResources = privateResources.sortedBy { it.niceId },
                 forwardedResources = forwardedResources.sortedBy { it.niceId },
+                proxiedResources = proxiedResources.sortedBy { it.niceId },
                 sniRoutes = sniRoutes.sortedBy { it.name },
                 httpsRedirectHosts = redirectHosts.distinct().sorted(),
                 wildcardRedirectDomains = wildcardRedirects.sorted(),

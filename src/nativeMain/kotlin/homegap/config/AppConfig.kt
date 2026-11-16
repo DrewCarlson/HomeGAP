@@ -31,6 +31,8 @@ data class AppConfig(
     val tunnels: TunnelsConfig = TunnelsConfig(),
     /** The private WireGuard mesh between the homelab and each node. It is always on. */
     val mesh: MeshConfig = MeshConfig(),
+    /** The agent of HomeGAP that each node runs. */
+    val agent: AgentConfig = AgentConfig(),
     /** One Pangolin cluster across the nodes. With null, each node has its own Pangolin. */
     val cluster: ClusterConfig? = null,
     val nodes: List<NodeConfig> = emptyList(),
@@ -271,6 +273,23 @@ data class ClusterConfig(
 
         /**
          * The cluster image with the tag of the homelab's stack, the value of `HOMEGAP_VERSION`. Without
+         * that variable, the tag is the version of this release.
+         */
+        fun defaultImage(stackTag: String? = env("HOMEGAP_VERSION")): String =
+            "$IMAGE_REPOSITORY:${stackTag?.trim()?.ifEmpty { null } ?: VERSION}"
+    }
+}
+
+@Serializable
+data class AgentConfig(
+    /** The HomeGAP image that a node runs as its agent. */
+    val image: String = defaultImage(),
+) {
+    companion object {
+        const val IMAGE_REPOSITORY = "ghcr.io/drewcarlson/homegap"
+
+        /**
+         * The HomeGAP image with the tag of the homelab's stack, the value of `HOMEGAP_VERSION`. Without
          * that variable, the tag is the version of this release.
          */
         fun defaultImage(stackTag: String? = env("HOMEGAP_VERSION")): String =

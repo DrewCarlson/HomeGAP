@@ -150,7 +150,8 @@ class MeshReconciler(private val homelab: HomelabMesh) {
             ctx.nodePaused(node.id) -> READ_ONLY
             else -> {
                 val ports = layout.forwards.nodePorts[node.id].orEmpty()
-                val forwards = Mesh.forwardStep(Mesh.forwardScript(layout.homelabAddress, ports))
+                val agentPorts = layout.forwards.agentPorts[node.id].orEmpty()
+                val forwards = Mesh.forwardStep(Mesh.forwardScript(layout.homelabAddress, ports, agentPorts))
                 val mesh = Mesh.nodeScript(
                     mesh = layout.mesh,
                     address = address,

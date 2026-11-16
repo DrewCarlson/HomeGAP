@@ -1,7 +1,6 @@
 package homegap.provision
 
 import homegap.config.NodeConfig
-import homegap.model.RawPort
 
 /**
  * The node firewall (`ufw`). The add-node wizard and each provisioning pass use the same rules,
@@ -15,12 +14,11 @@ object FirewallRules {
         else -> node.sshAllowFrom.map { "allow from ${canonical(it)} to any port ${node.sshPort} proto tcp" }
     }
 
-    /** The `ufw` rule specs (the arguments after `ufw`) for [node]. [meshPort] opens the cluster mesh. */
-    fun specs(
-        node: NodeConfig,
-        rawPorts: List<RawPort> = emptyList(),
-        meshPort: Int? = null,
-    ): List<String> = buildList {
+    /**
+     * The `ufw` rule specs (the arguments after `ufw`) for [node]. [meshPort] opens the cluster mesh.
+     * The raw ports of the services are not here: [Mesh.forwardScript] opens them, before `ufw`.
+     */
+    fun specs(node: NodeConfig, meshPort: Int? = null): List<String> = buildList {
         addAll(sshSpecs(node))
         add("allow 80/tcp")
         add("allow 443/tcp")
@@ -29,7 +27,6 @@ object FirewallRules {
         add("allow 21820/udp")
         // WireGuard authenticates each packet, and the address of the homelab is not fixed.
         meshPort?.let { addAll(meshSpecs(it)) }
-        rawPorts.forEach { add("allow ${it.port}/${it.protocol}") }
     }.distinct()
 
     /**

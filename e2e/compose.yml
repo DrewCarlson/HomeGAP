@@ -192,6 +192,19 @@ services:
       homegap.access: "private"
     networks: [e2e]
 
+  # Raw TCP with PROXY protocol: the agent of a node serves the port and sends the header.
+  proxy-echo:
+    image: docker.io/library/python:3.12-alpine
+    command: ["python", "-u", "/proxy-echo.py"]
+    volumes: [ "./proxy-echo.py:/proxy-echo.py:ro" ]
+    labels:
+      homegap.expose: "proxy-echo.test.example.net"
+      homegap.protocol: "tcp"
+      homegap.port: "9100"
+      homegap.public_port: "19100"
+      homegap.proxy_protocol: "true"
+    networks: [e2e]
+
   bunny-mock:
     image: docker.io/library/python:3.12-alpine
     command: ["python", "-u", "/mock.py"]

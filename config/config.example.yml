@@ -53,6 +53,11 @@ acme:
 #   subnet: 10.77.0.0/24   # must not overlap 100.64.0.0/10
 #   port: 51821            # udp, opened in each node's firewall
 
+# The agent of HomeGAP that each node runs. The tag of the default image is the value of
+# HOMEGAP_VERSION. Without that variable, the tag is the version of the orchestrator.
+# agent:
+#   image: ghcr.io/drewcarlson/homegap:0.1.0
+
 # Optional: clustered Pangolin and its shared database (PostgreSQL and Valkey on the homelab and
 # every node), over the mesh.
 # cluster:

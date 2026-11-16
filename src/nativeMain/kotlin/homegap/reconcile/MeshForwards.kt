@@ -5,6 +5,7 @@ import homegap.model.DesiredState
 import homegap.model.PublicResource
 import homegap.model.RawPort
 import homegap.model.ResourceMode
+import homegap.node.AgentSpec
 import homegap.provision.Mesh
 
 /**
@@ -20,11 +21,13 @@ import homegap.provision.Mesh
 object MeshForwards {
     /**
      * [homelab] are ready for the mesh agent. [nodePorts] are the public ports that each node
-     * forwards in the kernel. [unknown] are the target hosts that have no address.
+     * forwards in the kernel. [agentPorts] are the public TCP ports that the agent of each node
+     * serves. [unknown] are the target hosts that have no address.
      */
     data class Result(
         val homelab: List<Mesh.Forward> = emptyList(),
         val nodePorts: Map<String, List<RawPort>> = emptyMap(),
+        val agentPorts: Map<String, List<Int>> = emptyMap(),
         val unknown: List<String> = emptyList(),
     )
 
@@ -41,6 +44,7 @@ object MeshForwards {
         return Result(
             homelab = forwards,
             nodePorts = plan.nodes.mapValues { (_, node) -> node.forwardedPorts },
+            agentPorts = plan.nodes.mapValues { (_, node) -> AgentSpec.of(node).listeners.map { it.port } },
             unknown = wanted.filter { addressOf(it, addresses) == null }.map { it.target.host }.distinct(),
         )
     }

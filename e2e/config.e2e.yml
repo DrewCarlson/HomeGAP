@@ -28,8 +28,11 @@ speedtest:
 status_page:
   enabled: true
   title: HomeGAP e2e status
+agent:
+  # Built locally and loaded into the nodes by run.sh (load-images.sh).
+  image: homegap:e2e
 cluster:
-  # Built locally and loaded into the nodes by run.sh (load-cluster-image.sh).
+  # Built locally and loaded into the nodes by run.sh (load-images.sh).
   image: homegap-cluster:e2e
   primary:
     switch_back_after: 1m

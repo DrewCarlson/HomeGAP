@@ -17,6 +17,7 @@ import homegap.mesh.MeshRoute
 import homegap.model.HomelabServices
 import homegap.model.Planner
 import homegap.model.PublicResource
+import homegap.node.NodeAgent
 import homegap.platform.Files
 import homegap.platform.env
 import homegap.provision.NodeSecrets
@@ -51,6 +52,7 @@ private const val DEFAULT_CONFIG = "/config/config.yml"
 private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
 private const val DEFAULT_MESH_HOST = "homegap-mesh"
+private const val DEFAULT_AGENT_DIR = "/agent"
 private const val DEFAULT_MAINTENANCE_MINUTES = 30
 private const val DEFAULT_STACK_FILES = "/usr/share/homegap/deploy"
 private const val DEFAULT_STACK_FOLDER = "/work"
@@ -80,6 +82,7 @@ Usage:
   homegap tunnels [--dir PATH] [--newt PATH]           Run the Newt tunnel supervisor
   homegap mesh [--dir PATH]                            Run the homelab's mesh agent (cluster mode)
   homegap mesh-route [--dir PATH]                      Keep the orchestrator's route to the mesh (cluster mode)
+  homegap node-agent [--dir PATH]                      Run the agent of a node (on the node)
   homegap validate [--config PATH]                     Validate the config file
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
@@ -127,6 +130,7 @@ fun main(args: Array<String>) {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
                 runMeshRoute(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
             }
+            "node-agent" -> runBlocking { NodeAgent(line.option("--dir") ?: DEFAULT_AGENT_DIR).run() }
             "tunnels" -> {
                 val dir = line.option("--dir") ?: SharedDirs.tunnels(DEFAULT_DATA_DIR)
                 val shared = sharedDir(dir, folder = "data/tunnels", other = "orchestrator")
@@ -207,7 +211,6 @@ private fun renderNode(configPath: String, line: CommandLine) {
         config = config,
         node = node,
         secrets = placeholderSecrets(config),
-        rawPorts = plan.nodes.getValue(id).rawPorts,
         slot = config.nodes.indexOf(node),
     )
     for ((path, content, mode) in files) {
