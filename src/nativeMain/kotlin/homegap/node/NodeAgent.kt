@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
  * removed port closes with no effect on the open connections. No container starts again for a
  * change of ports.
  */
-class NodeAgent(private val dir: String) {
+class NodeAgent(private val dir: String, private val stateDir: String) {
     private val logger = KotlinLogging.logger("agent")
     private val specFile = "$dir/${AgentSpec.FILE}"
 
@@ -27,13 +27,17 @@ class NodeAgent(private val dir: String) {
         logger.info { "node agent started; it reads $specFile" }
         val relay = tcpRelay { line -> logger.info { line } }
         launch(Dispatchers.IO) { relay.run() }
+        val exit = NodeExitService(stateDir, this)
         var unreadable = false
         // The watch emits once when it starts, so the agent reads a file that is already there.
         watchDirectory(dir) { it == AgentSpec.FILE }.collect {
             val spec = Files.readTextOrNull(specFile)?.let { AgentSpec.parse(it) }
             if (spec == null && !unreadable) logger.error { "$specFile is not readable; the ports stay as they are" }
             unreadable = spec == null
-            if (spec != null) relay.apply(spec.listeners.associate { it.port to it.target })
+            if (spec != null) {
+                relay.apply(spec.listeners.associate { it.port to it.target })
+                exit.apply(spec.exit)
+            }
         }
     }
 }

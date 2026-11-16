@@ -67,14 +67,26 @@ class HomeTunnel(
             aliases = aliases,
         )
         val dns = DnsConfig(resolvers.map { "$it:$DNS_PORT" }, overrideDns = true, tunnelDns = true)
-        return Connection(listOf(site), dns.takeIf { resolvers.isNotEmpty() })
+        // The exit of each node that has the key of the device. The app must have the site to select its exit.
+        val permitted = users?.vpn?.nodeExitFor(roles) == true
+        val exits = status.exits.filter { permitted && publicKey in it.peers }.map { exit ->
+            Site(siteIdOf(exit), exit.node, "${exit.host}:${exit.port}", exit.publicKey, exit.address, exit.port)
+        }
+        return Connection(listOf(site) + exits, dns.takeIf { resolvers.isNotEmpty() })
     }
 
     override fun exits(roles: List<String>): List<ExitResource> {
-        if (directory()?.vpn?.exitFor(roles) != true) return emptyList()
-        val exit = ExitResource(SITE_ID, "exit-$SITE_NAME", "Exit via $SITE_NAME", listOf(SITE_ID), listOf(SITE_NAME))
-        return listOf(exit)
+        val access = directory()?.vpn ?: return emptyList()
+        val nodes = status()?.exits.orEmpty().filter { access.nodeExitFor(roles) }.map { exit ->
+            val id = siteIdOf(exit)
+            ExitResource(id, "exit-${exit.node}", "Exit via ${exit.node}", listOf(id), listOf(exit.node))
+        }
+        val home = ExitResource(SITE_ID, "exit-$SITE_NAME", "Exit via $SITE_NAME", listOf(SITE_ID), listOf(SITE_NAME))
+        return nodes + listOfNotNull(home.takeIf { access.exitFor(roles) })
     }
+
+    /** The site of the exit of a node: the last part of its address, which is 10 or more. The homelab is site 1. */
+    private fun siteIdOf(exit: Mesh.ExitStatus): Int = exit.address.substringAfterLast('.').toInt()
 
     override suspend fun remove(device: Device, publicKey: String) = synchronized(lock) {
         // A device that came back with a new key keeps that key.

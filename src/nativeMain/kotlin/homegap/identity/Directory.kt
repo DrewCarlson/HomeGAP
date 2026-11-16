@@ -42,7 +42,7 @@ data class Resource(val name: String, val address: String, val roles: List<Strin
 
 /**
  * What a device can do through the VPN besides the private names: leave for the internet at the
- * homelab ([exitRoles], null if the homelab is no exit) and reach the DNS [resolvers] through the
+ * homelab ([exitRoles], null if the homelab is no exit) or at a node, and reach the DNS [resolvers] through the
  * tunnel ([resolverRoles]). An admin can do each of them.
  */
 @Serializable
@@ -50,8 +50,12 @@ data class VpnAccess(
     val exitRoles: List<String>? = null,
     val resolvers: List<String> = emptyList(),
     val resolverRoles: List<String> = emptyList(),
+    /** The roles for the exit of each node. With null, no node is an exit. */
+    val nodeExitRoles: List<String>? = null,
 ) {
     fun exitFor(roles: List<String>): Boolean = exitRoles != null && permits(exitRoles, roles)
+
+    fun nodeExitFor(roles: List<String>): Boolean = nodeExitRoles != null && permits(nodeExitRoles, roles)
 
     fun resolversFor(roles: List<String>): List<String> = if (permits(resolverRoles, roles)) resolvers else emptyList()
 

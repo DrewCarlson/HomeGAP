@@ -94,7 +94,9 @@ class Devices(private val dir: String, private val subnet: String, private val n
         val base = toInt(subnet.substringBefore('/'))
         val size = 1L shl (ADDRESS_BITS - prefix)
         val used = devices().values.map { toInt(it.address) }.toSet()
-        val offset = (FIRST_DEVICE until size - 1).firstOrNull { base + it !in used }
+        // The end of a subnet with room for it belongs to the exits of the nodes.
+        val end = if (size > 2 * Mesh.EXIT_RANGE) size - Mesh.EXIT_RANGE else size - 1
+        val offset = (FIRST_DEVICE until end).firstOrNull { base + it !in used }
             ?: error("The tunnel subnet $subnet has no free address.")
         return toText(base + offset)
     }

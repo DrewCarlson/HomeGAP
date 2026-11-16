@@ -96,6 +96,8 @@ data class NodeDesired(
      * port of this address. With null, the streams go through Pangolin.
      */
     val meshHome: String? = null,
+    /** The exit of the node for the devices of the VPN, or null if the node is no exit. */
+    val exit: Mesh.NodeExit? = null,
 ) {
     val id: String get() = node.id
 

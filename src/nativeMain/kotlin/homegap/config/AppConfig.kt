@@ -319,6 +319,8 @@ data class VpnConfig(
     @SerialName("utility_subnet") val utilitySubnet: String = "100.96.128.0/24",
     /** The UDP port of each node that the apps connect to. The next port up is in use inside the tunnel. */
     val port: Int = 51830,
+    /** The UDP port of each node for its own exit. The next port up is in use inside the tunnel. */
+    @SerialName("exit_port") val exitPort: Int = 51840,
 )
 
 @Serializable

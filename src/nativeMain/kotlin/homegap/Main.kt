@@ -62,6 +62,7 @@ private const val DEFAULT_NEWT = "/usr/local/bin/newt"
 private const val DEFAULT_DATA_DIR = "/data"
 private const val DEFAULT_MESH_HOST = "homegap-mesh"
 private const val DEFAULT_AGENT_DIR = "/agent"
+private const val DEFAULT_AGENT_STATE_DIR = "/agent-state"
 private const val DEFAULT_SIGN_IN_PORT = 8090
 private const val PROVIDER_TIMEOUT_MS = 15_000L
 private const val DEFAULT_MAINTENANCE_MINUTES = 30
@@ -93,7 +94,7 @@ Usage:
   homegap tunnels [--dir PATH] [--newt PATH]           Run the Newt tunnel supervisor
   homegap mesh [--dir PATH]                            Run the homelab's mesh agent (cluster mode)
   homegap mesh-route [--dir PATH]                      Keep the orchestrator's route to the mesh (cluster mode)
-  homegap node-agent [--dir PATH]                      Run the agent of a node (on the node)
+  homegap node-agent [--dir PATH] [--state PATH]                    Run the agent of a node (on the node)
   homegap validate [--config PATH]                     Validate the config file
   homegap plan [--config PATH] --labels FILE           Print the desired state for a label set (JSON map of container -> labels)
   homegap render-node ID [--config PATH]               Print the rendered stack for a node (secrets redacted)
@@ -150,7 +151,10 @@ fun main(args: Array<String>) {
                 val dir = line.option("--dir") ?: SharedDirs.mesh(DEFAULT_DATA_DIR)
                 runMeshRoute(sharedDir(dir, folder = "data/mesh", other = "orchestrator"))
             }
-            "node-agent" -> runBlocking { NodeAgent(line.option("--dir") ?: DEFAULT_AGENT_DIR).run() }
+            "node-agent" -> runBlocking {
+                val state = line.option("--state") ?: DEFAULT_AGENT_STATE_DIR
+                NodeAgent(line.option("--dir") ?: DEFAULT_AGENT_DIR, state).run()
+            }
             "tunnels" -> {
                 val dir = line.option("--dir") ?: SharedDirs.tunnels(DEFAULT_DATA_DIR)
                 val shared = sharedDir(dir, folder = "data/tunnels", other = "orchestrator")

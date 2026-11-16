@@ -358,7 +358,110 @@ object Mesh {
         /** The DNS servers that a device can reach through the tunnel, and the roles for it. */
         val resolvers: List<String> = emptyList(),
         val resolverRoles: List<String> = emptyList(),
+        /** The roles of the devices that can leave for the internet at a node. With null, no node is an exit. */
+        val nodeExitRoles: List<String>? = null,
     )
+
+    /**
+     * The exit of a node: a WireGuard interface ([EXIT_INTERFACE]) of the agent of the node with
+     * [address] in the [subnet] of the VPN, on the UDP port [port] of the node. The mesh agent of
+     * the homelab ([homelab], a mesh address) sends the keys of the devices to [listen], an
+     * `address:port` on the mesh.
+     */
+    @Serializable
+    data class NodeExit(
+        val subnet: String,
+        val address: String,
+        val port: Int,
+        val listen: String,
+        val homelab: String,
+    )
+
+    /** The devices that a node admits to its exit. The mesh agent of the homelab sends the full list. */
+    @Serializable
+    data class ExitPeers(val peers: List<VpnPeer> = emptyList())
+
+    /** What the exit of a node says after it took a list of devices. */
+    @Serializable
+    data class ExitStatus(
+        val publicKey: String,
+        val address: String,
+        val port: Int,
+        /** The keys of the devices that the interface has. */
+        val peers: List<String> = emptyList(),
+        /** The id of the node and its public host. The mesh agent of the homelab adds them. */
+        val node: String = "",
+        val host: String = "",
+    )
+
+    const val EXIT_INTERFACE = "hg-exit"
+
+    /** The TCP port of the mesh address of a node where its agent takes the devices of its exit. */
+    const val AGENT_PORT = 8091
+
+    /** The path of that call. */
+    const val EXIT_PEERS_PATH = "/exit/peers"
+
+    /**
+     * The address of the exit of a node in the subnet of the VPN. The last 256 addresses of the
+     * subnet are for the exits, and the number of a node there is the last part of its mesh address.
+     */
+    fun exitAddress(vpnSubnet: String, meshAddress: String): String {
+        val subnet = parseSubnet(vpnSubnet)
+        val size = 1L shl (IPV4_BITS - subnet.prefix)
+        return format(subnet.base + size - EXIT_RANGE + meshAddress.substringAfterLast('.').toInt())
+    }
+
+    /** The number of addresses at the end of the subnet of the VPN that no device gets. */
+    const val EXIT_RANGE = 256
+
+    /** Returns true if a device with [roles] can use an exit for [wanted] roles. An admin can use each exit. */
+    fun permits(wanted: List<String>, roles: List<String>): Boolean =
+        ADMIN_ROLE in roles || roles.any { it in wanted }
+
+    /**
+     * The firewall of the exit of a node, as input for `iptables-restore --noflush`:
+     * - In: WireGuard of the exit from each address, the liveness probe of a device, and the
+     *   list of devices from the homelab over the mesh.
+     * - Through: a device reaches the internet and no private range, not the mesh and not
+     *   another device.
+     */
+    fun exitFirewall(exit: NodeExit): String = buildString {
+        val listenPort = exit.listen.substringAfterLast(':')
+        appendLine("*filter")
+        appendLine(":HG-EXIT-IN - [0:0]")
+        appendLine(":HG-EXIT-FWD - [0:0]")
+        appendLine(":HG-EXIT-OUT - [0:0]")
+        appendLine("-A HG-EXIT-IN ! -i $INTERFACE -p udp --dport ${exit.port} -j ACCEPT")
+        appendLine("-A HG-EXIT-IN -i $EXIT_INTERFACE -d ${exit.address} -p udp --dport ${exit.port + 1} -j ACCEPT")
+        appendLine("-A HG-EXIT-IN -i $EXIT_INTERFACE -d ${exit.address} -p icmp -j ACCEPT")
+        appendLine("-A HG-EXIT-IN -i $EXIT_INTERFACE -j DROP")
+        appendLine("-A HG-EXIT-IN -i $INTERFACE -s ${exit.homelab} -p tcp --dport $listenPort -j ACCEPT")
+        appendLine("-A HG-EXIT-IN -p tcp --dport $listenPort -j DROP")
+        appendLine("-A HG-EXIT-FWD -i $EXIT_INTERFACE -j HG-EXIT-OUT")
+        appendLine("-A HG-EXIT-FWD -o $EXIT_INTERFACE -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT")
+        appendLine("-A HG-EXIT-FWD -o $EXIT_INTERFACE -j DROP")
+        PRIVATE_RANGES.forEach { appendLine("-A HG-EXIT-OUT -d $it -j DROP") }
+        appendLine("-A HG-EXIT-OUT -o $INTERFACE -j DROP")
+        appendLine("-A HG-EXIT-OUT -o $EXIT_INTERFACE -j DROP")
+        appendLine("-A HG-EXIT-OUT -j ACCEPT")
+        appendLine("COMMIT")
+        appendLine("*nat")
+        appendLine(":HG-EXIT-NAT - [0:0]")
+        appendLine("-A HG-EXIT-NAT -s ${exit.subnet} ! -o $EXIT_INTERFACE -j MASQUERADE")
+        appendLine("COMMIT")
+    }
+
+    /** The built-in chains of a node that jump to the chains of [exitFirewall]: table, chain, target. */
+    val EXIT_JUMPS = listOf(
+        Triple("filter", "INPUT", "HG-EXIT-IN"),
+        Triple("filter", "FORWARD", "HG-EXIT-FWD"),
+        Triple("nat", "POSTROUTING", "HG-EXIT-NAT"),
+    )
+
+    /** The config of the exit interface of a node in `wg` format, for `wg syncconf`. */
+    fun exitConfig(exit: NodeExit, privateKey: String, peers: List<VpnPeer>): String =
+        vpnConfig(Vpn(exit.subnet, exit.address, exit.port), privateKey, peers)
 
     /**
      * A private name of the VPN. A packet of a device to [address] (the address of the name) goes
@@ -385,6 +488,8 @@ object Mesh {
         val address: String,
         /** The keys of the devices that the interface has. */
         val peers: List<String> = emptyList(),
+        /** The exits of the nodes that answered, with the devices that each one has. */
+        val exits: List<ExitStatus> = emptyList(),
     )
 
     const val VPN_INTERFACE = "hg-vpn"
@@ -443,8 +548,7 @@ object Mesh {
         if (vpn.exitRoles != null && permits(vpn.exitRoles, peer.roles)) appendLine("$from -j $EXIT_CHAIN")
     }.trimEnd()
 
-    private fun permits(wanted: List<String>, roles: List<String>): Boolean =
-        ADMIN_ROLE in roles || roles.any { it in wanted }
+
 
     @Serializable
     data class AgentStatus(
@@ -592,7 +696,7 @@ object Mesh {
         output.substringAfter("DUMP-BEGIN\n", "").substringBefore("DUMP-END", "").trimEnd()
 
     /** An IPv6 endpoint needs brackets before the port. */
-    private fun endpointHost(host: String) = if (':' in host && !host.startsWith("[")) "[$host]" else host
+    fun endpointHost(host: String) = if (':' in host && !host.startsWith("[")) "[$host]" else host
 
     private fun parseIp(ip: String): Long {
         val octets = ip.split('.').map { it.toIntOrNull() ?: -1 }

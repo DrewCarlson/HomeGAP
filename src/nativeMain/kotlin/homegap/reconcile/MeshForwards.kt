@@ -53,6 +53,7 @@ object MeshForwards {
                 exitRoles = access.exitRoles,
                 resolvers = access.resolvers,
                 resolverRoles = access.resolverRoles,
+                nodeExitRoles = access.nodeExitRoles,
                 targets = targets.mapNotNull { target ->
                     addresses[target.name]?.let {
                         Mesh.VpnTarget(it, target.target, target.tcpPorts, target.udpPorts, target.roles)

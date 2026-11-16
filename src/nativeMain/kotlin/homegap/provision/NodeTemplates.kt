@@ -119,6 +119,8 @@ object NodeTemplates {
     private const val RESOURCE_PRIORITY = 100
     private const val WILDCARD_PRIORITY = 90
     private const val AGENT_MOUNT = "/agent"
+    private const val AGENT_STATE_DIR = "agent-state"
+    private const val AGENT_STATE_MOUNT = "/agent-state"
     private const val HEALTH_PRIORITY = 60
     private const val HEALTH_FALLBACK_PRIORITY = 50
     private const val HTTPS_REDIRECT_PRIORITY = 10
@@ -319,7 +321,8 @@ object NodeTemplates {
 
     /**
      * The agent is in the network of the host: it opens and closes public ports while it runs, and
-     * a published port of a container needs a new container. It can bind a port and no more.
+     * a published port of a container needs a new container. It can bind a port, and it can change
+     * the network of the host for the exit of the node (a WireGuard interface and its firewall).
      */
     private fun JsonObjectBuilder.agentContainer(config: AppConfig) {
         put("image", config.agent.image)
@@ -332,10 +335,22 @@ object NodeTemplates {
             add(AGENT_MOUNT)
         }
         put("read_only", true)
+        // iptables keeps its lock there.
+        putJsonArray("tmpfs") { add("/run") }
         putJsonArray("cap_drop") { add("ALL") }
-        putJsonArray("cap_add") { add("NET_BIND_SERVICE") }
+        putJsonArray("cap_add") {
+            add("NET_BIND_SERVICE")
+            add("NET_ADMIN")
+            add("NET_RAW")
+            // The agent is root, and the folder of its key belongs to the user of the node stack.
+            add("DAC_OVERRIDE")
+        }
         putJsonArray("security_opt") { add("no-new-privileges:true") }
-        putJsonArray("volumes") { add("./${AgentSpec.DIR}:$AGENT_MOUNT:ro") }
+        putJsonArray("volumes") {
+            add("./${AgentSpec.DIR}:$AGENT_MOUNT:ro")
+            // The key of the exit of the node.
+            add("./$AGENT_STATE_DIR:$AGENT_STATE_MOUNT")
+        }
     }
 
     private fun JsonObjectBuilder.crowdsecContainer(config: AppConfig) {

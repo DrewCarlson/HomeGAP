@@ -69,6 +69,8 @@ class TemplatesTest {
         val agent = compose.substringAfter("  homegap-agent:")
         assertTrue("network_mode: \"host\"" in agent && "./agent:/agent:ro" in agent)
         assertTrue("NET_BIND_SERVICE" in agent && "read_only: true" in agent)
+        // The exit of the node: the agent changes the network of the host and keeps its key.
+        assertTrue("NET_ADMIN" in agent && "./agent-state:/agent-state" in agent)
         assertTrue("\"127.0.0.1:3003:3003\"" in compose, "integration API must be loopback only")
         val traefik = files.single { it.path.endsWith("traefik_config.yml") }.content
         assertFalse("27015" in traefik)

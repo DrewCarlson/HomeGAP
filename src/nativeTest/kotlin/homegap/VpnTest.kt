@@ -88,6 +88,29 @@ class VpnTest {
     }
 
     @Test
+    fun theExitOfANodeReachesTheInternetAndNoPrivateRange() {
+        val address = Mesh.exitAddress("100.90.0.0/16", "10.77.0.11")
+        assertEquals("100.90.255.11", address)
+        val exit = Mesh.NodeExit("100.90.0.0/16", address, 51840, "10.77.0.11:8091", "10.77.0.1")
+        val lines = Mesh.exitFirewall(exit).lines()
+        // WireGuard from each address, the probe of a device, and the list of devices only from the homelab.
+        assertTrue("-A HG-EXIT-IN ! -i hg-mesh -p udp --dport 51840 -j ACCEPT" in lines)
+        assertTrue("-A HG-EXIT-IN -i hg-exit -d 100.90.255.11 -p udp --dport 51841 -j ACCEPT" in lines)
+        assertTrue("-A HG-EXIT-IN -i hg-mesh -s 10.77.0.1 -p tcp --dport 8091 -j ACCEPT" in lines)
+        assertTrue("-A HG-EXIT-IN -p tcp --dport 8091 -j DROP" in lines)
+        // A device reaches nothing on the node itself but the probe and ping.
+        assertTrue("-A HG-EXIT-IN -i hg-exit -j DROP" in lines)
+        val out = lines.filter { it.startsWith("-A HG-EXIT-OUT") }
+        assertEquals("-A HG-EXIT-OUT -j ACCEPT", out.last())
+        for (target in listOf("-d 10.0.0.0/8", "-d 172.16.0.0/12", "-d 192.168.0.0/16", "-o hg-mesh", "-o hg-exit")) {
+            assertTrue("-A HG-EXIT-OUT $target -j DROP" in out, target)
+        }
+        assertTrue("-A HG-EXIT-NAT -s 100.90.0.0/16 ! -o hg-exit -j MASQUERADE" in lines)
+        val config = Mesh.exitConfig(exit, "private", listOf(Mesh.VpnPeer(key, "100.90.0.2")))
+        assertTrue("ListenPort = 51840" in config && "AllowedIPs = 100.90.0.2/32" in config)
+    }
+
+    @Test
     fun aTargetWithManyPortsGetsOneRuleForEach15() {
         val many = Mesh.VpnTarget("100.96.128.12", "172.18.0.7", tcpPorts = (8000..8019).toList(), roles = member)
         val peer = Mesh.VpnPeer(key, "100.90.0.2", listOf("Member"))

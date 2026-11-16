@@ -9,7 +9,16 @@ import homegap.platform.runCatchingCancellable
 import homegap.platform.watchDirectory
 import homegap.provision.Mesh
 import io.github.oshai.kotlinlogging.KotlinLogging
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.request.put
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.isSuccess
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
 import kotlinx.coroutines.channels.Channel
@@ -43,6 +52,12 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
     private val vpnPeersFile = "$vpnDir/${Mesh.VPN_PEERS_FILE}"
     private val vpnStatusFile = "$vpnDir/${Mesh.VPN_STATUS_FILE}"
     private var livenessPort: Int? = null
+    private var vpnStatus: Mesh.VpnStatus? = null
+    private var vpnStatusText: String? = null
+    private val http = HttpClient(CIO) {
+        install(HttpTimeout) { requestTimeoutMillis = PUSH_TIMEOUT_MS }
+        expectSuccess = false
+    }
 
     suspend fun run(): Unit = coroutineScope {
         Files.mkdirs(dir)
@@ -84,6 +99,7 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
                     }
                     appliedAt = nowMillis()
                 }
+                if (error == null) reportVpn(pushExits(spec, vpnPeers))
             }
             val problem = key.exceptionOrNull()?.message ?: error
             if (problem != null && problem != reported) {
@@ -154,10 +170,11 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
             .distinctBy { it.publicKey }
     }
 
-    /** Brings the interface of the VPN to [vpn] and [peers], and says so to the sign-in server. With null, no interface. */
+    /** Brings the interface of the VPN to [vpn] and [peers]. With null, the namespace has no such interface. */
     private suspend fun applyVpn(vpn: Mesh.Vpn?, peers: List<Mesh.VpnPeer>) {
         if (vpn == null) {
             if (run("ip", "link", "show", Mesh.VPN_INTERFACE).ok) run("ip", "link", "del", Mesh.VPN_INTERFACE)
+            vpnStatus = null
             return
         }
         if (Files.readTextOrNull(vpnKeyFile).isNullOrBlank()) {
@@ -177,13 +194,46 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
             check(added.ok) { "could not set the address of the VPN" }
         }
         check(run("ip", "link", "set", Mesh.VPN_INTERFACE, "up").ok) { "could not bring ${Mesh.VPN_INTERFACE} up" }
-        val status = Mesh.VpnStatus(
+        vpnStatus = Mesh.VpnStatus(
             publicKey = wg("pubkey", stdin = privateKey + "\n").stdout.trim(),
             port = vpn.port,
             address = vpn.address,
             peers = peers.map { it.publicKey },
         )
-        runCatchingCancellable { Files.writeAtomic(vpnStatusFile, json.encodeToString(status), READABLE) }
+    }
+
+    /**
+     * Sends each node the devices that can use its exit, over the mesh, and returns the exits
+     * that answered. The agent of a node keeps the list in memory, so each round sends it again.
+     * A node that does not answer in time is not in the result, and the devices get no site for it.
+     */
+    private suspend fun pushExits(spec: Mesh.AgentSpec, peers: List<Mesh.VpnPeer>): List<Mesh.ExitStatus> {
+        val roles = spec.vpn?.nodeExitRoles ?: return emptyList()
+        val body = json.encodeToString(Mesh.ExitPeers(peers.filter { Mesh.permits(roles, it.roles) }))
+        return coroutineScope {
+            spec.peers.filter { it.endpoint != null }.map { node ->
+                async {
+                    runCatchingCancellable {
+                        @Suppress("HttpUrlsUsage") // WireGuard of the mesh encrypts the call.
+                        val response = http.put("http://${node.address}:${Mesh.AGENT_PORT}${Mesh.EXIT_PEERS_PATH}") {
+                            setBody(body)
+                        }
+                        check(response.status.isSuccess()) { "status ${response.status.value}" }
+                        json.decodeFromString<Mesh.ExitStatus>(response.bodyAsText())
+                            .copy(node = node.id, host = Mesh.endpointHost(node.endpoint!!))
+                    }.getOrNull()
+                }
+            }.awaitAll().filterNotNull()
+        }
+    }
+
+    /** Tells the sign-in server what the VPN has now: the peer of the homelab and the [exits] of the nodes. */
+    private suspend fun reportVpn(exits: List<Mesh.ExitStatus>) {
+        val status = vpnStatus ?: return
+        val text = json.encodeToString(status.copy(exits = exits.sortedBy { it.node }))
+        if (text == vpnStatusText) return
+        runCatchingCancellable { Files.writeAtomic(vpnStatusFile, text, READABLE) }
+            .onSuccess { vpnStatusText = text }
     }
 
     /** Starts the answers to the liveness probe of the apps, on the port after the port of the VPN. */
@@ -266,6 +316,7 @@ class MeshAgent(private val dir: String, private val vpnDir: String) {
         val READABLE = "644".toInt(8)
         val json = Json { ignoreUnknownKeys = true }
         const val BYTE_BITS = 8
+        const val PUSH_TIMEOUT_MS = 3000L
         val WIREGUARD_KEY = Regex("^[A-Za-z0-9+/]{43}=$")
         val ADDRESS = Regex("^\\d{1,3}(\\.\\d{1,3}){3}$")
     }

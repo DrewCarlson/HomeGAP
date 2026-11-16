@@ -37,6 +37,7 @@ import homegap.discovery.concernsHomegap
 import homegap.discovery.declaresService
 import homegap.discovery.traefikApiUrls
 import homegap.identity.IdentityStore
+import homegap.provision.Mesh
 import homegap.identity.VpnAccess
 import homegap.model.DesiredDnsRecord
 import homegap.model.DesiredState
@@ -203,6 +204,21 @@ class Controller(
             exitRoles = exits?.roles?.takeIf { exits.homelab },
             resolvers = dns?.resolvers.orEmpty().filter { IPV4.matches(it) },
             resolverRoles = dns?.roles.orEmpty(),
+            nodeExitRoles = exits?.roles?.takeIf { exits.nodes },
+        )
+    }
+
+    /** The exit of the node [id], or null if the nodes are no exits or the node has no slot yet. */
+    private fun nodeExit(cfg: AppConfig, id: String): Mesh.NodeExit? {
+        if (cfg.cluster?.exitNodes?.nodes != true) return null
+        val slot = knownTunnelSlots()[id] ?: return null
+        val meshAddress = Mesh.nodeAddress(cfg.mesh, slot)
+        return Mesh.NodeExit(
+            subnet = cfg.vpn.clientSubnet,
+            address = Mesh.exitAddress(cfg.vpn.clientSubnet, meshAddress),
+            port = cfg.vpn.exitPort,
+            listen = "$meshAddress:${Mesh.AGENT_PORT}",
+            homelab = Mesh.homelabAddress(cfg.mesh),
         )
     }
     private val meshRec by lazy { MeshReconciler(HomelabMesh(config.meshDir)) }
@@ -817,7 +833,8 @@ class Controller(
                         // What this node can serve: resources with a target on its own site.
                         val mine = actual.filter { resource -> resource.targets.any { it.siteNiceId == site.niceId } }
                         runDomain("resources", id) {
-                            resourceRec.writeRoutes(ready, effective.nodes.getValue(id), mine)
+                            val node = effective.nodes.getValue(id).copy(exit = nodeExit(cfg, id))
+                            resourceRec.writeRoutes(ready, node, mine)
                         }
                         present[id] = mine.map { it.niceId }.toSet()
                         health[id] = serviceHealthFor(effective, id, mine, site)

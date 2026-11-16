@@ -747,7 +747,7 @@ class NodeReconciler(
             "/${AgentSpec.DIR}",
         ).joinToString(" ") { "$installDir$it" }
         appendLine("install -d -m 0755 $publicDirs")
-        appendLine("install -d -m 0700 $installDir/secrets $installDir/config/traefik/certs")
+        appendLine("install -d -m 0700 $installDir/secrets $installDir/config/traefik/certs $installDir/agent-state")
         // A node orders no certificate, so this ACME store is always empty. Pangolin's certificate
         // sync reads the file and accepts an empty JSON object.
         val acme = shQuote("$dir/config/letsencrypt/acme.json")
