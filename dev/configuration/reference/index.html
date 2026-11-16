@@ -3117,6 +3117,12 @@
 <td><code>ghcr.io/drewcarlson/homegap:&lt;tag&gt;</code></td>
 <td>The HomeGAP image that a node runs as its agent. The default tag is the value of <code>HOMEGAP_VERSION</code>. Without that variable, the tag is the version of the orchestrator.</td>
 </tr>
+<tr>
+<td><code>revision</code></td>
+<td>string</td>
+<td>The value of <code>HOMEGAP_REVISION</code>.</td>
+<td>The build of the image. The image sets <code>HOMEGAP_REVISION</code> to its commit. When the revision changes, each node pulls the image of the agent again. A tag such as <code>main</code> then brings its new build to the nodes.</td>
+</tr>
 </tbody>
 </table>
 <h2 id="nodes">nodes[]<a class="headerlink" href="#nodes" title="Permanent link">&para;</a></h2>
@@ -3545,6 +3551,11 @@
 <td><code>HOMEGAP_VERSION</code></td>
 <td>None.</td>
 <td>The tag of the default image of the agent on each node (<code>agent.image</code>). The shipped compose file also uses it as the tag of the stack.</td>
+</tr>
+<tr>
+<td><code>HOMEGAP_REVISION</code></td>
+<td>The commit of the image.</td>
+<td>The default of <code>agent.revision</code>.</td>
 </tr>
 <tr>
 <td><code>DOCKER_SOCKET</code></td>
