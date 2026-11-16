@@ -4,27 +4,6 @@
         <loc>https://drewcarlson.github.io/HomeGAP/latest/</loc>
       </url>
       <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/cluster/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/cluster/access/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/cluster/database/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/cluster/exit-nodes/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/cluster/mesh/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/cluster/pangolin-apps/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/cluster/pangolin/</loc>
-      </url>
-      <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/configuration/</loc>
       </url>
       <url>
@@ -32,12 +11,6 @@
       </url>
       <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/configuration/dns/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/configuration/licenses/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/configuration/pangolin/</loc>
       </url>
       <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/configuration/reference/</loc>
@@ -68,9 +41,6 @@
       </url>
       <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/getting-started/bunny-dns/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/getting-started/choose-a-mode/</loc>
       </url>
       <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/getting-started/first-service/</loc>
@@ -130,6 +100,9 @@
         <loc>https://drewcarlson.github.io/HomeGAP/latest/reference/glossary/</loc>
       </url>
       <url>
+        <loc>https://drewcarlson.github.io/HomeGAP/latest/reference/mesh/</loc>
+      </url>
+      <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/reference/ports/</loc>
       </url>
       <url>
@@ -140,9 +113,6 @@
       </url>
       <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/services/</loc>
-      </url>
-      <url>
-        <loc>https://drewcarlson.github.io/HomeGAP/latest/services/authentication/</loc>
       </url>
       <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/services/client-addresses/</loc>
@@ -164,5 +134,20 @@
       </url>
       <url>
         <loc>https://drewcarlson.github.io/HomeGAP/latest/services/traffic-paths/</loc>
+      </url>
+      <url>
+        <loc>https://drewcarlson.github.io/HomeGAP/latest/vpn/</loc>
+      </url>
+      <url>
+        <loc>https://drewcarlson.github.io/HomeGAP/latest/vpn/access/</loc>
+      </url>
+      <url>
+        <loc>https://drewcarlson.github.io/HomeGAP/latest/vpn/exit-nodes/</loc>
+      </url>
+      <url>
+        <loc>https://drewcarlson.github.io/HomeGAP/latest/vpn/pangolin-apps/</loc>
+      </url>
+      <url>
+        <loc>https://drewcarlson.github.io/HomeGAP/latest/vpn/sign-in/</loc>
       </url>
 </urlset>
