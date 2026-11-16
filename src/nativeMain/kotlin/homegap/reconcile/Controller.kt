@@ -823,7 +823,7 @@ class Controller(
         }
     }
 
-    /** The tunnel slot of each node that has one. */
+    /** The slot of each node that has one. */
     private fun knownNodeSlots(): Map<String, Int> =
         state.snapshot().nodes
             .mapNotNull { (id, nodeState) -> nodeState.slot?.let { id to it } }
@@ -848,7 +848,7 @@ class Controller(
             log.error(
                 "controller",
                 "the homelab can't reach any node: check the homelab's internet connection " +
-                    "(the nodes keep serving, and fail the database over if this lasts)",
+                    "(the nodes show the maintenance page, and the exits keep working)",
             )
         } else {
             val minutes = ((end - start) / 60_000).coerceAtLeast(1)
@@ -1891,7 +1891,6 @@ private const val DAY_MS = 86_400_000L
 /** A certificate with fewer days left degrades the node. */
 private const val CERT_EXPIRY_WARNING_DAYS = 14
 
-/** A tunnel status file older than this does not show a process that runs. */
 /** The containers of a node that the observation reads. */
 private const val OBSERVED_CONTAINERS = "traefik homegap-maintenance homegap-agent"
 

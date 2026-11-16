@@ -146,7 +146,7 @@ services:
       # The client secret of the sign-in provider (sign_in.oidc.client_secret_env).
       HOMEGAP_OIDC_CLIENT_SECRET: ${HOMEGAP_OIDC_CLIENT_SECRET:-}
     volumes:
-      # The sign-in reads the part sign_in of the config. Start it again after a change of that part.
+      # The sign-in reads the parts sign_in and vpn of the config. Start it again after a change of them.
       - ./config:/config:ro
       - "${HOMEGAP_DATA_DIR:-./data}/identity:/identity:ro"
       - "${HOMEGAP_DATA_DIR:-./data}/sign-in:/sign-in"
@@ -154,7 +154,7 @@ services:
 
   # A filtering proxy in front of the Docker socket. A socket mount gives the whole Docker API
   # whatever its mount mode, and with it control of this host. The orchestrator only needs to
-  # read the container list, events and image metadata, so that is all the proxy lets through
+  # read the container list and the events, so that is all the proxy lets through
   # (GET only), and only the orchestrator can reach it.
   docker-proxy:
     image: docker.io/tecnativa/docker-socket-proxy:v0.5.0

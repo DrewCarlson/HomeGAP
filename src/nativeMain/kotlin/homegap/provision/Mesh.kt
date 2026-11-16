@@ -11,7 +11,7 @@ import kotlinx.serialization.Serializable
  * all the other members.
  *
  * - The addresses are fixed. The homelab is host 1 of the subnet. A node is host `10 + slot`,
- *   where the slot is its permanent tunnel slot, so an address never moves to another node.
+ *   where the slot is its permanent slot, so an address never moves to another node.
  * - Each node makes its own key during its first setup. The private key stays on the node.
  *   HomeGAP learns the public key from the output of the setup script.
  * - The homelab has no public endpoint. It connects to each node and keeps the paths open, so it

@@ -608,7 +608,7 @@ class NodeSetupService(private val controller: Controller) {
                 node.sshAllowFrom.isEmpty() -> "SSH from anywhere"
                 else -> "SSH from ${node.sshAllowFrom.joinToString()}"
             }
-            return (listOf("$ssh; web, WireGuard and raw ports open") + output.changes().lines())
+            return (listOf("$ssh; web ports open") + output.changes().lines())
                 .filter { it.isNotBlank() }
                 .joinToString("; ")
         }

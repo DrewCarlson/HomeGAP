@@ -374,7 +374,7 @@ class AddNodeScreenPresenter(
         }
         return ssh + listOf(
             "HTTP 80/tcp, HTTPS 443/tcp and 443/udp",
-            "WireGuard 51820/udp and 21820/udp",
+            "The mesh and VPN ports (WireGuard, udp), when HomeGAP installs the node",
             "Ports of raw TCP/UDP services, as they are labeled"
         )
     }

@@ -255,7 +255,9 @@ object Planner {
             }
         }
 
-        val claims = Claims(config.reservedHosts(), config.mesh.port, config.nodes)
+        val vpn = config.vpn
+        val vpnPorts = setOf(vpn.port, vpn.port + 1, vpn.exitPort, vpn.exitPort + 1)
+        val claims = Claims(config.reservedHosts(), config.mesh.port, vpnPorts, config.nodes)
         val claimed = claim(parsed, errors, claims)
         val published = withPrivatePages(config, withPrivateDashboard(config, claimed, errors))
         val doors = frontDoors(config, published)
@@ -462,13 +464,13 @@ object Planner {
                 1 -> return others.single().value.ipAddress
                 0 -> issues.error(
                     "${Labels.PRIVATE_NETWORK}: the container is only on '$network'; " +
-                        "public traffic needs another network shared with the tunnels"
+                        "public traffic needs another network shared with homegap-mesh"
                 )
 
                 else -> issues.containerError(
                     "${Labels.PRIVATE_NETWORK}: the container is on several other networks " +
                         "(${others.joinToString { it.key }}); set ${Labels.HOST} to its address on the one " +
-                        "shared with the tunnels, or public traffic may arrive over '$network'"
+                        "shared with homegap-mesh, or public traffic may arrive over '$network'"
                 )
             }
             return spec.targetHost
@@ -499,8 +501,16 @@ object Planner {
      * - One service for each key.
      * - On the nodes that two public services share, one service for each public port and protocol.
      */
-    /** What a service cannot claim: the hostnames of HomeGAP, the mesh port, and the SSH port of each node. */
-    private class Claims(val hosts: Set<String>, val meshPort: Int?, val nodes: List<NodeConfig>) {
+    /**
+     * What a service cannot claim: the hostnames of HomeGAP, the mesh port, the UDP ports of the
+     * VPN, and the SSH port of each node.
+     */
+    private class Claims(
+        val hosts: Set<String>,
+        val meshPort: Int?,
+        val vpnPorts: Set<Int>,
+        val nodes: List<NodeConfig>,
+    ) {
         /** The node that serves [service] and has one of its public TCP ports as its SSH port, or null. */
         fun sshClash(service: ServiceSpec): NodeConfig? {
             val tcp = service.publicPorts().filter { it.protocol == "tcp" }.map { it.port }.toSet()
@@ -542,6 +552,9 @@ object Planner {
         val ports = service.publicPorts()
         if (ports.any { it.port == claims.meshPort && it.protocol == "udp" }) {
             return "public port ${claims.meshPort}/udp is the port of the mesh"
+        }
+        ports.firstOrNull { it.port in claims.vpnPorts && it.protocol == "udp" }?.let {
+            return "public port ${it.port}/udp is a port of the VPN (vpn.port, vpn.exit_port and the port after each)"
         }
         claims.sshClash(service)?.let { node ->
             val remedy = "move the SSH server with nodes[].ssh_port, or publish the service on a different port"

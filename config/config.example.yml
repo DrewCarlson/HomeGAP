@@ -72,7 +72,7 @@ acme:
 #     homelab: true          # "Exit via homelab": leaves from home
 #     roles: [Member]        # who can use them (Admin always can)
 #   tunnel_dns:              # DNS servers that the apps reach with "DNS over tunnel", with no exit
-#     resolvers: ["8.8.8.8"] # set the same address as the upstream DNS in each app. [] turns it off
+#     resolvers: ["8.8.8.8"] # HomeGAP sets them in each app. [] turns it off
 #     roles: [Member]        # who can use them (Admin always can)
 
 nodes:

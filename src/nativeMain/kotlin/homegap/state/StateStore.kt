@@ -110,7 +110,7 @@ class StateStore(private val path: String) {
     /**
      * No file means a first start or a deliberate reset, so the cache starts empty. A file that
      * is there but that the store cannot read or parse is a different case. An empty cache drops
-     * every pause, hold and tunnel slot, and the next pass acts on that. The store uses the last
+     * every pause, hold and node slot, and the next pass acts on that. The store uses the last
      * good copy instead. If there is no good copy, the orchestrator does not start.
      */
     private fun load(): ControllerState {
@@ -133,7 +133,7 @@ class StateStore(private val path: String) {
         error(
             "The state file $path is there but cannot be read ($reason), and there is no good copy at $backupPath. " +
                 "HomeGAP does not start from an empty state by itself: that drops every pause and every node's " +
-                "tunnel slot. Restore the file, or delete it to start from an empty state on purpose.",
+                "slot. Restore the file, or delete it to start from an empty state on purpose.",
         )
     }
 

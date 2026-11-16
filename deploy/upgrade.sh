@@ -130,9 +130,6 @@ rollback() {
   docker tag "$old" "$ref" && dc up -d --no-deps "$svc"
 }
 
-# How long a service gets to serve after its restart, in seconds.
-READY_TIMEOUT=${HG_READY_TIMEOUT:-300}
-
 # Waits until `cmd...` succeeds, for at most $1 seconds.
 wait_until() {
   local limit=$1 start=$SECONDS; shift
